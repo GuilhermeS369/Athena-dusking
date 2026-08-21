@@ -1,0 +1,55 @@
+{
+  "name": "athena-scheduler",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Athena Scheduler: painel multiempresa para organização e publicação de conteúdo no Instagram.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "node --test lib/**/*.test.ts",
+    "worker:publication": "node scripts/workers/publication-worker.mjs",
+    "worker:publication:once": "node scripts/workers/publication-worker.mjs --once",
+    "worker:publication-generation": "node scripts/workers/publication-generation-worker.mjs",
+    "worker:publication-generation:once": "node scripts/workers/publication-generation-worker.mjs --once",
+    "worker:media-maintenance": "node scripts/workers/media-maintenance-worker.mjs",
+    "worker:media-maintenance:once": "node scripts/workers/media-maintenance-worker.mjs --once",
+    "worker:profile-analytics": "node scripts/workers/profile-analytics-refresh-worker.mjs",
+    "worker:profile-analytics:once": "node scripts/workers/profile-analytics-refresh-worker.mjs --once",
+    "worker:zernio-sync": "node scripts/workers/zernio-sync-worker.mjs",
+    "worker:zernio-sync:once": "node scripts/workers/zernio-sync-worker.mjs --once",
+    "worker:operational-health": "node scripts/workers/validate-operational-health.mjs",
+    "worker:publication-telemetry": "node scripts/workers/validate-publication-dispatch-telemetry.mjs",
+    "load-test:safe-smoke": "node scripts/load-test/safe-smoke.mjs",
+    "load-test:synthetic-scale": "node scripts/load-test/synthetic-scale-smoke.mjs",
+    "load-test:synthetic-claim": "node scripts/load-test/synthetic-claim-simulation.mjs",
+    "load-test:seed": "node scripts/load-test/seed-load-data.mjs",
+    "load-test:simulate": "node scripts/load-test/run-worker-simulation.mjs",
+    "load-test:report": "node scripts/load-test/report-load-results.mjs",
+    "load-test:cleanup": "node scripts/load-test/cleanup-load-data.mjs",
+    "load-test:bulk-report": "node scripts/load-test/report-bulk-rotation-results.mjs",
+    "load-test:bulk-scenarios": "node scripts/load-test/bulk-rotation-scale-scenarios.mjs",
+    "load-test:bulk-cleanup": "node scripts/load-test/cleanup-bulk-rotation-data.mjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.52.0",
+    "next": "^15.5.7",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.6",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "^5.8.2"
+  }
+}

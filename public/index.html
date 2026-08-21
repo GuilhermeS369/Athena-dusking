@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Publicador de Reels</title>
+    <style>
+      :root { color-scheme: light; font-family: Inter, system-ui, sans-serif; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; background: #f4f5f7; color: #17202a; }
+      main { width: min(92%, 620px); margin: 48px auto; }
+      .card { background: #fff; border-radius: 18px; padding: 28px; box-shadow: 0 12px 35px #17202a16; }
+      h1 { margin: 0 0 8px; font-size: 1.8rem; }
+      p { color: #5e6875; line-height: 1.5; }
+      label { display: block; margin: 20px 0 8px; font-weight: 650; }
+      input, textarea { width: 100%; border: 1px solid #d6dbe1; border-radius: 10px; padding: 12px; font: inherit; }
+      textarea { min-height: 120px; resize: vertical; }
+      button { border: 0; border-radius: 10px; padding: 12px 17px; font: inherit; font-weight: 700; cursor: pointer; }
+      button:disabled { cursor: not-allowed; opacity: .6; }
+      .primary { background: #d62976; color: #fff; }
+      .secondary { background: #e9edf2; color: #26313d; }
+      .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
+      .hidden { display: none !important; }
+      .status { margin: 20px 0 0; padding: 12px 14px; border-radius: 10px; background: #edf5ff; color: #14528a; white-space: pre-wrap; }
+      .status.error { background: #fff0f0; color: #9d2525; }
+      .status.success { background: #effaf1; color: #217333; }
+      .hint { font-size: .9rem; }
+      .progress-wrap { margin-top: 18px; }
+      progress { width: 100%; height: 12px; accent-color: #d62976; }
+      .progress-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 7px; color: #5e6875; font-size: .88rem; }
+      .steps { display: grid; gap: 6px; margin: 14px 0 0; padding: 0; list-style: none; font-size: .9rem; color: #5e6875; }
+      .steps li.active { color: #d62976; font-weight: 700; }
+      .steps li.done { color: #217333; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  </head>
+  <body>
+    <main>
+      <section class="card">
+        <h1>Publicador de Reels</h1>
+        <p>Faça upload de um vídeo no Supabase e publique-o na conta Instagram Business conectada.</p>
+
+        <div id="loginView">
+          <button id="loginButton" class="primary" type="button">Entrar com Instagram</button>
+        </div>
+
+        <div id="publisherView" class="hidden">
+          <p id="accountStatus" class="hint"></p>
+          <form id="publishForm">
+            <label for="videoFile">Vídeo</label>
+            <input id="videoFile" name="videoFile" type="file" accept="video/*" required />
+
+            <label for="caption">Legenda</label>
+            <textarea id="caption" name="caption" maxlength="2200" placeholder="Escreva uma legenda..."></textarea>
+            <p class="hint"><span id="captionCount">0</span>/2200 caracteres</p>
+
+            <div class="actions">
+              <button id="publishButton" class="primary" type="submit">Enviar e publicar</button>
+              <button id="logoutButton" class="secondary" type="button">Sair</button>
+            </div>
+          </form>
+        </div>
+        <div id="status" class="status hidden" role="status" aria-live="polite"></div>
+        <div id="progressPanel" class="progress-wrap hidden">
+          <progress id="progressBar" max="100" value="0"></progress>
+          <div class="progress-meta"><span id="progressMessage">Aguardando...</span><span id="progressPercent">0%</span></div>
+          <ul class="steps">
+            <li id="stepUpload">○ Upload no Supabase</li>
+            <li id="stepContainer">○ Contêiner de vídeo na Meta</li>
+            <li id="stepProcessing">○ Processamento/polling na Meta</li>
+            <li id="stepPublish">○ Publicação no Instagram</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const loginView = document.querySelector('#loginView');
+      const publisherView = document.querySelector('#publisherView');
+      const loginButton = document.querySelector('#loginButton');
+      const logoutButton = document.querySelector('#logoutButton');
+      const publishButton = document.querySelector('#publishButton');
+      const publishForm = document.querySelector('#publishForm');
+      const videoFile = document.querySelector('#videoFile');
+      const caption = document.querySelector('#caption');
+      const captionCount = document.querySelector('#captionCount');
+      const statusBox = document.querySelector('#status');
+      const progressPanel = document.querySelector('#progressPanel');
+      const progressBar = document.querySelector('#progressBar');
+      const progressMessage = document.querySelector('#progressMessage');
+      const progressPercent = document.querySelector('#progressPercent');
+      const progressSteps = {
+        upload: document.querySelector('#stepUpload'),
+        container: document.querySelector('#stepContainer'),
+        processing: document.querySelector('#stepProcessing'),
+        publishing: document.querySelector('#stepPublish'),
+      };
+      let supabaseClient;
+      let supabaseConfig;
+
+      function setStatus(message, type = '') {
+        statusBox.textContent = message;
+        statusBox.className = `status${type ? ` ${type}` : ''}`;
+        statusBox.classList.remove('hidden');
+      }
+
+      function clearStatus() {
+        statusBox.classList.add('hidden');
+        statusBox.textContent = '';
+      }
+
+      function updateProgress(data) {
+        progressPanel.classList.remove('hidden');
+        const value = Math.max(0, Math.min(100, Number(data.progress || 0)));
+        progressBar.value = value;
+        progressPercent.textContent = `${value}%`;
+        progressMessage.textContent = data.message || data.statusCode || 'Atualizando...';
+        const phases = ['upload', 'container', 'processing', 'publishing'];
+        const currentIndex = phases.indexOf(data.phase);
+        phases.forEach((phase, index) => {
+          progressSteps[phase].classList.toggle('active', index === currentIndex);
+          progressSteps[phase].classList.toggle('done', index < currentIndex || value === 100);
+          progressSteps[phase].textContent = `${index < currentIndex || value === 100 ? '✓' : index === currentIndex ? '●' : '○'} ${progressSteps[phase].textContent.slice(2)}`;
+        });
+      }
+
+      function resetProgress() {
+        progressPanel.classList.add('hidden');
+        Object.values(progressSteps).forEach((step) => {
+          step.className = '';
+        });
+      }
+
+      function showAuthenticated(userId) {
+        loginView.classList.add('hidden');
+        publisherView.classList.remove('hidden');
+        document.querySelector('#accountStatus').textContent = userId
+          ? `Instagram conectado (ID: ${userId})`
+          : 'Instagram conectado';
+      }
+
+      function showLoggedOut() {
+        publisherView.classList.add('hidden');
+        loginView.classList.remove('hidden');
+      }
+
+      async function loadConfiguration() {
+        const configResponse = await fetch('/api/config');
+        if (!configResponse.ok) throw new Error('Não foi possível carregar a configuração do Supabase.');
+        supabaseConfig = await configResponse.json();
+        supabaseClient = window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey);
+      }
+
+      async function loadSession() {
+        const sessionResponse = await fetch('/api/session');
+        const currentSession = await sessionResponse.json();
+        if (currentSession.authenticated) showAuthenticated(currentSession.instagramUserId);
+        else showLoggedOut();
+      }
+
+      loginButton.addEventListener('click', () => { window.location.href = '/api/login'; });
+
+      logoutButton.addEventListener('click', async () => {
+        await fetch('/api/logout', { method: 'POST' });
+        showLoggedOut();
+        setStatus('Sessão encerrada.');
+      });
+
+      caption.addEventListener('input', () => { captionCount.textContent = caption.value.length; });
+
+      publishForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const file = videoFile.files[0];
+        if (!file || !file.type.startsWith('video/')) {
+          setStatus('Selecione um arquivo de vídeo válido.', 'error');
+          return;
+        }
+
+        publishButton.disabled = true;
+        videoFile.disabled = true;
+        updateProgress({ phase: 'upload', progress: 0, message: 'Iniciando upload no Supabase...' });
+        setStatus('Carregando vídeo no Supabase...');
+
+        try {
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const objectPath = `${crypto.randomUUID()}-${safeName}`;
+          const upload = await supabaseClient.storage
+            .from(supabaseConfig.bucket)
+            .upload(objectPath, file, { contentType: file.type, upsert: false });
+          if (upload.error) throw upload.error;
+          updateProgress({ phase: 'upload', progress: 10, message: 'Vídeo enviado para o Supabase.' });
+
+          const publicUrlResult = supabaseClient.storage
+            .from(supabaseConfig.bucket)
+            .getPublicUrl(objectPath);
+          const videoUrl = publicUrlResult.data.publicUrl;
+
+          setStatus('Vídeo carregado. A Meta está processando o Reels; isso pode levar alguns minutos...');
+          const publishResponse = await fetch('/api/publish', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+            body: JSON.stringify({ videoUrl, caption: caption.value }),
+          });
+          if (!publishResponse.ok) throw new Error((await publishResponse.json()).error || 'A publicação falhou.');
+
+          const reader = publishResponse.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let publishResult;
+          while (true) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            buffer += decoder.decode(chunk.value, { stream: true });
+            const events = buffer.split('\n\n');
+            buffer = events.pop();
+            for (const event of events) {
+              const dataLine = event.split('\n').find((line) => line.startsWith('data: '));
+              if (!dataLine) continue;
+              const data = JSON.parse(dataLine.slice(6));
+              if (event.startsWith('event: error')) throw new Error(data.error || 'A publicação falhou.');
+              if (event.startsWith('event: complete')) publishResult = data;
+              else updateProgress(data);
+            }
+          }
+          if (!publishResult) throw new Error('A conexão terminou antes da confirmação da publicação.');
+
+          setStatus(`Publicado com sucesso! Media ID: ${publishResult.mediaId || 'não informado'}`, 'success');
+          publishForm.reset();
+          captionCount.textContent = '0';
+        } catch (error) {
+          console.error(error);
+          setStatus(`Erro: ${error.message}`, 'error');
+        } finally {
+          publishButton.disabled = false;
+          videoFile.disabled = false;
+        }
+      });
+
+      (async function init() {
+        try {
+          const params = new URLSearchParams(window.location.search);
+          const authError = params.get('authError');
+          if (authError) setStatus(`Falha no login: ${authError}`, 'error');
+          if (params.has('authenticated') || authError) window.history.replaceState({}, '', '/');
+          await loadConfiguration();
+          await loadSession();
+        } catch (error) {
+          setStatus(error.message, 'error');
+        }
+      }());
+    </script>
+  </body>
+</html>

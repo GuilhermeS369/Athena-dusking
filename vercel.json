@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "crons": [
+    {
+      "path": "/api/internal/publication-dispatch",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/internal/media-deletion-dispatch",
+      "schedule": "* * * * *"
+    }
+  ]
+}

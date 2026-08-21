@@ -1,0 +1,66 @@
+import { NextResponse } from 'next/server';
+
+import { getOrganizationContext } from '@/lib/organizations/server';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
+
+const MAX_THUMBNAIL_SIZE = 2 * 1024 * 1024;
+
+export async function GET(_request: Request, { params }: { params: Promise<{ assetId: string }> }) {
+  const { assetId } = await params;
+  const context = await getOrganizationContext();
+  if (!context.user || !context.activeOrganization) return NextResponse.json({ error: 'Autenticação necessária.' }, { status: 401 });
+  const supabase = await createSupabaseServerClient();
+  const { data: asset, error } = await supabase
+    .from('media_assets')
+    .select('id, kind, storage_path')
+    .eq('id', assetId)
+    .eq('organization_id', context.activeOrganization.id)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error || !asset || asset.kind !== 'video') return NextResponse.json({ error: 'Vídeo não encontrado.' }, { status: 404 });
+  const { data: signed, error: signError } = await supabase.storage.from('instagram-media').createSignedUrl(asset.storage_path, 60 * 10);
+  if (signError || !signed?.signedUrl) return NextResponse.json({ error: 'Não foi possível acessar o arquivo do vídeo.' }, { status: 400 });
+  return NextResponse.json({ video_url: signed.signedUrl }, { headers: { 'Cache-Control': 'no-store' } });
+}
+
+export async function POST(request: Request, { params }: { params: Promise<{ assetId: string }> }) {
+  const { assetId } = await params;
+  const recoveryRequested = request.headers.get('x-thumbnail-recovery') === 'true';
+  const context = await getOrganizationContext();
+  const organization = context.organizations.find((item) => item.id === context.activeOrganization?.id);
+  if (!context.user || !context.activeOrganization) return NextResponse.json({ error: 'Autenticação necessária.' }, { status: 401 });
+  if (!organization || !['admin', 'operator'].includes(organization.role)) return NextResponse.json({ error: 'Ação não permitida.' }, { status: 403 });
+
+  const formData = await request.formData();
+  const thumbnail = formData.get('thumbnail');
+  if (!(thumbnail instanceof File) || thumbnail.type !== 'image/jpeg' || thumbnail.size <= 0 || thumbnail.size > MAX_THUMBNAIL_SIZE) {
+    return NextResponse.json({ error: 'Envie uma miniatura JPEG de até 2 MB.' }, { status: 400 });
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: asset, error: assetError } = await supabase
+    .from('media_assets')
+    .select('id, kind, thumbnail_storage_path')
+    .eq('id', assetId)
+    .eq('organization_id', context.activeOrganization.id)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (assetError || !asset || asset.kind !== 'video') return NextResponse.json({ error: 'Vídeo não encontrado.' }, { status: 404 });
+
+  const storagePath = `${context.activeOrganization.id}/thumbnails/${asset.id}.jpg`;
+  const { error: uploadError } = await supabase.storage.from('instagram-media').upload(storagePath, Buffer.from(await thumbnail.arrayBuffer()), { contentType: 'image/jpeg', upsert: true });
+  if (uploadError) {
+    console.error('[media/thumbnail] Falha ao guardar miniatura', { assetId, recoveryRequested, message: uploadError.message });
+    return NextResponse.json({ error: `Não foi possível guardar a miniatura: ${uploadError.message}` }, { status: 400 });
+  }
+
+  const { error: updateError } = await supabase.from('media_assets').update({ thumbnail_storage_path: storagePath }).eq('id', asset.id);
+  if (updateError) {
+    console.error('[media/thumbnail] Miniatura enviada, mas não vinculada', { assetId, recoveryRequested, message: updateError.message });
+    return NextResponse.json({ error: 'A miniatura foi enviada, mas não pôde ser vinculada ao vídeo.' }, { status: 400 });
+  }
+
+  const { data: signed } = await supabase.storage.from('instagram-media').createSignedUrl(storagePath, 60 * 10);
+  console.info('[media/thumbnail] Miniatura atualizada', { assetId, recoveryRequested, storagePath });
+  return NextResponse.json({ thumbnail_url: signed?.signedUrl ?? null });
+}

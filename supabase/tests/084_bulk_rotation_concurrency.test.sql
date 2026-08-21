@@ -1,0 +1,43 @@
+-- Teste concorrente da reserva de horizonte da migration 084.
+-- Requer duas sessões psql simultâneas e dados de teste já preparados.
+-- A espera deliberada ocorre depois do primeiro plano reservar o advisory lock.
+
+-- Sessão A:
+-- begin;
+-- select public.create_bulk_rotation_plan(
+--   :organization_id, 'bulk-concurrency-a', 'Concorrência A', array[:profile_id]::uuid[],
+--   'ungrouped', null, 'image', 60, 1, null, 'same_order', 'seed-a', 1, 500, :fixed_now
+-- );
+-- select pg_sleep(5);
+-- commit;
+
+-- Sessão B, iniciada durante o pg_sleep da sessão A:
+-- select public.create_bulk_rotation_plan(
+--   :organization_id, 'bulk-concurrency-b', 'Concorrência B', array[:profile_id]::uuid[],
+--   'ungrouped', null, 'image', 60, 1, null, 'same_order', 'seed-b', 1, 500, :fixed_now
+-- );
+
+-- Verificação obrigatória após ambas concluírem:
+-- do $$
+-- declare
+--   first_end timestamptz;
+--   second_base timestamptz;
+-- begin
+--   select profile_plan.last_execute_at into first_end
+--   from public.bulk_publication_plan_profiles profile_plan
+--   join public.bulk_publication_plans plan_row on plan_row.id = profile_plan.plan_id
+--   where plan_row.request_key = 'bulk-concurrency-a';
+--
+--   select profile_plan.schedule_base_at into second_base
+--   from public.bulk_publication_plan_profiles profile_plan
+--   join public.bulk_publication_plans plan_row on plan_row.id = profile_plan.plan_id
+--   where plan_row.request_key = 'bulk-concurrency-b';
+--
+--   if second_base <> first_end then
+--     raise exception 'reservas concorrentes se sobrepuseram: segunda base %, primeiro fim %', second_base, first_end;
+--   end if;
+-- end;
+-- $$;
+
+-- O teste automatizado principal em 084_bulk_rotation_plans_and_atomic_horizons.test.sql
+-- também confirma, sequencialmente, a propriedade monotônica e o rollback integral.

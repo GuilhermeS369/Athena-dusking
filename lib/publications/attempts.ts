@@ -1,0 +1,2 @@
+export const PUBLICATION_MAX_ATTEMPTS = 5;
+
