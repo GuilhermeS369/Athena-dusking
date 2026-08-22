@@ -1,6 +1,6 @@
 # Fase 08 — rollout e handoff
 
-Status: `blocked` — aguardando o gate de snapshot bem-sucedido da Fase 7
+Status: `in_progress` — preparação reversível; rollout geral/live bloqueado pelo gate da Fase 7
 
 Entregas: ativação progressiva, fallback validado, monitoramento, comparação Instagram e handoff final. Gate: módulo independente, observável e reversível.
 
@@ -44,3 +44,17 @@ Próximo gate: preview Vercel com todas as flags X desligadas e smoke test. Não
 A organização Pomodoro, a credencial dedicada e os seis canários de publicação já foram aprovados; o bloqueio anterior está encerrado. A Fase 8 agora aguarda somente o gate da Fase 7: dois posts distintos retornaram HTTP 202 em analytics, foram comprovados como não cobrados e reconciliados sem holds. Não habilitar rollout geral nem fallback enquanto não existir um snapshot analytics bem-sucedido e liquidado.
 
 Próxima ação segura: obter confirmação da Zernio de que analytics dos posts está disponível; executar um novo canário distinto e, somente após sucesso, atualizar este gate para os preparativos progressivos de todas as organizações.
+
+## Fallback Vercel exclusivo — implementação desligada
+
+- Rota exclusiva: `/api/internal/twitter-fallback-dispatch`.
+- Autorização: `CRON_SECRET` ou `TWITTER_WORKER_SECRET`, comparação constante.
+- Kill switches: `TWITTER_FALLBACK_ENABLED=false` e `TWITTER_FALLBACK_LIVE_ENABLED=false` por padrão.
+- Live exige simultaneamente fallback, worker de publicação, modo live e autorização live explícita.
+- Heartbeat recente de `athena-twitter-publication-worker` sempre impede claim.
+- Circuit breaker do worker primário é respeitado; claim máximo 1.
+- Shadow conclui pelo RPC shadow; live reutiliza os mesmos endpoints de start/result, a mesma idempotency key Zernio e a mesma classificação financeira do worker.
+- A rota ainda não está em `vercel.json`; cron só será adicionado depois do shadow aprovado e do gate analytics.
+- Testes atuais: 170/170; TypeScript e build aprovados. Variáveis documentadas em `.env.example`.
+
+Próxima ação segura operacional: deploy Preview, flags somente shadow, invocação controlada com fila vazia e restauração off. Nenhuma ativação Production/live.

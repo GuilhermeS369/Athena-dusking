@@ -65,6 +65,17 @@ Processos planejados:
 5. canário;
 6. rollout.
 
+### Fallback Vercel do X
+
+- Endpoint exclusivo: `/api/internal/twitter-fallback-dispatch`.
+- Manter `TWITTER_FALLBACK_ENABLED=false` e `TWITTER_FALLBACK_LIVE_ENABLED=false` fora de uma janela aprovada.
+- Shadow exige `TWITTER_FALLBACK_ENABLED=true`, `TWITTER_PUBLICATION_WORKER_ENABLED=true` e `TWITTER_PUBLICATION_MODE=shadow`.
+- Live exige adicionalmente `TWITTER_FALLBACK_LIVE_ENABLED=true`; nunca ativar antes dos gates de analytics, heartbeat stale e shadow.
+- `TWITTER_FALLBACK_STALE_SECONDS` deve ficar entre 30 e 900; padrão 120.
+- Antes de invocar: verificar heartbeat primário, circuit breaker, itens ready e holds.
+- Depois: conferir claimed, attempts, ledger/holds, heartbeat `athena-twitter-vercel-fallback` e restaurar flags.
+- Não adicionar o endpoint ao cron da Vercel antes do shadow e do gate final.
+
 ## Rollback
 
 - desligar flags X;

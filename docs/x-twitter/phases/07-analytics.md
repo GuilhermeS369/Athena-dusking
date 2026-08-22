@@ -1,6 +1,6 @@
 # Fase 07 — análises manuais
 
-Status: `in_progress` — implementação e proteção financeira aprovadas; quote do mesmo post já sincronizado preparado
+Status: `blocked` — implementação/proteção financeira aprovadas; Zernio retornou HTTP 202 inclusive para nova operação do mesmo post já sincronizado
 
 ## Entregas
 
@@ -43,6 +43,8 @@ Reavaliação em 2026-08-22T21:58:33Z: a documentação oficial define 202 como 
 
 Reserva em 2026-08-22T21:59:26Z: job `ccc4ec4e-956a-4500-af4d-8e9d779574e1`, item `132b6356-6b06-48d7-bff7-edd473bc87be`, mesma publicação sincronizada e novo fluxo independente. Reserva open 5.000; wallet 11.725.000/5.000 versão 20; item attempt 0, snapshots 0 e analytics off.
 
+Resultado final em 2026-08-22T22:01:08Z: a nova operação do mesmo post voltou a receber HTTP 202. Duas conferências posteriores de `GET /v1/usage` continuaram sem `posts_read`; o item foi reconciliado `failed/manual_not_metered`, liberando os 5.000 micros originais. Wallet 11.725.000/0 versão 21; três attempts HTTP 202 terminais, zero snapshots e zero débito analytics. Production segura `dpl_7T2ctsRQFrSrDqSLBCuYtqSqXY6y`; janela live `dpl_8pkhNuc5hcPhcGQ7EsaWSMAHLuC5`.
+
 ## Rollback
 
 - Manter `TWITTER_ANALYTICS_ENABLED=false` e `TWITTER_ANALYTICS_WORKER_ENABLED=false`.
@@ -51,4 +53,4 @@ Reserva em 2026-08-22T21:59:26Z: job `ccc4ec4e-956a-4500-af4d-8e9d779574e1`, ite
 
 ## Próxima ação segura
 
-Executar a janela analytics-only e restaurar off imediatamente após o primeiro resultado.
+Aguardar a Zernio disponibilizar resposta HTTP 200. Não criar novo canário pago até mudança externa verificável.

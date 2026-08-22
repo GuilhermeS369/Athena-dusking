@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:59:26Z / 2026-08-22T18:59:26-03:00
-- Fase atual: 7 — análises manuais (`in_progress`)
-- Status: nova operação do mesmo post sincronizado reservada em 5.000 micros; janela live pendente
+- Atualizado em: 2026-08-22T22:06:24Z / 2026-08-22T19:06:24-03:00
+- Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
+- Status: analytics bloqueada no HTTP 202 da Zernio; fallback Vercel exclusivo implementado, desligado e aguardando shadow
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `46e09cc`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Reconfirmar reserva/flags/worker e abrir uma janela analytics-only. Restaurar kill switches imediatamente após o primeiro resultado.
+Validar em Preview o fallback exclusivo apenas em shadow, com heartbeat primário expirado e fila vazia. Não adicionar cron, habilitar live ou liberar organizações enquanto a Zernio não entregar analytics HTTP 200.
 
 ## Proibições imediatas
 
@@ -49,4 +49,4 @@ Reconfirmar reserva/flags/worker e abrir uma janela analytics-only. Restaurar ki
 
 - Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production segura `dpl_93z3VLkymZUoukP2w1hsK2ZeaWXC`, ambos `READY`. Última janela live analytics: `dpl_D9Kk5XtsWPZEcsqmjiAehuJt5GSF`.
 - VPS: release `46e09cc-20260822T213610Z`; cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
-- Supabase: migrations 223–240 alinhadas; dois HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 19, zero snapshot, zero débito analytics e zero holds abertos.
+- Supabase: migrations 223–240 alinhadas; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.

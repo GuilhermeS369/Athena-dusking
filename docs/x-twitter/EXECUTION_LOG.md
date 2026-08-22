@@ -620,3 +620,22 @@ Registros são append-only.
 - Segurança: analytics/workers off durante quote e confirm.
 - Rollback antes do claim: liberar somente esta reserva original; não criar crédito.
 - Próxima ação segura: preflight e janela exclusiva do worker analytics; restaurar off após o primeiro resultado.
+
+## X-0050 — mesmo post sincronizado permanece HTTP 202; analytics bloqueada externamente
+
+- UTC: 2026-08-22T22:06:24Z; São Paulo: 2026-08-22T19:06:24-03:00.
+- Janela: Production `dpl_8pkhNuc5hcPhcGQ7EsaWSMAHLuC5`, somente analytics; item `132b6356-6b06-48d7-bff7-edd473bc87be` iniciou 22:01:08Z e recebeu HTTP 202 em 22:01:10Z.
+- Billing/reconciliação: duas conferências sem `posts_read`; resolução `failed/manual_not_metered`, 5.000 liberados, zero débito/snapshot. Wallet 11.725.000/0 versão 21.
+- Segurança: Production segura `dpl_7T2ctsRQFrSrDqSLBCuYtqSqXY6y`; VPS false/shadow, cinco workers X stopped e seis processos existentes online.
+- Conclusão do gate: três operações manuais, incluindo uma nova operação posterior no mesmo recurso, produziram 202 não medido. Não há caminho local seguro para fabricar HTTP 200; Fase 7 fica bloqueada na Zernio.
+
+## X-0051 — fallback Vercel exclusivo implementado e desligado
+
+- UTC: 2026-08-22T22:06:24Z; São Paulo: 2026-08-22T19:06:24-03:00.
+- Nova rota `/api/internal/twitter-fallback-dispatch`, sem cron: autenticação por segredo, heartbeat stale obrigatório, circuit breaker, claim máximo 1 e heartbeat próprio.
+- Kill switches: fallback geral e live separados; live também exige worker de publicação/mode live. Defaults false documentados.
+- Fluxo shadow usa completion shadow; fluxo live usa start/result existentes, idempotency key estável e classificador compartilhado do worker. Timeout/rede vira `outcome_unknown`.
+- Isolamento: nenhuma referência a tabelas/rotas Instagram; nenhuma mudança em workers existentes.
+- Verificação: 170/170 testes, TypeScript e build aprovados. O primeiro TypeScript paralelo ao build falhou apenas por corrida na geração de `.next/types`; rerun após build aprovou.
+- Rollback: reverter rota/helper/teste e remover as três variáveis exemplo; nenhuma migração ou dado remoto foi criado.
+- Próxima ação segura: checkpoint Git e shadow Preview com fila vazia; não adicionar cron nem habilitar Production/live.
