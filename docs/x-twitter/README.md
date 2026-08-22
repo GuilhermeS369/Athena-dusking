@@ -2,14 +2,14 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T18:34:18Z / 2026-08-22T15:34:18-03:00
+- Atualizado em: 2026-08-22T18:41:57Z / 2026-08-22T15:41:57-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`)
 - Status: `in_progress`
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Commit do checkpoint validado: `d5ecd0a54b008668d279c0a363133e6ef5334b6b`
+- Commit do checkpoint validado: `1a74e4afd77f166674b05d43647d5abb1951bb38`
 - Feature flag X: criada e desligada
-- Mutação remota feita pelo módulo X: migrations aditivas 223–239
+- Mutação remota feita pelo módulo X: migrations aditivas 223–240
 
 ## Leitura obrigatória para continuar
 
@@ -23,8 +23,8 @@
 ## Baseline conhecido
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
-- Migrações local/remoto alinhadas até 239.
-- Testes atuais: 154/154 aprovados.
+- Migrações local/remoto alinhadas até 240.
+- Testes atuais: 163/163 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.

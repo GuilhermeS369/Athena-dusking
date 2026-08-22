@@ -264,3 +264,18 @@ Registros são append-only.
 - Rollback: flags off e worker parado; banco somente forward-only; código por revert do checkpoint.
 - Status: `completed`.
 - Próxima ação segura: commit e preparar deploy/PM2 desabilitado da Fase 8.
+
+## X-0020 — lacunas de segurança do rollout fechadas
+
+- UTC: 2026-08-22T18:41:57Z; São Paulo: 2026-08-22T15:41:57-03:00.
+- Executor: Codex GPT-5; task ID não exposto pelo ambiente.
+- Commit de código: `1a74e4afd77f166674b05d43647d5abb1951bb38`.
+- Supabase: projeto `hqwhumdumfmixxbvneae`; antes 239 e depois 240; somente migration aditiva 240 foi aplicada.
+- Correções: exclusão de conexão não libera holds iniciados/incertos; lease expirado de analytics vira resultado incerto; circuit breaker persistente ligado a cada worker; regras futuras administráveis e auditadas sem exclusão.
+- Teste SQL: 13/13 em `BEGIN`/`ROLLBACK`; regras desativadas preservadas, eventos imutáveis, breaker abre/fecha e recovery vazio idempotente.
+- Testes locais: 163/163; TypeScript, build e `git diff --check` aprovados. Build manteve apenas warnings metadata preexistentes.
+- Lint remoto: zero achado X; duas ambiguidades legadas (`state` e `batch_id`) permanecem fora do escopo.
+- Vercel/VPS/Zernio: ainda inalterados neste checkpoint; nenhuma credencial ou chamada externa.
+- Rollback: todas as flags X off; parar apenas processos `athena-twitter-*`; banco somente por correção forward-only.
+- Status: `completed`.
+- Próxima ação segura: criar preview Vercel com flags X off, executar smoke e instalar pacote de workers X parado/shadow, sem promover produção.
