@@ -567,3 +567,13 @@ Registros são append-only.
 - Segurança: nenhuma entidade analytics, reserva ou chamada Zernio foi criada; flags/workers seguem off. TypeScript e diff check aprovados.
 - Rollback: nenhum, pois a etapa foi somente leitura.
 - Próxima ação segura: executar `reserve-next-post-read`, auditar 5.000 micros e documentar antes da janela live.
+
+## X-0045 — segundo post read reservado com analytics off
+
+- UTC: 2026-08-22T21:51:48Z; São Paulo: 2026-08-22T18:51:48-03:00.
+- Job/item: `85bd0298-432e-45ae-9248-abf306fd4207` / `1660fcd2-b0f2-41d4-8f47-32830282ad2b`; publicação distinta `66542b07-7e55-47f8-aaca-0075b98171db`.
+- Reserva: `post_read`, open 5.000, remaining 5.000, settled/released 0. Wallet 11.725.000 contábil/5.000 reservado, versão 17→18.
+- Estado: novo item `reserved`, tentativa 0; total histórico 1 tentativa anterior; snapshots 0.
+- Segurança: confirmação ocorreu com analytics/workers off; nenhuma chamada externa.
+- Rollback antes do claim: resolução/cancelamento deve liberar somente esta reserva original, sem crédito.
+- Próxima ação segura: preflight read-only e janela exclusiva do worker analytics; restaurar off após um resultado.

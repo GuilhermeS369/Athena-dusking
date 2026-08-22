@@ -33,6 +33,8 @@ Reconciliação em 2026-08-22T21:49:27Z: segundo snapshot continuou idêntico e 
 
 Segundo quote em 2026-08-22T21:51:11Z: utilitário guardado selecionou outro post publicado (`66542b07-7e55-47f8-aaca-0075b98171db`), recusando reutilização do item anterior. Um `post_read` custa 5.000, projeção 11.720.000 e piso 5.000.000. Wallet permaneceu 11.725.000/0 versão 17; nenhuma entidade ou chamada externa foi criada.
 
+Reserva em 2026-08-22T21:51:48Z: job `85bd0298-432e-45ae-9248-abf306fd4207`, item `1660fcd2-b0f2-41d4-8f47-32830282ad2b`, `post_read` distinto de 5.000 micros. Wallet 11.725.000/5.000 versão 18; item tentativa 0, total histórico de tentativas analytics 1 e snapshots 0. Analytics/workers continuam off.
+
 ## Rollback
 
 - Manter `TWITTER_ANALYTICS_ENABLED=false` e `TWITTER_ANALYTICS_WORKER_ENABLED=false`.
@@ -41,4 +43,4 @@ Segundo quote em 2026-08-22T21:51:11Z: utilitário guardado selecionou outro pos
 
 ## Próxima ação segura
 
-Reservar o segundo quote com analytics off e auditar exatamente 5.000 micros antes de qualquer janela live.
+Executar uma janela analytics-only e restaurar flags/worker imediatamente após o primeiro resultado.

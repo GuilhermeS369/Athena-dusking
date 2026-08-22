@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T21:51:11Z",
-  "updatedAtSaoPaulo": "2026-08-22T18:51:11-03:00",
-  "phase": { "id": "07", "name": "manual-analytics", "status": "in_progress", "gate": "second_post_read_quote_approved" },
+  "updatedAtUtc": "2026-08-22T21:51:48Z",
+  "updatedAtSaoPaulo": "2026-08-22T18:51:48-03:00",
+  "phase": { "id": "07", "name": "manual-analytics", "status": "in_progress", "gate": "second_post_read_reserved_live_pending" },
   "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "c56d6e9", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "240", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
@@ -10,8 +10,8 @@
     "vps": { "hostname": "srv1881733", "release": "46e09cc-20260822T213610Z", "sha256": "183c3071ae66ecd1041581d84e481ad04c5d9ec2ad009b6875c805c6c16767b3", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
-  "lastCheckpoint": "phase-07-second-distinct-post-read-quoted",
-  "nextSafeAction": "Run prepare-next-analytics-canary.ts with reserve-next-post-read while all analytics flags/workers remain off. Verify exactly one new job/item and a 5,000-micro open reservation, then checkpoint before any live window.",
+  "lastCheckpoint": "phase-07-second-distinct-post-read-reserved",
+  "nextSafeAction": "Read-only verify job 85bd0298-432e-45ae-9248-abf306fd4207 and item 1660fcd2-b0f2-41d4-8f47-32830282ad2b remain reserved, wallet reserve is 5,000, flags false and worker stopped. Then open one analytics-only window and restore all kill switches immediately after the first terminal or unknown result.",
   "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not repeat the paid analytics read for item 7ce8553c-ceb9-4a25-a00f-c51b0ec249c5.", "Do not reclassify its outcome_unknown without provider or billing evidence and an audited justification.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
   "blockers": ["The HTTP 202 path is reconciled and has no open hold. Phase 7 still needs one distinct successful post-read canary that settles 5,000 micros and creates one local snapshot."]
 }

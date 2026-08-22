@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:51:11Z / 2026-08-22T18:51:11-03:00
+- Atualizado em: 2026-08-22T21:51:48Z / 2026-08-22T18:51:48-03:00
 - Fase atual: 7 — análises manuais (`in_progress`)
-- Status: segundo post distinto cotado em 5.000 micros; quote read-only aprovado e reserva ainda pendente
+- Status: segundo post distinto reservado em 5.000 micros; execução analytics-only pendente
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `46e09cc`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Confirmar/reservar o segundo quote em 5.000 micros com analytics off. Auditar job/item/reserva e registrar checkpoint antes de abrir uma janela live separada.
+Reconfirmar reserva, flags false e worker parado; abrir uma única janela analytics-only e restaurar todos os kill switches após o primeiro resultado.
 
 ## Proibições imediatas
 
