@@ -437,3 +437,11 @@ Registros são append-only.
 - Programa/item `466ff096-82f1-4dd2-a75d-11c124bae815` / `93358c36-99ee-44d0-90c3-807dd6c9d71e`, execução 20:56Z, ready/0 attempts.
 - Financeiro: 11.940.000 contábil, 15.000 reservado, versão 10. Live off e workers X parados.
 - Próxima ação segura: janela live controlada do vídeo.
+
+## X-0034 — vídeo publicado e liquidado
+
+- UTC: 2026-08-22T20:58:10Z; São Paulo: 2026-08-22T17:58:10-03:00.
+- Resultado: MP4 `published`, uma tentativa, HTTP 201, post ID persistido; sem retry.
+- Financeiro: wallet 11.925.000/0, versão 11; grant + cinco débitos exatos de -15.000; reserva/hold settled.
+- Operação: zero não terminais; worker parado; VPS false/shadow e Production segura `dpl_CxzynkGZo6MEx3J8yjRcXQgxGnG9`.
+- Próxima ação segura: preparar URL sem mídia e comprovar reserva total de 200.000 micros.

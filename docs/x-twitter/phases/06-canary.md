@@ -33,3 +33,5 @@ GIF preparado: asset `7dea1898-89e8-4222-9183-3a3a38c7fdaa`, 640×360, 2s, 316.4
 Gate GIF aprovado: uma tentativa HTTP 201 `published`; wallet 11.940.000/0, versão 9; grant + quatro débitos de 15.000; reserva/hold settled e zero não terminais. Worker parado e Production segura `dpl_C1N6yohwYnJb96XmSi5D5KEviBQs`.
 
 Vídeo preparado: asset `3648930e-a2d1-4535-b248-6d7b3f9cccaf`, MP4 640×360, 2s, 116.645 bytes, hash `19bd78345e308eef3f807acf5a2ce8d49d2e67ba0dbd36d839f552e6229e8992`, signed read ok. Programa `466ff096-82f1-4dd2-a75d-11c124bae815`, item `93358c36-99ee-44d0-90c3-807dd6c9d71e`, execução 20:56Z, reserva 15.000, attempt 0, live off.
+
+Gate vídeo aprovado: uma tentativa HTTP 201 `published`; wallet 11.925.000/0, versão 11; grant + cinco débitos de 15.000; reserva/hold settled e zero não terminais. Worker parado e Production segura `dpl_CxzynkGZo6MEx3J8yjRcXQgxGnG9`.
