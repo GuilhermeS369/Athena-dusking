@@ -39,6 +39,17 @@ export default function DashboardClient({
   const [v2TopPosts, setV2TopPosts] = useState<DashboardV2TopPost[]>([]);
   const [v2Loading, setV2Loading] = useState(data.version === 'v2');
   const [v2Error, setV2Error] = useState('');
+  const [twitterLocal, setTwitterLocal] = useState<{ snapshots: Array<{ captured_at: string }>; jobs: Array<{ status: string }> } | null>(null);
+
+  useEffect(() => {
+    if (selectedPlatform !== 'twitter') return;
+    const controller = new AbortController();
+    void fetch('/api/x/analytics/snapshots', { cache: 'no-store', signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => { if (payload) setTwitterLocal(payload); })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [selectedPlatform]);
 
   async function requestMetricsRefresh(trigger: 'page_view' | 'manual') {
     try {
@@ -274,8 +285,8 @@ export default function DashboardClient({
           <p>{activeOrganization.name} · desempenho, conteúdo, caixa de entrada e saúde operacional.</p>
         </div>
         <div className="analytics-page-actions">
-          <button className="button button-ghost" type="button" onClick={() => void requestMetricsRefresh('manual')} disabled={Boolean(activeRefreshJobId)}>{activeRefreshJobId ? 'Atualizando dados recentes…' : selectedProfileId !== 'all' ? '↻ Atualizar perfil' : selectedGroupId !== 'all' ? '↻ Atualizar grupo' : '↻ Atualizar dados desatualizados'}</button>
-          <button className="button button-primary" type="button" onClick={() => window.location.assign('/postagem')}>＋ Nova postagem</button>
+          {selectedPlatform === 'twitter' ? <button className="button button-ghost" type="button" onClick={() => window.location.assign('/x/analises')}>Abrir Análises X</button> : <button className="button button-ghost" type="button" onClick={() => void requestMetricsRefresh('manual')} disabled={Boolean(activeRefreshJobId)}>{activeRefreshJobId ? 'Atualizando dados recentes…' : selectedProfileId !== 'all' ? '↻ Atualizar perfil' : selectedGroupId !== 'all' ? '↻ Atualizar grupo' : '↻ Atualizar dados desatualizados'}</button>}
+          <button className="button button-primary" type="button" onClick={() => window.location.assign(selectedPlatform === 'twitter' ? '/x/postagem' : '/postagem')}>＋ Nova postagem</button>
         </div>
       </header>
 
@@ -284,14 +295,14 @@ export default function DashboardClient({
       {data.version === 'v2' && v2Error && <div className="analytics-refresh-status" role="alert">{v2Error} O resumo operacional continua disponível.</div>}
 
       <section className="analytics-filter-panel analytics-filter-panel-compact panel" aria-label="Filtros de analytics">
-        <label>Plataforma<select value={selectedPlatform} onChange={(event) => setSelectedPlatform(event.target.value)}><option value="instagram">Instagram</option></select></label>
+        <label>Plataforma<select value={selectedPlatform} onChange={(event) => setSelectedPlatform(event.target.value)}><option value="instagram">Instagram</option><option value="twitter">X / Twitter</option></select></label>
         <label>Perfil<select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}><option value="all">Todos os perfis</option>{data.analytics.profiles.map((profile) => <option key={profile.id} value={profile.id}>@{profile.username}</option>)}</select></label>
         <label>Fonte<select value={selectedSource} onChange={(event) => setSelectedSource(event.target.value)}><option value="all">Todas as fontes</option><option value="meta_official">API oficial</option><option value="zernio">Integração externa</option></select></label>
         <label>Grupo<select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)}><option value="all">Todos os grupos</option>{data.analytics.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
         <label>Período<select value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}><option value="1">Hoje</option><option value="2">Ontem</option><option value="3">Anteontem</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="180">Últimos 6 meses</option><option value="365">Último ano</option></select></label>
       </section>
 
-      <section className="analytics-kpi-strip" aria-label="Indicadores de análise de postagens">
+      {selectedPlatform === 'twitter' ? <section className="panel"><h2>Snapshots locais do X</h2><p>O Dashboard não consulta a Zernio nem o X automaticamente. Para selecionar recursos, revisar o custo e gerar novos snapshots locais, abra Análises X.</p><div className="summary-grid"><div><span>Snapshots armazenados</span><strong>{twitterLocal?.snapshots.length ?? 0}</strong></div><div><span>Jobs recentes</span><strong>{twitterLocal?.jobs.length ?? 0}</strong></div><div><span>Última coleta</span><strong>{twitterLocal?.snapshots[0]?.captured_at ? new Date(twitterLocal.snapshots[0].captured_at).toLocaleString('pt-BR') : '—'}</strong></div></div><button className="button button-primary" type="button" onClick={() => window.location.assign('/x/analises')}>Abrir Análises X</button></section> : <><section className="analytics-kpi-strip" aria-label="Indicadores de análise de postagens">
         <KpiCard label="Taxa de engajamento" value={`${effectiveEngagementRate.toFixed(1)}%`} />
         <KpiCard label="Alcance total" value={formatCompact(effectiveDailyTotals.reach)} icon="◉" />
         <KpiCard label="Seguidores totais" value={formatCompact(effectiveFollowersTotal)} icon="♙" caption={`${effectiveFollowersDelta >= 0 ? '+' : ''}${formatCompact(effectiveFollowersDelta)} no período`} />
@@ -338,6 +349,7 @@ export default function DashboardClient({
         <SourceHealthCard items={sourceHealth} unavailable={data.summary.analyticsUnavailableProfiles} failedPublications={data.review.failedPublications} />
         <ScheduleCard data={data} />
       </section>
+      </>}
     </section>
   );
 }

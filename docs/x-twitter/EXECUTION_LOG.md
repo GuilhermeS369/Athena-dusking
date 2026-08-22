@@ -248,3 +248,19 @@ Registros são append-only.
 - Vercel/VPS: inalterados. Flags off e modo padrão shadow.
 - Status: preparação concluída; gate bloqueado por ausência de API key X dedicada cadastrada por admin.
 - Próxima ação segura: implementar análises manuais; não executar a ordem do canário até a credencial existir.
+
+## X-0019 — gate da Fase 7 aprovado sem leitura externa
+
+- UTC: 2026-08-22T18:34:18Z; São Paulo: 2026-08-22T15:34:18-03:00.
+- Supabase: migrations 235–239 aplicadas; alinhamento local/remoto 239.
+- Entregas: quote read-only, confirmação transacional multi-carteira, piso protegido de 5.000.000 micros, jobs/itens/reservas, claim por perfil, snapshots locais, worker manual e resolução auditada de resultados incertos.
+- Correções forward-only: 237 limita o mesmo statement a um item por perfil; 238 remove warnings de lint X; 239 impede liquidação terminal repetida com idempotency key diferente.
+- Teste SQL: 26/26 via `BEGIN`/`ROLLBACK`. Comprovou reservas de publicação preservadas, 5k/10k, sucesso parcial, falha/liberação, unknown/hold, replay e piso. Pós-teste sem dados X residuais.
+- Testes locais: 163/163; TypeScript, build e diff check aprovados. Build contém somente warnings metadata preexistentes.
+- Dashboard: seleção X lê `/api/x/analytics/snapshots`, que consulta apenas tabelas locais, e oferece “Abrir Análises X”. Nenhum page view chama Zernio.
+- Flags: analytics e worker analytics continuam false. A execução só ocorre após quote/confirm e ambas as flags.
+- Lint: nenhum erro/warning X; permaneceram apenas achados legados já documentados.
+- Zernio/Vercel/VPS: nenhuma credencial real, leitura externa, deploy ou restart nesta fase.
+- Rollback: flags off e worker parado; banco somente forward-only; código por revert do checkpoint.
+- Status: `completed`.
+- Próxima ação segura: commit e preparar deploy/PM2 desabilitado da Fase 8.
