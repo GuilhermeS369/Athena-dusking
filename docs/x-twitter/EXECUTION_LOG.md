@@ -610,3 +610,13 @@ Registros são append-only.
 - Segurança: Production/VPS false, workers X parados e processos existentes online. TypeScript aprovado.
 - Rollback: nenhum para o quote. Remover/reverter o utilitário não toca dados.
 - Próxima ação segura: reservar 5.000 micros com analytics off e documentar antes da janela live.
+
+## X-0049 — nova operação do post sincronizado reservada
+
+- UTC: 2026-08-22T21:59:26Z; São Paulo: 2026-08-22T18:59:26-03:00.
+- Job/item novos: `ccc4ec4e-956a-4500-af4d-8e9d779574e1` / `132b6356-6b06-48d7-bff7-edd473bc87be`; publicação `66542b07-7e55-47f8-aaca-0075b98171db` já passou por um HTTP 202 reconciliado.
+- Financeiro: reserva open 5.000, remaining 5.000, settled/released 0. Wallet 11.725.000 contábil/5.000 reservado, versão 19→20.
+- Isolamento: novo item attempt 0; dois attempts históricos permanecem terminais. Zero snapshot e nenhuma chamada externa nesta etapa.
+- Segurança: analytics/workers off durante quote e confirm.
+- Rollback antes do claim: liberar somente esta reserva original; não criar crédito.
+- Próxima ação segura: preflight e janela exclusiva do worker analytics; restaurar off após o primeiro resultado.

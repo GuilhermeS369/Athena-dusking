@@ -41,6 +41,8 @@ Reconciliação final em 2026-08-22T21:56:14Z: segunda conferência billing perm
 
 Reavaliação em 2026-08-22T21:58:33Z: a documentação oficial define 202 como `sync pending`. Os dois testes anteriores usaram recursos distintos, portanto cada um iniciou a primeira sincronização do respectivo post. Como ambos foram comprovados não medidos e reconciliados, ADR-X-011 permite uma nova operação manual — novo quote, item, reserva e attempt — sobre o mesmo segundo post já sincronizado. Quote read-only aprovado: 5.000 micros, wallet inalterada 11.725.000/0 versão 19, projeção 11.720.000 e piso 5.000.000.
 
+Reserva em 2026-08-22T21:59:26Z: job `ccc4ec4e-956a-4500-af4d-8e9d779574e1`, item `132b6356-6b06-48d7-bff7-edd473bc87be`, mesma publicação sincronizada e novo fluxo independente. Reserva open 5.000; wallet 11.725.000/5.000 versão 20; item attempt 0, snapshots 0 e analytics off.
+
 ## Rollback
 
 - Manter `TWITTER_ANALYTICS_ENABLED=false` e `TWITTER_ANALYTICS_WORKER_ENABLED=false`.
@@ -49,4 +51,4 @@ Reavaliação em 2026-08-22T21:58:33Z: a documentação oficial define 202 como 
 
 ## Próxima ação segura
 
-Reservar a nova operação do post sincronizado com analytics off, auditar e criar checkpoint antes da janela live.
+Executar a janela analytics-only e restaurar off imediatamente após o primeiro resultado.

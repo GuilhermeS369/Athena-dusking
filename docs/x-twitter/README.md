@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:58:33Z / 2026-08-22T18:58:33-03:00
+- Atualizado em: 2026-08-22T21:59:26Z / 2026-08-22T18:59:26-03:00
 - Fase atual: 7 — análises manuais (`in_progress`)
-- Status: novo quote manual aprovado para o mesmo post já sincronizado; nenhuma reserva criada ainda
+- Status: nova operação do mesmo post sincronizado reservada em 5.000 micros; janela live pendente
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `46e09cc`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Reservar o novo item do mesmo post já sincronizado, com analytics off. O novo attempt será independente dos dois HTTP 202 reconciliados; janela live somente após checkpoint.
+Reconfirmar reserva/flags/worker e abrir uma janela analytics-only. Restaurar kill switches imediatamente após o primeiro resultado.
 
 ## Proibições imediatas
 
