@@ -89,3 +89,10 @@ Decisões são append-only. Mudanças exigem nova ADR que substitua explicitamen
 - Decisão: o calendário de até 90 dias é calculado sob demanda; somente itens financiados são materializados. Um perfil fica bloqueado enquanto existir item `claimed`, `processing` ou `outcome_unknown`; retries futuros têm prioridade sobre novos itens do mesmo perfil.
 - Motivo: materializar 129.601 minutos por perfil tornava Revisar pesado apesar do teto de 800 posts baratos por carteira. Bloquear apenas `claimed` permitia novo envio após aceite ainda pendente e furava o backoff de 429.
 - Consequência: custo da revisão passa a ser limitado pelo saldo e pelo ciclo de combinações. Um resultado aceito/incerto precisa ser reconciliado antes de o perfil voltar a enviar.
+
+## ADR-X-016 — sincronização de perfis sai do request Vercel
+
+- Data: 22/08/2026
+- Decisão: o botão Sincronizar cria um `twitter_sync_job` idempotente. O worker VPS exclusivo lê contas/health da Zernio, força `analytics=false` e `inbox=false`, e envia somente o inventário sanitizável para persistência. Claim usa lease e token renovado; uma conexão possui no máximo um job ativo.
+- Motivo: executar duas leituras externas e updates por conta dentro do request público expõe a sincronização a timeout da Vercel e mistura o papel da interface com processamento operacional.
+- Consequência: a UI acompanha o job por polling local; nenhuma API key retorna ao navegador ou ao payload de resultado. A migration 242 e o worker permanecem desligados até teste transacional e one-shot off.

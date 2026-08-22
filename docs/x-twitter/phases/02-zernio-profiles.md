@@ -32,3 +32,11 @@ Início: 2026-08-22T17:30:50Z. A documentação oficial foi reconferida: OAuth u
 - Gate de implementação: aprovado.
 - Gate vivo: pendente de credencial Zernio X dedicada inserida por admin. Não é seguro reutilizar chave do Instagram nem extrair secrets para antecipar o teste.
 - Continuidade autorizada: Fase 3 pode ser implementada atrás da flag desligada; nenhuma liberação/canário pode ignorar o gate vivo.
+
+## Auditoria de completude do sync — 22/08/2026
+
+- Gap: o botão Sincronizar executava as leituras Zernio e toda a persistência no mesmo request Vercel; o processo `athena-twitter-zernio-sync-worker` fazia apenas heartbeat.
+- Correção local: migration 242 cria fila por conexão, idempotência concorrente, lease/token de claim, RLS e conclusão terminal. O worker dedicado lê somente inventário Twitter, limita 500 contas, mantém capabilities automáticas desligadas e envia inventário sem credencial ao endpoint de resultado.
+- UI: POST enfileira, GET acompanha por organização/conexão e polling encerra em sucesso/falha ou informa que o job continua na fila.
+- Verificação local: 193/193 testes, TypeScript, build, `node --check` e diff check aprovados. Somente warnings metadata preexistentes.
+- Estado remoto: migration 242 ainda não aplicada; sync/rollout off e workers X stopped. Próximo gate é commit, dry-run, push isolado, SQL 17/17 em rollback e zero resíduos.

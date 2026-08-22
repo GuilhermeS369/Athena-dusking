@@ -50,6 +50,30 @@ export async function syncTwitterProfiles(organizationId: string, connectionId: 
   ]);
   const accounts = (accountsResponse.accounts ?? []).filter((account) => account.platform?.toLowerCase() === 'twitter');
   const health = healthResponse.accounts ?? [];
+
+  for (const account of accounts) {
+    const accountId = stableZernioAccountId(account);
+    if (accountId) await client.setAccountCapabilities(accountId).catch(() => null);
+  }
+
+  return applyTwitterProfileInventory(organizationId, connectionId, accounts, health);
+}
+
+export async function applyTwitterProfileInventory(
+  organizationId: string,
+  connectionId: string,
+  rawAccounts: TwitterZernioAccount[],
+  rawHealth: TwitterZernioHealth[],
+) {
+  if (rawAccounts.length > 500 || rawHealth.length > 500) {
+    throw new Error('Inventário X excede o limite seguro de 500 contas.');
+  }
+  const accounts = rawAccounts.filter(
+    (account) => account.platform?.toLowerCase() === 'twitter',
+  );
+  const health = rawHealth.filter(
+    (account) => !account.platform || account.platform.toLowerCase() === 'twitter',
+  );
   const admin = createSupabaseAdminClient();
   const seenIds: string[] = [];
   const synced: Record<string, unknown>[] = [];
@@ -60,10 +84,6 @@ export async function syncTwitterProfiles(organizationId: string, connectionId: 
     if (!accountId || !username) continue;
     seenIds.push(accountId);
     const state = healthFor(accountId, health);
-
-    // As capabilities são sempre explicitamente mantidas desligadas. Falha
-    // nesta chamada não habilita nada: a Zernio usa opt-in e o padrão é false.
-    await client.setAccountCapabilities(accountId).catch(() => null);
 
     const { data, error } = await admin.rpc('twitter_sync_profile_from_zernio', {
       p_organization_id: organizationId,

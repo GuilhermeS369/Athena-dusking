@@ -17,7 +17,14 @@ function usd(micros: number) {
 }
 
 async function responseJson(response: Response) {
-  const body = await response.json().catch(() => ({})) as { error?: string; authUrl?: string; adoptedExistingProfile?: boolean };
+  const body = await response.json().catch(() => ({})) as {
+    error?: string;
+    authUrl?: string;
+    adoptedExistingProfile?: boolean;
+    jobId?: string;
+    status?: string;
+    error_message?: string | null;
+  };
   if (!response.ok) throw new Error(body.error ?? 'A operação não pôde ser concluída.');
   return body;
 }
@@ -53,8 +60,27 @@ export default function TwitterZernioClient({ connections, canManage }: { connec
   async function sync(connectionId: string) {
     setBusy(`sync:${connectionId}`); setMessage(null);
     try {
-      await responseJson(await fetch(`/api/x/integrations/zernio/connections/${connectionId}/sync`, { method: 'POST' }));
-      setMessage('Perfis X sincronizados.'); router.refresh();
+      const started = await responseJson(await fetch(`/api/x/integrations/zernio/connections/${connectionId}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idempotencyKey: crypto.randomUUID() }),
+      }));
+      if (!started.jobId) throw new Error('A fila não retornou o job de sincronização.');
+      setMessage('Sincronização X enfileirada no worker dedicado.');
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        const current = await responseJson(await fetch(
+          `/api/x/integrations/zernio/connections/${connectionId}/sync?jobId=${encodeURIComponent(started.jobId)}`,
+          { cache: 'no-store' },
+        ));
+        if (current.status === 'succeeded') {
+          setMessage('Perfis X sincronizados.'); router.refresh(); return;
+        }
+        if (current.status === 'failed' || current.status === 'cancelled') {
+          throw new Error(current.error_message ?? 'A sincronização X falhou.');
+        }
+      }
+      setMessage('A sincronização continua na fila. Você pode atualizar a página depois.');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Falha ao sincronizar.'); }
     finally { setBusy(null); }
   }

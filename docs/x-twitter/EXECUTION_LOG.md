@@ -771,3 +771,15 @@ Registros são append-only.
 - Ambientes: Supabase/Vercel/VPS não foram alterados; flags X seguem off; cinco workers X seguem stopped; Instagram não foi reiniciado.
 - Rollback: reverter página, cliente e helper/testes de filtros; não há saldo, fila, dado remoto ou infraestrutura a desfazer.
 - Próxima ação segura: auditar a completude dos papéis generation/sync, hoje deliberadamente sem trabalho após heartbeat, e formalizar ou implementar o contrato sem tocar rotinas Instagram.
+
+## X-0063 — fila dedicada de sync implementada localmente
+
+- UTC: 2026-08-22T23:46:22Z; São Paulo: 2026-08-22T20:46:22-03:00.
+- Gap confirmado: `athena-twitter-zernio-sync-worker` encerrava após heartbeat e o request público fazia todas as chamadas Zernio/persistência.
+- Entrega local: `twitter_sync_jobs`, enqueue idempotente e concorrente, um job ativo por conexão, claim com `FOR UPDATE SKIP LOCKED`, lease máximo 15 minutos, claim token renovado, conclusão terminal idempotente e RLS.
+- Worker: consulta `/v1/accounts` e `/v1/accounts/health` com `platform=twitter`; mantém `analytics/inbox=false` em lotes de 20; limita inventário a 500; resultado não transporta API key. A aplicação persiste somente campos selecionados pelo serviço existente.
+- UI/API: botão gera idempotency key, enfileira e acompanha status local. A rota pública não chama mais `syncTwitterProfiles` diretamente.
+- Verificação: 193/193 testes Node; testes dedicados 9/9; TypeScript, build, `node --check` e `git diff --check` aprovados. Warnings metadata preexistentes apenas.
+- Ambientes: nenhuma migration/deploy/chamada Zernio neste registro; Supabase segue 241, Production off, cinco X stopped e Instagram intocado.
+- Rollback antes do push: reverter somente esta unidade. Após migration 242, correções de banco serão forward-only.
+- Próxima ação segura: commit; dry-run/push exclusivo da 242; teste SQL 17/17 em transação rollback; verificar zero jobs residuais e one-shot sync com flag off.
