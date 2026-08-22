@@ -36,7 +36,7 @@ $safePreviewUrl = $null
 $smoke = $null
 
 try {
-  Set-PreviewValue 'TWITTER_WORKER_SECRET' $previewSecret
+  Set-PreviewValue 'TWITTER_FALLBACK_WORKER_SECRET' $previewSecret
   Set-PreviewValue 'TWITTER_FALLBACK_ENABLED' 'true'
   Set-PreviewValue 'TWITTER_FALLBACK_LIVE_ENABLED' 'false'
   Set-PreviewValue 'TWITTER_FALLBACK_STALE_SECONDS' '120'

@@ -33,7 +33,7 @@ finally { $randomGenerator.Dispose() }
 $previewSecret = [Convert]::ToBase64String($secretBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 
 try {
-  Set-PreviewValue 'TWITTER_WORKER_SECRET' $previewSecret
+  Set-PreviewValue 'TWITTER_ROLLOUT_HEALTH_SECRET' $previewSecret
   Set-PreviewValue 'TWITTER_MODULE_ENABLED' 'false'
   Set-PreviewValue 'TWITTER_CANARY_ORGANIZATION_IDS' ','
   Set-PreviewValue 'TWITTER_PUBLICATION_WORKER_ENABLED' 'false'

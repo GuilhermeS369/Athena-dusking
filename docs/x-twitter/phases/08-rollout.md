@@ -48,7 +48,7 @@ Próxima ação segura: obter confirmação da Zernio de que analytics dos posts
 ## Fallback Vercel exclusivo — implementação desligada
 
 - Rota exclusiva: `/api/internal/twitter-fallback-dispatch`.
-- Autorização: `CRON_SECRET` ou `TWITTER_WORKER_SECRET`, comparação constante.
+- Autorização: `CRON_SECRET` ou `TWITTER_FALLBACK_WORKER_SECRET`, comparação constante.
 - Kill switches: `TWITTER_FALLBACK_ENABLED=false` e `TWITTER_FALLBACK_LIVE_ENABLED=false` por padrão.
 - Live exige simultaneamente fallback, worker de publicação, modo live e autorização live explícita.
 - Heartbeat recente de `athena-twitter-publication-worker` sempre impede claim.
@@ -86,3 +86,14 @@ Gate de observabilidade aprovado. A liberação geral e o fallback live continua
 - Testes: 178/178, TypeScript, build local/Vercel e diff check aprovados. Production, Supabase e VPS não foram alterados.
 
 Preparação local do rollout progressivo concluída. A execução continua proibida até o gate externo da Fase 7.
+
+## Segredos independentes por papel
+
+- Gap da auditoria fechado: cinco workers, fallback e health possuem sete segredos distintos; não há fallback para o segredo genérico legado.
+- Heartbeat/circuit breaker validam o segredo contra o `workerName`; analytics não autenticou como publicação no teste cruzado.
+- Configuração: sete nomes em Production/Preview; cinco valores pareados na VPS, arquivo `600`, backup `/opt/athena-twitter/shared/.env.worker.backup-20260822T224443Z`; nenhum valor impresso.
+- Preview `dpl_GPSKWSXtc3YF3LLyrQjA9EQgHii9`, `READY`: cinco heartbeats/breakers aprovados, cross-role rejeitado, publication/analytics claims e fallback disabled, health `ok`.
+- PM2: cinco X stopped; seis processos existentes online. Nenhuma chamada Zernio, item, hold ou débito.
+- Verificação local: 180/180 testes e TypeScript aprovados antes do checkpoint; build/deploy final será registrado após o commit.
+
+Próximo gate: Production off + release VPS/one-shot. Só depois remover o segredo genérico legado dos ambientes.

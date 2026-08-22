@@ -10,7 +10,7 @@ export const maxDuration = 60;
 
 type ClaimItem = { item_id:string;attempt_id:string;connection_id:string;content:string;media_set_client_key?:string|null;account_id?:string;encrypted_api_key?:string;media?:Array<{type:string;url:string}> };
 function safeEqual(left:string,right:string){const a=Buffer.from(left);const b=Buffer.from(right);return a.length===b.length&&timingSafeEqual(a,b);}
-function authorized(request:Request){const supplied=[request.headers.get('x-twitter-worker-secret'),request.headers.get('authorization')?.replace(/^Bearer\s+/i,'')].filter((v):v is string=>Boolean(v));const expected=[process.env.TWITTER_WORKER_SECRET,process.env.CRON_SECRET].filter((v):v is string=>Boolean(v));return expected.some(secret=>supplied.some(candidate=>safeEqual(secret,candidate)));}
+function authorized(request:Request){const supplied=[request.headers.get('x-twitter-worker-secret'),request.headers.get('authorization')?.replace(/^Bearer\s+/i,'')].filter((v):v is string=>Boolean(v));const expected=[process.env.TWITTER_FALLBACK_WORKER_SECRET,process.env.CRON_SECRET].filter((v):v is string=>Boolean(v));return expected.some(secret=>supplied.some(candidate=>safeEqual(secret,candidate)));}
 function integerEnv(name:string,fallback:number,min:number,max:number){const parsed=Number.parseInt(process.env[name]??'',10);return Number.isInteger(parsed)?Math.min(Math.max(parsed,min),max):fallback;}
 
 async function enrichLiveClaim(admin:ReturnType<typeof createSupabaseAdminClient>,item:ClaimItem){

@@ -68,3 +68,10 @@ Decisões são append-only. Mudanças exigem nova ADR que substitua explicitamen
 - Decisão: com `TWITTER_MODULE_ENABLED=false`, a lista `TWITTER_CANARY_ORGANIZATION_IDS` habilita organizações individualmente; com a flag global true, habilita todas. Páginas `/x/*` e todas as APIs públicas X reaplicam esse escopo. Analytics exige sua própria flag e o mesmo escopo organizacional.
 - Motivo: esconder apenas o menu não impede acesso direto por URL/API, e uma flag global de analytics isolada poderia criar custo fora do canário.
 - Consequência: o webhook Zernio permanece fora do gate de UI por ser autenticado por HMAC e necessário para reconciliar operações iniciadas; toda outra rota pública X exige contexto organizacional. O health global considera o rollout ativo quando existe ao menos um canário.
+
+## ADR-X-013 — segredo independente por processo e função operacional
+
+- Data: 22/08/2026
+- Decisão: publicação, geração, sync, analytics e reconciliação usam cinco segredos distintos; heartbeat/circuit breaker vinculam o segredo ao nome do processo. Fallback e health usam outros dois segredos exclusivos.
+- Motivo: um segredo compartilhado ampliava o raio de comprometimento e não atendia ao requisito de segredo próprio de cada worker.
+- Consequência: rotação e deploy precisam manter pareamento Vercel/VPS por papel. O nome genérico legado será removido após a validação do novo release e nunca será fallback silencioso.

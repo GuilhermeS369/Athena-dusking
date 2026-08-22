@@ -18,7 +18,7 @@ function safeEqual(left: string, right: string) {
 }
 
 function authorized(request: Request) {
-  const expected = [process.env.TWITTER_WORKER_SECRET, process.env.CRON_SECRET].filter((value): value is string => Boolean(value));
+  const expected = [process.env.TWITTER_ROLLOUT_HEALTH_SECRET, process.env.CRON_SECRET].filter((value): value is string => Boolean(value));
   const supplied = [request.headers.get('x-twitter-worker-secret'), request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')].filter((value): value is string => Boolean(value));
   return expected.some((secret) => supplied.some((candidate) => safeEqual(secret, candidate)));
 }

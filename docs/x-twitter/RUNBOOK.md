@@ -79,13 +79,22 @@ Processos planejados:
 ### Saúde read-only do rollout X
 
 - Endpoint: `GET /api/internal/twitter-rollout-health`.
-- Autorização: `x-twitter-worker-secret` ou Bearer com `TWITTER_WORKER_SECRET`/`CRON_SECRET`; nunca registrar o valor.
+- Autorização: `x-twitter-worker-secret` ou Bearer com `TWITTER_ROLLOUT_HEALTH_SECRET`/`CRON_SECRET`; nunca registrar o valor.
 - A rota não executa RPC nem mutação. Ela agrega somente filas, attempts, holds, wallets, breakers e heartbeats `twitter_*`.
 - `TWITTER_ROLLOUT_HEALTH_STALE_SECONDS` deve ficar entre 30 e 900; padrão 120.
 - `unhealthy`/HTTP 503: worker esperado stale, breaker aberto ou resultado/hold financeiro incerto.
 - `degraded`/HTTP 200: fila pausada com módulo off ou HTTP 429 nas últimas 24 horas.
 - Antes de cada promoção, exigir: flags esperadas, zero unknowns, zero breaker aberto e estado dos processos PM2 conferido separadamente.
 - Validador seguro: `scripts/twitter/validate-preview-rollout-health.ps1`; ele rotaciona segredo efêmero de Preview, força todas as flags mutáveis para false, cria Preview e faz somente leitura.
+
+### Segredos por papel
+
+- Cada processo usa exclusivamente seu segredo: `TWITTER_PUBLICATION_WORKER_SECRET`, `TWITTER_GENERATION_WORKER_SECRET`, `TWITTER_SYNC_WORKER_SECRET`, `TWITTER_ANALYTICS_WORKER_SECRET` ou `TWITTER_RECONCILE_WORKER_SECRET`.
+- Heartbeat e circuit breaker autenticam o segredo contra o `workerName`; um papel não pode operar como outro.
+- Fallback e health usam `TWITTER_FALLBACK_WORKER_SECRET` e `TWITTER_ROLLOUT_HEALTH_SECRET`, sem reutilizar segredos dos workers.
+- `scripts/twitter/configure-role-secrets.ps1` configura Production/Preview e atualiza atomicamente a VPS sem imprimir valores.
+- `scripts/twitter/validate-preview-role-secrets.ps1` testa o pareamento com claims desligados e exige rejeição cruzada.
+- O nome legado `TWITTER_WORKER_SECRET` não pode voltar ao código; removê-lo dos ambientes somente após deploy/release e one-shot aprovados.
 
 ## Rollback
 

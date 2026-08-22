@@ -686,3 +686,15 @@ Registros são append-only.
 - Verificação: 178/178 testes, TypeScript, build local/Vercel e diff check aprovados. Production/Supabase/VPS intocados.
 - Rollback: remover layout e reaplicações dos helpers; restaurar o helper anterior apenas por commit, nunca alterando dados. O Preview atual já está off.
 - Próxima ação segura: auditoria final requisito por requisito; não ativar rollout até novo canário analytics HTTP 200 liquidado.
+
+## X-0056 — segredos por papel pareados e aprovados em Preview
+
+- UTC: 2026-08-22T22:54:00Z; São Paulo: 2026-08-22T19:54:00-03:00.
+- Auditoria detectou que cinco processos compartilhavam um segredo; código agora exige publicação, geração, sync, analytics e reconciliação distintos. Fallback e health usam dois adicionais.
+- Provisionamento: sete segredos distintos em Vercel Production/Preview; cinco correspondentes atualizados atomicamente na VPS. Arquivo modo `600`; backup `/opt/athena-twitter/shared/.env.worker.backup-20260822T224443Z`; valores nunca impressos.
+- Preview: `dpl_GPSKWSXtc3YF3LLyrQjA9EQgHii9`, `READY`, URL `https://pomodoro-1uw8qr9go-shoows-projects-2caaf9e9.vercel.app`.
+- Pareamento: cinco heartbeats e breakers aceitaram somente o próprio papel; analytics→publicação foi rejeitado; publication/analytics claims e fallback permaneceram disabled; health `ok`.
+- PM2: cinco X stopped; seis processos existentes online. Zero chamada Zernio ou mutação financeira.
+- Regressão: 180/180 testes, TypeScript e diff check aprovados nesta unidade antes da documentação.
+- Rollback: Production antiga permanece segura com flags off; restaurar o backup remoto apenas se o novo release falhar. Não remover segredo legado antes do one-shot final.
+- Próxima ação segura: commit, deploy Production off, release versionado, one-shot dos cinco papéis; depois remover o nome legado e auditar novamente.
