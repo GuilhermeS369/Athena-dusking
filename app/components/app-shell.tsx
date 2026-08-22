@@ -14,8 +14,13 @@ type Organization = {
   role: 'admin' | 'operator' | 'viewer';
 };
 
-const navigation = [
+type NavigationItem = { label: string; icon: string; href: string };
+
+const generalNavigation: NavigationItem[] = [
   { label: 'Dashboard', icon: 'grid', href: '/' },
+];
+
+const instagramNavigation: NavigationItem[] = [
   { label: 'Postagem', icon: 'send', href: '/postagem' },
   { label: 'Fila', icon: 'activity', href: '/queue' },
   { label: 'Galeria', icon: 'image', href: '/galeria' },
@@ -23,18 +28,35 @@ const navigation = [
   { label: 'Grupos', icon: 'users', href: '/grupos' },
   { label: 'Agenda', icon: 'calendar', href: '/agenda' },
   { label: 'Zernio', icon: 'key', href: '/zernio' },
+  { label: 'Logs', icon: 'activity', href: '/operacao' },
+];
+
+const twitterNavigation: NavigationItem[] = [
+  { label: 'Análises', icon: 'activity', href: '/x/analises' },
+  { label: 'Postagem', icon: 'send', href: '/x/postagem' },
+  { label: 'Fila', icon: 'activity', href: '/x/fila' },
+  { label: 'Galeria', icon: 'image', href: '/x/galeria' },
+  { label: 'Perfis', icon: 'user', href: '/x/perfis' },
+  { label: 'Grupos', icon: 'users', href: '/x/grupos' },
+  { label: 'Agenda', icon: 'calendar', href: '/x/agenda' },
+  { label: 'Zernio', icon: 'key', href: '/x/zernio' },
+  { label: 'Logs', icon: 'activity', href: '/x/logs' },
+];
+
+const utilityNavigation: NavigationItem[] = [
   { label: 'Bulk Import', icon: 'upload', href: '/bulk-import' },
-  { label: 'Status / Logs', icon: 'activity', href: '/operacao' },
 ];
 
 export default function AppShell({
   children,
   organizations,
   activeOrganization,
+  twitterModuleEnabled,
 }: {
   children: React.ReactNode;
   organizations: Organization[];
   activeOrganization: Organization;
+  twitterModuleEnabled: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -43,10 +65,13 @@ export default function AppShell({
   const [organizationMessage, setOrganizationMessage] = useState('');
   const [isSwitchingOrganization, setIsSwitchingOrganization] = useState(false);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const [instagramOpen, setInstagramOpen] = useState(!pathname.startsWith('/x'));
+  const [twitterOpen, setTwitterOpen] = useState(pathname.startsWith('/x'));
 
   useEffect(() => {
     setPendingHref(null);
     setMenuOpen(false);
+    if (pathname.startsWith('/x')) setTwitterOpen(true);
   }, [pathname]);
 
   useEffect(() => {
@@ -88,6 +113,46 @@ export default function AppShell({
 
   const roleLabel = activeOrganization.role === 'admin' ? 'Administrador' : activeOrganization.role === 'operator' ? 'Operador' : 'Somente leitura';
 
+  function renderNavigationItem(item: NavigationItem, nested = false) {
+    const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+    return (
+      <Link
+        className={`nav-item ${nested ? 'nav-item-nested' : ''} ${active ? 'nav-item-active' : ''}`}
+        key={item.href}
+        href={item.href}
+        prefetch={false}
+        onClick={(event) => handleNavigationClick(event, item.href, active)}
+      >
+        <span className={`nav-icon nav-icon-${item.icon}`} aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><use href={`#icon-${item.icon}`} /></svg></span>
+        <span>{item.label}</span>
+      </Link>
+    );
+  }
+
+  function renderSection(
+    id: 'instagram' | 'twitter',
+    label: string,
+    items: NavigationItem[],
+    open: boolean,
+    setOpen: (open: boolean) => void,
+  ) {
+    return (
+      <div className="nav-section">
+        <button
+          type="button"
+          className={`nav-section-toggle ${items.some((item) => pathname.startsWith(item.href)) ? 'nav-section-current' : ''}`}
+          aria-expanded={open}
+          aria-controls={`nav-section-${id}`}
+          onClick={() => setOpen(!open)}
+        >
+          <span>{label}</span>
+          <span className={`nav-chevron ${open ? 'nav-chevron-open' : ''}`} aria-hidden="true">⌄</span>
+        </button>
+        {open && <div className="nav-section-items" id={`nav-section-${id}`}>{items.map((item) => renderNavigationItem(item, true))}</div>}
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}>
@@ -96,15 +161,10 @@ export default function AppShell({
           <div><span className="eyebrow">Athena</span><strong>Scheduler</strong></div>
         </div>
         <nav className="main-nav" aria-label="Navegação principal">
-          {navigation.map((item) => {
-            const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
-            return (
-              <Link className={`nav-item ${active ? 'nav-item-active' : ''}`} key={item.href} href={item.href} prefetch={false} onClick={(event) => handleNavigationClick(event, item.href, active)}>
-                <span className={`nav-icon nav-icon-${item.icon}`} aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><use href={`#icon-${item.icon}`} /></svg></span>
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
+          {generalNavigation.map((item) => renderNavigationItem(item))}
+          {renderSection('instagram', 'Instagram', instagramNavigation, instagramOpen, setInstagramOpen)}
+          {twitterModuleEnabled && renderSection('twitter', 'X/Twitter', twitterNavigation, twitterOpen, setTwitterOpen)}
+          {utilityNavigation.map((item) => renderNavigationItem(item))}
         </nav>
         <div className="organization-switcher sidebar-organization-switcher">
           <label htmlFor="sidebar-organization">Organização ativa</label>

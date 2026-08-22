@@ -2,10 +2,10 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T17:14:12Z / 2026-08-22T14:14:12-03:00
-- Fase: 0 — baseline e congelamento
-- Status: `completed`
-- Branch: `codex/pre-x-baseline-analytics`
+- Atualizado em: 2026-08-22T17:23:14Z / 2026-08-22T14:23:14-03:00
+- Fase: 1 — fundação modular e financeira
+- Status: `in_progress`
+- Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Commit do checkpoint validado: `41fd0c2414a46672210487e0dcee25ecc17aed82`
 - Feature flag X: ainda não criada/ativada
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Registrar esta atualização documental e abrir `codex/x-twitter-module`. Iniciar a Fase 1 por schemas/testes locais, sem aplicar migration, deploy ou restart remoto até o próximo gate.
+Criar o commit local da fundação validada. Depois, reconfirmar projeto/migrations, aplicar somente a migration 223 e executar exclusivamente o teste 223 transacional no projeto vinculado.
 
 ## Proibições imediatas
 

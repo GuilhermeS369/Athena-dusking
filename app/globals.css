@@ -32,6 +32,14 @@ button:focus-visible { outline: 3px solid var(--purple-bright); outline-offset: 
 .eyebrow, .section-kicker { display: block; color: #c79bff; font-size: 11px; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
 .brand-block strong { display: block; margin-top: 3px; font-size: 17px; }
 .main-nav { display: grid; gap: 7px; margin-top: 48px; }
+.nav-section { display: grid; gap: 5px; }
+.nav-section-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 11px 15px; border: 1px solid transparent; border-radius: 13px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 12px; font-weight: 850; letter-spacing: .08em; text-align: left; text-transform: uppercase; transition: .2s ease; }
+.nav-section-toggle:hover, .nav-section-current { border-color: var(--border); background: #171620; color: var(--text); }
+.nav-section-items { display: grid; gap: 4px; padding: 0 0 4px 9px; }
+.nav-item-nested { min-height: 39px; padding: 9px 12px; font-size: 13px; }
+.nav-item-nested .nav-icon { width: 18px; height: 18px; }
+.nav-chevron { display: inline-block; font-size: 18px; line-height: 1; transition: transform .2s ease; }
+.nav-chevron-open { transform: rotate(180deg); }
 .organization-switcher { display: grid; gap: 7px; }
 .organization-switcher label { color: var(--text-subtle); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .organization-switcher select { width: 100%; min-height: 42px; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; outline: none; }

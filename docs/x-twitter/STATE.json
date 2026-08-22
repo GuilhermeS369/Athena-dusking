@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T17:14:12Z",
-  "updatedAtSaoPaulo": "2026-08-22T14:14:12-03:00",
+  "updatedAtUtc": "2026-08-22T17:23:14Z",
+  "updatedAtSaoPaulo": "2026-08-22T14:23:14-03:00",
   "phase": {
-    "id": "00",
-    "name": "baseline-and-freeze",
-    "status": "completed",
-    "gate": "passed"
+    "id": "01",
+    "name": "foundation-and-finance",
+    "status": "in_progress",
+    "gate": "local_validation_passed_remote_pending"
   },
   "git": {
-    "branch": "codex/pre-x-baseline-analytics",
+    "branch": "codex/x-twitter-module",
     "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb",
     "checkpointCommit": "41fd0c2414a46672210487e0dcee25ecc17aed82",
     "worktreeExpectedDirty": false
@@ -35,8 +35,8 @@
     "twitterModuleEnabled": false,
     "twitterAnalyticsEnabled": false
   },
-  "lastCheckpoint": "phase-00-checkpoint-41fd0c2",
-  "nextSafeAction": "Create codex/x-twitter-module, update STATE to phase 01, then implement additive local schemas and unit tests without remote mutations.",
+  "lastCheckpoint": "phase-01-local-validation",
+  "nextSafeAction": "Commit the validated phase 01 foundation; verify project ref/migration list; push only migration 223 and run supabase/tests/223 transactionally.",
   "doNotRepeat": [
     "Do not apply migrations 210 through 222; they are already remote.",
     "Do not restart Instagram PM2 processes.",

@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 
 import AppShell from '@/app/components/app-shell';
 import { getOrganizationContext } from '@/lib/organizations/server';
+import { isTwitterModuleEnabled } from '@/lib/twitter/feature';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,11 @@ export default async function AuthenticatedPanelLayout({ children }: Readonly<{ 
   }
 
   return (
-    <AppShell organizations={context.organizations} activeOrganization={context.activeOrganization}>
+    <AppShell
+      organizations={context.organizations}
+      activeOrganization={context.activeOrganization}
+      twitterModuleEnabled={isTwitterModuleEnabled(context.activeOrganization.id)}
+    >
       {children}
     </AppShell>
   );

@@ -1,0 +1,29 @@
+function enabled(value: string | undefined) {
+  return value?.trim().toLowerCase() === 'true';
+}
+
+function parseOrganizationIds(value: string | undefined) {
+  return new Set((value ?? '').split(',').map((item) => item.trim()).filter(Boolean));
+}
+
+type TwitterFeatureEnvironment = {
+  TWITTER_MODULE_ENABLED?: string;
+  TWITTER_CANARY_ORGANIZATION_IDS?: string;
+  TWITTER_ANALYTICS_ENABLED?: string;
+};
+
+export function isTwitterModuleEnabled(
+  organizationId: string,
+  environment: TwitterFeatureEnvironment = process.env as TwitterFeatureEnvironment,
+) {
+  return enabled(environment.TWITTER_MODULE_ENABLED)
+    || parseOrganizationIds(environment.TWITTER_CANARY_ORGANIZATION_IDS).has(organizationId);
+}
+
+export function isTwitterAnalyticsEnabled(
+  organizationId: string,
+  environment: TwitterFeatureEnvironment = process.env as TwitterFeatureEnvironment,
+) {
+  return enabled(environment.TWITTER_ANALYTICS_ENABLED)
+    && parseOrganizationIds(environment.TWITTER_CANARY_ORGANIZATION_IDS).has(organizationId);
+}

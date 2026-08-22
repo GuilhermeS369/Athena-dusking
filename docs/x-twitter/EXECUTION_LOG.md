@@ -44,3 +44,28 @@ Registros são append-only.
 - Rollback: branch de baseline preservada; reverter o commit somente se houver decisão explícita, sem alterar Supabase remoto.
 - Status: `completed`.
 - Próxima ação segura: abrir `codex/x-twitter-module` e iniciar Fase 1 local/desligada.
+
+## X-0004 — início da Fase 1
+
+- UTC: 2026-08-22T17:14:58Z
+- São Paulo: 2026-08-22T14:14:58-03:00
+- Branch: `codex/x-twitter-module` a partir do baseline documentado.
+- Objetivo: fundação aditiva, financeira e desligada por flag.
+- Escopo imediato: migration 223 local, RLS, carteira/ledger/reservas, módulos puros, testes e navegação.
+- Fora do escopo: chamada Zernio, aplicação de migration, deploy Vercel ou PM2.
+- Estado remoto: inalterado; Supabase continua em 222.
+- Status: `in_progress`.
+- Próxima ação segura: escrever e validar a fundação local.
+
+## X-0005 — fundação local da Fase 1 validada
+
+- UTC: 2026-08-22T17:23:14Z
+- São Paulo: 2026-08-22T14:23:14-03:00
+- Entregas: migration 223, SQL test 223, feature flags, menu expansível e módulos puros de preço, caracteres, rotação, financiamento e resultados.
+- Testes: 149/149 Node aprovados; TypeScript aprovado; build aprovado; diff check aprovado.
+- Supabase dry-run: somente `223_twitter_module_financial_foundation.sql`; nenhuma migration enviada.
+- Avisos: Docker não está instalado localmente; por isso a validação SQL final será o teste transacional `--linked` após commit e push exclusivo da migration.
+- Vercel/VPS: sem deploy ou restart.
+- Rollback previsto: desligar flags; migration é aditiva; eventual correção de banco será forward-only.
+- Status: `in_progress`, validação local concluída.
+- Próxima ação segura: commit local e aplicação controlada da migration 223.
