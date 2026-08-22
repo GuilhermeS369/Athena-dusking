@@ -317,3 +317,20 @@ Registros são append-only.
 - Status: `in_progress`, pausado deliberadamente antes de qualquer provisionamento ou publicação.
 - Próxima ação segura: ler este registro; revisar e commitar as alterações locais; provisionar a chave por meio do serviço transacional existente, sem imprimi-la; sincronizar a conta com `analytics=false` e `inbox=false`; conferir carteira e perfil; só então iniciar o canário de texto sem URL.
 - Não repetir: não reaplicar migrations 210–240; não repetir deploy/canary env sem drift; não criar outro profile Zernio; não registrar a chave em documentação/comando versionado; não chamar post/analytics/billing; não iniciar workers antes do preflight financeiro.
+
+## X-0023 — credencial, carteira e perfil Pomodoro prontos
+
+- UTC: 2026-08-22T19:40:21Z; São Paulo: 2026-08-22T16:40:21-03:00.
+- Git: adoção segura do profile em `b7f9ad7808518537d8d6af31c05402949ac8d090`; provisionador guardado em `ed03779481f3d5057ccac8ffa2ec73a47d24f3de`; correção do retorno RPC em `50469d4e87eed009c13c9e4bde5e1176cac7014c`.
+- Primeira execução: as RPCs criaram identidade, conexão e grant, mas o utilitário parou antes do sync porque leu `id` em vez de `connectionId`. Nenhuma publicação ocorreu. Inspeção read-only mostrou uma identidade, conexão ativa, grant/ledger de 12.000.000 micros, reserva zero e nenhum perfil ainda.
+- Recuperação: leitor corrigido e commitado antes da repetição. As RPCs idempotentes reutilizaram a mesma identidade/conexão e não criaram uma segunda concessão.
+- Resultado final: profile Zernio existente adotado; uma conta vista e sincronizada; nenhuma offline; profile Athena ativo, `can_post=true`, token válido, sem reconnect e com identidade X imutável.
+- Tier: Zernio ainda retorna `unknown`; fallback conservador confirmado como Free, limite efetivo 280. Premium só será usado quando o provedor confirmar.
+- Financeiro: saldo contábil 12.000.000 micros; reservado zero; versão 1; um grant de 12.000.000; uma entrada de ledger grant; zero débitos; zero reservas abertas.
+- Segurança: credencial persistida somente cifrada; valor não documentado. Conexão ativa com `analytics=false` e `inbox=false`. A sincronização não chamou post, analytics, followers, billing ou DM.
+- Supabase: projeto `hqwhumdumfmixxbvneae`; local/remoto alinhados até 240; nenhuma migration nova.
+- Vercel/VPS: inalterados neste checkpoint. Workers X continuam `stopped`; processos Instagram não foram reiniciados.
+- Rollback: antes de qualquer post, remover/desativar a organização canário ou excluir logicamente a conexão pela rotina X; nunca apagar ledger/grant. Banco continua forward-only.
+- Status: gate de credencial/carteira/perfil `completed`; canário de publicação ainda `in_progress`.
+- Próxima ação segura: deploy do commit atual com flags globais off, smoke, depois review/confirm de um único texto sem URL; verificar reserva de 15.000 micros antes de ligar apenas o worker Twitter de publicação.
+- Não repetir: não provisionar de novo para inspeção; não criar novo profile; não chamar analytics/billing; não iniciar worker antes do item e da reserva serem auditados.

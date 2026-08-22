@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T19:27:10Z",
-  "updatedAtSaoPaulo": "2026-08-22T16:27:10-03:00",
-  "phase": { "id": "06", "name": "publication-canary", "status": "in_progress", "gate": "credential_validated_not_provisioned" },
-  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "c71fad5fba9f618e2a898373fcff89344c3281c4", "worktreeExpectedDirty": true, "uncommittedFiles": ["app/x/twitter-zernio-client.tsx", "lib/twitter/zernio-client.test.ts", "lib/twitter/zernio-client.ts", "lib/twitter/zernio-connections.ts", "docs/x-twitter/README.md", "docs/x-twitter/STATE.json", "docs/x-twitter/EXECUTION_LOG.md", "docs/x-twitter/phases/06-canary.md"], "phase05PendingCheckpointCommit": false },
+  "updatedAtUtc": "2026-08-22T19:40:21Z",
+  "updatedAtSaoPaulo": "2026-08-22T16:40:21-03:00",
+  "phase": { "id": "06", "name": "publication-canary", "status": "in_progress", "gate": "credential_and_wallet_ready" },
+  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "50469d4e87eed009c13c9e4bde5e1176cac7014c", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "240", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
     "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_FtikYGRpuBhe6NvQZbL4WzwmNerf", "productionDeploymentId": "dpl_EU8TNTWAWLGKy8GWbJUtSqZjFTPH", "rollbackDeploymentId": "dpl_Akd9xnWZxrfeZpz9XpvsA5JgZgAR", "xDeploymentCreated": true, "canaryOrganization": "Pomodoro" },
     "vps": { "hostname": "srv1881733", "release": "3f3821171839-20260822T184649Z", "sha256": "9aaf4f732665bf3b853c2296646abe9f4a21f2a113f12de4dfd3621c7b87cb33", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
-  "lastCheckpoint": "phase-06-pomodoro-key-inspected-adoption-change-uncommitted",
-  "nextSafeAction": "Read the latest EXECUTION_LOG entry, inspect and commit the four implementation files plus this documentation, then provision the already-validated dedicated Zernio key into Pomodoro using the existing transactional service. Synchronize the sole X profile with analytics=false and inbox=false. Verify a 12,000,000-micro grant, zero reservations/debits and the conservative 280-character limit before creating any canary post.",
-  "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the sole existing profile was verified as Twitter-only and the pending code safely adopts it.", "Do not repeat the Vercel canary environment/deploy step unless drift is proven.", "Do not call post, analytics or billing endpoints before provisioning and financial preflight.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
-  "blockers": ["The API key was validated read-only but has not been encrypted/persisted in Supabase, and the connected X profile has not been synchronized into twitter_profiles.", "The four profile-adoption implementation files and continuity documentation are intentionally uncommitted because the user requested an immediate stop."]
+  "lastCheckpoint": "phase-06-pomodoro-credential-wallet-profile-ready",
+  "nextSafeAction": "Deploy the current application commit with the existing Pomodoro-only canary setting and all global publication/analytics flags still false. Smoke it, then build a guarded text-only no-URL canary through review/confirm. Inspect the reservation before enabling only the Twitter publication worker in live mode for that single item.",
+  "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not call analytics or billing endpoints.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
+  "blockers": ["No publication canary has been created or sent yet. The first required gate is one unique text-only post without URL, with reservation and ledger verified end to end."]
 }

@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T19:27:10Z / 2026-08-22T16:27:10-03:00
+- Atualizado em: 2026-08-22T19:40:21Z / 2026-08-22T16:40:21-03:00
 - Fase atual: 6 — canário de publicação (`in_progress`)
-- Status: pausado por solicitação do usuário, antes do provisionamento e de qualquer publicação
+- Status: credencial, carteira e perfil canário prontos; nenhuma publicação executada
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- HEAD atual: `c71fad5fba9f618e2a898373fcff89344c3281c4`; há alterações locais intencionais e ainda não commitadas
+- Checkpoint de código atual: `50469d4e87eed009c13c9e4bde5e1176cac7014c`
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–240
 
@@ -33,13 +33,13 @@
 
 ## Próxima ação segura
 
-Revisar o último registro do `EXECUTION_LOG.md`, inspecionar e commitar o código pendente que adota com segurança o único profile Zernio exclusivamente Twitter e, só depois, provisionar de forma criptografada a chave já validada na organização Pomodoro. Sincronizar o único perfil X com `analytics=false` e `inbox=false`; conferir grant de 12.000.000 micros, zero reservas/débitos e limite conservador de 280 antes de criar o primeiro post canário.
+Implantar o checkpoint atual mantendo publicação e analytics desligados, executar smoke e então criar um único canário de texto sem URL pelo fluxo review/confirm. Conferir a reserva de 15.000 micros antes de ligar somente o worker Twitter de publicação em live para esse item.
 
 ## Proibições imediatas
 
 - Não rodar `git reset --hard`, checkout destrutivo ou limpeza recursiva.
 - Não reaplicar migrações 210–222: elas já constam no remoto.
-- Não repetir a descoberta da credencial nem expor a chave fornecida no chat; ela ainda não foi persistida.
+- Não repetir o provisionamento apenas para conferir estado nem expor a chave fornecida no chat; ela já foi persistida cifrada.
 - Não criar um segundo profile Zernio: o único profile existente foi confirmado como exclusivamente Twitter.
 - Não publicar secrets ou conteúdo de `.env*`.
 - Não reiniciar processos PM2 do Instagram.
