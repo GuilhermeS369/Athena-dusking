@@ -236,3 +236,15 @@ Registros são append-only.
 - Status: implementação shadow `completed`; instalação PM2 fica para a preparação de rollout.
 - Próxima ação segura: adaptador live com mocks e depois deploy desabilitado. Não publicar sem credencial dedicada e gate canário.
 - Não repetir: não reaplicar 229–232; não cancelar programa quando a intenção for item; não reclassificar `outcome_unknown` sem evidência e justificativa.
+
+## X-0018 — preparação do canário sem chamada real
+
+- UTC: 2026-08-22T18:20:24Z; São Paulo: 2026-08-22T15:20:24-03:00.
+- Contrato oficial reconferido: `POST /v1/posts`, `publishNow`, `platform=twitter`, `accountId` e `mediaItems`; webhook usa HMAC-SHA256 do corpo bruto e event ID estável.
+- Código: adaptador X, claim live enriquecido, decriptação somente no worker, classificação de 2xx/4xx/429/5xx/timeout/existingPost, assinatura e persistência de webhooks.
+- Migrations: 233 aplicada; primeiro teste encontrou conta Zernio na época, não no perfil estável; 234 corrigiu forward-only. Não reaplicar ambas.
+- Testes: Node 161/161; webhook SQL 7/7 com rollback; TypeScript e diff check aprovados.
+- Segurança: nenhuma chave real lida; valor cifrado só é entregue ao worker autenticado em live; webhook rejeita assinatura ausente/inválida; payload persistido é sanitizado.
+- Vercel/VPS: inalterados. Flags off e modo padrão shadow.
+- Status: preparação concluída; gate bloqueado por ausência de API key X dedicada cadastrada por admin.
+- Próxima ação segura: implementar análises manuais; não executar a ordem do canário até a credencial existir.

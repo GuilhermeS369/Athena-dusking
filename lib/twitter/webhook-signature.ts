@@ -1,0 +1,2 @@
+import{createHmac,timingSafeEqual}from'node:crypto';
+export function verifyTwitterZernioWebhook(raw:string,signature:string|null,secret=process.env.TWITTER_ZERNIO_WEBHOOK_SECRET){if(!secret||!signature||!/^[a-f0-9]{64}$/i.test(signature))return false;const expected=createHmac('sha256',secret).update(raw).digest();const supplied=Buffer.from(signature,'hex');return supplied.length===expected.length&&timingSafeEqual(supplied,expected);}

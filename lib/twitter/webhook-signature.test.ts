@@ -1,0 +1,2 @@
+import assert from'node:assert/strict';import{createHmac}from'node:crypto';import test from'node:test';import{verifyTwitterZernioWebhook}from'./webhook-signature.ts';
+test('webhook X exige HMAC SHA-256 do corpo bruto',()=>{const raw='{"id":"event-1"}',secret='test-secret',signature=createHmac('sha256',secret).update(raw).digest('hex');assert.equal(verifyTwitterZernioWebhook(raw,signature,secret),true);assert.equal(verifyTwitterZernioWebhook(raw+'x',signature,secret),false);assert.equal(verifyTwitterZernioWebhook(raw,null,secret),false);});

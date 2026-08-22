@@ -4,6 +4,7 @@ export type TwitterZernioError = Error & {
   requestId?: string | null;
   retryAfterSeconds?: number | null;
   details?: unknown;
+  existingPostId?: string | null;
 };
 
 export type TwitterZernioAccount = {
@@ -81,6 +82,9 @@ async function readResponse(response: Response) {
   const retryAfter = Number.parseInt(response.headers.get('retry-after') ?? '', 10);
   error.retryAfterSeconds = Number.isFinite(retryAfter) ? retryAfter : null;
   error.details = payload.details ?? nested.details;
+  const details = object(error.details);
+  error.existingPostId = [payload.existingPostId, nested.existingPostId, details.existingPostId]
+    .find((value): value is string => typeof value === 'string' && value.trim().length > 0) ?? null;
   throw error;
 }
 
@@ -155,6 +159,12 @@ export function createTwitterZernioClient(apiKey: string, options: ClientOptions
     },
     async validatePostLength(body: unknown) {
       return request('/v1/validate/post-length', { body });
+    },
+    async createPost(body: unknown, idempotencyKey: string) {
+      return request('/v1/posts', { body, idempotencyKey }) as Promise<{ post?: Record<string, unknown>; existingPost?: Record<string, unknown> }>;
+    },
+    async getPost(postId: string) {
+      return request(`/v1/posts/${encodeURIComponent(postId)}`) as Promise<{ post?: Record<string, unknown> }>;
     },
   };
 }

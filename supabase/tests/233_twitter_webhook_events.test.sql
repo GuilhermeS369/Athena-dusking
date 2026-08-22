@@ -1,0 +1,12 @@
+begin;create extension if not exists pgtap with schema extensions;select extensions.plan(7);set local role service_role;select set_config('request.jwt.claim.role','service_role',true);
+select extensions.has_table('public','twitter_zernio_webhook_events','eventos webhook X existem');
+select public.twitter_apply_zernio_post_webhook('event-233-ignored','post.scheduled','post-233','account-233','accepted','{}');
+select extensions.is((select status from public.twitter_zernio_webhook_events where event_id='event-233-ignored'),'ignored','evento não terminal é ignorado e persistido');
+select public.twitter_apply_zernio_post_webhook('event-233-ignored','post.scheduled','post-233','account-233','accepted','{}');
+select extensions.is((select count(*)::bigint from public.twitter_zernio_webhook_events where event_id='event-233-ignored'),1::bigint,'redelivery é idempotente');
+select public.twitter_apply_zernio_post_webhook('event-233-unmatched','post.platform.published','post-233','account-233','published','{}');
+select extensions.is((select status from public.twitter_zernio_webhook_events where event_id='event-233-unmatched'),'unmatched','terminal sem tentativa fica auditável');
+select extensions.throws_ok($$update public.twitter_zernio_webhook_events set status='ignored'$$,'55000','Registro financeiro imutável.','evento é imutável');
+select extensions.ok(not has_function_privilege('authenticated','public.twitter_apply_zernio_post_webhook(text,text,text,text,twitter_financial_resolution,jsonb)','EXECUTE'),'cliente não processa webhook');
+select extensions.is((select count(*)::bigint from pg_constraint c join pg_class t on t.oid=c.conrelid join pg_class f on f.oid=c.confrelid where t.relname like 'twitter_%'and f.relname in('instagram_profiles','publication_items')),0::bigint,'sem FK Instagram');
+select jsonb_build_object('finish',(select jsonb_agg(v)from extensions.finish()v),'events',(select count(*)from public.twitter_zernio_webhook_events))diagnostics;rollback;

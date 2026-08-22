@@ -1,0 +1,18 @@
+create table public.twitter_zernio_webhook_events(
+  event_id text primary key check(char_length(event_id) between 8 and 255),event_name text not null,
+  zernio_post_id text,account_id text,resolution public.twitter_financial_resolution,
+  status text not null check(status in('processed','ignored','unmatched')),attempt_id uuid references public.twitter_publication_attempts(id) on delete restrict,
+  evidence jsonb not null default '{}',received_at timestamptz not null default timezone('utc',now())
+);
+create trigger twitter_webhook_events_immutable before update or delete on public.twitter_zernio_webhook_events for each row execute function public.prevent_twitter_immutable_mutation();
+create or replace function public.twitter_apply_zernio_post_webhook(p_event_id text,p_event_name text,p_zernio_post_id text,p_account_id text,p_resolution public.twitter_financial_resolution,p_evidence jsonb default '{}')returns jsonb language plpgsql security definer set search_path=public as $$
+declare attempt_row public.twitter_publication_attempts;result jsonb;
+begin if coalesce(auth.role(),'')<>'service_role'then raise exception using errcode='42501';end if;
+if exists(select 1 from public.twitter_zernio_webhook_events where event_id=p_event_id)then return jsonb_build_object('idempotentReplay',true);end if;
+if p_event_name not in('post.platform.published','post.platform.failed')then insert into public.twitter_zernio_webhook_events(event_id,event_name,zernio_post_id,account_id,status,evidence)values(p_event_id,p_event_name,p_zernio_post_id,p_account_id,'ignored',coalesce(p_evidence,'{}'));return jsonb_build_object('ignored',true);end if;
+select a.* into attempt_row from public.twitter_publication_attempts a join public.twitter_publication_items i on i.id=a.item_id join public.twitter_profiles p on p.id=i.profile_id where a.post_id=p_zernio_post_id and p.zernio_account_id=p_account_id order by a.created_at desc limit 1 for update of a;
+if not found then insert into public.twitter_zernio_webhook_events(event_id,event_name,zernio_post_id,account_id,resolution,status,evidence)values(p_event_id,p_event_name,p_zernio_post_id,p_account_id,p_resolution,'unmatched',coalesce(p_evidence,'{}'));return jsonb_build_object('unmatched',true);end if;
+result:=public.twitter_resolve_publication_attempt(attempt_row.id,p_resolution,'webhook:'||p_event_id,200,p_event_name,p_event_id,p_zernio_post_id,null,'Resultado terminal recebido por webhook Zernio.',coalesce(p_evidence,'{}'),false,null,null,null);
+insert into public.twitter_zernio_webhook_events(event_id,event_name,zernio_post_id,account_id,resolution,status,attempt_id,evidence)values(p_event_id,p_event_name,p_zernio_post_id,p_account_id,p_resolution,'processed',attempt_row.id,coalesce(p_evidence,'{}'));return result;
+end$$;
+alter table public.twitter_zernio_webhook_events enable row level security;revoke all on table public.twitter_zernio_webhook_events from anon,authenticated;grant select,insert on public.twitter_zernio_webhook_events to service_role;revoke all on function public.twitter_apply_zernio_post_webhook(text,text,text,text,public.twitter_financial_resolution,jsonb)from public,anon,authenticated;grant execute on function public.twitter_apply_zernio_post_webhook(text,text,text,text,public.twitter_financial_resolution,jsonb)to service_role;
