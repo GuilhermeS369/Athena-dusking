@@ -2,14 +2,14 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T23:27:00Z / 2026-08-22T20:27:00-03:00
+- Atualizado em: 2026-08-22T23:29:40Z / 2026-08-22T20:29:40-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `dc99775` (segredos e kill switches independentes); Production/VPS off validados
 - Feature flag X: criada e desligada
-- Mutação remota feita pelo módulo X: migrations aditivas 223–240
+- Mutação remota feita pelo módulo X: migrations aditivas 223–241
 
 ## Leitura obrigatória para continuar
 
@@ -23,7 +23,7 @@
 ## Baseline conhecido
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
-- Migrações local/remoto alinhadas até 240.
+- Migrações local/remoto alinhadas até 241.
 - Testes atuais: 183/183 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Consolidar a correção local de revisão limitada por saldo e envio único por perfil; aplicar/testar a migration 241 com o módulo off. Depois continuar a auditoria final. Não ativar cron, fallback live ou rollout antes do analytics HTTP 200.
+Continuar a auditoria final requisito por requisito; a revisão limitada por saldo e o envio único por perfil já foram aplicados/testados. Não ativar cron, fallback live ou rollout antes do analytics HTTP 200.
 
 ## Proibições imediatas
 
@@ -49,4 +49,4 @@ Consolidar a correção local de revisão limitada por saldo e envio único por 
 
 - Vercel: sete segredos por função configurados separadamente; Production `dpl_soJv1T88XQ2iCmLFtW1fzw4jQLZu` `READY`, alias oficial, todos os flags mutáveis off e segredo genérico legado removido. Preview final `dpl_95mw9RpuRp7aZ1gX1CSS1SUYfDiH` `READY`.
 - VPS: release `dc997750ddc2-20260822T231419Z`, hash `4bb116e2660be97c6d7f440363196da4b4313bb6e38c74bf5184375dd09b3f57`; cinco processos X apontam para ele e estão `stopped`; segredo genérico removido; seis processos existentes continuam `online` com os PIDs preservados.
-- Supabase: migrations 223–240 alinhadas; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.
+- Supabase: migrations 223–241 alinhadas; teste 241 5/5 com rollback; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.

@@ -736,3 +736,15 @@ Registros são append-only.
 - Ambientes remotos: ainda não alterados neste registro; Production X off, cinco workers X stopped, Supabase remoto até 240.
 - Rollback: reverter somente esta unidade local antes da migration; depois da aplicação, correção de banco apenas forward-only. Nenhum saldo/fila remota foi alterado.
 - Próxima ação segura: commit, dry-run/push da migration 241, teste SQL e reconferência dos invariantes financeiros.
+
+## X-0060 — migration 241 aplicada e validada sem alterar a fila
+
+- UTC: 2026-08-22T23:29:40Z; São Paulo: 2026-08-22T20:29:40-03:00.
+- Commit de origem: `0497382bc1fa4ab7512203d7ff402b676b05ce5b`; 183/183 testes, TypeScript, build e diff check aprovados antes do push.
+- Preflight: `supabase db push --linked --dry-run` listou exclusivamente `241_twitter_one_active_send_per_profile.sql`; projeto confirmado `hqwhumdumfmixxbvneae`; flags/workers X off.
+- Aplicação: migration 241 concluída; local/remoto alinhados 1–241. Índice único e claim abrangem `claimed`, `processing` e `outcome_unknown`; retry futuro tem prioridade no perfil.
+- Teste SQL: a primeira forma do teste falhou apenas por padrões textuais de `pg_get_functiondef`; diagnóstico explícito confirmou índice/permissão e orientou padrões normalizados. Execução final 5/5, sempre dentro de `BEGIN/ROLLBACK`.
+- Pós-auditoria: fila publicação não terminal 0, holds 0, attempts publicação 6; analytics não terminal 0, attempts 3, snapshots 0; wallet 11.725.000/0 versão 21. Nenhum dado de teste residual.
+- Instagram/VPS/Vercel: não alterados nesta etapa; cinco X stopped, Production off.
+- Rollback: manter flags off; qualquer correção futura de banco é forward-only, sem apagar a migration 241 ou recriar o índice antigo.
+- Próxima ação segura: continuar auditoria final de logs, filtros analytics e completude operacional.

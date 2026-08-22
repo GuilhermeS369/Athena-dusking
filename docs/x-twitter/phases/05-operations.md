@@ -28,4 +28,4 @@ Status: `completed`
 
 Adaptador Zernio live com fetch simulado. Canário real somente após API key X dedicada inserida por admin.
 
-Auditoria final em 22/08/2026 detectou que o lock original abrangia somente `claimed`. A migration 241 pendente amplia o índice/claim para `claimed`, `processing` e `outcome_unknown`, além de priorizar retry futuro para impedir que outro item fure o backoff do perfil. Código/testes locais aprovados; aplicação remota exige checkpoint e teste SQL transacional.
+Auditoria final em 22/08/2026 detectou que o lock original abrangia somente `claimed`. A migration 241 ampliou o índice/claim para `claimed`, `processing` e `outcome_unknown`, além de priorizar retry futuro para impedir que outro item fure o backoff do perfil. Dry-run listou somente 241; aplicação remota aprovada; teste SQL transacional 5/5 e invariantes financeiros antes/depois idênticos.

@@ -1,10 +1,11 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 select extensions.plan(5);
-select extensions.has_index('public','twitter_publication_items','twitter_one_active_send_per_profile_idx','índice de envio ativo por perfil existe');
-select extensions.ok((select pg_get_indexdef(indexrelid) like '%claimed%processing%outcome_unknown%' from pg_index where indexrelid='public.twitter_one_active_send_per_profile_idx'::regclass),'índice cobre claimed, processing e outcome_unknown');
-select extensions.ok((select pg_get_functiondef('public.twitter_claim_publication_items(text,integer)'::regprocedure) like '%active_item.status in (''claimed'', ''processing'', ''outcome_unknown'')%'),'claim bloqueia perfil com envio ativo ou incerto');
-select extensions.ok((select pg_get_functiondef('public.twitter_claim_publication_items(text,integer)'::regprocedure) like '%case%first_item.status%retry%'),'retry futuro preserva o backoff do perfil');
-select extensions.ok(not has_function_privilege('authenticated','public.twitter_claim_publication_items(text,integer)','EXECUTE'),'claim continua restrito ao service role');
-select * from extensions.finish();
+create temporary table twitter_241_results(result text) on commit drop;
+insert into twitter_241_results select extensions.has_index('public','twitter_publication_items','twitter_one_active_send_per_profile_idx','índice de envio ativo por perfil existe');
+insert into twitter_241_results select extensions.ok((select pg_get_indexdef(indexrelid) like '%claimed%processing%outcome_unknown%' from pg_index where indexrelid='public.twitter_one_active_send_per_profile_idx'::regclass),'índice cobre claimed, processing e outcome_unknown');
+insert into twitter_241_results select extensions.ok((select definition like '%active_item.status%' and definition like '%claimed%' and definition like '%processing%' and definition like '%outcome_unknown%' from(select lower(pg_get_functiondef('public.twitter_claim_publication_items(text,integer)'::regprocedure))definition)source),'claim bloqueia perfil com envio ativo ou incerto');
+insert into twitter_241_results select extensions.ok((select definition like '%case%' and definition like '%first_item.status%' and definition like '%retry%' and strpos(definition,'case')<strpos(definition,'coalesce(first_item.next_attempt_at') from(select lower(pg_get_functiondef('public.twitter_claim_publication_items(text,integer)'::regprocedure))definition)source),'retry futuro preserva o backoff do perfil');
+insert into twitter_241_results select extensions.ok(not has_function_privilege('authenticated','public.twitter_claim_publication_items(text,integer)','EXECUTE'),'claim continua restrito ao service role');
+select jsonb_build_object('results',(select jsonb_agg(result)from twitter_241_results),'finish',(select jsonb_agg(value)from extensions.finish()value))diagnostics;
 rollback;
