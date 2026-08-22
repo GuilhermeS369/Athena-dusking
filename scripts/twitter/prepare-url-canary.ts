@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 
 import { createSupabaseAdminClient } from '../../lib/supabase/admin';
 import { confirmTwitterBulkReview, prepareTwitterBulkReview, type TwitterBulkRequest } from '../../lib/twitter/bulk-service';
+import { twitterReviewDigest } from '../../lib/twitter/review-token';
 
 function required(name: string) {
   const value = process.env[name]?.trim();
@@ -34,7 +35,11 @@ async function main() {
   const review = await prepareTwitterBulkReview(organizationId, request);
   const reviewedItem = review.items[0];
   if (review.totalRequested !== 1 || review.fundedCount !== 1 || review.unfundedCount !== 0 || review.reservedMicros !== 200_000 || reviewedItem?.category !== 'post_create_url' || reviewedItem?.amount_micros !== 200_000) throw new Error('Review não classificou URL com custo total de 200.000 micros.');
-  const confirmed = await confirmTwitterBulkReview({ organizationId, actorUserId: membership.user_id, request, reviewToken: review.reviewToken, idempotencyKey: `twitter-canary-url-${randomUUID()}` }) as Record<string, unknown>;
+  const verification = await prepareTwitterBulkReview(organizationId, request);
+  const firstItem = review.items[0] ?? {}; const secondItem = verification.items[0] ?? {};
+  const changedFields = [...new Set([...Object.keys(firstItem), ...Object.keys(secondItem)])].filter((field) => twitterReviewDigest(firstItem[field]) !== twitterReviewDigest(secondItem[field]));
+  if (changedFields.length) throw new Error(`Materialização URL instável antes da confirmação: ${changedFields.join(',')}`);
+  const confirmed = await confirmTwitterBulkReview({ organizationId, actorUserId: membership.user_id, request, reviewToken: verification.reviewToken, idempotencyKey: `twitter-canary-url-${randomUUID()}` }) as Record<string, unknown>;
   const programId = String(confirmed.programId ?? '');
   const [{ data: items }, { data: wallet }, { data: reservations }] = await Promise.all([
     admin.from('twitter_publication_items').select('id,status,execute_at,category,amount_micros,attempt_count,media_set_client_key').eq('program_id', programId),

@@ -15,6 +15,18 @@ test('URLs contam 23 caracteres independentemente do tamanho', () => {
   assert.equal(containsHttpUrl('HTTPS://EXAMPLE.COM/teste'), true);
 });
 
+test('contagem de URL permanece determinística entre revisões consecutivas', () => {
+  const content = 'Canário https://example.com/caminho-muito-longo';
+  const first = countTwitterWeightedCharacters(content);
+  assert.equal(containsHttpUrl(content), true);
+  assert.equal(countTwitterWeightedCharacters(content), first);
+  assert.deepEqual(getTwitterCreatePrice(content), {
+    category: 'post_create_url',
+    amountMicros: TWITTER_RATE_MICROS.postCreateWithUrl,
+  });
+  assert.equal(countTwitterWeightedCharacters(content), first);
+});
+
 test('emoji simples e composto contam duas unidades cada', () => {
   assert.equal(countTwitterWeightedCharacters('A😀B'), 4);
   assert.equal(countTwitterWeightedCharacters('👨‍👩‍👧‍👦'), 2);

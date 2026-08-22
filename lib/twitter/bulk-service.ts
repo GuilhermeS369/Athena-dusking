@@ -30,8 +30,30 @@ export async function prepareTwitterBulkReview(organizationId:string,input:Twitt
 export async function confirmTwitterBulkReview(input:{organizationId:string;actorUserId:string;request:TwitterBulkRequest;reviewToken:string;idempotencyKey:string}){
   const token=verifyTwitterReviewToken(input.reviewToken); if(token.organizationId!==input.organizationId) throw new Error('A revisão não corresponde à organização ativa.');
   const review=await prepareTwitterBulkReview(input.organizationId,input.request);
-  if(token.requestDigest!==twitterReviewDigest(review.normalized)||token.reviewDigest!==review.reviewDigest||token.rateCardVersion!==review.rateCardVersion||twitterReviewDigest(token.walletSnapshots)!==twitterReviewDigest(review.walletSnapshots)){const error=new Error('Saldo, perfis ou preços mudaram. Revise novamente.') as Error&{status?:number}; error.status=409; throw error;}
+  const reviewDrift = {
+    request: token.requestDigest!==twitterReviewDigest(review.normalized),
+    review: token.reviewDigest!==review.reviewDigest,
+    rateCard: token.rateCardVersion!==review.rateCardVersion,
+    wallet: twitterReviewDigest(token.walletSnapshots)!==twitterReviewDigest(review.walletSnapshots),
+  };
+  if(Object.values(reviewDrift).some(Boolean)){
+    const fields=Object.entries(reviewDrift).filter(([,changed])=>changed).map(([field])=>field).join(',');
+    const error=new Error(`Saldo, perfis ou preços mudaram. Revise novamente. [review_drift:${fields}]`) as Error&{status?:number;code?:string};
+    error.status=409; error.code='TWITTER_REVIEW_DRIFT'; throw error;
+  }
   const program={scheduleKind:input.request.schedule.kind,startsAt:review.slots[0],endsAt:review.slots.at(-1),intervalMinutes:input.request.schedule.kind==='interval'?input.request.schedule.intervalMinutes:null,dailyTime:input.request.schedule.kind==='daily'?input.request.schedule.dailyTime:null,totalRequested:review.totalRequested,unfundedCount:review.unfundedCount};
   const admin=createSupabaseAdminClient(); const {data,error}=await admin.rpc('twitter_confirm_bulk_program',{p_organization_id:input.organizationId,p_actor_user_id:input.actorUserId,p_idempotency_key:input.idempotencyKey,p_review_digest:review.reviewDigest,p_rate_card_version:review.rateCardVersion,p_wallet_snapshots:review.walletSnapshots,p_program:program,p_texts:review.texts.map(t=>({text_index:t.textIndex,content:t.content,weighted_characters:t.weightedCharacters,contains_url:t.containsUrl})),p_media_sets:input.request.mediaSets.map((set,index)=>({clientKey:set.clientKey,setIndex:index,mediaKind:set.mediaKind,assetIds:set.assetIds})),p_items:review.items,p_shortfalls:review.shortfalls});
-  if(error){const wrapped=new Error(error.message.includes('revise novamente')?'Saldo, perfis ou preços mudaram. Revise novamente.':'Não foi possível confirmar o programa X.') as Error&{status?:number}; if(error.code==='40001')wrapped.status=409; throw wrapped;} return data;
+  if(error){
+    const conflicts:Record<string,string>={
+      'Tabela de preços mudou; revise novamente.':'rate_card_changed',
+      'Saldo ou reservas mudaram; revise novamente.':'wallet_changed',
+      'Perfil ou conexão mudou; revise novamente.':'profile_connection_changed',
+      'Saldo insuficiente após concorrência; revise novamente.':'insufficient_after_concurrency',
+    };
+    const conflictCode=conflicts[error.message];
+    const wrapped=new Error(conflictCode?`Saldo, perfis ou preços mudaram. Revise novamente. [database_conflict:${conflictCode}]`:'Não foi possível confirmar o programa X.') as Error&{status?:number;code?:string};
+    if(error.code==='40001')wrapped.status=409;
+    if(conflictCode)wrapped.code='TWITTER_CONFIRM_CONFLICT';
+    throw wrapped;
+  } return data;
 }

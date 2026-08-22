@@ -14,7 +14,8 @@ export type TwitterPriceCategory =
   | 'post_dm_create'
   | 'post_create_url';
 
-const URL_PATTERN = /https?:\/\/[^\s]+/giu;
+const URL_MATCH_PATTERN = /https?:\/\/[^\s]+/giu;
+const URL_TEST_PATTERN = /https?:\/\/[^\s]+/iu;
 const EMOJI_PATTERN = /\p{Extended_Pictographic}/u;
 
 function countPlainTextUnits(value: string) {
@@ -32,7 +33,7 @@ export function countTwitterWeightedCharacters(content: string) {
   let total = 0;
   let cursor = 0;
 
-  for (const match of content.matchAll(URL_PATTERN)) {
+  for (const match of content.matchAll(URL_MATCH_PATTERN)) {
     const index = match.index ?? cursor;
     total += countPlainTextUnits(content.slice(cursor, index));
     total += 23;
@@ -43,8 +44,7 @@ export function countTwitterWeightedCharacters(content: string) {
 }
 
 export function containsHttpUrl(content: string) {
-  URL_PATTERN.lastIndex = 0;
-  return URL_PATTERN.test(content);
+  return URL_TEST_PATTERN.test(content);
 }
 
 export function getTwitterCreatePrice(content: string): {
