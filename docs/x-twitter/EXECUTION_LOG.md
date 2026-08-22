@@ -347,3 +347,15 @@ Registros são append-only.
 - Rollback Vercel: `dpl_EU8TNTWAWLGKy8GWbJUtSqZjFTPH`.
 - Status: deploy gate `completed`; publicação real ainda não iniciada.
 - Próxima ação segura: review/confirm de exatamente um texto único sem URL, com workers parados; auditar item e reserva de 15.000 micros.
+
+## X-0025 — primeiro item texto confirmado com worker parado
+
+- UTC: 2026-08-22T19:45:36Z; São Paulo: 2026-08-22T16:45:36-03:00.
+- Utilitário guardado: `24627ab200824d6f1fd6b3871e7ddc575aac21d6`; recusa se já houver programa/item e exige exatamente um perfil ativo.
+- Programa: `1d3d9013-4cf6-484e-8596-4552c1623636`; item: `e5388d6a-82ce-45e7-81a3-27b37adc643b`; execução: 2026-08-22T20:05:00Z.
+- Conteúdo: texto técnico único, sem URL e abaixo de 280 caracteres; nenhuma mídia.
+- Review/confirm: um solicitado, um financiado, zero excedente; categoria `post_dm_create`, custo 15.000 micros.
+- Pós-confirmação: item `ready`, attempt count 0; reserva `open` com 15.000 restante, zero liquidado/liberado; wallet 12.000.000 contábil, 15.000 reservado, versão 2.
+- Execução: flags live ainda false; cinco workers X permanecem parados; nenhuma chamada `/v1/posts` ocorreu.
+- Rollback antes do claim: cancelamento idempotente do item libera a reserva original; não criar crédito.
+- Próxima ação segura: preflight read-only; habilitar publicação live somente em Production e no shared env VPS; iniciar apenas o worker X de publicação; monitorar e parar após resultado.

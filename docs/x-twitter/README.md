@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T19:43:52Z / 2026-08-22T16:43:52-03:00
+- Atualizado em: 2026-08-22T19:45:36Z / 2026-08-22T16:45:36-03:00
 - Fase atual: 6 — canário de publicação (`in_progress`)
-- Status: credencial, carteira e perfil canário prontos; nenhuma publicação executada
+- Status: primeiro item texto sem URL confirmado e reservado; worker ainda parado, nenhuma publicação executada
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `50469d4e87eed009c13c9e4bde5e1176cac7014c`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Criar um único canário de texto sem URL pelo fluxo review/confirm. Conferir um item em fila e reserva exata de 15.000 micros antes de ligar somente o worker Twitter de publicação em live para esse item.
+Reconfirmar o item único `ready`, zero tentativas e reserva de 15.000 micros; habilitar live somente em Production/VPS e iniciar apenas `athena-twitter-publication-worker`. Parar o worker imediatamente após o resultado.
 
 ## Proibições imediatas
 

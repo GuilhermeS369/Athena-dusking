@@ -15,3 +15,5 @@ A chave foi cifrada/persistida no Supabase e o profile existente foi sincronizad
 O primeiro utilitário de provisionamento parou após as RPCs porque esperava `id`, enquanto a RPC retorna `connectionId`. A inspeção read-only confirmou estado parcial íntegro; o leitor foi corrigido em `50469d4`. A repetição idempotente não criou outro grant e concluiu a sincronização. Próximo gate: deploy do código atual ainda com flags globais off e criação de um único item texto sem URL por review/confirm.
 
 Deploy atual concluído com flags globais off: Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production `dpl_DiBtbGFbYLsNpEA5GpMCWNbLN5W7`, ambos `READY`. Smoke em ambos: login 200, `/x/zernio` sem sessão 307 e heartbeat POST sem segredo 401. O GET do heartbeat retorna 405 por método, como esperado. Nenhum worker foi iniciado.
+
+Primeiro item preparado para 2026-08-22T20:05:00Z: programa `1d3d9013-4cf6-484e-8596-4552c1623636`, item `e5388d6a-82ce-45e7-81a3-27b37adc643b`. Um slot financiado, zero excedente, categoria `post_dm_create`, 15.000 micros reservados, zero tentativas. Carteira: 12.000.000 contábil, 15.000 reservado, versão 2. Flags live ainda off e workers parados.

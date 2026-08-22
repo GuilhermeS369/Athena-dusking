@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T19:43:52Z",
-  "updatedAtSaoPaulo": "2026-08-22T16:43:52-03:00",
-  "phase": { "id": "06", "name": "publication-canary", "status": "in_progress", "gate": "credential_and_wallet_ready" },
+  "updatedAtUtc": "2026-08-22T19:45:36Z",
+  "updatedAtSaoPaulo": "2026-08-22T16:45:36-03:00",
+  "phase": { "id": "06", "name": "publication-canary", "status": "in_progress", "gate": "text_item_reserved_worker_stopped" },
   "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "50469d4e87eed009c13c9e4bde5e1176cac7014c", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "240", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
@@ -10,8 +10,8 @@
     "vps": { "hostname": "srv1881733", "release": "3f3821171839-20260822T184649Z", "sha256": "9aaf4f732665bf3b853c2296646abe9f4a21f2a113f12de4dfd3621c7b87cb33", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
-  "lastCheckpoint": "phase-06-current-app-deployed-flags-off",
-  "nextSafeAction": "Build a guarded text-only no-URL canary through the existing review/confirm services for exactly one active profile. Inspect that it created one queued item and exactly 15,000 micros of reservation while all Twitter workers remain stopped. Do not enable live until this checkpoint is documented.",
+  "lastCheckpoint": "phase-06-text-no-url-confirmed-and-reserved",
+  "nextSafeAction": "Reconfirm the single item is still ready with zero attempts and 15,000 micros reserved. Set TWITTER_PUBLICATION_WORKER_ENABLED=true and TWITTER_PUBLICATION_MODE=live only in Production, update the validated VPS Twitter shared env to the same values, and start only athena-twitter-publication-worker. Monitor the one item through due time; stop that worker immediately after a terminal or unknown result.",
   "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not call analytics or billing endpoints.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
-  "blockers": ["No publication canary has been created or sent yet. The first required gate is one unique text-only post without URL, with reservation and ledger verified end to end."]
+  "blockers": ["The text-only item is funded and scheduled but not sent. Live flags are still false and all Twitter workers are stopped."]
 }
