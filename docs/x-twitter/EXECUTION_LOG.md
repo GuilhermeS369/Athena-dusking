@@ -661,3 +661,16 @@ Registros são append-only.
 - Estado remoto preservado: nenhuma nova chamada Supabase/Zernio, nenhuma alteração Vercel/VPS e nenhum processo Instagram reiniciado nesta etapa.
 - Rollback: reverter a correção da rota e seu teste; não há migração, cron ou dado remoto associado.
 - Próxima ação segura: consolidar o checkpoint Git e implementar o endpoint autenticado/read-only de saúde do rollout com todas as flags de mutação desligadas.
+
+## X-0054 — saúde read-only do rollout aprovada em Preview seguro
+
+- UTC: 2026-08-22T22:32:36Z; São Paulo: 2026-08-22T19:32:36-03:00.
+- Implementação: `GET /api/internal/twitter-rollout-health` autenticado agrega somente `twitter_*`; não contém RPC, insert, update, delete ou upsert. Não retorna IDs de tenant, perfil ou conta.
+- Cobertura: fila publicação/analytics, holds/reservas incertas, 429 em 24h, wallets em micros/piso protegido, workers esperados/stale e breakers persistentes.
+- Segurança do Preview: validador gera segredo efêmero, força módulo/publicação/geração/sync/analytics/fallback/live para false e não executa claim. Smoke não autenticado retornou `401`.
+- Preview final: `dpl_8M49y4r42PvVXJD2E9hCSBmmWCsc`, `READY`, URL `https://pomodoro-3o8tbywqd-shoows-projects-2caaf9e9.vercel.app`. Resultado autenticado `ok`: filas, holds, unknowns, 429 e sinais zerados; wallet 11.725.000/0 micros.
+- Desvio recuperado: Windows PowerShell legado não suportou o gerador estático e depois classificou stderr informativo da Vercel como erro; validadores passaram a usar `Create/GetBytes` e captura compatível. Um deploy reportou `fetch failed` após compilar, mas foi confirmado `READY`; a execução final distinta aprovou integralmente.
+- Ambientes: Production inalterada em `dpl_7T2ctsRQFrSrDqSLBCuYtqSqXY6y`; Supabase 1–240 alinhado; VPS com 42 GB livres/2.932 MB disponíveis, cinco X stopped e seis existentes online. Nenhum cron ou worker foi ativado.
+- Testes: 175/175, TypeScript, build e `git diff --check` aprovados. Warnings metadata preexistentes permanecem fora do escopo.
+- Rollback: manter flags off e Production atual; remover rota/helper/teste/variável/validador. Nenhuma migração ou alteração de dados foi criada pela unidade.
+- Próxima ação segura: auditar enforcement da organização canário e preparar checklist progressivo final, sem habilitar rollout antes do gate HTTP 200 de analytics.

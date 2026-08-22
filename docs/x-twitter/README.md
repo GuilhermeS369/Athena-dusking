@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T22:21:24Z / 2026-08-22T19:21:24-03:00
+- Atualizado em: 2026-08-22T22:32:36Z / 2026-08-22T19:32:36-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
-- Status: analytics bloqueada no HTTP 202 da Zernio; fallback Vercel exclusivo aprovado em shadow e restaurado para off
+- Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint de código atual: `168dbd7` (fallback guardado); correção direct-RPC validada aguardando o commit deste checkpoint
+- Checkpoint de código atual: `dbcf77c` (fallback shadow guardado); endpoint de saúde validado aguardando o commit deste checkpoint
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–240
 
@@ -24,7 +24,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 240.
-- Testes atuais: 171/171 aprovados.
+- Testes atuais: 175/175 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Implementar o endpoint read-only de saúde do rollout. Não adicionar cron, habilitar fallback live ou liberar organizações enquanto a Zernio não entregar analytics HTTP 200.
+Auditar o controle de ativação progressiva por organização e preparar o checklist final de rollout sem ativá-lo. Não adicionar cron, habilitar fallback live ou liberar organizações enquanto a Zernio não entregar analytics HTTP 200.
 
 ## Proibições imediatas
 
@@ -47,6 +47,6 @@ Implementar o endpoint read-only de saúde do rollout. Não adicionar cron, habi
 
 ## Ambientes preparados
 
-- Vercel: organização canário Pomodoro configurada; Preview seguro `dpl_D5AoW4uXvrpNjzJTK4xrCPT8AWfn` e Production segura `dpl_7T2ctsRQFrSrDqSLBCuYtqSqXY6y`, ambos `READY`. Última janela live analytics: `dpl_8pkhNuc5hcPhcGQ7EsaWSMAHLuC5`.
+- Vercel: organização canário Pomodoro configurada; Preview read-only seguro `dpl_8M49y4r42PvVXJD2E9hCSBmmWCsc` e Production segura inalterada `dpl_7T2ctsRQFrSrDqSLBCuYtqSqXY6y`, ambos `READY`. Última janela live analytics: `dpl_8pkhNuc5hcPhcGQ7EsaWSMAHLuC5`.
 - VPS: release `46e09cc-20260822T213610Z`; cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
 - Supabase: migrations 223–240 alinhadas; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.

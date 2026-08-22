@@ -62,3 +62,15 @@ Shadow aprovado em 2026-08-22T22:15:39Z: deployment `https://pomodoro-mh4mbhh3y-
 O primeiro smoke retornou 503 porque a rota tentava chamar endpoints internos pelo domínio Preview protegido. Nenhum claim ocorreu. A correção eliminou o loop HTTP e passou a usar diretamente os mesmos RPCs transacionais; o segundo smoke aprovou. Próximo: endpoint read-only de saúde do rollout. Nenhuma ativação Production/live.
 
 Após o smoke, a correção foi endurecida para falhar fechado quando a leitura ou a gravação do heartbeat não estiver disponível e para registrar `success` no circuit breaker ao concluir cada ciclo. Regressão local: 171/171 testes, TypeScript, build e `git diff --check` aprovados; somente os warnings de metadata já conhecidos apareceram no build.
+
+## Observabilidade read-only aprovada
+
+- Endpoint autenticado `/api/internal/twitter-rollout-health`, sem RPCs ou mutações e sem referências a tabelas operacionais Instagram.
+- Agregados: estados da fila de publicação/analytics, holds e reservas incertas, HTTP 429 em 24h, wallets em micros, piso protegido, workers esperados/stale e circuit breakers.
+- Preview final `dpl_8M49y4r42PvVXJD2E9hCSBmmWCsc` / `https://pomodoro-3o8tbywqd-shoows-projects-2caaf9e9.vercel.app`, `READY`, com módulo, workers, analytics e fallback off.
+- Smoke autenticado: `status=ok`, filas/holds/unknowns/429/signals zerados e wallet 11.725.000/0 micros. Smoke sem segredo: `401`.
+- Production permaneceu em `dpl_7T2ctsRQFrSrDqSLBCuYtqSqXY6y`, `READY`; nenhum cron foi adicionado.
+- VPS read-only: 42 GB livres, 2.932 MB disponíveis, sem swap; cinco workers X `stopped` e seis processos existentes `online`.
+- Supabase local/remoto alinhado até 240. Regressão final desta unidade: 175/175 testes, TypeScript, build e diff check aprovados.
+
+Gate de observabilidade aprovado. A liberação geral e o fallback live continuam bloqueados exclusivamente pelo sucesso HTTP 200 de analytics e pelo checklist progressivo final.
