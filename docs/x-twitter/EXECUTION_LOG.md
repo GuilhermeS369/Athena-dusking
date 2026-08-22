@@ -395,3 +395,13 @@ Registros são append-only.
 - Kill switch: worker parado; VPS `false`/`shadow` modo 600; Production segura `dpl_ESxPGApRWS7ssj9j796PGCMZUabG`; demais workers X parados e seis processos existentes online.
 - Status: passo uma imagem `completed`; próximo é conjunto com 2–4 imagens.
 - Próxima ação segura: gerar segundo asset, confirmar um set de duas imagens e auditar antes de live.
+
+## X-0029 — conjunto com duas imagens preparado
+
+- UTC: 2026-08-22T20:22:00Z; São Paulo: 2026-08-22T17:22:00-03:00.
+- Segundo asset: `bf7678c6-6e5b-4a10-8860-75de6642afe2`, PNG 1200×675, 32.587 bytes, SHA-256 `439012493da8b046b30a11671c01cab0b155d4c8358f29006e87187f8e4751bb`, leitura assinada aprovada.
+- Programa/item: `fd765ce3-ce69-451c-9423-62479414f545` / `25a8be0e-10ea-4937-9d7f-031dbfcfee2f`, execução 20:31Z, `ready`, zero tentativas.
+- Associação: set `images`; primeiro asset posição 0 e segundo posição 1.
+- Financeiro: 11.970.000 contábil, 15.000 reservado, versão 6; categoria sem URL.
+- Segurança: live off, workers X parados, nenhuma chamada externa neste checkpoint.
+- Próxima ação segura: janela live controlada e monitorada somente para este item.
