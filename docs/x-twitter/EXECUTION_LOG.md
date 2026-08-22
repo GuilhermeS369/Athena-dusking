@@ -472,3 +472,15 @@ Registros são append-only.
 - Smoke: login 200; heartbeat POST sem segredo 401. Nenhuma leitura paga do post foi executada.
 - Status: todos os seis canários positivos da ordem obrigatória foram aprovados. A Fase 6 continua `in_progress` até os cenários controlados de cancelamento/erro.
 - Próxima ação segura: canário local de cancelamento e liberação idempotente, com live off.
+
+## X-0037 — cancelamento local e devolução idempotente aprovados
+
+- UTC: 2026-08-22T21:25:56Z; São Paulo: 2026-08-22T18:25:56-03:00.
+- Utilitário guardado: `scripts/twitter/cancel-reservation-canary.ts`, commit `ea0454b`; exige frase operacional exata, uma organização/perfil, carteira sem reservas e zero itens não terminais.
+- Programa/item: `7c591f5d-c34e-434d-b5fa-4efdd948856b` / `211d232f-8607-42ae-8607-edba1bbfc275`; criado para uma hora no futuro e cancelado antes de qualquer claim.
+- Primeira chamada: um item afetado, 15.000 micros liberados, zero pendente de reconciliação. Segunda chamada com a mesma idempotency key: zero afetado, zero liberado e `idempotentReplay=true`.
+- Estado final: item `cancelled`, tentativa 0; reservation/hold `released`, 15.000 liberados, zero liquidado; nenhuma linha de tentativa.
+- Financeiro: wallet antes/depois 11.725.000 contábil e zero reservado; versão 13→15 pela reserva/liberação. Ledger permaneceu com sete entradas e soma 11.725.000; nenhum crédito ou débito foi criado.
+- Segurança: Production/VPS permaneceram `false`/`shadow`; cinco workers X parados; nenhuma chamada externa.
+- Verificação: 165/165 testes, TypeScript e diff check aprovados.
+- Próxima ação segura: mock loopback e one-shot guardado para os resultados de erro do worker.

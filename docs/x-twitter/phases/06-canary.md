@@ -1,6 +1,6 @@
 # Fase 06 — canário de publicação
 
-Status: `in_progress` — seis canários positivos aprovados; cenários controlados de erro pendentes
+Status: `in_progress` — seis canários positivos e cancelamento aprovados; cenários controlados de erro pendentes
 
 Ordem: texto, uma imagem, 2–4 imagens, GIF, vídeo e URL. Gate: publicação, ledger, reservas, logs e regressão Instagram aprovados.
 
@@ -43,3 +43,5 @@ Canário URL preparado: programa `97a662b2-d798-43d7-a18f-f4596d71d4d0`, item `8
 Gate URL aprovado: uma tentativa HTTP 201 `published`; hold/chamada 21:22:04Z–21:22:08Z; reserva e hold settled em 200.000. Wallet 11.725.000/0, versão 13; ledger contém grant, cinco débitos sem URL de 15.000 e um débito URL único de 200.000. Zero não terminais. Worker parado, VPS false/shadow e Production segura `dpl_Dcrsn7Ty4dQnRTgcM8kCyyXTD2DF`.
 
 Ordem positiva concluída: texto, uma imagem, duas imagens, GIF, vídeo e URL. O gate da fase ainda exige os cenários controlados de cancelamento, timeout, 429, 4xx, 5xx e duplicidade. Esses testes não devem atingir a Zernio real sem uma injeção determinística que elimine cobrança ambígua.
+
+Cancelamento local aprovado: programa `7c591f5d-c34e-434d-b5fa-4efdd948856b`, item `211d232f-8607-42ae-8607-edba1bbfc275`. A primeira chamada liberou 15.000; repetição idempotente liberou zero. Item/hold/reserva terminaram cancelled/released/released, tentativa 0. Wallet e ledger permaneceram em 11.725.000; nenhum crédito, débito ou chamada externa.

@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:23:50Z / 2026-08-22T18:23:50-03:00
+- Atualizado em: 2026-08-22T21:25:56Z / 2026-08-22T18:25:56-03:00
 - Fase atual: 6 — canário de publicação (`in_progress`)
-- Status: os seis canários positivos foram publicados e liquidados; testes controlados de cancelamento/erro pendentes
+- Status: seis canários positivos e cancelamento idempotente aprovados; matriz controlada de erros pendente
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `31fb1d2`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Projetar e executar primeiro um canário de cancelamento totalmente local, sem chamada Zernio, comprovando liberação idempotente da reserva. Depois preparar injeções controladas para falha local, 429, 4xx, 5xx/timeout e duplicidade sem usar retry cego nem criar cobrança ambígua real.
+Implementar um provedor mock estritamente local e um executor one-shot guardado para validar 429, 4xx, 5xx/timeout e duplicidade pelo worker real, sem atingir a Zernio. Antes de qualquer execução, provar por configuração que `ZERNIO_API_BASE_URL` aponta para loopback.
 
 ## Proibições imediatas
 
