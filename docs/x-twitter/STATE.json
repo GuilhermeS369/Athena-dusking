@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T18:41:57Z",
-  "updatedAtSaoPaulo": "2026-08-22T15:41:57-03:00",
-  "phase": { "id": "08", "name": "rollout-preparation", "status": "in_progress", "gate": "pending" },
-  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "1a74e4afd77f166674b05d43647d5abb1951bb38", "worktreeExpectedDirty": true, "phase05PendingCheckpointCommit": false },
+  "updatedAtUtc": "2026-08-22T18:54:36Z",
+  "updatedAtSaoPaulo": "2026-08-22T15:54:36-03:00",
+  "phase": { "id": "08", "name": "rollout-preparation", "status": "blocked", "gate": "pending_canary_credential" },
+  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "3f3821171839a4a16443cc61929703166aceeabd", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "240", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
-    "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "xDeploymentCreated": false },
-    "vps": { "hostname": "srv1881733", "twitterProcessesInstalled": false, "instagramProcessesWereOnlineAtBaseline": true }
+    "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_2JSe1hjSEdWCCVZH9VJ96zC7QXua", "productionDeploymentId": "dpl_Akd9xnWZxrfeZpz9XpvsA5JgZgAR", "rollbackDeploymentId": "dpl_DuXLdmBjjofPwJEsCNSSf6b5D39J", "xDeploymentCreated": true },
+    "vps": { "hostname": "srv1881733", "release": "3f3821171839-20260822T184649Z", "sha256": "9aaf4f732665bf3b853c2296646abe9f4a21f2a113f12de4dfd3621c7b87cb33", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
-  "lastCheckpoint": "phase-08-rollout-safety-gaps-validated",
-  "nextSafeAction": "Commit this documentation checkpoint, create a Vercel preview with all X flags off, smoke-test it, then package/install Twitter workers stopped or shadow-only. Do not publish externally.",
+  "lastCheckpoint": "phase-08-disabled-production-and-stopped-workers",
+  "nextSafeAction": "Choose the canary organization, set only TWITTER_CANARY_ORGANIZATION_IDS, let an admin register a dedicated X Zernio API key, then execute the documented publication canary order. Keep all workers stopped until that credential gate is reviewed.",
   "doNotRepeat": ["Do not apply migrations 210 through 232; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose secrets.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
-  "blockers": ["A real Phase 6 canary requires a dedicated Zernio X API key entered by an Athena admin; existing Instagram credentials must not be reused."]
+  "blockers": ["A real Phase 6/8 canary requires a chosen Athena canary organization and a dedicated Zernio X API key entered by its admin; existing Instagram credentials must not be reused."]
 }

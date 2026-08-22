@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T18:41:57Z / 2026-08-22T15:41:57-03:00
-- Fase atual: 8 — preparação de rollout (`in_progress`)
-- Status: `in_progress`
+- Atualizado em: 2026-08-22T18:54:36Z / 2026-08-22T15:54:36-03:00
+- Fase atual: 8 — preparação de rollout (`blocked`)
+- Status: `blocked`
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Commit do checkpoint validado: `1a74e4afd77f166674b05d43647d5abb1951bb38`
+- Commit do checkpoint validado: `3f3821171839a4a16443cc61929703166aceeabd`
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–240
 
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Preparar deploy preview com todas as flags X desligadas e pacote versionado dos workers. Não iniciar canário real sem API key X dedicada cadastrada por admin.
+Escolher a organização canário e cadastrar nela uma API key Zernio dedicada ao X. Preview, produção e workers já estão preparados, mas desligados. Não iniciar canário com credencial Instagram.
 
 ## Proibições imediatas
 
@@ -42,3 +42,9 @@ Preparar deploy preview com todas as flags X desligadas e pacote versionado dos 
 - Não chamar uma API key Zernio real enquanto o módulo estiver desligado e sem ação explícita de admin.
 - Não publicar secrets ou conteúdo de `.env*`.
 - Não reiniciar processos PM2 do Instagram.
+
+## Ambientes preparados
+
+- Vercel: código em produção com flags X desligadas; deployment `dpl_Akd9xnWZxrfeZpz9XpvsA5JgZgAR`.
+- VPS: cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
+- Supabase: migrations 223–240 alinhadas; último one-shot deixou zero claims e zero operações financeiras.

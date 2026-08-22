@@ -279,3 +279,22 @@ Registros são append-only.
 - Rollback: todas as flags X off; parar apenas processos `athena-twitter-*`; banco somente por correção forward-only.
 - Status: `completed`.
 - Próxima ação segura: criar preview Vercel com flags X off, executar smoke e instalar pacote de workers X parado/shadow, sem promover produção.
+
+## X-0021 — deploy desabilitado e workers parados
+
+- UTC: 2026-08-22T18:54:36Z; São Paulo: 2026-08-22T15:54:36-03:00.
+- Executor: Codex GPT-5; task ID não exposto pelo ambiente.
+- Git: manifest PM2 em `3f3821171839a4a16443cc61929703166aceeabd`; branch `codex/x-twitter-module`.
+- Vercel Preview: `dpl_2JSe1hjSEdWCCVZH9VJ96zC7QXua`, `READY`.
+- Vercel Production: `dpl_Akd9xnWZxrfeZpz9XpvsA5JgZgAR`, `READY`; deployment anterior para rollback: `dpl_DuXLdmBjjofPwJEsCNSSf6b5D39J`.
+- Variáveis: nomes `TWITTER_*` necessários configurados; flags de módulo/publicação/analytics `false`; modo `shadow`; nenhum valor documentado.
+- VPS: release `/opt/athena-twitter/releases/3f3821171839-20260822T184649Z`, hash SHA-256 `9aaf4f732665bf3b853c2296646abe9f4a21f2a113f12de4dfd3621c7b87cb33`; shared env `600`.
+- PM2: cinco processos X persistidos em `stopped`; os seis processos preexistentes seguem `online` com PIDs preservados.
+- One-shot: primeiro comando usou cwd incorreto e parou localmente; pareamento Production exigiu rotação atômica do segredo; execução final dos cinco papéis aprovada.
+- Banco após one-shot: cinco heartbeats em modo `stopped`, zero publicação claimed, zero analytics processing, zero resolução financeira.
+- Smoke: login `200`, páginas protegidas `307`, heartbeat sem segredo `401`.
+- Zernio: nenhuma chamada, API key, post ou leitura real. Fallback não habilitado.
+- Rollback: manter flags false; parar somente `athena-twitter-*`; Vercel volta ao deployment anterior; release X permanece preservado; banco só por migration forward-only.
+- Status: `blocked` no gate real das Fases 6/8.
+- Bloqueio: organização canário e API key Zernio X dedicada ainda não foram fornecidas/cadastradas.
+- Próxima ação segura: escolher organização canário, cadastrar a chave X por admin e executar a sequência de canário; não reutilizar segredo Instagram.
