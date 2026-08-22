@@ -181,3 +181,14 @@ Registros são append-only.
 - Rollback: flags desligadas e correção de banco forward-only.
 - Status: `completed`.
 - Próxima ação segura: commit deste checkpoint e início local da Fase 4.
+
+## X-0014 — Fase 4 validada localmente
+
+- UTC: 2026-08-22T17:54:31Z
+- São Paulo: 2026-08-22T14:54:31-03:00
+- Entregas: migration/teste 228, token HMAC de revisão, algoritmo financiável limitado pelo saldo, confirmação atômica, composer e APIs X.
+- Revisar: não cria item, reserva ou débito; token expira em 10 minutos.
+- Confirmar: revalida versão da carteira/rate card/perfil; conflito retorna 409; excedente fica agregado.
+- Testes: 154/154, TypeScript, build e diff check aprovados.
+- Supabase remoto: ainda 227; dry-run somente 228. Zernio/Vercel/VPS inalterados.
+- Próxima ação segura: commit, push isolado 228 e teste SQL 16/16 com rollback.

@@ -2,8 +2,8 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T17:48:00Z / 2026-08-22T14:48:00-03:00
-- Fase: 3 — Galeria, grupos e agenda
+- Atualizado em: 2026-08-22T17:54:31Z / 2026-08-22T14:54:31-03:00
+- Fase: 4 — Postagem em massa
 - Status: `in_progress`
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
@@ -24,7 +24,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 227.
-- Testes atuais: 153/153 aprovados.
+- Testes atuais: 154/154 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Registrar o gate da Fase 3 e iniciar a Fase 4 local: programa em massa, revisão read-only, confirmação atômica e reserva parcial.
+Criar o commit local da Fase 4, aplicar somente a migration 228 e executar as 16 verificações SQL transacionais.
 
 ## Proibições imediatas
 
