@@ -1,6 +1,6 @@
 # Fase 06 — canário de publicação
 
-Status: `in_progress` — pausado por solicitação do usuário antes do provisionamento
+Status: `in_progress` — URL reservado; publicação live pendente
 
 Ordem: texto, uma imagem, 2–4 imagens, GIF, vídeo e URL. Gate: publicação, ledger, reservas, logs e regressão Instagram aprovados.
 
@@ -35,3 +35,7 @@ Gate GIF aprovado: uma tentativa HTTP 201 `published`; wallet 11.940.000/0, vers
 Vídeo preparado: asset `3648930e-a2d1-4535-b248-6d7b3f9cccaf`, MP4 640×360, 2s, 116.645 bytes, hash `19bd78345e308eef3f807acf5a2ce8d49d2e67ba0dbd36d839f552e6229e8992`, signed read ok. Programa `466ff096-82f1-4dd2-a75d-11c124bae815`, item `93358c36-99ee-44d0-90c3-807dd6c9d71e`, execução 20:56Z, reserva 15.000, attempt 0, live off.
 
 Gate vídeo aprovado: uma tentativa HTTP 201 `published`; wallet 11.925.000/0, versão 11; grant + cinco débitos de 15.000; reserva/hold settled e zero não terminais. Worker parado e Production segura `dpl_CxzynkGZo6MEx3J8yjRcXQgxGnG9`.
+
+O primeiro review URL revelou uma instabilidade determinística antes de qualquer mutação: `weighted_characters` alternava porque uma regex global compartilhava `lastIndex` entre contagem e detecção. O fix `31fb1d2` separa regex de match/test, adiciona teste de revisões consecutivas e diagnóstico seguro. Suite 165/165, TypeScript e build aprovados.
+
+Canário URL preparado: programa `97a662b2-d798-43d7-a18f-f4596d71d4d0`, item `884961c8-a3e1-4f97-bcb8-98c3911171f2`, execução 21:22Z, `ready`, zero tentativas e sem mídia. Categoria `post_create_url`, custo/reserva total 200.000 micros; wallet 11.925.000 contábil, 200.000 reservado, versão 12. Nenhuma chamada externa ocorreu; live continua desligado até novo preflight.

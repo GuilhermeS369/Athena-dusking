@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T20:58:10Z / 2026-08-22T17:58:10-03:00
+- Atualizado em: 2026-08-22T21:02:45Z / 2026-08-22T18:02:45-03:00
 - Fase atual: 6 — canário de publicação (`in_progress`)
-- Status: texto, imagens, GIF e vídeo aprovados; execução desligada, URL pendente
+- Status: texto, imagens, GIF e vídeo aprovados; URL reservada com execução desligada
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint de código atual: `50469d4e87eed009c13c9e4bde5e1176cac7014c`
+- Checkpoint de código atual: `31fb1d2`
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–240
 
@@ -24,7 +24,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 240.
-- Testes atuais: 164/164 aprovados.
+- Testes atuais: 165/165 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Criar uma segunda imagem e preparar um único conjunto com duas imagens, reservando 15.000 micros com live desligado; auditar posições/assinaturas antes da próxima janela.
+Reconfirmar flags `false`/`shadow`, item URL e reserva de 200.000 micros. Depois abrir uma janela live exclusiva, iniciar somente `athena-twitter-publication-worker`, monitorar o resultado e restaurar o kill switch imediatamente.
 
 ## Proibições imediatas
 
@@ -46,6 +46,6 @@ Criar uma segunda imagem e preparar um único conjunto com duas imagens, reserva
 
 ## Ambientes preparados
 
-- Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production desabilitada `dpl_619TNoqFWYVMDYxj33dc9BfcWBoG`, ambos `READY`. Última janela live: `dpl_TWGZkAu2ciJAv6zh9rZkEWbyK4d4`.
+- Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production desabilitada `dpl_CxzynkGZo6MEx3J8yjRcXQgxGnG9`, ambos `READY` no último preflight.
 - VPS: cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
 - Supabase: migrations 223–240 alinhadas; último one-shot deixou zero claims e zero operações financeiras.

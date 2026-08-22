@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T20:58:10Z",
-  "updatedAtSaoPaulo": "2026-08-22T17:58:10-03:00",
-  "phase": { "id": "06", "name": "publication-canary", "status": "in_progress", "gate": "video_passed_next_url" },
-  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "50469d4e87eed009c13c9e4bde5e1176cac7014c", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
+  "updatedAtUtc": "2026-08-22T21:02:45Z",
+  "updatedAtSaoPaulo": "2026-08-22T18:02:45-03:00",
+  "phase": { "id": "06", "name": "publication-canary", "status": "in_progress", "gate": "url_reserved_live_pending" },
+  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "31fb1d2", "worktreeExpectedDirty": true, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "240", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
-    "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf", "productionDeploymentId": "dpl_ESxPGApRWS7ssj9j796PGCMZUabG", "rollbackDeploymentId": "dpl_619TNoqFWYVMDYxj33dc9BfcWBoG", "xDeploymentCreated": true, "canaryOrganization": "Pomodoro", "lastLiveCanaryDeploymentId": "dpl_5e6qVF8evL346tnovFVZXcaypGPE" },
+    "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf", "productionDeploymentId": "dpl_CxzynkGZo6MEx3J8yjRcXQgxGnG9", "rollbackDeploymentId": "dpl_C1N6yohwYnJb96XmSi5D5KEviBQs", "xDeploymentCreated": true, "canaryOrganization": "Pomodoro", "lastLiveCanaryDeploymentId": null },
     "vps": { "hostname": "srv1881733", "release": "3f3821171839-20260822T184649Z", "sha256": "9aaf4f732665bf3b853c2296646abe9f4a21f2a113f12de4dfd3621c7b87cb33", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
-  "lastCheckpoint": "phase-06-video-published-and-settled",
-  "nextSafeAction": "Prepare exactly one text-only post containing a benign HTTPS URL. Review must classify post_create_url and reserve exactly 200,000 micros total, not 215,000. Keep live false and workers stopped until documented.",
+  "lastCheckpoint": "phase-06-url-reserved-after-deterministic-counter-fix",
+  "nextSafeAction": "Read-only verify production/VPS false+shadow, publication worker stopped, URL item 884961c8-a3e1-4f97-bcb8-98c3911171f2 ready and its reservation exactly 200,000 micros. Then open one controlled live window and stop/restore immediately after terminal or unknown outcome.",
   "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not call analytics or billing endpoints.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
-  "blockers": ["The URL canary remains pending. Live flags are false and all Twitter workers are stopped between gates."]
+  "blockers": ["The URL item is reserved but not published. Live flags must remain false and all Twitter workers stopped until the documented preflight is complete."]
 }

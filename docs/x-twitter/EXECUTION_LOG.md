@@ -445,3 +445,16 @@ Registros são append-only.
 - Financeiro: wallet 11.925.000/0, versão 11; grant + cinco débitos exatos de -15.000; reserva/hold settled.
 - Operação: zero não terminais; worker parado; VPS false/shadow e Production segura `dpl_CxzynkGZo6MEx3J8yjRcXQgxGnG9`.
 - Próxima ação segura: preparar URL sem mídia e comprovar reserva total de 200.000 micros.
+
+## X-0035 — contador de URL corrigido e canário reservado
+
+- UTC: 2026-08-22T21:02:45Z; São Paulo: 2026-08-22T18:02:45-03:00.
+- A primeira tentativa de preparação terminou antes da RPC, sem programa, item, reserva ou débito. Auditoria: wallet 11.925.000/0, versão 11; cinco programas anteriores; zero não terminais e zero reservas abertas.
+- Causa: a expressão regular global do contador mantinha `lastIndex` após a classificação de URL. Revisões consecutivas podiam divergir apenas em `weighted_characters`; saldo, rate card, pedido e categoria permaneciam iguais.
+- Correção `31fb1d2`: regex separada e sem estado para detecção, teste de determinismo consecutivo, códigos seguros para conflitos de revisão/banco e preflight duplo no utilitário guardado.
+- Verificação: 165/165 testes, TypeScript, build de produção e `git diff --check` aprovados. Permanecem apenas os warnings preexistentes de metadata.
+- Programa/item: `97a662b2-d798-43d7-a18f-f4596d71d4d0` / `884961c8-a3e1-4f97-bcb8-98c3911171f2`; execução 2026-08-22T21:22:00Z; texto com HTTPS, sem mídia, `ready`, tentativa 0.
+- Financeiro: categoria `post_create_url`; custo total e reserva aberta exatamente 200.000 micros. Wallet 11.925.000 contábil, 200.000 reservado, versão 12. Nenhum acréscimo de 15.000 e nenhuma chamada Zernio.
+- Segurança: a preparação ocorreu com execução desligada; a próxima mutação só pode ocorrer após reconfirmar Vercel/VPS `false`/`shadow` e worker X de publicação parado.
+- Rollback antes do claim: cancelamento idempotente do item deve liberar somente a reserva original de 200.000; não criar crédito.
+- Próxima ação segura: preflight read-only e janela live exclusiva para o URL.
