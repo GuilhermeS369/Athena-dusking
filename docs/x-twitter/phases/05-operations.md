@@ -29,3 +29,5 @@ Status: `completed`
 Adaptador Zernio live com fetch simulado. Canário real somente após API key X dedicada inserida por admin.
 
 Auditoria final em 22/08/2026 detectou que o lock original abrangia somente `claimed`. A migration 241 ampliou o índice/claim para `claimed`, `processing` e `outcome_unknown`, além de priorizar retry futuro para impedir que outro item fure o backoff do perfil. Dry-run listou somente 241; aplicação remota aprovada; teste SQL transacional 5/5 e invariantes financeiros antes/depois idênticos.
+
+Auditoria final posterior completou `/x/logs` com perfil, conexão, categoria de preço, custos estimado/liquidado, HTTP/código estável, request/post IDs, hold, reserva, valores restante/liquidado/devolvido, timeline de eventos/ledger e evidências persistidas. Tudo é obtido de tabelas `twitter_*`, sem leitura Zernio. Ações de reconciliação aparecem somente para operador/admin, exigem justificativa e informam que não repetem a chamada original. Cobertura total: 186/186 testes, TypeScript e build aprovados.

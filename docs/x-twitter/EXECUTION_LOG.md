@@ -748,3 +748,14 @@ Registros são append-only.
 - Instagram/VPS/Vercel: não alterados nesta etapa; cinco X stopped, Production off.
 - Rollback: manter flags off; qualquer correção futura de banco é forward-only, sem apagar a migration 241 ou recriar o índice antigo.
 - Próxima ação segura: continuar auditoria final de logs, filtros analytics e completude operacional.
+
+## X-0061 — logs financeiros locais completados e protegidos por papel
+
+- UTC: 2026-08-22T23:36:27Z; São Paulo: 2026-08-22T20:36:27-03:00.
+- Escopo: auditoria e conclusão da página `/x/logs`; nenhuma chamada Zernio, migration, deploy ou mutação remota.
+- Entrega: cada ocorrência de publicação agora relaciona perfil, conexão, categoria, custo estimado/liquidado, HTTP/código, request/post IDs, hold, reserva, totais restante/liquidado/devolvido, eventos e ledger. Tentativas analytics exibem o mesmo contexto aplicável e evidências persistidas.
+- Segurança: a página consulta somente tabelas `twitter_*`; o teste impede referências a Zernio/endpoints externos. Viewer recebe somente leitura; operador/admin vê resolução de `outcome_unknown`, com justificativa obrigatória e aviso explícito de que a chamada original não será repetida.
+- Verificação: 186/186 testes Node, `npx tsc --noEmit`, `npm run build` e `git diff --check` aprovados. Build manteve apenas warnings preexistentes de metadata em `/login`, `/onboarding` e `/_not-found`.
+- Ambientes: Supabase permanece alinhado até 241 e sem nova mutação; Production continua off; cinco workers X continuam stopped; nenhum processo Instagram foi reiniciado.
+- Rollback: reverter os dois componentes da página e o teste desta unidade. Não há dado, saldo, reserva, secret ou infraestrutura a desfazer.
+- Próxima ação segura: implementar filtros locais de Análises por perfil, grupo, período e tipo de métrica, mantendo quote/confirm como únicas operações potencialmente cobradas.

@@ -1,2 +1,78 @@
-'use client';import { useState } from 'react';
-export function TwitterLogResolution({attemptId,analytics=false}:{attemptId:string;analytics?:boolean}){const[j,setJ]=useState('');const[busy,setBusy]=useState(false);const[message,setMessage]=useState('');async function resolve(success:boolean){setBusy(true);setMessage('');const response=await fetch(analytics?'/api/x/logs/analytics-resolve':'/api/x/logs/resolve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({attemptId,decision:analytics?(success?'succeeded':'failed'):(success?'published':'confirmed_failure'),justification:j})});const payload=await response.json().catch(()=>({}));setMessage(response.ok?'Ocorrência resolvida. Recarregue a página.':payload.error??'Falha.');setBusy(false);}return <div className="content-stack"><textarea value={j} onChange={e=>setJ(e.target.value)} placeholder="Justificativa obrigatória e evidência conferida"/><div className="action-row"><button disabled={busy||j.trim().length<8} onClick={()=>resolve(true)}>{analytics?'Confirmar leitura/cobrança':'Confirmar publicado/cobrado'}</button><button disabled={busy||j.trim().length<8} onClick={()=>resolve(false)}>Confirmar falha/não cobrado</button></div>{message?<p>{message}</p>:null}</div>}
+"use client";
+import { useState } from "react";
+export function TwitterLogResolution({
+  attemptId,
+  analytics = false,
+}: {
+  attemptId: string;
+  analytics?: boolean;
+}) {
+  const [j, setJ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  async function resolve(success: boolean) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch(
+        analytics ? "/api/x/logs/analytics-resolve" : "/api/x/logs/resolve",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            attemptId,
+            decision: analytics
+              ? success
+                ? "succeeded"
+                : "failed"
+              : success
+                ? "published"
+                : "confirmed_failure",
+            justification: j,
+          }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      setMessage(
+        response.ok
+          ? "Ocorrência reconciliada. Recarregue a página."
+          : (payload.error ?? "Falha."),
+      );
+    } catch {
+      setMessage("Não foi possível reconciliar a ocorrência.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="content-stack">
+      <h3>Reconciliar ocorrência</h3>
+      <p>
+        Confira as evidências locais e externas antes da decisão. Esta ação não
+        repete a chamada original.
+      </p>
+      <textarea
+        value={j}
+        onChange={(e) => setJ(e.target.value)}
+        placeholder="Justificativa obrigatória e evidência conferida"
+      />
+      <div className="action-row">
+        <button
+          disabled={busy || j.trim().length < 8}
+          onClick={() => resolve(true)}
+        >
+          {analytics
+            ? "Confirmar leitura/cobrança"
+            : "Confirmar publicado/cobrado"}
+        </button>
+        <button
+          disabled={busy || j.trim().length < 8}
+          onClick={() => resolve(false)}
+        >
+          Confirmar falha/não cobrado
+        </button>
+      </div>
+      {message ? <p>{message}</p> : null}
+    </div>
+  );
+}
