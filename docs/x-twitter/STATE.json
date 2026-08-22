@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T21:32:11Z",
-  "updatedAtSaoPaulo": "2026-08-22T18:32:11-03:00",
-  "phase": { "id": "07", "name": "manual-analytics", "status": "in_progress", "gate": "implementation_complete_paid_canary_pending" },
-  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "ef0f0e9", "worktreeExpectedDirty": true, "phase05PendingCheckpointCommit": false },
+  "updatedAtUtc": "2026-08-22T21:37:58Z",
+  "updatedAtSaoPaulo": "2026-08-22T18:37:58-03:00",
+  "phase": { "id": "07", "name": "manual-analytics", "status": "in_progress", "gate": "quote_passed_reservation_pending" },
+  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "d963c62", "worktreeExpectedDirty": true, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "240", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
     "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf", "productionDeploymentId": "dpl_Dcrsn7Ty4dQnRTgcM8kCyyXTD2DF", "rollbackDeploymentId": "dpl_CxzynkGZo6MEx3J8yjRcXQgxGnG9", "xDeploymentCreated": true, "canaryOrganization": "Pomodoro", "lastLiveCanaryDeploymentId": "dpl_EVTyHgmzvvKNPERB6M6Zz8BRmBUM" },
-    "vps": { "hostname": "srv1881733", "release": "ef0f0e9-20260822T213032Z", "sha256": "2f16723db969cb67ebc959ead4fcda40bffca651cd7cf10761a7dcc612fd2b42", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true }
+    "vps": { "hostname": "srv1881733", "release": "46e09cc-20260822T213610Z", "sha256": "183c3071ae66ecd1041581d84e481ad04c5d9ec2ad009b6875c805c6c16767b3", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
-  "lastCheckpoint": "phase-06-complete-worker-classifier-and-financial-matrix-passed",
-  "nextSafeAction": "Read-only inventory eligible published posts and analytics flags. Prepare a quote for exactly one post resource costing 5,000 micros; confirm protected floor and no automatic reads. Keep analytics flags/workers off until the reservation checkpoint is documented.",
+  "lastCheckpoint": "phase-07-readonly-single-post-quote-passed",
+  "nextSafeAction": "Run the guarded reserve-one-post-read action for candidate e5388d6a-82ce-45e7-81a3-27b37adc643b. Verify one 5,000-micro analytics reservation, zero attempts/snapshots, posted balance unchanged and protected floor preserved. Keep analytics flags and workers off.",
   "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not call analytics or billing endpoints.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
-  "blockers": ["The paid manual analytics canary has not run. Analytics and its worker remain disabled; background reads are forbidden."]
+  "blockers": ["The quote is read-only; the analytics job has not been reserved or executed. Analytics and its worker remain disabled; background reads are forbidden."]
 }

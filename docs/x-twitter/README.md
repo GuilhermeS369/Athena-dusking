@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:32:11Z / 2026-08-22T18:32:11-03:00
+- Atualizado em: 2026-08-22T21:37:58Z / 2026-08-22T18:37:58-03:00
 - Fase atual: 7 — análises manuais (`in_progress`)
-- Status: Fase 6 concluída; implementação de analytics pronta, canário pago mínimo pendente
+- Status: quote mínimo de analytics aprovado sem mutação; reserva/confirmação pendente
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `31fb1d2`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Executar inventário somente leitura dos posts publicados e preparar quote de exatamente uma leitura de post por 5.000 micros. Confirmar piso protegido, reserva e ausência de chamadas automáticas antes de habilitar somente o worker X de analytics.
+Executar o modo guardado `reserve-one-post-read`, confirmar exatamente 5.000 micros reservados, zero tentativas/snapshots e saldo contábil inalterado. Manter analytics e worker desligados até o novo checkpoint.
 
 ## Proibições imediatas
 
@@ -47,5 +47,5 @@ Executar inventário somente leitura dos posts publicados e preparar quote de ex
 ## Ambientes preparados
 
 - Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production segura `dpl_Dcrsn7Ty4dQnRTgcM8kCyyXTD2DF`, ambos `READY`. Última janela live: `dpl_EVTyHgmzvvKNPERB6M6Zz8BRmBUM`.
-- VPS: release `ef0f0e9-20260822T213032Z`; cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
+- VPS: release `46e09cc-20260822T213610Z`; cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
 - Supabase: migrations 223–240 alinhadas; último one-shot deixou zero claims e zero operações financeiras.

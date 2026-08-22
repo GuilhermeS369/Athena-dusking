@@ -498,3 +498,15 @@ Registros são append-only.
 - Rollback VPS: symlink para `/opt/athena-twitter/releases/3f3821171839-20260822T184649Z`, recriar somente os cinco processos X e mantê-los parados.
 - Status: Fase 6 `completed`; Fase 7 iniciada com analytics ainda off.
 - Próxima ação segura: quote de uma única leitura manual de post, 5.000 micros, sem confirmar antes do checkpoint.
+
+## X-0039 — proteção HTTP 202 e quote mínimo de analytics
+
+- UTC: 2026-08-22T21:37:58Z; São Paulo: 2026-08-22T18:37:58-03:00.
+- Documentação oficial reconferida: `GET /v1/analytics` aceita `postId`, `platform` e `accountId`; uma leitura individual pode retornar HTTP 202 quando a sincronização ainda está pendente.
+- Correção `46e09cc`: analytics 202 agora vira `outcome_unknown`, mantém hold, não cria snapshot e não agenda retry cego. 200→sucesso; 424→falha confirmada; 5xx/timeout→incerto.
+- Validação: 167/167 testes Node, TypeScript, build, sintaxe e diff check aprovados.
+- Release VPS: `46e09cc-20260822T213610Z`, SHA-256 `183c3071ae66ecd1041581d84e481ad04c5d9ec2ad009b6875c805c6c16767b3`; one-shot analytics com flags off não criou claim. Cinco workers X parados; releases anteriores preservados.
+- Utilitário guardado `d963c62`: quote/reserva de exatamente uma leitura de post, recusando estado de analytics preexistente ou carteira já reservada.
+- Quote somente leitura: candidato `e5388d6a-82ce-45e7-81a3-27b37adc643b`; um recurso post, custo 5.000, canConfirm true. Wallet antes/depois 11.725.000/0, versão 15; projeção 11.720.000 e piso 5.000.000.
+- Mutação: nenhum job, item, reserva, tentativa, snapshot ou chamada Zernio foi criado nesta etapa.
+- Próxima ação segura: confirmar/reservar o mesmo recurso com analytics ainda off e auditar 5.000 micros.

@@ -21,6 +21,8 @@ Status: `in_progress` — implementação concluída; canário pago mínimo pend
 - Lint sem achados X; achados legados inalterados.
 - Nenhuma chamada real Zernio foi feita; flags analytics permanecem off.
 
+Checkpoint 2026-08-22T21:37:58Z: documentação oficial reconfirmou HTTP 202 para sync pendente. Worker corrigido em `46e09cc` para manter hold sem snapshot/retry; release VPS `46e09cc-20260822T213610Z`. Quote read-only de um post aprovou custo 5.000, projeção 11.720.000 e piso 5.000.000; wallet permaneceu 11.725.000/0 versão 15 e nenhuma entidade analytics foi criada.
+
 ## Rollback
 
 - Manter `TWITTER_ANALYTICS_ENABLED=false` e `TWITTER_ANALYTICS_WORKER_ENABLED=false`.
@@ -29,4 +31,4 @@ Status: `in_progress` — implementação concluída; canário pago mínimo pend
 
 ## Próxima ação segura
 
-Inventariar posts elegíveis sem leitura externa, preparar quote de exatamente um post por 5.000 micros e documentar a reserva antes de habilitar analytics/worker para o canário.
+Confirmar a reserva de uma leitura de post por 5.000 micros com analytics/worker ainda desligados; auditar job/item/reserva antes da janela live.
