@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T23:12:01Z / 2026-08-22T20:12:01-03:00
+- Atualizado em: 2026-08-22T23:19:05Z / 2026-08-22T20:19:05-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint de código atual: `31f4dae` (segredos independentes); kill switches por papel validados aguardando o commit deste checkpoint
+- Checkpoint de código atual: `dc99775` (segredos e kill switches independentes); Production/VPS off validados
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–240
 
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Consolidar a unidade de kill switches por papel; fazer novo deploy Production off e release VPS/one-shot dos cinco papéis. Depois executar a auditoria final. Não ativar cron, fallback live ou rollout antes do analytics HTTP 200.
+Executar a auditoria final requisito por requisito e registrar qualquer gap remanescente. Não ativar cron, fallback live ou rollout antes do analytics HTTP 200.
 
 ## Proibições imediatas
 
@@ -47,6 +47,6 @@ Consolidar a unidade de kill switches por papel; fazer novo deploy Production of
 
 ## Ambientes preparados
 
-- Vercel: sete segredos por função configurados separadamente em Production/Preview; Preview final de kill switches `dpl_95mw9RpuRp7aZ1gX1CSS1SUYfDiH` `READY`, cinco modos `stopped`, claims/reconcile/fallback off e health `ok`. Production segura `dpl_n3GyADtJszuUn6fDKJorBAYNrbAK`, com flags off, ainda sem esta última unidade.
-- VPS: release `46e09cc-20260822T213610Z`; cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
+- Vercel: sete segredos por função configurados separadamente; Production `dpl_soJv1T88XQ2iCmLFtW1fzw4jQLZu` `READY`, alias oficial, todos os flags mutáveis off e segredo genérico legado removido. Preview final `dpl_95mw9RpuRp7aZ1gX1CSS1SUYfDiH` `READY`.
+- VPS: release `dc997750ddc2-20260822T231419Z`, hash `4bb116e2660be97c6d7f440363196da4b4313bb6e38c74bf5184375dd09b3f57`; cinco processos X apontam para ele e estão `stopped`; segredo genérico removido; seis processos existentes continuam `online` com os PIDs preservados.
 - Supabase: migrations 223–240 alinhadas; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.

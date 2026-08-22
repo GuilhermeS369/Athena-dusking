@@ -710,3 +710,18 @@ Registros são append-only.
 - Production: `dpl_n3GyADtJszuUn6fDKJorBAYNrbAK`, `READY`, flags X off; contém segredos por papel, mas ainda não esta unidade de kill switch. Supabase e VPS não foram mutados neste registro; cinco X permanecem stopped e seis processos existentes online.
 - Rollback: manter Production atual/off e release VPS atual; reverter somente esta unidade local se necessário. Nenhuma migração, claim, hold, débito ou chamada Zernio foi criada.
 - Próxima ação segura: commit; configurar reconcile=false em Production; novo deploy off; release VPS/one-shot dos cinco papéis.
+
+## X-0058 — Production/VPS off e segredos por papel aprovados
+
+- UTC: 2026-08-22T23:19:05Z; São Paulo: 2026-08-22T20:19:05-03:00.
+- Git executável: `dc997750ddc2953e151f1817468abcfd03c4ff68`; worktree estava limpo antes das mutações remotas.
+- Vercel: `TWITTER_RECONCILE_WORKER_ENABLED=false` configurado; deploy intermediário `dpl_7tjP62du6hnNXC84YkSbjbRiJqhy` aprovou o código. Após remover o segredo genérico legado de Production/Preview, deploy final `dpl_soJv1T88XQ2iCmLFtW1fzw4jQLZu` ficou `READY` e recebeu o alias oficial.
+- VPS preflight: `srv1881733`, 42 GB livres, 2.917 MB disponíveis, sem swap; release anterior `46e09cc-20260822T213610Z`; arquivo compartilhado modo `600`.
+- Pacote: artefato ignorado `artifacts/x-twitter/20260822T231419Z/athena-twitter-worker.tar.gz`; SHA-256 local/remoto `4bb116e2660be97c6d7f440363196da4b4313bb6e38c74bf5184375dd09b3f57`; release novo `/opt/athena-twitter/releases/dc997750ddc2-20260822T231419Z`.
+- Validação: sintaxe dos três arquivos aprovada; cinco one-shots antes da troca e cinco após remoção do legado aprovaram com heartbeats `stopped`; nenhum claim/reconcile operacional/chamada Zernio.
+- PM2: somente os cinco registros X foram recriados/apontados para o novo release e parados; os seis processos existentes permaneceram online com os mesmos PIDs 99980, 27468, 136197, 127605, 122939 e 103209.
+- Financeiro antes/depois: fila publicação 0, holds 0, attempts publicação 6; fila analytics 0, attempts 3, snapshots 0; wallet 11.725.000/0 versão 21. Supabase local/remoto alinhado até 240.
+- Segredo legado: removido de Vercel Production/Preview e VPS; valores nunca registrados. Backup remoto recuperável `/opt/athena-twitter/shared/.env.worker.backup-before-legacy-removal-20260822T231419Z`.
+- Rollback: manter flags off; Vercel anterior imediato `dpl_7tjP62du6hnNXC84YkSbjbRiJqhy`; VPS anterior `46e09cc-20260822T213610Z`; ao reverter código antigo, restaurar explicitamente o backup legado. Nenhuma tabela/migration deve ser removida.
+- Riscos conhecidos: warnings metadata preexistentes; Vercel reporta cinco vulnerabilidades npm já presentes e fora desta unidade; analytics HTTP 200 continua bloqueio externo.
+- Próxima ação segura: auditoria final requisito por requisito, sem ativar rollout/fallback live.

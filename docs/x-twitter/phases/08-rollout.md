@@ -107,3 +107,16 @@ Próximo gate: Production off + release VPS/one-shot. Só depois remover o segre
 - O segredo efêmero de health do Preview foi rotacionado preventivamente depois da validação; nenhum segredo Production/VPS foi afetado.
 
 Próximo gate: commit desta unidade, Production explicitamente off e release VPS versionado com one-shot dos cinco papéis.
+
+## Production e release VPS off aprovados
+
+- Commit executável: `dc997750ddc2953e151f1817468abcfd03c4ff68`.
+- Production final: `dpl_soJv1T88XQ2iCmLFtW1fzw4jQLZu`, `READY`, URL `https://pomodoro-nt69m3dr0-shoows-projects-2caaf9e9.vercel.app`, alias oficial preservado.
+- Release VPS: `/opt/athena-twitter/releases/dc997750ddc2-20260822T231419Z`; SHA-256 `4bb116e2660be97c6d7f440363196da4b4313bb6e38c74bf5184375dd09b3f57`.
+- Cinco one-shots aprovaram antes e depois da remoção do segredo genérico; cinco heartbeats `stopped`. Production/Preview/VPS não possuem mais `TWITTER_WORKER_SECRET` como configuração ativa.
+- PM2: os cinco X apontam para o novo release e estão `stopped`; os seis processos existentes continuaram `online` com PIDs 99980, 27468, 136197, 127605, 122939 e 103209.
+- Banco antes/depois: publicação não terminal 0, holds 0, attempts publicação 6, analytics não terminal 0, attempts analytics 3, snapshots 0, wallet 11.725.000/0 versão 21. Migrações local/remoto 1–240 alinhadas.
+- Backup da configuração antes da remoção legado: `/opt/athena-twitter/shared/.env.worker.backup-before-legacy-removal-20260822T231419Z`; modo ativo `600`.
+- Rollback: flags permanecem off; retornar symlink/PM2 ao release `46e09cc-20260822T213610Z` e restaurar o backup apenas se realmente reverter código anterior. Vercel anterior imediato: `dpl_7tjP62du6hnNXC84YkSbjbRiJqhy`.
+
+Próxima ação segura: auditoria final requisito por requisito. Rollout geral/fallback live seguem proibidos pelo gate externo de analytics HTTP 200.
