@@ -383,3 +383,15 @@ Registros são append-only.
 - Financeiro: carteira contábil 11.985.000 micros, reserva aberta 15.000, versão 4; custo é `post_dm_create`, não há URL.
 - Segurança: Production continua `false`/`shadow`, cinco workers X parados e nenhuma chamada externa desta etapa.
 - Próxima ação segura: preflight do item e assinatura; janela live Production; iniciar somente publication worker; parar/restaurar off após resultado.
+
+## X-0028 — canário de uma imagem publicado e liquidado
+
+- UTC: 2026-08-22T20:20:59Z; São Paulo: 2026-08-22T17:20:59-03:00.
+- Janela live: `dpl_5e6qVF8evL346tnovFVZXcaypGPE`; somente publication worker online. Claim ocorreu depois do horário, chamada 20:19:05Z–20:19:10Z.
+- Resultado: uma tentativa, HTTP 201, provider `published`, post ID persistido; nenhum retry/erro.
+- Mídia: item manteve o media set; asset PNG isolado já havia passado leitura assinada e associação posição 0.
+- Financeiro: wallet 11.970.000/0; reserva e hold 15.000 `settled`; ledger grant + dois débitos de -15.000, sem duplicidade.
+- Logs: `external_started` e `published`, custo estimado/liquidado 15.000; zero itens não terminais.
+- Kill switch: worker parado; VPS `false`/`shadow` modo 600; Production segura `dpl_ESxPGApRWS7ssj9j796PGCMZUabG`; demais workers X parados e seis processos existentes online.
+- Status: passo uma imagem `completed`; próximo é conjunto com 2–4 imagens.
+- Próxima ação segura: gerar segundo asset, confirmar um set de duas imagens e auditar antes de live.

@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T20:09:48Z / 2026-08-22T17:09:48-03:00
+- Atualizado em: 2026-08-22T20:20:59Z / 2026-08-22T17:20:59-03:00
 - Fase atual: 6 — canário de publicação (`in_progress`)
-- Status: canário texto aprovado; item com uma imagem confirmado/reservado e worker parado
+- Status: canários de texto e uma imagem aprovados; execução desligada
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `50469d4e87eed009c13c9e4bde5e1176cac7014c`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Reconfirmar item/mídia/reserva e abrir a segunda janela live controlada somente para o canário de uma imagem às 17:19 BRT; parar e desabilitar imediatamente após o resultado.
+Criar uma segunda imagem e preparar um único conjunto com duas imagens, reservando 15.000 micros com live desligado; auditar posições/assinaturas antes da próxima janela.
 
 ## Proibições imediatas
 
