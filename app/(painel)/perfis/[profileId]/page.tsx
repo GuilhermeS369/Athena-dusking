@@ -24,7 +24,8 @@ async function ProfileDetailPageContent({ params }: { params: Promise<{ profileI
 
   const organizationId = context.activeOrganization.id;
   const supabase = await createSupabaseServerClient();
-  const [profileResult, membershipResult, snapshotResult, followerResult, postAnalyticsResult, publicationItemsResult] = await Promise.all([
+  const canManage = ['admin', 'operator'].includes(context.activeOrganization.role);
+  const [profileResult, membershipResult, currentReadsResult, currentResult, snapshotResult, followerResult, postAnalyticsResult, publicationItemsResult] = await Promise.all([
     supabase
       .from('instagram_profiles_safe')
       .select('id, username, display_name, profile_picture_url, account_type, status, provider, last_checked_at, last_success_at, last_failure_at, last_error_message')
@@ -39,9 +40,19 @@ async function ProfileDetailPageContent({ params }: { params: Promise<{ profileI
       .eq('profile_id', profileId)
       .limit(1)
       .maybeSingle(),
+    supabase.rpc('dashboard_current_state_reads_enabled', {
+      p_organization_id: organizationId,
+    }),
+    supabase
+      .from('profile_analytics_current')
+      .select('followers_count, followers_delta, followers_gained, followers_lost, impressions, reach, views, likes, comments, shares, saves, total_interactions, profile_links_taps, posts_count, engagement_rate, sync_status, unavailable_reason, last_error_message, current_synced_at, period_start, period_end')
+      .eq('organization_id', organizationId)
+      .eq('profile_id', profileId)
+      .is('deleted_at', null)
+      .maybeSingle(),
     supabase
       .from('profile_analytics_snapshots')
-      .select('followers_count, followers_delta, followers_gained, followers_lost, impressions, reach, views, likes, comments, shares, saves, total_interactions, profile_links_taps, posts_count, engagement_rate, sync_status, unavailable_reason, last_error_message, synced_at, period_start, period_end, raw_payload')
+      .select('followers_count, followers_delta, followers_gained, followers_lost, impressions, reach, views, likes, comments, shares, saves, total_interactions, profile_links_taps, posts_count, engagement_rate, sync_status, unavailable_reason, last_error_message, synced_at, period_start, period_end')
       .eq('organization_id', organizationId)
       .eq('profile_id', profileId)
       .is('deleted_at', null)
@@ -74,23 +85,39 @@ async function ProfileDetailPageContent({ params }: { params: Promise<{ profileI
       .limit(30),
   ]);
 
-  if (profileResult.error || membershipResult.error || snapshotResult.error || followerResult.error || postAnalyticsResult.error || publicationItemsResult.error) {
+  if (profileResult.error || membershipResult.error || currentReadsResult.error || currentResult.error || snapshotResult.error || followerResult.error || postAnalyticsResult.error || publicationItemsResult.error) {
     throw new Error('Não foi possível carregar os detalhes do perfil.');
   }
   if (!profileResult.data) notFound();
 
   const membership = membershipResult.data as { profile_groups?: { id: string; name: string } | { id: string; name: string }[] | null } | null;
   const rawGroup = Array.isArray(membership?.profile_groups) ? membership?.profile_groups[0] : membership?.profile_groups;
+  const useCurrentState = currentReadsResult.data === true;
+  const currentSnapshot = useCurrentState && currentResult.data
+    ? { ...currentResult.data, synced_at: currentResult.data.current_synced_at }
+    : snapshotResult.data;
+  let archivedPayload: Record<string, unknown> | null = null;
+  if (useCurrentState && canManage) {
+    const archiveResult = await supabase.rpc('get_profile_analytics_latest_payload_archive', {
+      p_organization_id: organizationId,
+      p_profile_id: profileId,
+      p_source_class: 'current',
+    });
+    if (archiveResult.error) throw new Error('Não foi possível carregar o arquivo de analytics do perfil.');
+    archivedPayload = archiveResult.data && typeof archiveResult.data === 'object' && !Array.isArray(archiveResult.data)
+      ? (archiveResult.data as { payload?: Record<string, unknown> }).payload ?? null
+      : null;
+  }
 
   return (
     <ProfileDetailClient
       profile={profileResult.data}
       group={rawGroup ?? null}
-      snapshot={snapshotResult.data}
+      snapshot={currentSnapshot ? { ...currentSnapshot, raw_payload: archivedPayload } : null}
       followerHistory={followerResult.data ?? []}
       postAnalytics={postAnalyticsResult.data ?? []}
       publicationItems={publicationItemsResult.data ?? []}
-      canManage={['admin', 'operator'].includes(context.activeOrganization.role)}
+      canManage={canManage}
     />
   );
 }

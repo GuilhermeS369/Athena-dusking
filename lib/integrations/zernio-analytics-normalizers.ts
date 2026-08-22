@@ -6,15 +6,24 @@ export type NormalizedFollowerRow = {
   raw_payload: Record<string, unknown>;
 };
 
+export type AnalyticsSourceClass = 'current' | 'daily' | 'posts';
+
+const ALL_ANALYTICS_SOURCE_CLASSES: AnalyticsSourceClass[] = ['current', 'daily', 'posts'];
+
 type MetricBucket = { date?: unknown; value?: unknown };
 
 export function numberValue(value: unknown) {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, value);
   if (typeof value === 'string' && value.trim() !== '') {
     const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
+    if (Number.isFinite(parsed)) return Math.max(0, parsed);
   }
   return 0;
+}
+
+export function normalizeAnalyticsSourceClasses(sourceClasses?: AnalyticsSourceClass[]) {
+  const requested = sourceClasses?.length ? sourceClasses : ALL_ANALYTICS_SOURCE_CLASSES;
+  return ALL_ANALYTICS_SOURCE_CLASSES.filter((sourceClass) => requested.includes(sourceClass));
 }
 
 function objectValue(value: unknown): Record<string, unknown> {

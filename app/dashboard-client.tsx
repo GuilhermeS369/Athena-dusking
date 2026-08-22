@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 
 import type { DashboardData } from '@/lib/dashboard/server';
 import { buildDailyMetricTimeSeries, dailyMetricRanking, dailyMetricValue, dashboardPeriodRange, filterDailyMetricsForPeriod, sumDailyMetrics, type DashboardMetric } from '@/lib/dashboard/analytics-period';
+import type { DashboardV2Analytics, DashboardV2Section, DashboardV2TopPost } from '@/lib/dashboard/v2-types';
 
 type Organization = {
   id: string;
@@ -34,6 +35,10 @@ export default function DashboardClient({
   const [selectedMetric, setSelectedMetric] = useState<DashboardMetric>('likes');
   const [activeRefreshJobId, setActiveRefreshJobId] = useState<string | null>(null);
   const [refreshMessage, setRefreshMessage] = useState('');
+  const [v2Analytics, setV2Analytics] = useState<DashboardV2Analytics | null>(null);
+  const [v2TopPosts, setV2TopPosts] = useState<DashboardV2TopPost[]>([]);
+  const [v2Loading, setV2Loading] = useState(data.version === 'v2');
+  const [v2Error, setV2Error] = useState('');
 
   async function requestMetricsRefresh(trigger: 'page_view' | 'manual') {
     try {
@@ -108,6 +113,41 @@ export default function DashboardClient({
       window.clearInterval(interval);
     };
   }, [activeRefreshJobId, router]);
+
+  useEffect(() => {
+    if (data.version !== 'v2') return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      start: dashboardPeriodRange(selectedPeriod).startDate,
+      end: dashboardPeriodRange(selectedPeriod).endDate,
+      metric: selectedMetric,
+    });
+    if (selectedProfileId !== 'all') params.set('profileId', selectedProfileId);
+    if (selectedGroupId !== 'all') params.set('groupId', selectedGroupId);
+    if (selectedSource !== 'all') params.set('provider', selectedSource);
+
+    setV2Loading(true);
+    setV2Error('');
+    fetch(`/api/dashboard/analytics-v2?${params}`, { signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({})) as {
+          analytics?: DashboardV2Section<DashboardV2Analytics>;
+          topPosts?: DashboardV2Section<DashboardV2TopPost[]>;
+          error?: string;
+        };
+        if (!response.ok || !payload.analytics?.data) throw new Error(payload.error ?? 'Analytics indisponível.');
+        setV2Analytics(payload.analytics.data);
+        setV2TopPosts(payload.topPosts?.data ?? []);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setV2Error(error instanceof Error ? error.message : 'Analytics indisponível.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setV2Loading(false);
+      });
+    return () => controller.abort();
+  }, [data.version, selectedGroupId, selectedMetric, selectedPeriod, selectedProfileId, selectedSource]);
 
   const filteredProfiles = useMemo(() => data.analytics.profiles.filter((profile) => {
     if (selectedProfileId !== 'all' && profile.id !== selectedProfileId) return false;
@@ -191,6 +231,40 @@ export default function DashboardClient({
     const snapshot = filteredSnapshots.find((item) => item.profile_id === profile.id);
     return { profile, status: snapshot?.sync_status ?? 'pending' };
   });
+  const effectiveDailyTotals = v2Analytics?.kpis ?? dailyTotals;
+  const effectiveFollowersTotal = v2Analytics?.kpis.followers_total ?? followersTotal;
+  const effectiveFollowersDelta = v2Analytics?.kpis.followers_delta ?? followersDelta;
+  const effectiveEngagementRate = v2Analytics?.kpis.engagement_rate ?? engagementRate;
+  const effectivePostsThisPeriod = v2Analytics?.kpis.posts ?? postsThisPeriod;
+  const effectiveMetricPerSource = v2Analytics
+    ? v2Analytics.metric_per_source.map((item) => ({ label: item.label === 'meta_official' ? 'API oficial' : item.label === 'zernio' ? 'Integração externa' : item.label, value: item.value }))
+    : metricPerSource;
+  const effectiveMetricPerGroup = v2Analytics?.metric_per_group ?? metricPerGroup;
+  const effectiveMetricOverTime = v2Analytics
+    ? v2Analytics.metric_series.map((point) => ({ label: point.date.slice(5), value: point.value }))
+    : metricOverTime;
+  const effectivePostsOverTime = v2Analytics
+    ? v2Analytics.post_series.map((point) => ({ label: point.date.slice(5), value: point.value }))
+    : postsOverTime;
+  const effectiveFollowerSeries = v2Analytics
+    ? v2Analytics.follower_series.map((point) => ({ label: point.date.slice(5), value: point.value }))
+    : followerSeries;
+  const effectiveProfileRanking = v2Analytics
+    ? v2Analytics.ranking.map((item) => ({
+      profile: data.analytics.profiles.find((profile) => profile.id === item.profile_id) ?? {
+        id: item.profile_id,
+        username: item.username,
+        display_name: item.display_name,
+        provider: 'zernio' as const,
+        status: 'no_data',
+      },
+      value: item.value,
+    }))
+    : profileRanking;
+  const effectiveTopPosts = data.version === 'v2' ? v2TopPosts : filteredPosts;
+  const effectiveTopPost = effectiveTopPosts[0];
+  const effectiveStatusRollups = v2Analytics?.publication_status;
+  const effectiveFormatRollups = v2Analytics?.publication_format;
 
   return (
     <section className="analytics-page">
@@ -206,6 +280,8 @@ export default function DashboardClient({
       </header>
 
       {refreshMessage && <div className="analytics-refresh-status" role="status">{refreshMessage}</div>}
+      {data.version === 'v2' && v2Loading && <div className="analytics-refresh-status" role="status">Carregando agregados do filtro…</div>}
+      {data.version === 'v2' && v2Error && <div className="analytics-refresh-status" role="alert">{v2Error} O resumo operacional continua disponível.</div>}
 
       <section className="analytics-filter-panel analytics-filter-panel-compact panel" aria-label="Filtros de analytics">
         <label>Plataforma<select value={selectedPlatform} onChange={(event) => setSelectedPlatform(event.target.value)}><option value="instagram">Instagram</option></select></label>
@@ -216,24 +292,24 @@ export default function DashboardClient({
       </section>
 
       <section className="analytics-kpi-strip" aria-label="Indicadores de análise de postagens">
-        <KpiCard label="Taxa de engajamento" value={`${engagementRate.toFixed(1)}%`} />
-        <KpiCard label="Alcance total" value={formatCompact(dailyTotals.reach)} icon="◉" />
-        <KpiCard label="Seguidores totais" value={formatCompact(followersTotal)} icon="♙" caption={`${followersDelta >= 0 ? '+' : ''}${formatCompact(followersDelta)} no período`} />
-        <KpiCard label="Posts no período" value={String(postsThisPeriod)} icon="▤" />
-        <KpiCard label={`Melhor post · ${metricLabel(selectedMetric)}`} value={topPost ? formatCompact(postMetricValue(topPost, selectedMetric)) : 'Sem dados'} caption={topPost?.content?.slice(0, 34) ?? undefined} />
+        <KpiCard label="Taxa de engajamento" value={`${effectiveEngagementRate.toFixed(1)}%`} />
+        <KpiCard label="Alcance total" value={formatCompact(effectiveDailyTotals.reach)} icon="◉" />
+        <KpiCard label="Seguidores totais" value={formatCompact(effectiveFollowersTotal)} icon="♙" caption={`${effectiveFollowersDelta >= 0 ? '+' : ''}${formatCompact(effectiveFollowersDelta)} no período`} />
+        <KpiCard label="Posts no período" value={String(effectivePostsThisPeriod)} icon="▤" />
+        <KpiCard label={`Melhor post · ${metricLabel(selectedMetric)}`} value={effectiveTopPost ? formatCompact(postMetricValue(effectiveTopPost, selectedMetric)) : 'Sem dados'} caption={effectiveTopPost?.content?.slice(0, 34) ?? undefined} />
       </section>
 
       <section className="analytics-board" aria-label="Análise de postagens">
-        <ProfileRankingCard items={profileRanking} metric={selectedMetric} period={periodLabel(periodDays)} action={<MetricSelector value={selectedMetric} onChange={setSelectedMetric} />} />
-        <ChartCard title="Posts por plataforma" subtitle="Posts nesta janela" items={postsPerPlatform} empty="Nenhum post ainda" />
-        <TimeSeriesCard title="Posts ao longo do tempo" subtitle={`Posts por semana · ${periodLabel(periodDays).toLowerCase()}`} points={postsOverTime} empty="Nenhum post ainda" />
-         <ChartCard title={`${metricLabel(selectedMetric)} por fonte`} subtitle={`${metricLabel(selectedMetric)} no período selecionado`} items={metricPerSource} empty={`Sem dados de ${metricLabel(selectedMetric).toLowerCase()} ainda`} action={<MetricSelector value={selectedMetric} onChange={setSelectedMetric} />} />
-         <ChartCard title={`${metricLabel(selectedMetric)} por grupo`} subtitle={`${metricLabel(selectedMetric)} no período selecionado`} items={metricPerGroup} empty={`Sem dados de ${metricLabel(selectedMetric).toLowerCase()} por grupo ainda`} />
-        <TimeSeriesCard title={`${metricLabel(selectedMetric)} ao longo do tempo`} subtitle={`${metricLabel(selectedMetric)} no período selecionado`} points={metricOverTime} empty={`Sem dados de ${metricLabel(selectedMetric).toLowerCase()} ainda`} />
+        <ProfileRankingCard items={effectiveProfileRanking} metric={selectedMetric} period={periodLabel(periodDays)} action={<MetricSelector value={selectedMetric} onChange={setSelectedMetric} />} />
+        <ChartCard title="Posts por plataforma" subtitle="Posts nesta janela" items={[{ label: 'Instagram', value: effectivePostsThisPeriod }]} empty="Nenhum post ainda" />
+        <TimeSeriesCard title="Posts ao longo do tempo" subtitle={`Posts por semana · ${periodLabel(periodDays).toLowerCase()}`} points={effectivePostsOverTime} empty="Nenhum post ainda" />
+         <ChartCard title={`${metricLabel(selectedMetric)} por fonte`} subtitle={`${metricLabel(selectedMetric)} no período selecionado`} items={effectiveMetricPerSource} empty={`Sem dados de ${metricLabel(selectedMetric).toLowerCase()} ainda`} action={<MetricSelector value={selectedMetric} onChange={setSelectedMetric} />} />
+         <ChartCard title={`${metricLabel(selectedMetric)} por grupo`} subtitle={`${metricLabel(selectedMetric)} no período selecionado`} items={effectiveMetricPerGroup} empty={`Sem dados de ${metricLabel(selectedMetric).toLowerCase()} por grupo ainda`} />
+        <TimeSeriesCard title={`${metricLabel(selectedMetric)} ao longo do tempo`} subtitle={`${metricLabel(selectedMetric)} no período selecionado`} points={effectiveMetricOverTime} empty={`Sem dados de ${metricLabel(selectedMetric).toLowerCase()} ainda`} />
         <SkeletonInsightCard />
         <BestHourCard items={bestHours} />
-        <FollowerHistoryCard points={followerSeries} />
-        <TopPostsCard posts={filteredPosts} />
+        <FollowerHistoryCard points={effectiveFollowerSeries} />
+        <TopPostsCard posts={effectiveTopPosts} />
       </section>
 
       <section className="analytics-section-title"><h2>Análise da caixa de entrada</h2><p>Mensagens, conversas, resposta e volume por horário quando uma fonte liberar dados de caixa de entrada.</p></section>
@@ -257,8 +333,8 @@ export default function DashboardClient({
 
       <section className="analytics-section-title"><h2>Operação e conteúdo</h2><p>Resumo operacional no fim da tela, sem travar ranking nem roubar espaço dos gráficos.</p></section>
       <section className="analytics-board analytics-board-compact" aria-label="Operação e conteúdo">
-        <ChartCard title="Publicações por status" subtitle="Agenda interna" items={publicationStatusItems(filteredPublicationRollups)} empty="Nenhuma publicação no filtro" />
-        <ChartCard title="Publicações por formato" subtitle="Imagem, reel, story e carrossel" items={publicationFormatItems(filteredPublicationRollups)} empty="Nenhum formato no filtro" />
+        <ChartCard title="Publicações por status" subtitle="Agenda interna" items={effectiveStatusRollups ? publicationStatusItemsV2(effectiveStatusRollups) : publicationStatusItems(filteredPublicationRollups)} empty="Nenhuma publicação no filtro" />
+        <ChartCard title="Publicações por formato" subtitle="Imagem, reel, story e carrossel" items={effectiveFormatRollups ? publicationFormatItemsV2(effectiveFormatRollups) : publicationFormatItems(filteredPublicationRollups)} empty="Nenhum formato no filtro" />
         <SourceHealthCard items={sourceHealth} unavailable={data.summary.analyticsUnavailableProfiles} failedPublications={data.review.failedPublications} />
         <ScheduleCard data={data} />
       </section>
@@ -301,7 +377,7 @@ function FollowerHistoryCard({ points }: { points: Array<{ label: string; value:
   return <article className="analytics-card"><header><div><h3>Histórico de seguidores</h3><p>Seguidores coletados ao longo do tempo</p></div></header>{points.length ? <TimeBars points={points} /> : <div className="analytics-empty-icon"><span>♙</span><strong>Sem dados disponíveis</strong><p>O histórico de seguidores aparecerá aqui quando os dados forem coletados.</p></div>}</article>;
 }
 
-function TopPostsCard({ posts }: { posts: DashboardData['analytics']['posts'] }) {
+function TopPostsCard({ posts }: { posts: DashboardData['analytics']['posts'] | DashboardV2TopPost[] }) {
   return <article className="analytics-card analytics-card-wide"><header><div><h3>Posts com melhor performance</h3><p>Posts com engajamento nesta janela</p></div></header>{posts.length ? <div className="analytics-post-ranking">{posts.slice(0, 8).map((post, index) => <article key={post.id}><span>{index + 1}</span>{post.thumbnail_url ? <img src={post.thumbnail_url} alt="" /> : <em>◌</em>}<div><strong>{post.content?.slice(0, 100) || post.media_type || 'Post'}</strong><small>{post.published_at ? new Date(post.published_at).toLocaleString('pt-BR') : 'Sem data'} · {statusLabel(post.sync_status)}</small></div><dl><div><dt>Visualizações</dt><dd>{formatCompact(post.views)}</dd></div><div><dt>Alcance</dt><dd>{formatCompact(post.reach)}</dd></div><div><dt>Eng.</dt><dd>{formatCompact(post.total_interactions)}</dd></div></dl>{post.platform_post_url && <a href={post.platform_post_url} target="_blank" rel="noreferrer">Abrir</a>}</article>)}</div> : <div className="analytics-empty-center">Nenhum post com engajamento nesta janela</div>}</article>;
 }
 
@@ -355,7 +431,7 @@ function instagramProfileUrl(username: string) {
   return `https://www.instagram.com/${encodeURIComponent(username.replace(/^@+/, ''))}/`;
 }
 
-function postMetricValue(item: DashboardData['analytics']['posts'][number], metric: DashboardMetric) {
+function postMetricValue(item: DashboardData['analytics']['posts'][number] | DashboardV2TopPost, metric: DashboardMetric) {
   if (metric === 'likes') return item.likes;
   if (metric === 'comments') return item.comments;
   if (metric === 'views') return item.views;
@@ -435,4 +511,16 @@ function publicationStatusItems(rollups: DashboardData['analytics']['publication
 function publicationFormatItems(rollups: DashboardData['analytics']['publicationRollups']) {
   const labels: Record<string, string> = { image: 'Imagem', reel: 'Reel', story: 'Story', carousel: 'Carrossel' };
   return ['image', 'reel', 'story', 'carousel'].map((format) => ({ label: labels[format], value: rollupValue(rollups, 'format', format) }));
+}
+
+function publicationStatusItemsV2(items: Array<{ label: string; value: number }>) {
+  const labels: Record<string, string> = { waiting: 'Aguardando', ready: 'Prontas', publishing: 'Publicando', published: 'Publicadas', failed: 'Falhas' };
+  const values = new Map(items.map((item) => [item.label, item.value]));
+  return ['waiting', 'ready', 'publishing', 'published', 'failed'].map((status) => ({ label: labels[status], value: values.get(status) ?? 0 }));
+}
+
+function publicationFormatItemsV2(items: Array<{ label: string; value: number }>) {
+  const labels: Record<string, string> = { image: 'Imagem', reel: 'Reel', story: 'Story', carousel: 'Carrossel' };
+  const values = new Map(items.map((item) => [item.label, item.value]));
+  return ['image', 'reel', 'story', 'carousel'].map((format) => ({ label: labels[format], value: values.get(format) ?? 0 }));
 }

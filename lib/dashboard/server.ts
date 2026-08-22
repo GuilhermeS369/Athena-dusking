@@ -1,6 +1,9 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
+import type { DashboardV2Bootstrap } from '@/lib/dashboard/v2-types';
+
 export type DashboardData = {
+  version: 'v1' | 'v2';
   connections: { total: number; healthy: number; attention: number };
   operationalProfiles: number;
   scheduled: { total: number; nextAt: string | null };
@@ -79,6 +82,23 @@ export type DashboardData = {
 
 export async function getDashboardData(organizationId: string): Promise<DashboardData> {
   const supabase = await createSupabaseServerClient();
+  const v2OrganizationIds = (process.env.DASHBOARD_V2_ORGANIZATION_IDS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const v2Enabled = process.env.DASHBOARD_V2_ENABLED === 'true'
+    || v2OrganizationIds.includes(organizationId);
+
+  if (v2Enabled) {
+    const { data, error } = await supabase.rpc('get_dashboard_bootstrap_v2', {
+      p_organization_id: organizationId,
+    });
+    if (!error && data) return dashboardDataFromV2Bootstrap(data as DashboardV2Bootstrap);
+    console.error('Dashboard V2 bootstrap indisponível; usando V1.', {
+      organizationId,
+      code: error?.code,
+    });
+  }
   const analyticsSince = new Date();
   analyticsSince.setDate(analyticsSince.getDate() - 370);
   const analyticsSinceDate = analyticsSince.toISOString().slice(0, 10);
@@ -229,6 +249,7 @@ export async function getDashboardData(organizationId: string): Promise<Dashboar
   const dailyMetrics = (dailyMetricsResult.data ?? []).map((row) => ({ ...row, date: row.metric_date })) as DashboardData['analytics']['dailyMetrics'];
 
   return {
+    version: 'v1',
     connections: { total: row.connections_total, healthy: row.connections_healthy, attention: row.connections_attention },
     operationalProfiles: row.operational_profiles,
     scheduled: { total: row.scheduled_total, nextAt: row.next_scheduled_at },
@@ -259,6 +280,70 @@ export async function getDashboardData(organizationId: string): Promise<Dashboar
       posts: (postsResult.data ?? []) as DashboardData['analytics']['posts'],
       publishedItems: (publishedItemsResult.data ?? []) as DashboardData['analytics']['publishedItems'],
       publicationRollups: (publicationRollupsResult.data ?? []) as DashboardData['analytics']['publicationRollups'],
+    },
+  };
+}
+
+function dashboardDataFromV2Bootstrap(bootstrap: DashboardV2Bootstrap): DashboardData {
+  const summary = bootstrap.summary;
+  return {
+    version: 'v2',
+    connections: {
+      total: summary.connections_total,
+      healthy: summary.connections_healthy,
+      attention: summary.connections_attention,
+    },
+    operationalProfiles: summary.operational_profiles,
+    scheduled: { total: summary.scheduled_total, nextAt: summary.next_scheduled_at },
+    review: {
+      total: summary.failed_publications + summary.profiles_needing_reauth,
+      failedPublications: summary.failed_publications,
+      profilesNeedingReauth: summary.profiles_needing_reauth,
+    },
+    summary: {
+      totalPosts: summary.total_posts,
+      publishedPosts: summary.published_total,
+      nextScheduleAt: summary.next_scheduled_at,
+      followersTotal: 0,
+      followersDelta: 0,
+      viewsTotal: 0,
+      reachTotal: 0,
+      interactionsTotal: 0,
+      analyticsAvailableProfiles: summary.analytics_available_profiles,
+      analyticsUnavailableProfiles: summary.analytics_unavailable_profiles,
+    },
+    onboarding: {
+      profileConnected: summary.connections_total > 0,
+      groupCreated: summary.groups_total > 0,
+      mediaUploaded: summary.ready_assets > 0,
+    },
+    analytics: {
+      profiles: bootstrap.profiles,
+      groups: bootstrap.groups,
+      snapshots: bootstrap.analytics_state.map((state) => ({
+        profile_id: state.profile_id,
+        period_start: state.period_end,
+        period_end: state.period_end,
+        followers_count: 0,
+        followers_delta: 0,
+        impressions: 0,
+        reach: 0,
+        views: 0,
+        likes: 0,
+        comments: 0,
+        shares: 0,
+        saves: 0,
+        total_interactions: 0,
+        posts_count: 0,
+        engagement_rate: 0,
+        sync_status: state.sync_status,
+        synced_at: state.synced_at,
+      })),
+      dailyMetrics: [],
+      followerHistory: [],
+      posts: [],
+      publishedItems: [],
+      publicationRollups: [],
     },
   };
 }

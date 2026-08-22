@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { currentFollowersFromAccount, currentFollowersFromFollowerStats, latestFollowerRow, normalizeFollowerRows } from './zernio-analytics-normalizers.ts';
+import { currentFollowersFromAccount, currentFollowersFromFollowerStats, latestFollowerRow, normalizeAnalyticsSourceClasses, normalizeFollowerRows, numberValue } from './zernio-analytics-normalizers.ts';
+
+test('normaliza métricas negativas do provedor para zero antes da persistência', () => {
+  assert.equal(numberValue(-1), 0);
+  assert.equal(numberValue('-27'), 0);
+  assert.equal(numberValue(12), 12);
+  assert.equal(numberValue('34'), 34);
+});
+
+test('mantém classes analíticas canônicas, sem transformar current em sync monolítico', () => {
+  assert.deepEqual(normalizeAnalyticsSourceClasses(['current']), ['current']);
+  assert.deepEqual(normalizeAnalyticsSourceClasses(['posts', 'current', 'posts']), ['current', 'posts']);
+  assert.deepEqual(normalizeAnalyticsSourceClasses(), ['current', 'daily', 'posts']);
+});
 
 test('normaliza follower-history documentado pela Zernio e ordena por data', () => {
   const rows = normalizeFollowerRows({

@@ -17,6 +17,8 @@
     "worker:media-maintenance:once": "node scripts/workers/media-maintenance-worker.mjs --once",
     "worker:profile-analytics": "node scripts/workers/profile-analytics-refresh-worker.mjs",
     "worker:profile-analytics:once": "node scripts/workers/profile-analytics-refresh-worker.mjs --once",
+    "worker:profile-analytics:direct": "tsx scripts/workers/profile-analytics-direct-worker.ts",
+    "worker:profile-analytics:direct:once": "tsx scripts/workers/profile-analytics-direct-worker.ts --once",
     "worker:zernio-sync": "node scripts/workers/zernio-sync-worker.mjs",
     "worker:zernio-sync:once": "node scripts/workers/zernio-sync-worker.mjs --once",
     "worker:operational-health": "node scripts/workers/validate-operational-health.mjs",
@@ -44,6 +46,7 @@
     "next": "^15.5.7",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "tsx": "^4.20.5",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

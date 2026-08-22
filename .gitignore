@@ -49,17 +49,20 @@ npm-debug.log*
 # Accidental shell-output files created at the repository root
 /$null
 /0
-/({name
-/(a\[x.state\]
-/\['waiting'
-/{
-/{a\[c.status\]
-/{console.error(e)
-/{const
-/{for(const
-/c.status)}
-/console.log(JSON.stringify({id
+/([{]name
+/(a[[]x.state[]]
+/[[]'waiting'
+/[{]
+/[{]a[[]c.status[]]
+/[{]console.error(e)
+/[{]const
+/[{]for(const
+/c.status)[}]
+/console.log(JSON.stringify([{]id
 /x.name
+
+# X/Twitter execution evidence (summaries belong in docs/x-twitter)
+/artifacts/x-twitter/
 
 # Undated local production investigation output
 /bulk-organization-mismatches.json

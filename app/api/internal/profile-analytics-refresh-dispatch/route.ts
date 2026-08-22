@@ -2,8 +2,25 @@ import { NextResponse } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 
 import { dispatchProfileAnalyticsRefreshJobs } from '@/lib/integrations/profile-analytics-refresh-worker';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
+
+function integerEnv(name: string, fallback: number, minimum: number, maximum: number) {
+  const parsed = Number.parseInt(process.env[name] ?? '', 10);
+  if (!Number.isInteger(parsed)) return fallback;
+  return Math.min(Math.max(parsed, minimum), maximum);
+}
+
+async function activeDirectVpsOrganizations() {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase.rpc('active_profile_analytics_direct_worker_organization_ids', {
+    p_stale_seconds: integerEnv('PROFILE_ANALYTICS_VPS_FALLBACK_STALE_SECONDS', 120, 30, 3600),
+    p_worker_prefix: process.env.PROFILE_ANALYTICS_VPS_WORKER_PREFIX?.trim() || 'athena-vps-',
+  });
+  if (error) throw error;
+  return Array.isArray(data) ? data.filter((value): value is string => typeof value === 'string') : [];
+}
 
 function authorized(request: Request) {
   const configuredSecrets = [
@@ -28,16 +45,37 @@ function authorized(request: Request) {
 
 export async function POST(request: Request) {
   if (!authorized(request)) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
-  const body = await request.json().catch(() => ({})) as { workerId?: string; limit?: number; concurrency?: number; leaseSeconds?: number };
+  const body = await request.json().catch(() => ({})) as {
+    workerId?: string;
+    limit?: number;
+    concurrency?: number;
+    leaseSeconds?: number;
+    shadowEnabled?: boolean;
+    shadowLimit?: number;
+    shadowConcurrency?: number;
+    shadowMaxConnectionLeases?: number;
+  };
 
   try {
+    const excludedOrganizationIds = await activeDirectVpsOrganizations();
     const result = await dispatchProfileAnalyticsRefreshJobs({
       workerId: body.workerId,
       limit: body.limit,
       concurrency: body.concurrency,
       leaseSeconds: body.leaseSeconds,
+      shadowEnabled: body.shadowEnabled,
+      shadowLimit: body.shadowLimit,
+      shadowConcurrency: body.shadowConcurrency,
+      shadowMaxConnectionLeases: body.shadowMaxConnectionLeases,
+      excludedOrganizationIds,
     });
-    return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json({
+      ...result,
+      vpsFirst: {
+        excludedOrganizationIds,
+        fallbackActive: excludedOrganizationIds.length === 0,
+      },
+    }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Falha no dispatcher de analytics.' }, { status: 500 });
   }

@@ -18,6 +18,10 @@ const heartbeatIntervalMs = integerEnv('PROFILE_ANALYTICS_REFRESH_WORKER_HEARTBE
 const limit = integerEnv('PROFILE_ANALYTICS_REFRESH_WORKER_LIMIT', 20, 1, 50);
 const concurrency = integerEnv('PROFILE_ANALYTICS_REFRESH_WORKER_CONCURRENCY', 10, 1, 10);
 const leaseSeconds = integerEnv('PROFILE_ANALYTICS_REFRESH_WORKER_LEASE_SECONDS', 300, 30, 1800);
+const shadowEnabled = booleanEnv('PROFILE_ANALYTICS_QUEUE_V2_SHADOW_ENABLED', false);
+const shadowLimit = integerEnv('PROFILE_ANALYTICS_QUEUE_V2_SHADOW_LIMIT', 20, 1, 50);
+const shadowConcurrency = integerEnv('PROFILE_ANALYTICS_QUEUE_V2_SHADOW_CONCURRENCY', 5, 1, 10);
+const shadowMaxConnectionLeases = integerEnv('PROFILE_ANALYTICS_QUEUE_V2_SHADOW_MAX_CONNECTION_LEASES', 2, 1, 10);
 
 let stopping = false;
 let lastHeartbeatAt = 0;
@@ -34,6 +38,12 @@ function integerEnv(name, fallback, minimum, maximum) {
   const parsed = Number.parseInt(process.env[name] || '', 10);
   if (!Number.isInteger(parsed)) return fallback;
   return Math.min(Math.max(parsed, minimum), maximum);
+}
+
+function booleanEnv(name, fallback) {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) return fallback;
+  return value === 'true' || value === '1' || value === 'yes';
 }
 
 function loadEnvFile(filePath) {
@@ -78,7 +88,20 @@ async function heartbeat(supabase, status, metadata = {}, lastErrorMessage = nul
     p_hostname: os.hostname(),
     p_process_id: process.pid,
     p_last_error_message: lastErrorMessage,
-    p_metadata: { runOnce, appBaseUrl, pollIntervalMs, heartbeatIntervalMs, limit, concurrency, leaseSeconds, ...metadata },
+    p_metadata: {
+      runOnce,
+      appBaseUrl,
+      pollIntervalMs,
+      heartbeatIntervalMs,
+      limit,
+      concurrency,
+      leaseSeconds,
+      shadowEnabled,
+      shadowLimit,
+      shadowConcurrency,
+      shadowMaxConnectionLeases,
+      ...metadata,
+    },
   });
   if (error) throw error;
   lastHeartbeatAt = Date.now();
@@ -89,7 +112,16 @@ async function tick() {
   const response = await fetch(`${appBaseUrl}/api/internal/profile-analytics-refresh-dispatch`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-profile-analytics-worker-secret': workerSecret },
-    body: JSON.stringify({ workerId, limit, concurrency, leaseSeconds }),
+    body: JSON.stringify({
+      workerId,
+      limit,
+      concurrency,
+      leaseSeconds,
+      shadowEnabled,
+      shadowLimit,
+      shadowConcurrency,
+      shadowMaxConnectionLeases,
+    }),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || `Dispatcher retornou HTTP ${response.status}.`);

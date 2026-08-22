@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "updatedAtUtc": "2026-08-22T17:13:45Z",
+  "updatedAtSaoPaulo": "2026-08-22T14:13:45-03:00",
+  "phase": {
+    "id": "00",
+    "name": "baseline-and-freeze",
+    "status": "completed",
+    "gate": "ready_for_checkpoint_commit"
+  },
+  "git": {
+    "branch": "codex/pre-x-baseline-analytics",
+    "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb",
+    "checkpointCommit": null,
+    "worktreeExpectedDirty": true
+  },
+  "environments": {
+    "supabase": {
+      "linkedProjectRef": "hqwhumdumfmixxbvneae",
+      "lastVerifiedMigration": "222",
+      "xMigrationsApplied": false
+    },
+    "vercel": {
+      "project": "pomodoro",
+      "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l",
+      "xDeploymentCreated": false
+    },
+    "vps": {
+      "hostname": "srv1881733",
+      "twitterProcessesInstalled": false,
+      "instagramProcessesWereOnlineAtBaseline": true
+    }
+  },
+  "featureFlags": {
+    "twitterModuleEnabled": false,
+    "twitterAnalyticsEnabled": false
+  },
+  "lastCheckpoint": "phase-00-validated-pre-commit",
+  "nextSafeAction": "Commit the validated baseline on codex/pre-x-baseline-analytics, record the hash, then create codex/x-twitter-module from that commit.",
+  "doNotRepeat": [
+    "Do not apply migrations 210 through 222; they are already remote.",
+    "Do not restart Instagram PM2 processes.",
+    "Do not expose environment values or SSH private keys."
+  ],
+  "blockers": []
+}

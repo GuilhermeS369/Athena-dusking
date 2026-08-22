@@ -777,3 +777,299 @@ O sistema somente pode ser declarado robusto quando:
 10. desligar Zernio ou VPS degrada analytics, mas não derruba a dashboard;
 11. rollback por flag restaura o caminho anterior sem perda de dados;
 12. alertas detectam timeout interno mesmo quando a resposta externa for HTTP 200.
+
+## 21. Estado de implementação em 21/08/2026
+
+### Concluído
+
+- Fase A: `raw_payload` removido da leitura, fail-fast eliminado e refresh global implícito removido.
+- Fase B inicial: conflito `42P10` corrigido, billing/listagem de contas removidos do caminho por perfil e canário de coleta aprovado.
+- Deploy das etapas anteriores concluído em Supabase, Vercel e VPS.
+
+### Fase C iniciada — Dashboard agregada V2
+
+A migration 210 adiciona, sem remover a V1:
+
+- `get_dashboard_bootstrap_v2` para filtros, resumo operacional e estado compacto;
+- `get_dashboard_analytics_v2` para KPIs, séries, ranking, fontes, grupos, cobertura e publicações por período;
+- `get_dashboard_top_posts_v2` com limite máximo de 20 e projeção visual compacta.
+
+A aplicação possui rota progressiva `/api/dashboard/analytics-v2` e seleção do bootstrap V2 por flag:
+
+- `DASHBOARD_V2_ENABLED=true` ativa globalmente;
+- `DASHBOARD_V2_ORGANIZATION_IDS=<uuid,uuid>` ativa somente organizações canary;
+- sem flag, a V1 permanece ativa;
+- se o bootstrap V2 falhar, o servidor retorna automaticamente à V1.
+
+Medição remota inicial na organização de maior volume, para 30 dias:
+
+- bootstrap: 435 ms, 137.166 bytes JSON, 390 perfis e 18 grupos;
+- analytics: 1.677 ms, 3.925 bytes JSON e 7 pontos com dados;
+- top posts: 228 ms, 8.334 bytes JSON e 8 posts.
+
+O payload analítico e top posts já atendem às metas. O bootstrap atende à latência, mas ainda excede a meta de 100 KB não comprimidos; deve ser medido comprimido no canary e compactado antes de ampliação global se continuar acima do teto.
+
+### Fase D concluída em shadow mode — Fila V2 por item
+
+A migration 212 foi aplicada de forma aditiva e mantém a fila legada como única responsável pela persistência analítica. Ela adiciona:
+
+- catálogo das classes `current`, `daily`, `posts`, `inventory` e `backfill`, com prioridade, cadência e requests estimados;
+- watermarks por organização, perfil e classe de fonte;
+- itens V2 com idempotency key, prioridade, custo estimado, lease token independente, retry e dead-letter;
+- lanes duráveis por conexão para round-robin e limite distribuído de leases;
+- RPC de enqueue idempotente a partir de um job legado;
+- RPC de claim global por item com `FOR UPDATE SKIP LOCKED`;
+- RPC de conclusão protegida por worker + lease token e idempotência de conclusão.
+
+O dispatcher foi integrado atrás de `PROFILE_ANALYTICS_QUEUE_V2_SHADOW_ENABLED=false` e aceita escopo canary por `PROFILE_ANALYTICS_QUEUE_V2_SHADOW_ORGANIZATION_IDS`. Quando ativado, o shadow mode apenas registra a decisão `would_execute`, duração, classe, conexão e requests estimados. Ele deliberadamente não chama a Zernio, não executa `syncProfileAnalytics()` e não grava snapshots, métricas diárias ou posts.
+
+Validação desta entrega:
+
+- 135 testes Node aprovados;
+- build Next.js aprovado;
+- migration 212 aplicada ao Supabase remoto;
+- smoke remoto da RPC de claim aprovado, retornando fila vazia enquanto a flag permanece desligada;
+- teste SQL transacional 212 aprovado em Supabase local descartável para colaboração entre workers, fairness, retry, recuperação de lease, idempotência, isolamento e bloqueio de escrita real em shadow mode;
+- teste SQL transacional 210 da Dashboard V2 também aprovado no mesmo ambiente local após atualizar suas fixtures para o schema canônico atual da Zernio;
+- reset local aplicou com sucesso todas as migrations, da 001 à 212, sem alterar os dados do Supabase em nuvem.
+
+O gate de publicação e canário foi concluído. A fila V2 permanece estritamente em `shadow`: a fila legada continua sendo a única responsável por chamar a Zernio e persistir analytics. Qualquer discussão sobre modo live, corte da fila legada ou execução direta na VPS pertence a uma etapa posterior e exige autorização separada.
+
+### Resultado do canário shadow da Fase D
+
+Após o Docker Desktop ficar disponível:
+
+- o Supabase local foi recriado integralmente com migrations 001–212;
+- os testes SQL 210 e 212 passaram em banco local descartável;
+- a flag shadow foi ativada em produção somente para a organização Pomodoro;
+- um job legado concluído de 378 perfis foi espelhado em 378 itens `current`;
+- dois executores colaboraram no mesmo job, reclamando 144 e 136 itens durante a medição inicial;
+- o escoamento total concluiu os 378 itens, em 231 conexões distintas, sem retry ou dead-letter e com máximo de uma tentativa;
+- latência média observada foi 51 ms por claim e 47 ms por conclusão;
+- nenhuma chamada Zernio ou escrita analítica foi executada pelo canário shadow.
+
+O relatório foi persistido em `.profile-analytics-v2-shadow-canary-2026-08-21.json`. O script de validação passou a limitar cada executor a 20 itens por invocação para que próximos canários permaneçam pequenos e controlados.
+
+### Ampliação multi-organização do shadow em 22/08/2026
+
+O shadow foi ampliado de forma controlada para as três organizações conhecidas em produção. A lista explícita foi mantida em `PROFILE_ANALYTICS_QUEUE_V2_SHADOW_ORGANIZATION_IDS`, em vez de usar o comportamento global da lista vazia, para preservar controle de escopo e rollback por organização.
+
+Resultado consolidado em `.profile-analytics-v2-shadow-rollout-2026-08-22.json`:
+
+| Organização | Elegível | Itens shadow | Concluídos | Abertos | Dead-letter | Máx. tentativas | Conexões | Workers | Leases recuperados | Duração média shadow |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Pomodoro | sim | 379 | 379 | 0 | 0 | 1 | 231 | 3 | 0 | 62,7 ms |
+| Vini farmando cash | sim | 145 | 145 | 0 | 0 | 1 | 108 | 3 | 0 | 143,2 ms |
+| FARM | não, sem job legado | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 ms |
+| **Total** | **2 de 3 com amostra** | **524** | **524** | **0** | **0** | **1** | — | — | **0** | — |
+
+Comparação e conclusões do rollout:
+
+- todos os 524 itens shadow criados a partir de jobs legados elegíveis foram concluídos;
+- Pomodoro e Vini tiveram colaboração de três workers, comprovando claim por item sem exclusividade do cabeçalho do job;
+- não houve item duplicado observado, retry, dead-letter, lease órfão ou recuperação de lease;
+- cada item terminou em uma única tentativa;
+- a Vini preservou paridade de contagem com o job legado selecionado: 145 itens legados e 145 itens shadow concluídos;
+- a contagem consolidada da Pomodoro chegou a 379 porque o shadow continuou acompanhando jobs elegíveis após o canário inicial de 378 itens; os 379 foram drenados;
+- a FARM está habilitada no escopo da flag, mas ainda não possui job legado concluído para produzir uma amostra; ela passará a gerar shadow quando existir trabalho real elegível;
+- por definição do shadow, a comparação desta fase valida enfileiramento, colaboração, leases e desfechos da fila, não paridade de métricas analíticas: nenhuma chamada Zernio e nenhuma escrita analítica V2 foram executadas;
+- a fila legada permaneceu inalterada e continuou sendo o único caminho live durante toda a medição.
+
+O deployment final da ampliação foi `FP41xFKZ85JWUKwS8p2KC3XRzKEe`, publicado no alias de produção `https://pomodoro-theta-one-82.vercel.app`.
+
+Rollback operacional, sem migration destrutiva:
+
+1. kill switch global: definir `PROFILE_ANALYTICS_QUEUE_V2_SHADOW_ENABLED=false` e publicar novo deployment;
+2. rollback seletivo: remover somente o UUID da organização de `PROFILE_ANALYTICS_QUEUE_V2_SHADOW_ORGANIZATION_IDS` e publicar novo deployment;
+3. não é necessário apagar itens ou tabelas V2 para interromper o shadow; a migration 212 é aditiva e a fila legada não depende dela;
+4. itens shadow já concluídos permanecem como evidência de auditoria e não alteram snapshots, métricas, posts ou watermarks live.
+
+Com esses resultados, o critério técnico da Fase D em shadow mode foi atendido. A Fase E, o modo live, o corte da fila legada e a transferência do executor para a VPS não foram iniciados.
+
+### Fase E iniciada em 22/08/2026 — executor direto na VPS
+
+A Fase E foi iniciada com canário restrito, sem ampliar a fila V2 para modo live. O executor direto usa a fila legada já validada e apenas transfere o local da execução pesada da Vercel para a VPS.
+
+Controles adicionados pela migration 213 e pela aplicação:
+
+- claim legado aceita escopo explícito de organizações e lista de exclusão;
+- heartbeat direto publica `executionMode=direct` e `organizationIds`;
+- o dispatcher Vercel exclui somente organizações cobertas por heartbeat VPS recente;
+- organizações fora do canário continuam sendo processadas pela Vercel;
+- heartbeat stale por 120 segundos restaura automaticamente o fallback Vercel;
+- executor direto não inicia habilitado sem `PROFILE_ANALYTICS_DIRECT_ORGANIZATION_IDS` explícito;
+- kill switch `PROFILE_ANALYTICS_DIRECT_ENABLED=false`, além de parada imediata pelo PM2.
+
+Validação antes do canário:
+
+- 135 testes Node aprovados;
+- build Next.js aprovado;
+- reset local completo aplicou migrations 001–213;
+- teste SQL 213 aprovado para escopo, detecção de heartbeat e rejeição de lista canário vazia;
+- execução única local e na VPS em modo desligado não reivindicou jobs;
+- migration 213 aplicada ao Supabase remoto;
+- deployment Vercel `73xHbwhEWZdvMmQm6DMeRsvxTnVU`, com alias de produção preservado.
+
+Canário implantado:
+
+- processo PM2 `athena-profile-analytics-direct-worker` online;
+- worker `athena-vps-profile-analytics-direct-1`;
+- organização canário: Vini (`695be08f-3084-4046-a91d-9052b2a1582b`);
+- limite 1, concorrência 1 e lease de 300 segundos;
+- nenhum job elegível foi encontrado nos primeiros ciclos, portanto nenhuma chamada Zernio ou escrita analítica foi disparada pelo canário nesse intervalo;
+- a rota Vercel retornou a exclusão seletiva da Vini e continuou disponível para Pomodoro/FARM;
+- nenhum erro foi registrado no processo direto e nenhum lease foi criado ou deixado órfão.
+
+O gate da Fase E permanece aberto: o canário precisa completar pelo menos 24 horas e processar amostra real antes de qualquer ampliação. Até lá, não aumentar concorrência, não incluir Pomodoro e não remover o fallback Vercel.
+
+Atualização operacional em 22/08/2026: por solicitação explícita do operador, a Pomodoro foi adicionada ao canário direto junto da Vini. O limite permanece 1, a concorrência permanece 1 e o lease permanece em 300 segundos. O heartbeat passou a declarar os dois UUIDs e o dispatcher Vercel confirmou a exclusão seletiva das duas organizações; não houve claim nos primeiros ciclos após o restart porque o refresh Pomodoro iniciado anteriormente já havia sido drenado pelo caminho legado. A inclusão amplia a amostra de uso, mas não libera aumento de concorrência antes do gate de observação.
+
+Uma amostra real posterior da Pomodoro processou o job manual `8468f3c8-51a5-4e3b-b4ec-67392d115757`, com 336 itens, 330 sincronizados, 6 falhas permanentes, zero retry, zero item aberto, zero lease expirado e zero evento de pressão. A execução com concorrência 1 levou 1.211,4 segundos. O job imediatamente anterior, ainda no caminho de concorrência 10, processou os mesmos 336 itens em 239,9 segundos e teve os mesmos 330 sucessos e 6 dead-letters. O processo direto não registrou erro operacional e completou centenas de itens reais. Diante da equivalência de desfecho e da regressão aproximada de 5 vezes em duração causada pelo canário serial, o limite e a concorrência do executor direto foram elevados de 1 para 10, preservando escopo apenas em Pomodoro/Vini, limite interno por conexão, cooldown, classificação de erros, leases e fallback automático. O snapshot anterior do ambiente foi preservado em `/tmp/.env.worker.before-analytics-concurrency-10` na VPS para rollback imediato.
+
+### Gate técnico da Fase E aprovado em 22/08/2026
+
+O primeiro refresh real da Pomodoro após elevar o executor direto para concorrência 10 foi o job manual `d5f5701d-5da9-4f0a-82b7-9737018a555c`. O resultado confirmou a percepção de ganho do operador:
+
+- 334 itens processados em 194,1 segundos, equivalentes a aproximadamente 103,2 itens por minuto;
+- 330 itens sincronizados e 4 dead-letters permanentes;
+- zero retry, zero item aberto, zero lease expirado, zero lease recuperado e zero evento de pressão;
+- 334 claims e 334 conclusões atribuídos historicamente ao worker `athena-vps-profile-analytics-direct-1`;
+- nenhum perfil reclamado mais de uma vez e nenhum claim cruzado entre workers;
+- 3.969 eventos de etapa atribuídos ao mesmo worker direto;
+- heartbeat saudável, em `idle`, sem erro e declarando limite/concorrência 10.
+
+Em comparação com o canário serial de 1.211,4 segundos, a duração caiu cerca de 84%. Em comparação com o baseline anterior de concorrência 10, de 239,9 segundos, este job foi aproximadamente 19% mais rápido. O relatório detalhado foi persistido em `.profile-analytics-direct-job-d5f5701d-audit-2026-08-22.json`.
+
+Os quatro dead-letters foram classificados e não indicam saturação da VPS ou da Zernio: três foram violações locais `23514` de `profile_analytics_snapshots_saves_check`, causadas por valor negativo recebido do provedor para uma métrica acumulada; o quarto foi `platform_api_error`, exigindo que o usuário conclua o security check do Instagram e reconecte a conta. A normalização numérica foi endurecida para limitar métricas persistidas ao mínimo zero. O erro de segurança da conta permanece corretamente permanente e isolado.
+
+Com a ausência de duplicidade, pressão, retries e leases órfãos, o gate técnico de execução da Fase E está aprovado para iniciar a preparação da fila V2 live. O corte integral do legado ainda não está autorizado: a próxima entrega deve primeiro tornar `syncProfileAnalytics()` class-aware e executar um canário live somente da classe `current` na Pomodoro, atrás de flag e com rollback para a fila legada. É proibido criar itens `current`, `daily` e `posts` que chamem o sync monolítico completo três vezes.
+
+### Fila V2 live iniciada com canário `current`
+
+A migration 214 adicionou enqueue e claim live específicos para o canário `current`. Ambos exigem `service_role`; o enqueue aceita no máximo 10 perfis Zernio ativos por lote e usa idempotency key explícita; o claim exige lista de organizações e filtra no banco por `execution_mode=live`, `source_class=current` e organização autorizada. Assim, um worker da Pomodoro não consegue reivindicar item live de outra organização para só então rejeitá-lo na aplicação.
+
+O sincronizador passou a aceitar classes explícitas. A classe `current` chama apenas account insights e follower history e persiste snapshot/follower state; ela não chama analytics de posts, listagem de posts nem daily metrics. A execução sem classes continua selecionando `current`, `daily` e `posts`, preservando o legado sem duplicar o fluxo três vezes.
+
+Primeiro canário live:
+
+- organização: Pomodoro;
+- canary key: `current-20260822-a`;
+- um perfil previamente sincronizado pelo legado;
+- um enqueue, um claim e uma conclusão `succeeded`, todos na primeira tentativa;
+- duração do item: 2.171 ms;
+- worker: `athena-vps-profile-analytics-direct-1-v2-current`;
+- run persistido como `profile_analytics_current`, status `synced`, sem erro e sem skip;
+- watermark `current` atualizado com sucesso, próxima coleta em 60 minutos e zero falhas consecutivas;
+- nenhum item aberto, retry, dead-letter ou lease recuperado.
+
+O relatório foi persistido em `.profile-analytics-v2-live-current-canary-2026-08-22.json`. O live permanece restrito a `current`, Pomodoro, limite 1, concorrência 1 e uma única lease por conexão. O rollback está preservado em `/tmp/.env.worker.before-v2-live-current`: definir `PROFILE_ANALYTICS_QUEUE_V2_LIVE_CURRENT_ENABLED=false` e reiniciar o PM2 interrompe novos claims V2 sem afetar o executor legado.
+
+### Segunda amostra real do executor direto em concorrência 10
+
+O refresh manual `aebacf2d-2248-47fc-92d6-ee90236864e8`, iniciado às 11:05:56 no horário de São Paulo, processou 334 perfis em 163,4 segundos:
+
+- 331 sincronizados e 3 dead-letters permanentes;
+- throughput aproximado de 122,6 perfis por minuto;
+- zero retry, item aberto, lease expirado, lease recuperado, claim duplicado ou evento de pressão;
+- todos os 334 claims e resultados atribuídos ao executor direto `athena-vps-profile-analytics-direct-1`;
+- nenhuma recorrência das violações `23514` corrigidas pela normalização de métricas negativas;
+- falhas restantes: uma permissão 403 do provedor, um security check do Instagram e um perfil removido/inexistente durante a execução.
+
+Esta segunda amostra foi 30,7 segundos, ou aproximadamente 15,8%, mais rápida que o job direto anterior de 194,1 segundos. Contra o canário serial de 1.211,4 segundos, a redução foi de aproximadamente 86,5%. O heartbeat permaneceu saudável e sem erro operacional. A evidência está em `.profile-analytics-direct-now-audit-2026-08-22.json`.
+
+Com duas amostras grandes consecutivas em concorrência 10 sem pressão, retry, duplicidade ou lease órfão, a etapa de validação do executor direto está aprovada. A próxima ampliação autorizada deve continuar somente sobre a classe V2 `current`, elevando gradualmente o lote de canário antes de liberar `daily` ou `posts`; o caminho legado permanece como rollback até nova paridade em volume.
+
+### Ampliação do canário V2 `current` para 10 perfis
+
+O canário `current-20260822-b10` ampliou a fila V2 live para 10 perfis previamente sincronizados pelo legado, ainda somente na Pomodoro. A execução usou limite 10, concorrência global 3 e máximo de uma lease por conexão.
+
+Resultado:
+
+- 10 itens enfileirados, 10 claims e 10 conclusões `succeeded`;
+- 10/10 runs `profile_analytics_current` com status `synced`;
+- todos os itens concluídos na primeira tentativa;
+- zero retry, dead-letter, lease recuperado ou claim duplicado;
+- duração individual entre 1.447 e 2.047 ms, média de 1.674 ms;
+- lote drenado em aproximadamente 10,4 segundos de relógio;
+- 10/10 watermarks `current` atualizados, zero falha consecutiva e metadata `executionMode=live`;
+- execução class-aware comprovada: somente lookup, run, account insights, follower history e persistências de snapshot/seguidores;
+- nenhuma etapa de posts ou daily metrics foi chamada.
+
+A evidência limpa está em `.profile-analytics-v2-live-current-canary-b10-audit-clean-2026-08-22.json`. O processo PM2 permaneceu online e sem linha de erro. A configuração ativa passou a limite 10 e concorrência 3, preservando escopo somente Pomodoro e rollback em `/tmp/.env.worker.before-v2-current-b10`.
+
+O gate do lote de 10 foi aprovado. O próximo passo pode preparar um canário `daily` separado, mantendo `posts` desligado e sem remover a fila legada.
+
+### Fase F concluída e aprovada em 22/08/2026
+
+A Fase F foi executada de forma aditiva, com o legado preservado como rollback. As migrations 215–222 criaram e estabilizaram:
+
+- `profile_analytics_current`, com chave única por organização/perfil e métricas compactas;
+- `profile_analytics_payload_archives`, com SHA-256, retenção padrão de 90 dias e acesso ao payload restrito a admin/operator ou `service_role`;
+- rollout por organização para leituras de current state e classes live;
+- fila live class-aware para `current`, `daily` e `posts`, com claims filtrados no banco, leases, retry, dead-letter, kill switches e concorrência independente;
+- backfills idempotentes de current state, arquivo histórico e placeholders;
+- bootstrap e resumo capazes de alternar entre current state e snapshot legado por feature flag;
+- inicialização e remoção lógica mantendo current state coerente;
+- telemetria compatível com as novas etapas `payload_archive_persist` e `current_state_persist`.
+
+#### Backfill, cobertura e paridade
+
+- 333 perfis ativos com snapshot histórico foram migrados para current state;
+- 333 payloads históricos foram arquivados com hash e retenção;
+- a auditoria retornou zero current states ausentes, zero divergências de métricas e zero arquivos ausentes no universo histórico ativo;
+- os 15 perfis ativos sem histórico receberam placeholders seguros;
+- cobertura final: 348 perfis ativos e 348 linhas atuais não removidas;
+- a paridade histórica permaneceu aprovada para os 333 perfis comparáveis.
+
+Evidências: `.profile-analytics-phase-f-backfill-parity-2026-08-22.json` e `.profile-analytics-phase-f-placeholders-final-2026-08-22.json`.
+
+#### Canários live isolados
+
+| Classe | Lote inicial | Lote ampliado | Resultado ampliado | Isolamento |
+|---|---:|---:|---|---|
+| `current` | 1 | 10 | 10/10 concluídos, primeira tentativa | sem `daily` ou `posts` |
+| `daily` | 3 | 10 | 10/10 concluídos, primeira tentativa | sem `current` ou `posts` |
+| `posts` | 3 | 10 | 10/10 concluídos, primeira tentativa | sem `current` ou `daily` |
+
+Nos três canários ampliados houve zero retry, dead-letter, lease recovery, duplicidade e erro. `daily` e `posts` produziram arquivos com hash e retenção; a repetição de `current` após o dual-write confirmou `payload_archive_persist`, `snapshot_persist` e `current_state_persist` nos dez itens, sem chamadas das outras classes.
+
+Evidências principais:
+
+- `.profile-analytics-v2-live-daily-b10-audit-2026-08-22.json`;
+- `.profile-analytics-v2-live-posts-b3-audit-2026-08-22.json`;
+- `.profile-analytics-v2-live-posts-b10-audit-2026-08-22.json`;
+- `.profile-analytics-v2-live-current-dualwrite-b10-audit-2026-08-22.json`.
+
+#### Corte de leitura e deploy
+
+A feature flag `current_state_reads_enabled` foi ativada somente para a Pomodoro, mantendo `legacy_fallback_enabled=true`. A comparação do mesmo bootstrap antes/depois registrou:
+
+- fonte anterior: `snapshot_fallback`, 333 estados, 363,21 ms;
+- fonte nova: `current`, 348 estados, 218,66 ms;
+- perfis, publicações, conexões, agenda e disponibilidade analítica permaneceram coerentes;
+- os 15 placeholders aparecem corretamente como analytics indisponível/pendente em vez de sumirem do estado.
+
+O detalhe do perfil passou a respeitar a mesma flag. Viewers não chamam a RPC administrativa de arquivo; admin/operator recebe o payload arquivado quando current state está ativo. O deploy de produção foi concluído no alias `https://pomodoro-theta-one-82.vercel.app`, e o smoke sem sessão confirmou redirecionamento protegido para `/login`.
+
+Evidência: `.profile-analytics-phase-f-current-state-rollout-pomodoro-2026-08-22.json`.
+
+#### Estado operacional e rollback
+
+Na VPS, `current`, `daily` e `posts` estão ativos para a Pomodoro com lote 10 e concorrência 3; o processo `athena-profile-analytics-direct-worker` está online. O executor legado, snapshots históricos e fallback de leitura continuam presentes. Rollbacks disponíveis:
+
+1. desligar qualquer classe por `PROFILE_ANALYTICS_QUEUE_V2_LIVE_<CLASSE>_ENABLED=false` e reiniciar somente o worker;
+2. reverter leitura com `current_state_reads_enabled=false`, retornando imediatamente a `snapshot_fallback`;
+3. parar o worker direto para permitir retomada pelo fallback da Vercel após heartbeat stale;
+4. preservar tabelas, arquivos e histórico; nenhuma migration destrutiva foi executada.
+
+Validação final desta fase:
+
+- 138 testes Node aprovados;
+- TypeScript sem erros;
+- build Next.js local aprovado;
+- build e deploy Vercel aprovados;
+- migrations 215–222 aplicadas no Supabase remoto;
+- canários live e paridade remota aprovados;
+- pgTAP local da fundação não foi repetido nesta janela porque o Docker não permaneceu disponível, sem bloquear as validações remotas e os testes de aplicação.
+
+O critério técnico da Fase F está atendido. A remoção de colunas JSONB legadas, snapshots históricos, worker monolítico, rota pesada e contratos antigos permanece explicitamente reservada à Fase G, após janela de observação e rollback.

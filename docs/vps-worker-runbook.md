@@ -224,7 +224,53 @@ pm2 save
 pm2 status
 ```
 
-## 10. Worker de sincronia Zernio
+## 10. Worker direto de analytics de perfis
+
+O worker `athena-profile-analytics-direct-worker` executa o coletor de analytics diretamente na VPS. O modo seguro é desligado/observação; o modo direto exige uma lista explícita de organizações e inicia com limite e concorrência iguais a 1.
+
+Variáveis:
+
+```bash
+PROFILE_ANALYTICS_DIRECT_WORKER_ID=athena-vps-profile-analytics-direct-1
+PROFILE_ANALYTICS_DIRECT_ENABLED=false
+PROFILE_ANALYTICS_DIRECT_ORGANIZATION_IDS=uuid-da-organizacao-canario
+PROFILE_ANALYTICS_DIRECT_LIMIT=1
+PROFILE_ANALYTICS_DIRECT_CONCURRENCY=1
+PROFILE_ANALYTICS_DIRECT_LEASE_SECONDS=300
+PROFILE_ANALYTICS_DIRECT_POLL_INTERVAL_MS=10000
+PROFILE_ANALYTICS_DIRECT_HEARTBEAT_INTERVAL_MS=30000
+```
+
+Comandos:
+
+```bash
+cd /opt/athena-worker-phase-e
+npm run worker:profile-analytics:direct:once
+pm2 start npm --name athena-profile-analytics-direct-worker -- run worker:profile-analytics:direct
+pm2 save
+```
+
+Proteção contra execução dupla:
+
+- o heartbeat informa `executionMode=direct` e os UUIDs de `organizationIds`;
+- a rota Vercel exclui do claim somente as organizações cobertas por heartbeat direto recente;
+- as organizações não cobertas continuam sendo processadas pela Vercel;
+- se o heartbeat ficar ausente por 120 segundos, a Vercel volta a reivindicar a organização automaticamente;
+- o claim direto é filtrado no PostgreSQL pela lista explícita de organizações.
+
+Rollback imediato:
+
+```bash
+sed -i 's/^PROFILE_ANALYTICS_DIRECT_ENABLED=.*/PROFILE_ANALYTICS_DIRECT_ENABLED=false/' /opt/athena-worker-phase-e/.env.worker
+pm2 restart athena-profile-analytics-direct-worker --update-env
+pm2 save
+```
+
+Também é possível executar `pm2 stop athena-profile-analytics-direct-worker`; após a janela de heartbeat stale, o dispatcher Vercel reassume automaticamente. Não apague leases manualmente: os leases vencidos são recuperáveis pela fila.
+
+Status em 22/08/2026: canário direto ativo apenas para a organização Vini, com limite 1, concorrência 1 e nenhum backlog elegível no momento da ativação. O processo PM2 e o heartbeat foram validados, a Vercel confirmou a exclusão seletiva somente dessa organização e as demais permaneceram no fallback. A ampliação depende de pelo menos 24 horas sem duplicidade, lease órfão ou aumento de erros.
+
+## 11. Worker de sincronia Zernio
 
 A sincronia mestre de contas Zernio é processada diretamente pela VPS. O botão **Sincronia de contas** apenas cria um lote durável no banco; a interface consulta o progresso por chave a cada três segundos. A VPS decripta chaves somente em memória e nunca as imprime.
 

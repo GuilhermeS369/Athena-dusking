@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
 import { syncProfileAnalytics } from '@/lib/integrations/zernio-analytics';
-import { refreshZernioConnectionBilling } from '@/lib/integrations/zernio-client';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 type ClaimedAnalyticsJob = {
@@ -29,6 +28,47 @@ type AnalyticsJobItem = {
   lease_until: string;
 };
 
+type AnalyticsV2ShadowItem = {
+  item_id: string;
+  legacy_job_id: string | null;
+  organization_id: string;
+  profile_id: string;
+  zernio_connection_id: string | null;
+  connection_key: string;
+  source_class: 'current' | 'daily' | 'posts' | 'inventory' | 'backfill';
+  execution_mode: 'shadow';
+  priority: number;
+  estimated_requests: number;
+  attempts: number;
+  max_attempts: number;
+  lease_token: string;
+  lease_until: string;
+};
+
+type AnalyticsV2LiveItem = Omit<AnalyticsV2ShadowItem, 'execution_mode'> & {
+  execution_mode: 'live';
+};
+
+export type ProfileAnalyticsV2LiveDispatchOptions = {
+  workerId: string;
+  organizationIds: string[];
+  sourceClasses?: Array<'current' | 'daily' | 'posts'>;
+  limit?: number;
+  concurrency?: number;
+  leaseSeconds?: number;
+  maxConnectionLeases?: number;
+};
+
+type AnalyticsV2ShadowSummary = {
+  enabled: boolean;
+  enqueued: number;
+  claimed: number;
+  completed: number;
+  failed: number;
+  hasMore: boolean;
+  sourceClasses: string[];
+};
+
 type AnalyticsItemOutcome = 'synced' | 'partial' | 'no_data' | 'skipped' | 'error';
 
 type AnalyticsErrorClassification = {
@@ -40,15 +80,15 @@ type AnalyticsErrorClassification = {
 
 type AnalyticsStep =
   | 'worker_cycle'
-  | 'connection_billing'
   | 'profile_lookup'
   | 'sync_run_create'
   | 'zernio_account_insights'
-  | 'zernio_accounts'
   | 'zernio_follower_history'
   | 'zernio_post_analytics'
   | 'zernio_current_posts'
   | 'zernio_daily_metrics'
+  | 'payload_archive_persist'
+  | 'current_state_persist'
   | 'snapshot_persist'
   | 'daily_metrics_persist'
   | 'follower_history_persist'
@@ -67,7 +107,6 @@ type ConnectionState = {
   active: number;
   cooldownUntil: number;
   consecutiveIncidents: number;
-  billing?: Promise<AnalyticsStepTelemetry>;
 };
 
 export type ProfileAnalyticsRefreshDispatchOptions = {
@@ -75,7 +114,36 @@ export type ProfileAnalyticsRefreshDispatchOptions = {
   limit?: number;
   concurrency?: number;
   leaseSeconds?: number;
+  shadowEnabled?: boolean;
+  shadowLimit?: number;
+  shadowConcurrency?: number;
+  shadowMaxConnectionLeases?: number;
+  organizationIds?: string[];
+  excludedOrganizationIds?: string[];
 };
+
+const ANALYTICS_V2_SOURCE_CLASSES = new Set(['current', 'daily', 'posts', 'inventory', 'backfill']);
+
+function booleanEnv(name: string, fallback = false) {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) return fallback;
+  return value === 'true' || value === '1' || value === 'yes';
+}
+
+function shadowSourceClasses() {
+  const configured = (process.env.PROFILE_ANALYTICS_QUEUE_V2_SHADOW_SOURCE_CLASSES ?? 'current,daily,posts')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => ANALYTICS_V2_SOURCE_CLASSES.has(value));
+  return [...new Set(configured.length > 0 ? configured : ['current', 'daily', 'posts'])];
+}
+
+function shadowOrganizationIds() {
+  return new Set((process.env.PROFILE_ANALYTICS_QUEUE_V2_SHADOW_ORGANIZATION_IDS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean));
+}
 
 function errorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
@@ -180,6 +248,228 @@ async function completeItem(input: {
   return ((data ?? []) as Array<{ status: string; attempts: number; max_attempts: number; next_attempt_at: string | null; dead_lettered: boolean }>)[0] ?? null;
 }
 
+async function enqueueShadowItems(legacyJobId: string, sourceClasses: string[]) {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase.rpc('enqueue_profile_analytics_refresh_v2_shadow_job', {
+    p_legacy_job_id: legacyJobId,
+    p_source_classes: sourceClasses,
+  });
+  if (error) throw error;
+  return ((data ?? []) as Array<{ inserted_count: number; total_count: number }>)[0] ?? null;
+}
+
+async function claimShadowItem(workerId: string, leaseSeconds: number, maxConnectionLeases: number) {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase.rpc('claim_profile_analytics_refresh_v2_item', {
+    p_worker_id: workerId,
+    p_lease_seconds: leaseSeconds,
+    p_max_connection_leases: maxConnectionLeases,
+    p_execution_mode: 'shadow',
+  });
+  if (error) throw error;
+  return ((data ?? []) as AnalyticsV2ShadowItem[])[0] ?? null;
+}
+
+async function completeShadowItem(item: AnalyticsV2ShadowItem, workerId: string, durationMs: number) {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase.rpc('complete_profile_analytics_refresh_v2_item', {
+    p_item_id: item.item_id,
+    p_worker_id: workerId,
+    p_lease_token: item.lease_token,
+    p_outcome: 'shadow_observed',
+    p_retryable: false,
+    p_error_class: null,
+    p_error_code: null,
+    p_error_message: null,
+    p_duration_ms: Math.min(Math.max(Math.round(durationMs), 0), 3_600_000),
+    p_metadata: {
+      shadowOnly: true,
+      decision: 'would_execute',
+      sourceClass: item.source_class,
+      estimatedRequests: item.estimated_requests,
+      connectionKey: item.connection_key,
+    },
+  });
+  if (error) throw error;
+  return ((data ?? []) as Array<{ status: string; idempotent: boolean }>)[0] ?? null;
+}
+
+async function claimLiveItem(workerId: string, organizationIds: string[], sourceClasses: Array<'current' | 'daily' | 'posts'>, leaseSeconds: number, maxConnectionLeases: number) {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase.rpc('claim_profile_analytics_refresh_v2_live_item', {
+    p_worker_id: workerId,
+    p_organization_ids: organizationIds,
+    p_source_classes: sourceClasses,
+    p_lease_seconds: leaseSeconds,
+    p_max_connection_leases: maxConnectionLeases,
+  });
+  if (error) throw error;
+  return ((data ?? []) as AnalyticsV2LiveItem[])[0] ?? null;
+}
+
+async function completeLiveItem(input: {
+  item: AnalyticsV2LiveItem;
+  workerId: string;
+  outcome: 'succeeded' | 'skipped' | 'error';
+  retryable?: boolean;
+  classification?: AnalyticsErrorClassification;
+  durationMs: number;
+  metadata?: Record<string, unknown>;
+}) {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase.rpc('complete_profile_analytics_refresh_v2_item', {
+    p_item_id: input.item.item_id,
+    p_worker_id: input.workerId,
+    p_lease_token: input.item.lease_token,
+    p_outcome: input.outcome,
+    p_retryable: input.retryable ?? false,
+    p_error_class: input.classification?.errorClass ?? null,
+    p_error_code: input.classification?.code ?? null,
+    p_error_message: input.classification?.message ?? null,
+    p_duration_ms: Math.min(Math.max(Math.round(input.durationMs), 0), 3_600_000),
+    p_metadata: input.metadata ?? {},
+  });
+  if (error) throw error;
+  const { error: watermarkError } = await supabase.from('profile_analytics_source_watermarks')
+    .update({
+      metadata: {
+        executionMode: 'live',
+        sourceClasses: [input.item.source_class],
+        ...(input.metadata ?? {}),
+      },
+    })
+    .eq('organization_id', input.item.organization_id)
+    .eq('profile_id', input.item.profile_id)
+    .eq('source_class', input.item.source_class);
+  if (watermarkError) console.warn('Falha não bloqueante ao normalizar metadata do watermark V2 live.', {
+    itemId: input.item.item_id,
+    error: watermarkError.message,
+  });
+  return ((data ?? []) as Array<{ status: string; idempotent: boolean }>)[0] ?? null;
+}
+
+export async function dispatchProfileAnalyticsV2LiveItems(options: ProfileAnalyticsV2LiveDispatchOptions) {
+  const workerId = options.workerId.trim().slice(0, 120);
+  const allowedOrganizations = new Set(options.organizationIds.map((value) => value.trim()).filter(Boolean));
+  if (!workerId || allowedOrganizations.size === 0) throw new Error('Worker e organizações são obrigatórios para a fila V2 live.');
+  const requestedSourceClasses: Array<'current' | 'daily' | 'posts'> = options.sourceClasses ?? ['current'];
+  const sourceClasses: Array<'current' | 'daily' | 'posts'> = [...new Set(requestedSourceClasses)];
+  if (sourceClasses.length === 0 || sourceClasses.some((sourceClass) => !['current', 'daily', 'posts'].includes(sourceClass))) {
+    throw new Error('A fila V2 live aceita somente current, daily e posts.');
+  }
+  const limit = Number.isInteger(options.limit) ? Math.min(Math.max(options.limit!, 1), 10) : 1;
+  const concurrency = Number.isInteger(options.concurrency) ? Math.min(Math.max(options.concurrency!, 1), 5) : 1;
+  const leaseSeconds = Number.isInteger(options.leaseSeconds) ? Math.min(Math.max(options.leaseSeconds!, 30), 1800) : 300;
+  const maxConnectionLeases = Number.isInteger(options.maxConnectionLeases) ? Math.min(Math.max(options.maxConnectionLeases!, 1), 5) : 1;
+  let remaining = limit;
+  let claimed = 0;
+  let completed = 0;
+  let failed = 0;
+
+  async function consume() {
+    while (remaining > 0) {
+      remaining -= 1;
+      const item = await claimLiveItem(workerId, [...allowedOrganizations], sourceClasses, leaseSeconds, maxConnectionLeases);
+      if (!item) return;
+      claimed += 1;
+      const startedAt = performance.now();
+      if (!allowedOrganizations.has(item.organization_id) || !sourceClasses.includes(item.source_class as 'current' | 'daily' | 'posts')) {
+        const classification = classifyAnalyticsError({ code: 'live_canary_scope_violation', message: 'Item live fora do escopo de classe/organização do canário.' });
+        await completeLiveItem({ item, workerId, outcome: 'error', classification, durationMs: performance.now() - startedAt });
+        failed += 1;
+        continue;
+      }
+      try {
+        const telemetry: AnalyticsStepTelemetry[] = [];
+        const result = await syncProfileAnalytics(item.profile_id, {
+          organizationId: item.organization_id,
+          force: true,
+          sourceClasses: [item.source_class as 'current' | 'daily' | 'posts'],
+          onStep: (event) => telemetry.push(event),
+        });
+        const classified = resultClassification(result);
+        const metadata = {
+          analyticsStatus: result.status,
+          sourceClasses: [item.source_class],
+          steps: telemetry.map((event) => event.step),
+        };
+        if (classified.outcome === 'error') {
+          await completeLiveItem({ item, workerId, outcome: 'error', retryable: classified.classification?.retryable, classification: classified.classification, durationMs: performance.now() - startedAt, metadata });
+          failed += 1;
+        } else {
+          await completeLiveItem({ item, workerId, outcome: classified.outcome === 'skipped' ? 'skipped' : 'succeeded', durationMs: performance.now() - startedAt, metadata });
+          completed += 1;
+        }
+      } catch (error) {
+        const classification = classifyAnalyticsError(error);
+        await completeLiveItem({ item, workerId, outcome: 'error', retryable: classification.retryable, classification, durationMs: performance.now() - startedAt, metadata: { sourceClasses: [item.source_class] } });
+        failed += 1;
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, limit) }, () => consume()));
+  return { enabled: true, claimed, completed, failed, hasMore: claimed >= limit, sourceClasses };
+}
+
+async function dispatchProfileAnalyticsV2ShadowItems(input: {
+  workerId: string;
+  legacyJobId?: string;
+  sourceClasses: string[];
+  limit: number;
+  concurrency: number;
+  leaseSeconds: number;
+  maxConnectionLeases: number;
+}): Promise<AnalyticsV2ShadowSummary> {
+  let enqueued = 0;
+  if (input.legacyJobId) {
+    const result = await enqueueShadowItems(input.legacyJobId, input.sourceClasses);
+    enqueued = result?.inserted_count ?? 0;
+  }
+
+  let remainingClaims = input.limit;
+  let claimed = 0;
+  let completed = 0;
+  let failed = 0;
+
+  async function consumeShadowSlot() {
+    while (remainingClaims > 0) {
+      remainingClaims -= 1;
+      const startedAt = performance.now();
+      try {
+        const item = await claimShadowItem(input.workerId, input.leaseSeconds, input.maxConnectionLeases);
+        if (!item) return;
+        claimed += 1;
+        // Shadow mode termina aqui de propósito: não chama Zernio, não executa
+        // syncProfileAnalytics e não persiste snapshots, métricas ou posts.
+        await completeShadowItem(item, input.workerId, performance.now() - startedAt);
+        completed += 1;
+      } catch (error) {
+        failed += 1;
+        console.warn('Falha não bloqueante na fila V2 shadow de analytics.', {
+          workerId: input.workerId,
+          error: errorMessage(error),
+        });
+      }
+    }
+  }
+
+  await Promise.all(Array.from(
+    { length: Math.min(input.concurrency, input.limit) },
+    () => consumeShadowSlot(),
+  ));
+
+  return {
+    enabled: true,
+    enqueued,
+    claimed,
+    completed,
+    failed,
+    hasMore: claimed >= input.limit,
+    sourceClasses: input.sourceClasses,
+  };
+}
+
 async function persistStepTelemetry(input: {
   job: ClaimedAnalyticsJob;
   profileId?: string;
@@ -277,33 +567,9 @@ class ZernioConnectionThrottle {
     }
   }
 
-  async refreshBilling(item: AnalyticsJobItem) {
-    if (!item.zernio_connection_id) return null;
-    const { state } = this.stateFor(item);
-    if (!state.billing) {
-      state.billing = (async () => {
-        const billingStartedAt = performance.now();
-        try {
-          await refreshZernioConnectionBilling(item.organization_id, item.zernio_connection_id!, { minAgeMs: 30 * 60 * 1000 });
-          return { step: 'connection_billing', outcome: 'success', durationMs: performance.now() - billingStartedAt };
-        } catch (error) {
-          const classification = classifyAnalyticsError(error);
-          return {
-            step: 'connection_billing',
-            outcome: 'error',
-            durationMs: performance.now() - billingStartedAt,
-            errorClass: classification.errorClass,
-            errorCode: classification.code,
-          };
-        }
-      })();
-    }
-    return state.billing;
-  }
-
   async observe(item: AnalyticsJobItem, telemetry: AnalyticsStepTelemetry[], resultClassification?: AnalyticsErrorClassification) {
     const pressure = telemetry.find((event) => (
-      (event.step === 'connection_billing' || event.step.startsWith('zernio_'))
+      event.step.startsWith('zernio_')
       && event.outcome === 'error'
       && (event.errorClass === 'timeout' || event.errorClass === 'rate_limit' || event.errorClass === 'unavailable')
     ));
@@ -363,8 +629,11 @@ async function processOneItem(job: ClaimedAnalyticsJob, workerId: string, leaseS
   const telemetry: AnalyticsStepTelemetry[] = [];
   const releaseConnection = await throttle.acquire(item);
   try {
-    const billingTelemetry = await throttle.refreshBilling(item);
-    if (billingTelemetry) telemetry.push(billingTelemetry);
+    // Billing é uma responsabilidade da sincronização/saúde da conexão. Fazer
+    // essa consulta em cada item de analytics repetia leitura, descriptografia
+    // e eventualmente uma chamada remota sem contribuir com as métricas.
+    // Respostas 402 dos próprios endpoints continuam sendo classificadas pelo
+    // fluxo abaixo sem bloquear os demais perfis.
     const result = await syncProfileAnalytics(item.profile_id, {
       organizationId: item.organization_id,
       force: true,
@@ -408,6 +677,18 @@ export async function dispatchProfileAnalyticsRefreshJobs(options: ProfileAnalyt
   // abaixo mantém no máximo cinco perfis da mesma credencial em paralelo.
   const concurrency = Number.isInteger(options.concurrency) ? Math.min(Math.max(options.concurrency!, 1), 10) : 10;
   const leaseSeconds = Number.isInteger(options.leaseSeconds) ? Math.min(Math.max(options.leaseSeconds!, 30), 1800) : 300;
+  const shadowEnabled = options.shadowEnabled === true || booleanEnv('PROFILE_ANALYTICS_QUEUE_V2_SHADOW_ENABLED');
+  const shadowLimit = Number.isInteger(options.shadowLimit) ? Math.min(Math.max(options.shadowLimit!, 1), 50) : 20;
+  const shadowConcurrency = Number.isInteger(options.shadowConcurrency) ? Math.min(Math.max(options.shadowConcurrency!, 1), 10) : 5;
+  const shadowMaxConnectionLeases = Number.isInteger(options.shadowMaxConnectionLeases) ? Math.min(Math.max(options.shadowMaxConnectionLeases!, 1), 10) : 2;
+  const sourceClasses = shadowSourceClasses();
+  const allowedShadowOrganizations = shadowOrganizationIds();
+  const organizationIds = [...new Set((options.organizationIds ?? [])
+    .map((value) => value.trim())
+    .filter(Boolean))];
+  const excludedOrganizationIds = [...new Set((options.excludedOrganizationIds ?? [])
+    .map((value) => value.trim())
+    .filter(Boolean))];
   const supabase = createSupabaseAdminClient();
   const processed: Array<Record<string, unknown>> = [];
 
@@ -415,10 +696,53 @@ export async function dispatchProfileAnalyticsRefreshJobs(options: ProfileAnalyt
   const { data: claimed, error: claimError } = await supabase.rpc('claim_profile_analytics_refresh_job', {
     p_worker_id: workerId,
     p_lease_seconds: leaseSeconds,
+    p_organization_ids: organizationIds.length > 0 ? organizationIds : null,
+    p_excluded_organization_ids: excludedOrganizationIds.length > 0 ? excludedOrganizationIds : null,
   });
   if (claimError) throw claimError;
   const job = ((claimed ?? []) as ClaimedAnalyticsJob[])[0];
-  if (!job) return { workerId, chunks: 0, processed, concurrency };
+  let shadow: AnalyticsV2ShadowSummary = {
+    enabled: shadowEnabled,
+    enqueued: 0,
+    claimed: 0,
+    completed: 0,
+    failed: 0,
+    hasMore: false,
+    sourceClasses,
+  };
+
+  const shadowAllowedForJob = !job
+    || allowedShadowOrganizations.size === 0
+    || allowedShadowOrganizations.has(job.organization_id);
+
+  if (shadowEnabled && shadowAllowedForJob) {
+    try {
+      shadow = await dispatchProfileAnalyticsV2ShadowItems({
+        workerId,
+        legacyJobId: job?.job_id,
+        sourceClasses,
+        limit: shadowLimit,
+        concurrency: shadowConcurrency,
+        leaseSeconds,
+        maxConnectionLeases: shadowMaxConnectionLeases,
+      });
+    } catch (error) {
+      shadow.failed += 1;
+      console.warn('Fila V2 shadow indisponível; fila legada continuará sem alteração.', {
+        workerId,
+        legacyJobId: job?.job_id,
+        error: errorMessage(error),
+      });
+    }
+  } else if (shadowEnabled && job) {
+    console.info('Fila V2 shadow ignorada para organização fora do canário.', {
+      workerId,
+      legacyJobId: job.job_id,
+      organizationId: job.organization_id,
+    });
+  }
+
+  if (!job) return { workerId, chunks: 0, processed, concurrency, shadow, hasMore: shadow.hasMore };
 
   const throttle = new ZernioConnectionThrottle(job, workerId, concurrency);
   let remainingClaims = limit;
@@ -449,7 +773,7 @@ export async function dispatchProfileAnalyticsRefreshJobs(options: ProfileAnalyt
     workerId,
     events: [{ step: 'worker_cycle', outcome: 'success', durationMs: performance.now() - cycleStartedAt }],
   });
-  const hasMore = claimedCount >= limit && (refreshed?.status === 'pending' || refreshed?.status === 'processing');
-  console.info('Dispatcher de analytics concluído.', { workerId, chunks: processed.length, claimedCount, concurrency, hasMore, processed });
-  return { workerId, chunks: processed.length, claimedCount, processed, concurrency, hasMore };
+  const hasMore = shadow.hasMore || (claimedCount >= limit && (refreshed?.status === 'pending' || refreshed?.status === 'processing'));
+  console.info('Dispatcher de analytics concluído.', { workerId, chunks: processed.length, claimedCount, concurrency, shadow, hasMore, processed });
+  return { workerId, chunks: processed.length, claimedCount, processed, concurrency, shadow, hasMore };
 }

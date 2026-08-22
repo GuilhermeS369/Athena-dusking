@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import {
   createZernioClientForConnection,
@@ -9,13 +11,13 @@ import {
   type ZernioFollowerHistoryResponse,
   type ZernioInstagramAccountInsightsResponse,
 } from '@/lib/integrations/zernio-client';
-import { latestFollowerRow, normalizeFollowerRows, numberValue } from '@/lib/integrations/zernio-analytics-normalizers';
+import { latestFollowerRow, normalizeAnalyticsSourceClasses, normalizeFollowerRows, numberValue, type AnalyticsSourceClass } from '@/lib/integrations/zernio-analytics-normalizers';
 import { currentFollowersFromAccount, currentFollowersFromFollowerStats } from '@/lib/integrations/zernio-analytics-normalizers';
 
 export type AnalyticsStatus = 'pending' | 'synced' | 'partial' | 'no_data' | 'not_configured' | 'unavailable_plan' | 'permission_missing' | 'rate_limited' | 'failed';
 
 type AnalyticsStepTelemetry = {
-  step: 'profile_lookup' | 'sync_run_create' | 'zernio_account_insights' | 'zernio_accounts' | 'zernio_follower_history' | 'zernio_post_analytics' | 'zernio_current_posts' | 'zernio_daily_metrics' | 'snapshot_persist' | 'daily_metrics_persist' | 'follower_history_persist' | 'post_analytics_persist';
+  step: 'profile_lookup' | 'sync_run_create' | 'zernio_account_insights' | 'zernio_follower_history' | 'zernio_post_analytics' | 'zernio_current_posts' | 'zernio_daily_metrics' | 'payload_archive_persist' | 'current_state_persist' | 'snapshot_persist' | 'daily_metrics_persist' | 'follower_history_persist' | 'post_analytics_persist';
   outcome: 'success' | 'partial' | 'error' | 'skipped';
   durationMs: number;
   errorClass?: string;
@@ -25,6 +27,7 @@ type AnalyticsStepTelemetry = {
 type SyncProfileAnalyticsOptions = {
   organizationId: string;
   force?: boolean;
+  sourceClasses?: AnalyticsSourceClass[];
   onStep?: (event: AnalyticsStepTelemetry) => void;
 };
 
@@ -196,6 +199,47 @@ async function finishRun(admin: ReturnType<typeof createSupabaseAdminClient>, ru
     .eq('id', runId);
 }
 
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+async function archivePayload(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  profile: ProfileRecord;
+  sourceClass: AnalyticsSourceClass;
+  runId?: string;
+  periodStart: string;
+  periodEnd: string;
+  payload: Record<string, unknown>;
+}) {
+  const payloadSha256 = createHash('sha256').update(canonicalJson(input.payload)).digest('hex');
+  const { data, error } = await input.admin
+    .from('profile_analytics_payload_archives')
+    .upsert({
+      organization_id: input.profile.organization_id,
+      profile_id: input.profile.id,
+      provider: input.profile.provider,
+      source_class: input.sourceClass,
+      sync_run_id: input.runId ?? null,
+      period_start: input.periodStart,
+      period_end: input.periodEnd,
+      payload: input.payload,
+      payload_sha256: payloadSha256,
+      metadata: { retentionDays: 90, dualWrite: true },
+    }, { onConflict: 'organization_id,profile_id,source_class,payload_sha256,period_start,period_end' })
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  return { id: data?.id as string | undefined, payloadSha256 };
+}
+
 export async function initializeProfileAnalyticsState(profileId: string) {
   const admin = createSupabaseAdminClient();
   await admin.rpc('initialize_profile_analytics_state', { p_profile_id: profileId });
@@ -208,6 +252,10 @@ export async function softDeleteProfileAnalytics(profileId: string) {
 
 export async function syncProfileAnalytics(profileId: string, options: SyncProfileAnalyticsOptions) {
   const admin = createSupabaseAdminClient();
+  const sourceClasses = normalizeAnalyticsSourceClasses(options.sourceClasses);
+  const collectCurrent = sourceClasses.includes('current');
+  const collectDaily = sourceClasses.includes('daily');
+  const collectPosts = sourceClasses.includes('posts');
   const recordStep = (event: AnalyticsStepTelemetry) => options.onStep?.(event);
   const timed = async <T>(step: AnalyticsStepTelemetry['step'], operation: () => Promise<T>): Promise<T> => {
     const startedAt = performance.now();
@@ -255,7 +303,10 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
     return { status: existingRun.data.status as AnalyticsStatus, skipped: true, message: 'Analytics já sincronizado recentemente.' };
   }
 
-  const runId = await timed('sync_run_create', () => createRun(admin, typedProfile, 'profile_analytics', periodStart, periodEnd));
+  const syncKind = sourceClasses.length === 3
+    ? 'profile_analytics'
+    : `profile_analytics_${sourceClasses.join('_')}`;
+  const runId = await timed('sync_run_create', () => createRun(admin, typedProfile, syncKind, periodStart, periodEnd));
 
   if (typedProfile.provider !== 'zernio') {
     await admin.from('profile_analytics_snapshots').upsert({
@@ -283,27 +334,26 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
     const client = typedProfile.zernio_connection_id
       ? await createZernioClientForConnection(typedProfile.organization_id, typedProfile.zernio_connection_id)
       : await createZernioClientForOrganization(typedProfile.organization_id);
-    const insights = await timed('zernio_account_insights', () => client.getInstagramAccountInsights({
-      accountId: zernioAccountId,
-      metrics: insightMetrics,
-      since: periodStart,
-      until: periodEnd,
-      metricType: 'total_value',
-    }));
+    const insights = collectCurrent
+      ? await timed('zernio_account_insights', () => client.getInstagramAccountInsights({
+        accountId: zernioAccountId,
+        metrics: insightMetrics,
+        since: periodStart,
+        until: periodEnd,
+        metricType: 'total_value',
+      }))
+      : null;
 
     const partialSources: string[] = [];
     let followerRows: ReturnType<typeof followersRows> = [];
     let followerHistoryPayload: ZernioFollowerHistoryResponse | null = null;
-    let liveAccountPayload: Record<string, unknown> | null = null;
-    try {
-      const accountsPayload = await timed('zernio_accounts', () => client.listAccounts());
-      liveAccountPayload = (accountsPayload.accounts ?? []).find((account) => (account.accountId ?? account._id ?? account.id) === zernioAccountId) ?? null;
-    } catch {
-      liveAccountPayload = null;
-      partialSources.push('accounts');
-    }
+    // O inventário remoto pertence ao sync da conexão, que já persiste o
+    // registro correspondente em zernio_account_metadata. Listar todas as
+    // contas novamente para cada perfil multiplicava uma chamada remota sem
+    // alterar as métricas analíticas coletadas abaixo.
+    const liveAccountPayload = collectCurrent ? typedProfile.zernio_account_metadata : null;
 
-    try {
+    if (collectCurrent) try {
       followerHistoryPayload = await timed('zernio_follower_history', () => client.getInstagramFollowerHistory({
         accountId: zernioAccountId,
         metrics: 'follower_count,followers_gained,followers_lost',
@@ -319,7 +369,7 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
 
     let postRows: ZernioAnalyticsPost[] = [];
     let postAnalyticsPayload: ZernioAnalyticsListResponse | ZernioAnalyticsPost | null = null;
-    try {
+    if (collectPosts) try {
       postAnalyticsPayload = await timed('zernio_post_analytics', () => client.getAnalytics({ platform: 'instagram', accountId: zernioAccountId, source: 'all', fromDate: periodStart, toDate: periodEnd, limit: 25, page: 1, sortBy: 'date', order: 'desc' }));
       postRows = analyticsPosts(postAnalyticsPayload);
     } catch {
@@ -328,7 +378,7 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
     }
 
     let currentPostsPayload: { posts?: ZernioAnalyticsPost[]; pagination?: { page?: number; limit?: number; total?: number; pages?: number } } | null = null;
-    try {
+    if (collectPosts) try {
       const postsPayload = await timed('zernio_current_posts', () => client.listPosts({ platform: 'instagram', accountId: zernioAccountId, source: 'external', status: 'published', limit: 50, page: 1, sortBy: 'date' }));
       currentPostsPayload = postsPayload as { posts?: ZernioAnalyticsPost[]; pagination?: { page?: number; limit?: number; total?: number; pages?: number } };
       const knownIds = new Set(postRows.map((post) => postId(post)).filter(Boolean));
@@ -345,25 +395,75 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
       partialSources.push(name);
       return null;
     });
-    const [dailyMetrics] = await Promise.all([
-      optionalSource('daily_metrics', timed('zernio_daily_metrics', () => client.getDailyMetrics({ platform: 'instagram', accountId: zernioAccountId, fromDate: periodStart, toDate: periodEnd, source: 'all' }))),
-    ]);
+    const dailyMetrics = collectDaily
+      ? await optionalSource('daily_metrics', timed('zernio_daily_metrics', () => client.getDailyMetrics({ platform: 'instagram', accountId: zernioAccountId, fromDate: periodStart, toDate: periodEnd, source: 'all' })))
+      : null;
 
     const newestFollower = latestFollowerRow(followerRows);
     const oldestFollower = followerRows[0];
-    const liveFollowersCount = currentFollowersFromAccount(liveAccountPayload) ?? currentFollowersFromAccount(typedProfile.zernio_account_metadata) ?? newestFollower?.followers_count ?? 0;
+    const liveFollowersCount = currentFollowersFromAccount(liveAccountPayload) ?? newestFollower?.followers_count ?? 0;
     const followersCount = liveFollowersCount;
     const followersDelta = newestFollower && oldestFollower ? newestFollower.followers_count - oldestFollower.followers_count : 0;
-    const totalInteractions = metricTotal(insights, 'total_interactions') || metricTotal(insights, 'accounts_engaged');
-    const reach = metricTotal(insights, 'reach');
+    const totalInteractions = insights ? metricTotal(insights, 'total_interactions') || metricTotal(insights, 'accounts_engaged') : 0;
+    const reach = insights ? metricTotal(insights, 'reach') : 0;
     const engagementRate = reach > 0 ? Number(((totalInteractions / reach) * 100).toFixed(4)) : 0;
-    const unavailable = insights.unavailableMetrics?.map((metric) => `${metric.metric}: ${metric.reason}`).join(' · ') ?? null;
-    const hasUsableData = hasInsightMetrics(insights) || followerRows.length > 0 || postRows.length > 0 || liveAccountPayload !== null;
+    const unavailable = insights?.unavailableMetrics?.map((metric) => `${metric.metric}: ${metric.reason}`).join(' · ') ?? null;
+    const hasUsableData = (collectCurrent && (Boolean(insights && hasInsightMetrics(insights)) || followerRows.length > 0 || liveAccountPayload !== null))
+      || (collectPosts && postRows.length > 0)
+      || (collectDaily && dailyMetrics !== null);
     const syncStatus: AnalyticsStatus = hasUsableData
       ? partialSources.length > 0 ? 'partial' : 'synced'
       : 'no_data';
 
-    await timed('snapshot_persist', async () => {
+    const payloadBySource: Partial<Record<AnalyticsSourceClass, Record<string, unknown>>> = {};
+    if (collectCurrent) payloadBySource.current = {
+      documentation_audit: {
+        instagram: 'https://docs.zernio.com/platforms/instagram',
+        account_insights: 'GET /v1/analytics/instagram/account-insights',
+        follower_history: 'GET /v1/analytics/instagram/follower-history',
+        live_account: 'cache instagram_profiles.zernio_account_metadata, atualizado pelo sync da conexão',
+      },
+      accountInsights: insights,
+      liveAccount: liveAccountPayload,
+      liveFollowers: {
+        followersCount: liveFollowersCount,
+        source: currentFollowersFromAccount(liveAccountPayload)
+          ? 'instagram_profiles.zernio_account_metadata'
+          : newestFollower ? 'follower-history.latest' : 'unavailable',
+      },
+      followerHistory: followerHistoryPayload,
+    };
+    if (collectDaily) payloadBySource.daily = {
+      documentation_audit: { daily_metrics: 'GET /v1/analytics/daily-metrics' },
+      dailyMetrics,
+    };
+    if (collectPosts) payloadBySource.posts = {
+      documentation_audit: {
+        current_posts: 'GET /v1/posts?source=external&status=published',
+        post_analytics: 'GET /v1/analytics',
+      },
+      postAnalytics: postAnalyticsPayload,
+      currentPosts: currentPostsPayload,
+    };
+
+    const archives: Partial<Record<AnalyticsSourceClass, { id?: string; payloadSha256: string }>> = {};
+    await timed('payload_archive_persist', async () => {
+      for (const sourceClass of sourceClasses) {
+        const payload = payloadBySource[sourceClass];
+        if (!payload) continue;
+        archives[sourceClass] = await archivePayload({
+          admin,
+          profile: typedProfile,
+          sourceClass,
+          runId,
+          periodStart,
+          periodEnd,
+          payload,
+        });
+      }
+    });
+
+    if (collectCurrent) await timed('snapshot_persist', async () => {
       const { error } = await admin.from('profile_analytics_snapshots').upsert({
       organization_id: typedProfile.organization_id,
       profile_id: typedProfile.id,
@@ -374,17 +474,16 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
       followers_delta: followersDelta,
       followers_gained: followerRows.reduce((sum, row) => sum + row.followers_gained, 0),
       followers_lost: followerRows.reduce((sum, row) => sum + row.followers_lost, 0),
-      impressions: metricTotal(insights, 'impressions'),
+      impressions: insights ? metricTotal(insights, 'impressions') : 0,
       reach,
-      views: metricTotal(insights, 'views'),
-      likes: metricTotal(insights, 'likes'),
-      comments: metricTotal(insights, 'comments'),
-      shares: metricTotal(insights, 'shares'),
-      saves: metricTotal(insights, 'saves'),
-      replies: metricTotal(insights, 'replies'),
+      views: insights ? metricTotal(insights, 'views') : 0,
+      likes: insights ? metricTotal(insights, 'likes') : 0,
+      comments: insights ? metricTotal(insights, 'comments') : 0,
+      shares: insights ? metricTotal(insights, 'shares') : 0,
+      saves: insights ? metricTotal(insights, 'saves') : 0,
+      replies: insights ? metricTotal(insights, 'replies') : 0,
       total_interactions: totalInteractions,
-      profile_links_taps: metricTotal(insights, 'profile_links_taps'),
-      posts_count: postRows.length,
+      profile_links_taps: insights ? metricTotal(insights, 'profile_links_taps') : 0,
       engagement_rate: engagementRate,
       sync_status: syncStatus,
       unavailable_reason: unavailable
@@ -395,37 +494,73 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
             : null),
       last_error_code: null,
       last_error_message: null,
-      raw_payload: {
-        documentation_audit: {
-          instagram: 'https://docs.zernio.com/platforms/instagram',
-          account_insights: 'GET /v1/analytics/instagram/account-insights',
-          follower_history: 'GET /v1/analytics/instagram/follower-history',
-          live_account: 'GET /v1/accounts',
-          current_posts: 'GET /v1/posts?source=external&status=published',
-          post_analytics: 'GET /v1/analytics',
-          daily_metrics: 'GET /v1/analytics/daily-metrics',
-        },
-        accountInsights: insights,
-        liveAccount: liveAccountPayload,
-        liveFollowers: { followersCount: liveFollowersCount, source: currentFollowersFromAccount(liveAccountPayload) ? 'accounts.followersCount' : currentFollowersFromAccount(typedProfile.zernio_account_metadata) ? 'instagram_profiles.zernio_account_metadata' : newestFollower ? 'follower-history.latest' : 'unavailable' },
-        followerHistory: followerHistoryPayload,
-        postAnalytics: postAnalyticsPayload,
-        currentPosts: currentPostsPayload,
-        dailyMetrics,
-      },
+      raw_payload: payloadBySource.current ?? {},
+      payload_archive_id: archives.current?.id ?? null,
+      payload_sha256: archives.current?.payloadSha256 ?? null,
       synced_at: new Date().toISOString(),
       deleted_at: null,
       }, { onConflict: 'organization_id,profile_id,provider,period_start,period_end' });
       if (error) throw error;
     });
 
-    const dailyCacheRows = normalizedDailyMetrics(dailyMetrics, typedProfile, syncStatus === 'partial' ? 'partial' : 'complete');
+    if (collectCurrent) await timed('current_state_persist', async () => {
+      const { error } = await admin.from('profile_analytics_current').upsert({
+        organization_id: typedProfile.organization_id,
+        profile_id: typedProfile.id,
+        provider: typedProfile.provider,
+        period_start: periodStart,
+        period_end: periodEnd,
+        followers_count: followersCount,
+        followers_delta: followersDelta,
+        followers_gained: followerRows.reduce((sum, row) => sum + row.followers_gained, 0),
+        followers_lost: followerRows.reduce((sum, row) => sum + row.followers_lost, 0),
+        impressions: insights ? metricTotal(insights, 'impressions') : 0,
+        reach,
+        views: insights ? metricTotal(insights, 'views') : 0,
+        likes: insights ? metricTotal(insights, 'likes') : 0,
+        comments: insights ? metricTotal(insights, 'comments') : 0,
+        shares: insights ? metricTotal(insights, 'shares') : 0,
+        saves: insights ? metricTotal(insights, 'saves') : 0,
+        replies: insights ? metricTotal(insights, 'replies') : 0,
+        total_interactions: totalInteractions,
+        profile_links_taps: insights ? metricTotal(insights, 'profile_links_taps') : 0,
+        engagement_rate: engagementRate,
+        sync_status: syncStatus,
+        unavailable_reason: unavailable
+          ?? (syncStatus === 'partial'
+            ? `Coleta parcial; fontes temporariamente indisponíveis: ${partialSources.join(', ')}.`
+            : syncStatus === 'no_data'
+              ? 'A Zernio respondeu sem métricas para esta janela. Sincronize novamente depois que houver dados no período.'
+              : null),
+        last_error_code: null,
+        last_error_message: null,
+        current_synced_at: new Date().toISOString(),
+        current_payload_archive_id: archives.current?.id ?? null,
+        current_payload_sha256: archives.current?.payloadSha256 ?? null,
+        deleted_at: null,
+      }, { onConflict: 'organization_id,profile_id' });
+      if (error) throw error;
+    });
+
+    const dailyCacheRows = collectDaily
+      ? normalizedDailyMetrics(dailyMetrics, typedProfile, syncStatus === 'partial' ? 'partial' : 'complete')
+      : [];
     if (dailyCacheRows.length > 0) {
       await timed('daily_metrics_persist', async () => {
         const { error } = await admin.from('profile_analytics_daily_metrics')
         .upsert(dailyCacheRows, { onConflict: 'organization_id,profile_id,provider,metric_date' });
         if (error) throw error;
       });
+    }
+    if (collectDaily) {
+      const { error } = await admin.from('profile_analytics_current').update({
+        daily_synced_at: new Date().toISOString(),
+        daily_payload_archive_id: archives.daily?.id ?? null,
+        daily_payload_sha256: archives.daily?.payloadSha256 ?? null,
+      })
+        .eq('organization_id', typedProfile.organization_id)
+        .eq('profile_id', typedProfile.id);
+      if (error) throw error;
     }
 
     if (followerRows.length > 0) {
@@ -475,6 +610,8 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
         sync_status: 'synced',
         last_error_message: null,
         raw_payload: post,
+        payload_archive_id: archives.posts?.id ?? null,
+        payload_sha256: archives.posts?.payloadSha256 ?? null,
         synced_at: new Date().toISOString(),
         deleted_at: null,
       }];
@@ -486,8 +623,19 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
         if (error) throw error;
       });
     }
+    if (collectPosts) {
+      const { error } = await admin.from('profile_analytics_current').update({
+        posts_synced_at: new Date().toISOString(),
+        posts_count: postRows.length,
+        posts_payload_archive_id: archives.posts?.id ?? null,
+        posts_payload_sha256: archives.posts?.payloadSha256 ?? null,
+      })
+        .eq('organization_id', typedProfile.organization_id)
+        .eq('profile_id', typedProfile.id);
+      if (error) throw error;
+    }
 
-    await finishRun(admin, runId, syncStatus, { followerRows: followerRows.length, postRows: postRows.length, unavailableMetrics: insights.unavailableMetrics ?? [], hasInsightMetrics: hasInsightMetrics(insights), partialSources });
+    await finishRun(admin, runId, syncStatus, { sourceClasses, followerRows: followerRows.length, postRows: postRows.length, unavailableMetrics: insights?.unavailableMetrics ?? [], hasInsightMetrics: Boolean(insights && hasInsightMetrics(insights)), partialSources });
     return {
       status: syncStatus,
       skipped: false,
@@ -499,7 +647,7 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
     };
   } catch (error) {
     const normalized = normalizeError(error);
-    await admin.from('profile_analytics_snapshots').upsert({
+    if (collectCurrent) await admin.from('profile_analytics_snapshots').upsert({
       organization_id: typedProfile.organization_id,
       profile_id: typedProfile.id,
       provider: typedProfile.provider,
@@ -513,7 +661,7 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
       raw_payload: { error: normalized },
       deleted_at: null,
     }, { onConflict: 'organization_id,profile_id,provider,period_start,period_end' });
-    await finishRun(admin, runId, normalized.status, {}, { code: normalized.code, message: normalized.message });
+    await finishRun(admin, runId, normalized.status, { sourceClasses }, { code: normalized.code, message: normalized.message });
     return { status: normalized.status, skipped: false, code: normalized.code, retryable: normalized.retryable, message: normalized.message };
   }
 }
