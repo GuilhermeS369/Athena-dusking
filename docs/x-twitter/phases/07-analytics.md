@@ -31,6 +31,8 @@ Primeira conferência de billing em 2026-08-22T21:47:32Z: o novo auditor guardad
 
 Reconciliação em 2026-08-22T21:49:27Z: segundo snapshot continuou idêntico e sem `posts_read`. O utilitário guardado validou tentativa HTTP 202, item incerto, reserva integral, zero snapshot/ledger e conexão única; então registrou resolução manual `failed/manual_not_metered` com justificativa/evidência. Foram liberados 5.000 micros da reserva original, sem crédito ou débito. Wallet 11.725.000/0, versão 17; eventos imutáveis `outcome_unknown` e `failed`.
 
+Segundo quote em 2026-08-22T21:51:11Z: utilitário guardado selecionou outro post publicado (`66542b07-7e55-47f8-aaca-0075b98171db`), recusando reutilização do item anterior. Um `post_read` custa 5.000, projeção 11.720.000 e piso 5.000.000. Wallet permaneceu 11.725.000/0 versão 17; nenhuma entidade ou chamada externa foi criada.
+
 ## Rollback
 
 - Manter `TWITTER_ANALYTICS_ENABLED=false` e `TWITTER_ANALYTICS_WORKER_ENABLED=false`.
@@ -39,4 +41,4 @@ Reconciliação em 2026-08-22T21:49:27Z: segundo snapshot continuou idêntico e 
 
 ## Próxima ação segura
 
-Preparar um novo quote/reserva de 5.000 micros para outro post publicado. O gate de snapshot bem-sucedido permanece pendente; o item resolvido não pode ser reutilizado.
+Reservar o segundo quote com analytics off e auditar exatamente 5.000 micros antes de qualquer janela live.

@@ -557,3 +557,13 @@ Registros são append-only.
 - Segurança: flags e workers X permaneceram off; nenhuma alteração Vercel/VPS neste checkpoint.
 - Rollback: não reabrir reserva nem apagar eventos. Qualquer correção futura deve ser um novo evento financeiro forward-only com evidência.
 - Próxima ação segura: quote/reserva de um post publicado diferente, 5.000 micros, com analytics off; checkpoint antes de qualquer nova janela live.
+
+## X-0044 — segundo post distinto cotado para analytics
+
+- UTC: 2026-08-22T21:51:11Z; São Paulo: 2026-08-22T18:51:11-03:00.
+- Utilitário `scripts/twitter/prepare-next-analytics-canary.ts` exige estado terminal exato do primeiro canário, wallet sem reservas e seleciona um post publicado nunca usado em analytics.
+- Candidato distinto: publicação `66542b07-7e55-47f8-aaca-0075b98171db`; um recurso `post_read`, custo 5.000 micros, `canConfirm=true`.
+- Financeiro read-only: wallet antes/depois 11.725.000/0 versão 17; projeção 11.720.000 e piso protegido 5.000.000.
+- Segurança: nenhuma entidade analytics, reserva ou chamada Zernio foi criada; flags/workers seguem off. TypeScript e diff check aprovados.
+- Rollback: nenhum, pois a etapa foi somente leitura.
+- Próxima ação segura: executar `reserve-next-post-read`, auditar 5.000 micros e documentar antes da janela live.

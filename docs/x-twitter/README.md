@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:49:27Z / 2026-08-22T18:49:27-03:00
+- Atualizado em: 2026-08-22T21:51:11Z / 2026-08-22T18:51:11-03:00
 - Fase atual: 7 — análises manuais (`in_progress`)
-- Status: HTTP 202 reconciliado como não cobrado; reserva original liberada; canário de snapshot bem-sucedido ainda pendente
+- Status: segundo post distinto cotado em 5.000 micros; quote read-only aprovado e reserva ainda pendente
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `46e09cc`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Preparar um novo quote de 5.000 micros para outro post publicado, sem reutilizar o item incerto já resolvido. Confirmar/reservar com analytics off e abrir uma janela live separada somente após novo checkpoint.
+Confirmar/reservar o segundo quote em 5.000 micros com analytics off. Auditar job/item/reserva e registrar checkpoint antes de abrir uma janela live separada.
 
 ## Proibições imediatas
 
