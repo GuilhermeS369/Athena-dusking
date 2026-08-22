@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T21:38:40Z",
-  "updatedAtSaoPaulo": "2026-08-22T18:38:40-03:00",
-  "phase": { "id": "07", "name": "manual-analytics", "status": "in_progress", "gate": "single_post_read_reserved_live_pending" },
-  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "fe09ec9", "worktreeExpectedDirty": true, "phase05PendingCheckpointCommit": false },
+  "updatedAtUtc": "2026-08-22T21:44:38Z",
+  "updatedAtSaoPaulo": "2026-08-22T18:44:38-03:00",
+  "phase": { "id": "07", "name": "manual-analytics", "status": "in_progress", "gate": "single_post_read_outcome_unknown_reconciliation_pending" },
+  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "c56d6e9", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "240", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
-    "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf", "productionDeploymentId": "dpl_Dcrsn7Ty4dQnRTgcM8kCyyXTD2DF", "rollbackDeploymentId": "dpl_CxzynkGZo6MEx3J8yjRcXQgxGnG9", "xDeploymentCreated": true, "canaryOrganization": "Pomodoro", "lastLiveCanaryDeploymentId": "dpl_EVTyHgmzvvKNPERB6M6Zz8BRmBUM" },
+    "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf", "productionDeploymentId": "dpl_93z3VLkymZUoukP2w1hsK2ZeaWXC", "rollbackDeploymentId": "dpl_Dcrsn7Ty4dQnRTgcM8kCyyXTD2DF", "xDeploymentCreated": true, "canaryOrganization": "Pomodoro", "lastLiveCanaryDeploymentId": "dpl_D9Kk5XtsWPZEcsqmjiAehuJt5GSF" },
     "vps": { "hostname": "srv1881733", "release": "46e09cc-20260822T213610Z", "sha256": "183c3071ae66ecd1041581d84e481ad04c5d9ec2ad009b6875c805c6c16767b3", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
-  "lastCheckpoint": "phase-07-single-post-read-reserved",
-  "nextSafeAction": "Read-only verify analytics job 0b426171-833b-4767-9a92-1a1296aacbde and item 7ce8553c-ceb9-4a25-a00f-c51b0ec249c5 are reserved, wallet reserve is 5,000, analytics flags are false and worker stopped. Then open one controlled analytics-only window and restore off immediately after the result.",
-  "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not call analytics or billing endpoints.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
-  "blockers": ["The analytics job is reserved but not executed. Only one controlled manual read is authorized; background reads remain forbidden."]
+  "lastCheckpoint": "phase-07-single-post-read-outcome-unknown-safe-off",
+  "nextSafeAction": "Inspect the immutable evidence for analytics item 7ce8553c-ceb9-4a25-a00f-c51b0ec249c5 read-only. Keep its 5,000-micro hold open. Settle or release it only with provider/billing evidence and an audited justification; do not call GET /v1/analytics again as a retry.",
+  "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not repeat the paid analytics read for item 7ce8553c-ceb9-4a25-a00f-c51b0ec249c5.", "Do not reclassify its outcome_unknown without provider or billing evidence and an audited justification.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
+  "blockers": ["The minimum paid analytics canary returned HTTP 202. Its 5,000-micro hold must remain open until external evidence proves charged/succeeded or not charged/failed; a second read is not an acceptable reconciliation method."]
 }

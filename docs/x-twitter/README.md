@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:38:40Z / 2026-08-22T18:38:40-03:00
+- Atualizado em: 2026-08-22T21:44:38Z / 2026-08-22T18:44:38-03:00
 - Fase atual: 7 — análises manuais (`in_progress`)
-- Status: uma leitura de post reservada em 5.000 micros; execução live pendente
+- Status: leitura mínima retornou HTTP 202; 5.000 micros mantidos em hold, sem débito, snapshot ou retry
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint de código atual: `31fb1d2`
+- Checkpoint de código atual: `46e09cc`
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–240
 
@@ -24,7 +24,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 240.
-- Testes atuais: 165/165 aprovados.
+- Testes atuais: 167/167 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Reconfirmar job/item/reserva, flags analytics false e worker parado. Depois habilitar somente analytics na Production/VPS, iniciar apenas `athena-twitter-analytics-worker`, executar uma tentativa e restaurar o kill switch imediatamente após sucesso, falha ou resultado incerto.
+Inspecionar somente as evidências imutáveis do resultado incerto. Manter o hold de 5.000 micros e resolver como cobrado/sucesso ou não cobrado/falha apenas quando houver evidência externa suficiente e justificativa auditada. Não usar uma nova leitura paga como reconciliação.
 
 ## Proibições imediatas
 
@@ -43,9 +43,10 @@ Reconfirmar job/item/reserva, flags analytics false e worker parado. Depois habi
 - Não criar um segundo profile Zernio: o único profile existente foi confirmado como exclusivamente Twitter.
 - Não publicar secrets ou conteúdo de `.env*`.
 - Não reiniciar processos PM2 do Instagram.
+- Não repetir `GET /v1/analytics` para o item incerto nem liberar/liquidar seu hold por suposição.
 
 ## Ambientes preparados
 
-- Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production segura `dpl_Dcrsn7Ty4dQnRTgcM8kCyyXTD2DF`, ambos `READY`. Última janela live: `dpl_EVTyHgmzvvKNPERB6M6Zz8BRmBUM`.
+- Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production segura `dpl_93z3VLkymZUoukP2w1hsK2ZeaWXC`, ambos `READY`. Última janela live analytics: `dpl_D9Kk5XtsWPZEcsqmjiAehuJt5GSF`.
 - VPS: release `46e09cc-20260822T213610Z`; cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
-- Supabase: migrations 223–240 alinhadas; último one-shot deixou zero claims e zero operações financeiras.
+- Supabase: migrations 223–240 alinhadas; analytics canário está `outcome_unknown`, com uma tentativa HTTP 202, reserva aberta de 5.000, zero snapshot e zero débito.

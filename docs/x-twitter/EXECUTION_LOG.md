@@ -519,3 +519,17 @@ Registros são append-only.
 - Estado: job/item `reserved`, tentativa 0, snapshot 0; nenhuma chamada Zernio ocorreu.
 - Segurança: analytics e worker continuam desabilitados; cinco workers X parados. O Dashboard permanece somente em snapshots locais.
 - Próxima ação segura: preflight read-only, janela exclusiva do worker analytics, parada/restauração imediata após um resultado.
+
+## X-0041 — HTTP 202 de analytics preservado como resultado incerto
+
+- UTC: 2026-08-22T21:44:38Z; São Paulo: 2026-08-22T18:44:38-03:00.
+- Janela controlada: somente analytics foi habilitado na Production/VPS e somente `athena-twitter-analytics-worker` foi iniciado. A chamada ocorreu em 2026-08-22T21:40:56Z e encerrou em 2026-08-22T21:40:57Z.
+- Provedor: HTTP 202, código estável `202`, mensagem sanitizada de sincronização pendente e sem request ID. O classificador de `46e09cc` registrou `outcome_unknown`; não houve retry.
+- Estado: job `0b426171-833b-4767-9a92-1a1296aacbde`, item `7ce8553c-ceb9-4a25-a00f-c51b0ec249c5` e tentativa estão `outcome_unknown`; um evento imutável foi criado. Zero snapshots.
+- Financeiro: reserva segue `open`, 5.000 micros restantes, zero liquidado e zero liberado. Wallet 11.725.000 contábil/5.000 reservado, versão 16. Zero lançamento de ledger ligado ao item.
+- Segurança restaurada: VPS com analytics/publicação false e publicação em shadow; arquivo compartilhado modo 600; cinco processos X parados. Os seis processos preexistentes continuam online.
+- Vercel segura: `dpl_93z3VLkymZUoukP2w1hsK2ZeaWXC`, `READY`, login 200, construída após restaurar ambos os flags analytics para false. Warnings de metadata continuam preexistentes.
+- Verificação do checkpoint: 167/167 testes Node e TypeScript aprovados; build Vercel aprovado; `git diff --check` e `STATE.json` aprovados; migrações local/remoto alinhadas até 240; heartbeat sem segredo respondeu 401.
+- Decisão: a mensagem “tente novamente” não autoriza retry cego porque uma nova leitura pode gerar novo custo. O hold somente será liquidado ou liberado com evidência externa e justificativa auditada.
+- Rollback: manter a Production segura atual, todos os workers X parados e release VPS `46e09cc-20260822T213610Z`; nenhuma mutação de banco deve ser desfeita por exclusão.
+- Próxima ação segura: consultar evidência de billing/provedor sem executar `GET /v1/analytics`; depois usar a resolução individual já auditada. Não repetir a chamada paga.
