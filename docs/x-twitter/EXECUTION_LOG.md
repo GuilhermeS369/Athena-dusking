@@ -128,3 +128,20 @@ Registros são append-only.
 - Status: `in_progress`, implementação local concluída.
 - Próxima ação segura: criar commit local, confirmar o projeto vinculado, aplicar apenas 226 e executar o teste SQL 226.
 - Não repetir: não cadastrar API key real para validar schema; não reiniciar PM2.
+
+## X-0010 — migration 226 aplicada e contratos de perfil validados
+
+- UTC: 2026-08-22T17:41:53Z
+- São Paulo: 2026-08-22T14:41:53-03:00
+- Commit aplicado: `fc6584f1126121658bd7fed779f05c49ed582cfb`.
+- Supabase: linked ref reconfirmado como `hqwhumdumfmixxbvneae`; antes 225, depois 226.
+- Mutação: somente `226_twitter_zernio_profiles_and_epochs.sql`.
+- Teste SQL: 23/23 verificações concluídas via Management API com `BEGIN`/`ROLLBACK`.
+- Pós-teste: zero registros X residuais em identidades, wallets, perfis, épocas, OAuth attempts e eventos.
+- Segurança: quatro RPCs mutáveis da fase negados a anon/authenticated e permitidos apenas a service role.
+- Lint: nenhum erro X. Erros legados preservados: ambiguidade `state` em `rollback_legacy_waiting_randomization` e `batch_id` em `enqueue_zernio_organization_sync_batch`.
+- Vercel/VPS: inalterados; nenhuma chave real chamada; flags desligadas.
+- Rollback: schema aditivo com correção forward-only; mitigação imediata é manter flags desligadas (estado atual).
+- Gate: implementação aprovada; teste vivo depende de API key X dedicada inserida por admin.
+- Próxima ação segura: commit da documentação e desenvolvimento local da Fase 3; rollout continua bloqueado até o teste vivo.
+- Não repetir: não reaplicar 226; não reutilizar secret Instagram; não executar sincronização real sem ação explícita de admin.

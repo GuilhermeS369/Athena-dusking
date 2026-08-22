@@ -1,29 +1,31 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T17:39:53Z",
-  "updatedAtSaoPaulo": "2026-08-22T14:39:53-03:00",
+  "updatedAtUtc": "2026-08-22T17:41:53Z",
+  "updatedAtSaoPaulo": "2026-08-22T14:41:53-03:00",
   "phase": {
     "id": "02",
     "name": "zernio-identities-and-profiles",
     "status": "in_progress",
-    "gate": "pending"
+    "gate": "implementation_passed_live_credential_pending"
   },
   "git": {
     "branch": "codex/x-twitter-module",
     "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb",
     "checkpointCommit": "41fd0c2414a46672210487e0dcee25ecc17aed82",
-    "worktreeExpectedDirty": true,
+    "worktreeExpectedDirty": false,
     "phase01Commits": [
       "f861710fd2c4fd5268f0a88b846e4d80facb039f",
       "50355ade6cccd8b3522f3d59690ef2381d3b7a4a",
       "49362c4ab62a79e02ae12b14086234bb066910cd"
+    ],
+    "phase02Commits": [
+      "fc6584f1126121658bd7fed779f05c49ed582cfb"
     ]
   },
   "environments": {
     "supabase": {
       "linkedProjectRef": "hqwhumdumfmixxbvneae",
-      "lastVerifiedMigration": "225",
-      "pendingMigration": "226_twitter_zernio_profiles_and_epochs.sql",
+      "lastVerifiedMigration": "226",
       "xMigrationsApplied": true
     },
     "vercel": {
@@ -41,13 +43,15 @@
     "twitterModuleEnabled": false,
     "twitterAnalyticsEnabled": false
   },
-  "lastCheckpoint": "phase-02-local-validation",
-  "nextSafeAction": "Commit the validated Phase 2 local unit, re-confirm linked Supabase project, push only migration 226, then run SQL test 226 through db query inside BEGIN/ROLLBACK.",
+  "lastCheckpoint": "phase-02-schema-and-contracts-validated",
+  "nextSafeAction": "Commit this remote checkpoint, then start Phase 3 media/groups locally behind the disabled flag. Do not live-test Zernio until an admin supplies a dedicated X credential through the UI.",
   "doNotRepeat": [
     "Do not apply migrations 210 through 222; they are already remote.",
     "Do not restart Instagram PM2 processes.",
     "Do not expose environment values or SSH private keys.",
     "Do not call a real Zernio credential during migration validation."
   ],
-  "blockers": []
+  "blockers": [
+    "Phase 2 live gate requires a dedicated Zernio X API key entered by an Athena admin; no existing Instagram credential may be reused implicitly."
+  ]
 }

@@ -21,3 +21,14 @@ Início: 2026-08-22T17:30:50Z. A documentação oficial foi reconferida: OAuth u
 - Ainda não realizado: push da migration, teste SQL remoto transacional, chamada Zernio real, deploy Vercel ou alteração na VPS.
 - Rollback: flags permanecem desligadas; antes do remoto, reverter apenas o commit local. Após aplicação, correções de schema serão forward-only.
 - Próxima ação segura: commit local e aplicação isolada da migration 226.
+
+## Checkpoint remoto
+
+- Migration 226 aplicada isoladamente ao projeto `hqwhumdumfmixxbvneae`.
+- Teste SQL: 23 verificações aprovadas em transação encerrada por rollback.
+- Pós-teste: zero identidades, carteiras, perfis, épocas, attempts e eventos residuais.
+- ACL: upsert de credencial, sync, fechamento de inventário e soft-delete negados para `anon`/`authenticated` e permitidos a `service_role`.
+- Lint: nenhum erro Twitter; permanecem duas ambiguidades legadas fora do escopo.
+- Gate de implementação: aprovado.
+- Gate vivo: pendente de credencial Zernio X dedicada inserida por admin. Não é seguro reutilizar chave do Instagram nem extrair secrets para antecipar o teste.
+- Continuidade autorizada: Fase 3 pode ser implementada atrás da flag desligada; nenhuma liberação/canário pode ignorar o gate vivo.
