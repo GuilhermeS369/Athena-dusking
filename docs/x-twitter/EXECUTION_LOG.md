@@ -533,3 +533,15 @@ Registros são append-only.
 - Decisão: a mensagem “tente novamente” não autoriza retry cego porque uma nova leitura pode gerar novo custo. O hold somente será liquidado ou liberado com evidência externa e justificativa auditada.
 - Rollback: manter a Production segura atual, todos os workers X parados e release VPS `46e09cc-20260822T213610Z`; nenhuma mutação de banco deve ser desfeita por exclusão.
 - Próxima ação segura: consultar evidência de billing/provedor sem executar `GET /v1/analytics`; depois usar a resolução individual já auditada. Não repetir a chamada paga.
+
+## X-0042 — primeiro snapshot de billing indica analytics não cobrada
+
+- UTC: 2026-08-22T21:47:32Z; São Paulo: 2026-08-22T18:47:32-03:00.
+- Fonte oficial: a documentação Zernio define `GET /v1/usage` como snapshot de uso/metering e expõe `usage.xApiCallsByOperation`; a consulta não é uma leitura de recurso X.
+- Código: cliente ganhou somente o método read-only `getUsageSnapshot`; auditor `scripts/twitter/audit-zernio-usage.ts` exige frase exata, uma organização e exatamente uma conexão X ativa. A saída exclui chave, IDs pessoais e payloads.
+- Resultado Metronome: `content_create=5`, `content_create_with_url=1` e `posts_read` ausente. As seis criações coincidem exatamente com os cinco posts sem URL e um post com URL já liquidados no ledger Athena.
+- Financeiro Athena não foi alterado: o item analytics permanece incerto, reserva aberta 5.000, zero snapshot e zero débito.
+- Validação: 168/168 testes Node, TypeScript e `git diff --check` aprovados. Teste dedicado comprova que o auditor usa `/v1/usage` e nunca `/analytics` ou `/posts/{id}`.
+- Decisão cautelar: uma única ausência pode refletir atraso de metering. Preservar o hold e repetir somente o snapshot de billing mais tarde; não repetir a leitura X.
+- Rollback: reverter o método/auditor não altera banco nem ambientes; flags/workers continuam off.
+- Próxima ação segura: segunda consulta guardada de `GET /v1/usage`; se a ausência persistir, resolução manual `failed` com evidência auditada e liberação idempotente dos 5.000 micros.

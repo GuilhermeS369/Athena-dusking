@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:44:38Z / 2026-08-22T18:44:38-03:00
+- Atualizado em: 2026-08-22T21:47:32Z / 2026-08-22T18:47:32-03:00
 - Fase atual: 7 — análises manuais (`in_progress`)
-- Status: leitura mínima retornou HTTP 202; 5.000 micros mantidos em hold, sem débito, snapshot ou retry
+- Status: leitura mínima retornou HTTP 202; primeiro snapshot de billing não mostra `posts_read`; hold de 5.000 aguarda uma reconfirmação sem nova leitura X
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `46e09cc`
@@ -24,7 +24,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 240.
-- Testes atuais: 167/167 aprovados.
+- Testes atuais: 168/168 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Inspecionar somente as evidências imutáveis do resultado incerto. Manter o hold de 5.000 micros e resolver como cobrado/sucesso ou não cobrado/falha apenas quando houver evidência externa suficiente e justificativa auditada. Não usar uma nova leitura paga como reconciliação.
+Após tempo de propagação, repetir somente o auditor guardado de `GET /v1/usage`. Se `posts_read` continuar ausente e as seis criações conhecidas permanecerem exatas, resolver o item como falha não cobrada com justificativa e evidência auditadas. Não usar uma nova leitura paga como reconciliação.
 
 ## Proibições imediatas
 

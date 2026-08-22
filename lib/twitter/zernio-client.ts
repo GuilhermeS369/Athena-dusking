@@ -177,6 +177,17 @@ export function createTwitterZernioClient(apiKey: string, options: ClientOptions
     async getPost(postId: string) {
       return request(`/v1/posts/${encodeURIComponent(postId)}`) as Promise<{ post?: Record<string, unknown> }>;
     },
+    async getUsageSnapshot() {
+      return request('/v1/usage') as Promise<{
+        billingSystem?: string;
+        usage?: { xApiCallsByOperation?: Record<string, number> };
+        spend?: {
+          currentPeriodCents?: number;
+          xSpendCents?: number;
+          xSpendLimitCents?: number;
+        };
+      }>;
+    },
   };
 }
 

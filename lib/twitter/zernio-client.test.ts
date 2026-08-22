@@ -70,3 +70,23 @@ test('erro Zernio não expõe bearer e preserva código/request id', async () =>
     return true;
   });
 });
+
+test('auditoria de uso consulta somente o snapshot de billing sem ler recursos X', async () => {
+  const requests: string[] = [];
+  const client = createTwitterZernioClient('secret-value', {
+    baseUrl: 'https://example.test/api',
+    timeoutMs: 5_000,
+    fetchImpl: async (input) => {
+      requests.push(String(input));
+      return new Response(JSON.stringify({
+        billingSystem: 'metronome',
+        usage: { xApiCallsByOperation: { posts_read: 1 } },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+
+  const snapshot = await client.getUsageSnapshot();
+  assert.deepEqual(snapshot.usage?.xApiCallsByOperation, { posts_read: 1 });
+  assert.deepEqual(requests, ['https://example.test/api/v1/usage']);
+  assert.equal(requests.some((url) => url.includes('/analytics') || url.includes('/posts/')), false);
+});
