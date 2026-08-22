@@ -32,3 +32,9 @@ export function classifyTwitterProviderResponse({ ok, status, payload, requestId
   const resolution = existing ? 'existing_post' : ['published', 'success', 'posted', 'completed'].includes(remoteStatus) ? 'published' : ['failed', 'error', 'rejected', 'cancelled'].includes(remoteStatus) ? 'confirmed_failure' : 'accepted';
   return { resolution, httpStatus: status, providerCode: remoteStatus || 'accepted', requestId, postId: postId(remote), message: `Resultado Zernio: ${remoteStatus || 'aceito'}.` };
 }
+
+export function classifyTwitterAnalyticsResponse({ ok, status }) {
+  if (status === 202) return 'outcome_unknown';
+  if (ok) return 'succeeded';
+  return status >= 500 ? 'outcome_unknown' : 'failed';
+}
