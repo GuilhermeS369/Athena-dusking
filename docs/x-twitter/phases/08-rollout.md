@@ -54,7 +54,11 @@ Próxima ação segura: obter confirmação da Zernio de que analytics dos posts
 - Heartbeat recente de `athena-twitter-publication-worker` sempre impede claim.
 - Circuit breaker do worker primário é respeitado; claim máximo 1.
 - Shadow conclui pelo RPC shadow; live reutiliza os mesmos endpoints de start/result, a mesma idempotency key Zernio e a mesma classificação financeira do worker.
-- A rota ainda não está em `vercel.json`; cron só será adicionado depois do shadow aprovado e do gate analytics.
-- Testes atuais: 170/170; TypeScript e build aprovados. Variáveis documentadas em `.env.example`.
+- A rota ainda não está em `vercel.json`; cron só será adicionado depois do gate analytics.
+- Testes atuais: 171/171; TypeScript e build aprovados. Variáveis documentadas em `.env.example`.
 
-Próxima ação segura operacional: deploy Preview, flags somente shadow, invocação controlada com fila vazia e restauração off. Nenhuma ativação Production/live.
+Shadow aprovado em 2026-08-22T22:15:39Z: deployment `https://pomodoro-mh4mbhh3y-shoows-projects-2caaf9e9.vercel.app`, heartbeat primário expirado, `fallback=true`, `mode=shadow`, `claimed=0`. Banco permaneceu com zero não terminais/holds, seis attempts históricos e wallet 11.725.000/0 versão 21; somente heartbeat `athena-twitter-vercel-fallback` foi gravado. Preview seguro restaurado em `https://pomodoro-83c6mwiww-shoows-projects-2caaf9e9.vercel.app` com fallback e worker false.
+
+O primeiro smoke retornou 503 porque a rota tentava chamar endpoints internos pelo domínio Preview protegido. Nenhum claim ocorreu. A correção eliminou o loop HTTP e passou a usar diretamente os mesmos RPCs transacionais; o segundo smoke aprovou. Próximo: endpoint read-only de saúde do rollout. Nenhuma ativação Production/live.
+
+Após o smoke, a correção foi endurecida para falhar fechado quando a leitura ou a gravação do heartbeat não estiver disponível e para registrar `success` no circuit breaker ao concluir cada ciclo. Regressão local: 171/171 testes, TypeScript, build e `git diff --check` aprovados; somente os warnings de metadata já conhecidos apareceram no build.

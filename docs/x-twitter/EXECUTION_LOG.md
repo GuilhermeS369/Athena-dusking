@@ -639,3 +639,25 @@ Registros são append-only.
 - Verificação: 170/170 testes, TypeScript e build aprovados. O primeiro TypeScript paralelo ao build falhou apenas por corrida na geração de `.next/types`; rerun após build aprovou.
 - Rollback: reverter rota/helper/teste e remover as três variáveis exemplo; nenhuma migração ou dado remoto foi criado.
 - Próxima ação segura: checkpoint Git e shadow Preview com fila vazia; não adicionar cron nem habilitar Production/live.
+
+## X-0052 — fallback Vercel aprovado em shadow e Preview restaurado
+
+- UTC: 2026-08-22T22:17:17Z; São Paulo: 2026-08-22T19:17:17-03:00.
+- Preflight: fila X não terminal 0, holds 0, wallet 11.725.000/0 versão 21 e heartbeat primário `stopped`/expirado.
+- Primeiro smoke: 503 antes de claim. Causa confirmada: chamadas HTTP da função para o próprio domínio Preview foram barradas pela Deployment Protection. O bloco `finally` restaurou flags e criou Preview seguro; nenhuma mutação financeira.
+- Correção: fallback passou a chamar diretamente `twitter_claim_publication_items`, `twitter_complete_shadow_attempt`, `twitter_start_external_attempt` e `twitter_resolve_publication_attempt`, preservando regras financeiras e idempotência sem loop HTTP.
+- Validador `scripts/twitter/validate-preview-fallback.ps1`: segredo aleatório somente em memória/Vercel Preview, live false, deploy shadow, smoke, restauração de flags e segundo deploy seguro mesmo em erro.
+- Shadow aprovado: `https://pomodoro-mh4mbhh3y-shoows-projects-2caaf9e9.vercel.app`, resposta `fallback=true`, `mode=shadow`, `claimed=0`.
+- Pós-auditoria: apenas heartbeat `athena-twitter-vercel-fallback` shadow; fila não terminal 0, holds 0, seis attempts de publicação, wallet 11.725.000/0 versão 21.
+- Preview seguro: `https://pomodoro-83c6mwiww-shoows-projects-2caaf9e9.vercel.app`, flags fallback/live/worker false. Production permaneceu segura e intocada.
+- Rollback: manter Preview seguro; rota não possui cron e Production não possui flags fallback habilitados.
+- Próxima ação segura: commit da correção/evidência e endpoint read-only de saúde do rollout.
+
+## X-0053 — fallback endurecido e regressão local aprovada
+
+- UTC: 2026-08-22T22:21:24Z; São Paulo: 2026-08-22T19:21:24-03:00.
+- Correção: erros de leitura do heartbeat primário e de gravação do heartbeat fallback agora falham fechado antes do claim; ciclos concluídos registram `success` no circuit breaker persistente.
+- Verificação: 171/171 testes, `npx tsc --noEmit`, `npm run build`, parse do `STATE.json` e `git diff --check` aprovados. Build exibiu apenas os warnings preexistentes de metadata em `/login`, `/onboarding` e `/_not-found`.
+- Estado remoto preservado: nenhuma nova chamada Supabase/Zernio, nenhuma alteração Vercel/VPS e nenhum processo Instagram reiniciado nesta etapa.
+- Rollback: reverter a correção da rota e seu teste; não há migração, cron ou dado remoto associado.
+- Próxima ação segura: consolidar o checkpoint Git e implementar o endpoint autenticado/read-only de saúde do rollout com todas as flags de mutação desligadas.

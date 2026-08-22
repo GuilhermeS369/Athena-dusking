@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { isTwitterPrimaryHeartbeatFresh, twitterFallbackExecutionMode } from './fallback.ts';
@@ -16,4 +17,15 @@ test('fallback só assume quando heartbeat primário está realmente expirado', 
   assert.equal(isTwitterPrimaryHeartbeatFresh({ mode: 'shadow', last_seen_at: '2026-08-22T21:58:59Z' }, now, 60), false);
   assert.equal(isTwitterPrimaryHeartbeatFresh({ mode: 'stopped', last_seen_at: '2026-08-22T21:59:59Z' }, now, 60), false);
   assert.equal(isTwitterPrimaryHeartbeatFresh(null, now, 60), false);
+});
+
+test('rota fallback usa RPC direto e não depende de loop HTTP pelo domínio protegido', async () => {
+  const source = await readFile(new URL('../../app/api/internal/twitter-fallback-dispatch/route.ts', import.meta.url), 'utf8');
+  assert.match(source, /twitter_claim_publication_items/);
+  assert.match(source, /twitter_complete_shadow_attempt/);
+  assert.match(source, /twitter_resolve_publication_attempt/);
+  assert.match(source, /heartbeatWriteError/);
+  assert.match(source, /p_operation:'success'/);
+  assert.doesNotMatch(source, /fetch\(new URL\(['"]\/api\/internal/);
+  assert.doesNotMatch(source, /instagram_profiles|public\.publication_items/);
 });
