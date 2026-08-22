@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T17:46:53Z / 2026-08-22T14:46:53-03:00
+- Atualizado em: 2026-08-22T17:48:00Z / 2026-08-22T14:48:00-03:00
 - Fase: 3 — Galeria, grupos e agenda
 - Status: `in_progress`
 - Branch: `codex/x-twitter-module`
@@ -23,7 +23,7 @@
 ## Baseline conhecido
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
-- Migrações local/remoto alinhadas até 226.
+- Migrações local/remoto alinhadas até 227.
 - Testes atuais: 153/153 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Criar o commit local da Fase 3 e aplicar somente a migration 227 após reconfirmar o dry-run. Executar o teste SQL 227 em transação com rollback.
+Registrar o gate da Fase 3 e iniciar a Fase 4 local: programa em massa, revisão read-only, confirmação atômica e reserva parcial.
 
 ## Proibições imediatas
 

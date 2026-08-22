@@ -167,3 +167,17 @@ Registros são append-only.
 - Vercel/VPS: inalterados.
 - Status: `in_progress`, implementação local validada.
 - Próxima ação segura: commit e aplicação controlada de 227, seguida do teste SQL transacional.
+
+## X-0013 — gate da Fase 3 aprovado
+
+- UTC: 2026-08-22T17:48:00Z
+- São Paulo: 2026-08-22T14:48:00-03:00
+- Commit de código: `f47dd4cad2f09d55a621c744c7af4317b9a4c749`.
+- Supabase: migration 227 aplicada isoladamente; local/remoto alinhados.
+- Teste SQL: 14/14 em `BEGIN`/`ROLLBACK`; zero dados residuais.
+- Segurança: RPC de membros negado a anon/authenticated; service role permitido; tenant e path Storage isolados.
+- Lint: zero erro X; duas ambiguidades legadas inalteradas.
+- Vercel/VPS: inalterados; nenhum upload real executado.
+- Rollback: flags desligadas e correção de banco forward-only.
+- Status: `completed`.
+- Próxima ação segura: commit deste checkpoint e início local da Fase 4.

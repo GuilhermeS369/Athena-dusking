@@ -1,6 +1,6 @@
 # Fase 03 — galeria, grupos e agenda
 
-Status: `in_progress`
+Status: `completed`
 
 Entregas: bucket `twitter-media`, uploads retomáveis, assets, grupos, perfis, agenda e páginas responsivas. Gate: isolamento de Storage e organização aprovado.
 
@@ -17,3 +17,13 @@ Início: 2026-08-22T17:41:53Z. A implementação seguirá atrás da feature flag
 - Supabase dry-run: somente migration 227.
 - Ainda não realizado: push 227, teste SQL remoto, upload real, deploy Vercel ou alteração na VPS.
 - Rollback: flags desligadas; antes do push, reverter o commit local; depois do push, correção forward-only.
+
+## Gate remoto
+
+- Migration 227 aplicada isoladamente.
+- Teste SQL: 14/14 aprovado em transação revertida.
+- Pós-teste: zero assets, grupos ou membros residuais.
+- RLS entre organizações, path do bucket, MIME/kind e membership cruzado validados.
+- RPC de membership: somente service role.
+- Lint sem erros X; dois erros legados permanecem fora do escopo.
+- Gate aprovado. Upload real permanece parte do smoke/canário, sem bloquear a implementação local da fase seguinte.
