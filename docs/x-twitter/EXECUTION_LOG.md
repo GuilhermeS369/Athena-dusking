@@ -359,3 +359,17 @@ Registros são append-only.
 - Execução: flags live ainda false; cinco workers X permanecem parados; nenhuma chamada `/v1/posts` ocorreu.
 - Rollback antes do claim: cancelamento idempotente do item libera a reserva original; não criar crédito.
 - Próxima ação segura: preflight read-only; habilitar publicação live somente em Production e no shared env VPS; iniciar apenas o worker X de publicação; monitorar e parar após resultado.
+
+## X-0026 — canário texto sem URL publicado e liquidado
+
+- UTC: 2026-08-22T20:07:17Z; São Paulo: 2026-08-22T17:07:17-03:00.
+- Janela live: Production `dpl_TWGZkAu2ciJAv6zh9rZkEWbyK4d4`; somente `athena-twitter-publication-worker` foi iniciado. Heartbeat `live` confirmado; demais quatro workers X permaneceram parados.
+- Controle de agenda: o worker não claimou antes de 2026-08-22T20:05:00Z. Chamada externa começou 20:05:02Z e terminou 20:05:06Z.
+- Resultado: item `published`, uma tentativa, HTTP 201, provider code `published`, post ID persistido. Não houve retry.
+- Financeiro: wallet passou de 12.000.000/15.000 reservados para 11.985.000/0; ledger possui exatamente um grant +12.000.000 e um débito -15.000 na categoria `post_dm_create`; reserva e hold `settled`, 15.000 liquidados, zero liberados.
+- Logs: dois eventos imutáveis, `external_started` e `published`, com custo estimado/liquidado de 15.000 no terminal. Zero itens `ready`, `claimed`, `retry` ou `outcome_unknown` após o gate.
+- Custo evitado: não foi feita leitura Zernio do post após publicação, pois custaria 5.000 micros adicionais; a evidência de resposta 201/post ID/ledger é suficiente para este gate.
+- Kill switch: worker parado imediatamente; VPS shared env restaurado para `false`/`shadow` e permissão 600; seis processos preexistentes continuam online. Production segura redeployada em `dpl_619TNoqFWYVMDYxj33dc9BfcWBoG`; Preview permaneceu off.
+- Smoke final: login 200, heartbeat POST sem segredo 401. Logs PM2 do worker sem erros.
+- Status: primeiro passo da ordem canário `completed`; Fase 6 continua `in_progress`.
+- Próxima ação segura: preparar uma imagem de teste no bucket isolado, review/confirm de exatamente um item e reserva de 15.000 micros com live off; só depois abrir nova janela.

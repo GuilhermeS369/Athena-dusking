@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T19:45:36Z / 2026-08-22T16:45:36-03:00
+- Atualizado em: 2026-08-22T20:07:17Z / 2026-08-22T17:07:17-03:00
 - Fase atual: 6 — canário de publicação (`in_progress`)
-- Status: primeiro item texto sem URL confirmado e reservado; worker ainda parado, nenhuma publicação executada
+- Status: primeiro canário texto sem URL publicado e liquidado; execução novamente desligada
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `50469d4e87eed009c13c9e4bde5e1176cac7014c`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Reconfirmar o item único `ready`, zero tentativas e reserva de 15.000 micros; habilitar live somente em Production/VPS e iniciar apenas `athena-twitter-publication-worker`. Parar o worker imediatamente após o resultado.
+Preparar o próximo gate com uma única imagem no bucket `twitter-media`, confirmar um item/reserva de 15.000 micros com live desligado e auditar a mídia antes de abrir outra janela controlada.
 
 ## Proibições imediatas
 
@@ -46,6 +46,6 @@ Reconfirmar o item único `ready`, zero tentativas e reserva de 15.000 micros; h
 
 ## Ambientes preparados
 
-- Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production `dpl_DiBtbGFbYLsNpEA5GpMCWNbLN5W7`, ambos `READY`. Flags globais de módulo/publicação/analytics continuam desligadas.
+- Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production desabilitada `dpl_619TNoqFWYVMDYxj33dc9BfcWBoG`, ambos `READY`. Última janela live: `dpl_TWGZkAu2ciJAv6zh9rZkEWbyK4d4`.
 - VPS: cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
 - Supabase: migrations 223–240 alinhadas; último one-shot deixou zero claims e zero operações financeiras.
