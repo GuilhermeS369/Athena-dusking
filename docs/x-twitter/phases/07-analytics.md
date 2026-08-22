@@ -29,6 +29,8 @@ Canário executado em 2026-08-22T21:40:56Z: a Zernio retornou HTTP 202 (`Analyti
 
 Primeira conferência de billing em 2026-08-22T21:47:32Z: o novo auditor guardado consultou apenas `GET /v1/usage`. O snapshot Metronome contém exatamente `content_create=5` e `content_create_with_url=1`, correspondentes aos seis canários publicados, e não contém `posts_read`. Isso é evidência de não cobrança, mas o hold será mantido até uma segunda conferência posterior para reduzir risco de atraso de metering. Regressão: 168/168 testes e TypeScript aprovados.
 
+Reconciliação em 2026-08-22T21:49:27Z: segundo snapshot continuou idêntico e sem `posts_read`. O utilitário guardado validou tentativa HTTP 202, item incerto, reserva integral, zero snapshot/ledger e conexão única; então registrou resolução manual `failed/manual_not_metered` com justificativa/evidência. Foram liberados 5.000 micros da reserva original, sem crédito ou débito. Wallet 11.725.000/0, versão 17; eventos imutáveis `outcome_unknown` e `failed`.
+
 ## Rollback
 
 - Manter `TWITTER_ANALYTICS_ENABLED=false` e `TWITTER_ANALYTICS_WORKER_ENABLED=false`.
@@ -37,4 +39,4 @@ Primeira conferência de billing em 2026-08-22T21:47:32Z: o novo auditor guardad
 
 ## Próxima ação segura
 
-Repetir apenas a consulta read-only de billing após propagação. Se `posts_read` permanecer ausente, resolver como falha não cobrada com justificativa/evidência auditadas e liberar a reserva original. O gate de snapshot bem-sucedido permanece pendente.
+Preparar um novo quote/reserva de 5.000 micros para outro post publicado. O gate de snapshot bem-sucedido permanece pendente; o item resolvido não pode ser reutilizado.

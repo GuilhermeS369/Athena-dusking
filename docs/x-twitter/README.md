@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:47:32Z / 2026-08-22T18:47:32-03:00
+- Atualizado em: 2026-08-22T21:49:27Z / 2026-08-22T18:49:27-03:00
 - Fase atual: 7 — análises manuais (`in_progress`)
-- Status: leitura mínima retornou HTTP 202; primeiro snapshot de billing não mostra `posts_read`; hold de 5.000 aguarda uma reconfirmação sem nova leitura X
+- Status: HTTP 202 reconciliado como não cobrado; reserva original liberada; canário de snapshot bem-sucedido ainda pendente
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `46e09cc`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Após tempo de propagação, repetir somente o auditor guardado de `GET /v1/usage`. Se `posts_read` continuar ausente e as seis criações conhecidas permanecerem exatas, resolver o item como falha não cobrada com justificativa e evidência auditadas. Não usar uma nova leitura paga como reconciliação.
+Preparar um novo quote de 5.000 micros para outro post publicado, sem reutilizar o item incerto já resolvido. Confirmar/reservar com analytics off e abrir uma janela live separada somente após novo checkpoint.
 
 ## Proibições imediatas
 
@@ -49,4 +49,4 @@ Após tempo de propagação, repetir somente o auditor guardado de `GET /v1/usag
 
 - Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production segura `dpl_93z3VLkymZUoukP2w1hsK2ZeaWXC`, ambos `READY`. Última janela live analytics: `dpl_D9Kk5XtsWPZEcsqmjiAehuJt5GSF`.
 - VPS: release `46e09cc-20260822T213610Z`; cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
-- Supabase: migrations 223–240 alinhadas; analytics canário está `outcome_unknown`, com uma tentativa HTTP 202, reserva aberta de 5.000, zero snapshot e zero débito.
+- Supabase: migrations 223–240 alinhadas; primeiro analytics canário terminou `failed/manual_not_metered`, reserva liberada, wallet 11.725.000/0 versão 17, zero snapshot e zero débito analytics.

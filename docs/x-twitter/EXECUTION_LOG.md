@@ -545,3 +545,15 @@ Registros são append-only.
 - Decisão cautelar: uma única ausência pode refletir atraso de metering. Preservar o hold e repetir somente o snapshot de billing mais tarde; não repetir a leitura X.
 - Rollback: reverter o método/auditor não altera banco nem ambientes; flags/workers continuam off.
 - Próxima ação segura: segunda consulta guardada de `GET /v1/usage`; se a ausência persistir, resolução manual `failed` com evidência auditada e liberação idempotente dos 5.000 micros.
+
+## X-0043 — analytics HTTP 202 reconciliada como não cobrada
+
+- UTC: 2026-08-22T21:49:27Z; São Paulo: 2026-08-22T18:49:27-03:00.
+- Segunda conferência: `GET /v1/usage` continuou com `content_create=5`, `content_create_with_url=1` e sem `posts_read`. Nenhuma leitura X adicional foi feita.
+- Utilitário guardado `scripts/twitter/reconcile-analytics-canary.ts`: exige frase exata, organização, attempt ID, conexão única, admin, HTTP 202 incerto, reserva integral de 5.000, zero snapshot e zero ledger. Reconfere billing imediatamente antes da mutação.
+- Resolução: tentativa/item mudaram de `outcome_unknown` para `failed`, código `manual_not_metered`; evidência registra fonte, operações, justificativa e ator. Eventos imutáveis preservam a sequência `outcome_unknown` → `failed`.
+- Financeiro: 5.000 micros liberados da reserva original; zero liquidado e nenhum crédito criado. Wallet 11.725.000 contábil/0 reservado, versão 16→17; ledger analytics continua vazio.
+- Dados: reserva `released`, remaining 0, settled 0, released 5.000; snapshots 0. Executar novamente o utilitário é recusado pelo preflight terminal.
+- Segurança: flags e workers X permaneceram off; nenhuma alteração Vercel/VPS neste checkpoint.
+- Rollback: não reabrir reserva nem apagar eventos. Qualquer correção futura deve ser um novo evento financeiro forward-only com evidência.
+- Próxima ação segura: quote/reserva de um post publicado diferente, 5.000 micros, com analytics off; checkpoint antes de qualquer nova janela live.
