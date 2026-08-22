@@ -192,3 +192,15 @@ Registros são append-only.
 - Testes: 154/154, TypeScript, build e diff check aprovados.
 - Supabase remoto: ainda 227; dry-run somente 228. Zernio/Vercel/VPS inalterados.
 - Próxima ação segura: commit, push isolado 228 e teste SQL 16/16 com rollback.
+
+## X-0015 — gate da Fase 4 aprovado
+
+- UTC: 2026-08-22T17:57:05Z
+- São Paulo: 2026-08-22T14:57:05-03:00
+- Commit/migration: `f5c5d73`; migration 228 aplicada isoladamente.
+- Teste: primeira execução 15/16 por fixture concorrente com lista vazia; schema agiu corretamente. Fixture corrigida e execução final 16/16.
+- Invariantes: dois itens financiados, um excedente compacto, 215.000 micros reservados, saldo contábil 12.000.000, replay idempotente e stale snapshot rejeitado.
+- Pós-teste: zero programa, item, reserva ou identidade residual.
+- Lint: sem erro X; erros legados inalterados. Vercel/VPS/Zernio inalterados.
+- Status: `completed`.
+- Próxima ação segura: commit da correção do teste/documentação e início da Fase 5 shadow.

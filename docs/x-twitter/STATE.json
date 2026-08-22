@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T17:54:31Z",
-  "updatedAtSaoPaulo": "2026-08-22T14:54:31-03:00",
+  "updatedAtUtc": "2026-08-22T17:57:05Z",
+  "updatedAtSaoPaulo": "2026-08-22T14:57:05-03:00",
   "phase": {
     "id": "04",
     "name": "bulk-review-and-confirm",
-    "status": "in_progress",
-    "gate": "pending"
+    "status": "completed",
+    "gate": "passed"
   },
   "git": {
     "branch": "codex/x-twitter-module",
     "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb",
     "checkpointCommit": "41fd0c2414a46672210487e0dcee25ecc17aed82",
-    "worktreeExpectedDirty": true,
+    "worktreeExpectedDirty": false,
     "phase01Commits": [
       "f861710fd2c4fd5268f0a88b846e4d80facb039f",
       "50355ade6cccd8b3522f3d59690ef2381d3b7a4a",
@@ -23,13 +23,15 @@
     ],
     "phase03Commits": [
       "f47dd4cad2f09d55a621c744c7af4317b9a4c749"
+    ],
+    "phase04Commits": [
+      "f5c5d735b27acec17829d7e8c1aaa49f0a0c33a0"
     ]
   },
   "environments": {
     "supabase": {
       "linkedProjectRef": "hqwhumdumfmixxbvneae",
-      "lastVerifiedMigration": "227",
-      "pendingMigration": "228_twitter_bulk_programs.sql",
+      "lastVerifiedMigration": "228",
       "xMigrationsApplied": true
     },
     "vercel": {
@@ -47,8 +49,8 @@
     "twitterModuleEnabled": false,
     "twitterAnalyticsEnabled": false
   },
-  "lastCheckpoint": "phase-04-local-validation",
-  "nextSafeAction": "Commit Phase 4 local unit, apply only migration 228, run SQL test 228 in rollback, then lint and verify no residual rows.",
+  "lastCheckpoint": "phase-04-gate-passed",
+  "nextSafeAction": "Commit corrected SQL test and Phase 4 remote checkpoint, then start migration 229 and Phase 5 shadow workers. Do not publish externally.",
   "doNotRepeat": [
     "Do not apply migrations 210 through 222; they are already remote.",
     "Do not restart Instagram PM2 processes.",
