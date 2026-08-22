@@ -83,3 +83,18 @@ Registros são append-only.
 - Rollback/mitigação: módulo e flags continuam desligados; nenhuma identidade, carteira ou reserva real foi criada.
 - Status: `in_progress`.
 - Próxima ação segura: criar/aplicar 224 e repetir lint.
+
+## X-0007 — gate da Fase 1 aprovado
+
+- UTC: 2026-08-22T17:28:57Z
+- São Paulo: 2026-08-22T14:28:57-03:00
+- Migrations: 224 corrigiu casts; 225 removeu grants automáticos de `anon` e restringiu RPCs de worker ao `service_role`.
+- Teste SQL: 19 verificações executadas via Management API dentro de transação com rollback; resultado final `ok 19`.
+- Verificação pós-teste: zero registros residuais nas tabelas financeiras.
+- ACL remoto: conferido função por função; política esperada confirmada.
+- Lint: sem erros Twitter; dois erros legados fora do escopo permanecem documentados.
+- Aplicação: 149/149 testes Node, TypeScript e build aprovados.
+- Vercel/VPS: inalterados; flags desligadas.
+- Rollback: flags já desligadas; schema é aditivo; correções posteriores serão forward-only.
+- Status: `completed`.
+- Próxima ação segura: commit do gate e início da Fase 2 local.

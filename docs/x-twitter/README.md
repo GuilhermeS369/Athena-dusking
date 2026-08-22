@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T17:23:14Z / 2026-08-22T14:23:14-03:00
+- Atualizado em: 2026-08-22T17:28:57Z / 2026-08-22T14:28:57-03:00
 - Fase: 1 — fundação modular e financeira
-- Status: `in_progress`
+- Status: `completed`
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Commit do checkpoint validado: `41fd0c2414a46672210487e0dcee25ecc17aed82`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Criar e aplicar uma migration corretiva 224 para os dois casts de enum apontados pelo lint remoto; repetir lint e só então concluir o teste financeiro por uma via sem Docker.
+Criar o commit documental do gate da Fase 1 e iniciar a Fase 2 por cliente Zernio, conexão segura, perfis e épocas, sem ativar o módulo ou analytics.
 
 ## Proibições imediatas
 

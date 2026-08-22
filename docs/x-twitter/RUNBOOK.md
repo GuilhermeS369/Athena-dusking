@@ -27,6 +27,14 @@ npx supabase migration list --linked
 
 Antes de push, confirmar projeto e executar dry-run quando a versão do CLI suportar. Migrações são aditivas. Nunca apagar uma migração já remota; corrigir para frente.
 
+Quando Docker/`pg_prove` não estiver disponível, executar um teste SQL transacional diretamente pela Management API:
+
+```powershell
+npx supabase db query --linked --file supabase/tests/<teste>.test.sql
+```
+
+O arquivo deve começar com `BEGIN`, terminar com `ROLLBACK` e a ausência de resíduos deve ser verificada depois.
+
 ## Vercel
 
 Projeto esperado: `pomodoro`; validar `.vercel/project.json` antes do deploy. Criar preview, executar smoke tests e promover somente após gate. Registrar deployment ID/URL/status sem incluir tokens.

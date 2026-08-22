@@ -1,6 +1,6 @@
 # Fase 01 — fundação modular e financeira
 
-Status: `in_progress`
+Status: `completed`
 
 Entregas: flags, navegação, schemas `twitter_*`, RLS, bucket, rate card, carteira, grant, reservas e ledger. Gate: invariantes financeiras e cross-tenant aprovadas sem chamadas Zernio.
 
@@ -29,3 +29,17 @@ Próximo gate: commit local, push exclusivo da migration 223 e teste transaciona
 - `supabase db lint --linked` encontrou dois erros novos do X: `CASE` inferido como `text` para os enums de evento e status.
 - Também mostrou dois erros preexistentes fora do X em `rollback_legacy_waiting_randomization` e `enqueue_zernio_organization_sync_batch`; não serão misturados nesta correção.
 - Próxima ação: migration forward-only 224 com casts explícitos; não editar a migration 223 já aplicada.
+
+## Gate final — 2026-08-22T17:28:57Z
+
+- Migrations remotas: 223, 224 e 225 alinhadas.
+- Lint: os dois erros Twitter foram eliminados; permanecem somente duas ambiguidades preexistentes fora do módulo.
+- Teste transacional executado com `supabase db query --linked --file`: 19/19 verificações chegaram ao resultado final `ok 19`; o arquivo terminou em `ROLLBACK`.
+- Estado após teste: zero identidades, wallets, grants, ledger e reservas de teste.
+- ACL: `anon=false` em todas as sete RPCs Twitter; funções de settle/unknown/transfer também têm `authenticated=false`; service role mantém acesso.
+- Rate card remoto: versão 1 ativa com 5.000, 10.000, 15.000 e 200.000 micros.
+- Node: 149/149; TypeScript/build aprovados.
+- Flags X e analytics: desligadas.
+- Vercel/VPS: nenhuma mudança.
+
+Gate aprovado. Próxima fase: conexão Zernio, identidade e perfis.
