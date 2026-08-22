@@ -2,14 +2,14 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T17:57:05Z / 2026-08-22T14:57:05-03:00
-- Fase: 4 — Postagem em massa
+- Atualizado em: 2026-08-22T17:59:47Z / 2026-08-22T14:59:47-03:00
+- Fase atual: 5 — operações shadow (`in_progress`)
 - Status: `in_progress`
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Commit do checkpoint validado: `fc6584f1126121658bd7fed779f05c49ed582cfb`
+- Commit do checkpoint validado: `6d71972aaee6af493adf923d94d439f2c665ef49`
 - Feature flag X: criada e desligada
-- Mutação remota feita pelo módulo X: migrations aditivas 223–226
+- Mutação remota feita pelo módulo X: migrations aditivas 223–228
 
 ## Leitura obrigatória para continuar
 
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Fechar o checkpoint da Fase 4 e iniciar a Fase 5: fila, tentativas, workers, cancelamentos e logs em shadow mode.
+Validar a migration 229 em teste SQL local/remoto transacional antes de aplicá-la. Ela está somente local e não deve ser enviada ainda.
 
 ## Proibições imediatas
 

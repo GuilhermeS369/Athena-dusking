@@ -204,3 +204,15 @@ Registros são append-only.
 - Lint: sem erro X; erros legados inalterados. Vercel/VPS/Zernio inalterados.
 - Status: `completed`.
 - Próxima ação segura: commit da correção do teste/documentação e início da Fase 5 shadow.
+
+## X-0016 — rascunho de schema da Fase 5
+
+- UTC: 2026-08-22T17:59:47Z
+- São Paulo: 2026-08-22T14:59:47-03:00
+- Estado inicial: branch limpa em `6d71972`; Supabase alinhado até 228.
+- Rascunho local: migration 229 com hold por item, tentativa, log imutável, heartbeat, circuit breaker, claim de uma chamada por perfil, conclusão shadow e cancelamento seguro.
+- Dry-run: lista somente 229; migration não aplicada e ainda não possui teste SQL.
+- Vercel/VPS/Zernio: inalterados; nenhum processo instalado e nenhuma chamada externa.
+- Status: `in_progress`, não validado.
+- Próxima ação segura: revisar SQL e criar teste transacional antes de commit/push.
+- Não repetir: não aplicar 229 no estado de rascunho e não iniciar worker live.
