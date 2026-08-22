@@ -33,3 +33,14 @@ Registros são append-only.
 - Rollback: reverter o futuro commit do checkpoint; não tocar no remoto.
 - Status: `completed`.
 - Próxima ação segura: commit de baseline e abertura da branch X.
+
+## X-0003 — checkpoint da Fase 0 criado
+
+- UTC: 2026-08-22T17:14:12Z
+- São Paulo: 2026-08-22T14:14:12-03:00
+- Commit: `41fd0c2414a46672210487e0dcee25ecc17aed82`.
+- Conteúdo: consolidação Analytics/migrations 210–222, plano aprovado, documentação de continuidade e correção dos globs do `.gitignore`.
+- Resultado: commit criado com 63 arquivos; nenhuma mutação remota.
+- Rollback: branch de baseline preservada; reverter o commit somente se houver decisão explícita, sem alterar Supabase remoto.
+- Status: `completed`.
+- Próxima ação segura: abrir `codex/x-twitter-module` e iniciar Fase 1 local/desligada.

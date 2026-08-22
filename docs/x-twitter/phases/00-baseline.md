@@ -1,6 +1,6 @@
 # Fase 00 — baseline e congelamento
 
-Status: `completed` — aguardando registro do hash do commit
+Status: `completed`
 
 ## Objetivo
 
@@ -44,7 +44,7 @@ Transformar o estado preexistente de Analytics em checkpoint reproduzível antes
 - [x] acesso SSH/PM2 confirmado
 - [x] `rg` volta a ler o repositório sem erro de `.gitignore`
 - [x] `git diff --check`
-- [ ] commit do gate
+- [x] commit do gate — `41fd0c2414a46672210487e0dcee25ecc17aed82`
 
 ## Rollback
 
@@ -52,4 +52,4 @@ Não há mutação remota nesta fase. Um rollback deve reverter somente o commit
 
 ## Próximo passo
 
-Criar o commit do checkpoint, registrar seu hash e abrir a branch isolada do X.
+Abrir a branch isolada `codex/x-twitter-module` e iniciar a fundação local.

@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T17:13:45Z",
-  "updatedAtSaoPaulo": "2026-08-22T14:13:45-03:00",
+  "updatedAtUtc": "2026-08-22T17:14:12Z",
+  "updatedAtSaoPaulo": "2026-08-22T14:14:12-03:00",
   "phase": {
     "id": "00",
     "name": "baseline-and-freeze",
     "status": "completed",
-    "gate": "ready_for_checkpoint_commit"
+    "gate": "passed"
   },
   "git": {
     "branch": "codex/pre-x-baseline-analytics",
     "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb",
-    "checkpointCommit": null,
-    "worktreeExpectedDirty": true
+    "checkpointCommit": "41fd0c2414a46672210487e0dcee25ecc17aed82",
+    "worktreeExpectedDirty": false
   },
   "environments": {
     "supabase": {
@@ -35,8 +35,8 @@
     "twitterModuleEnabled": false,
     "twitterAnalyticsEnabled": false
   },
-  "lastCheckpoint": "phase-00-validated-pre-commit",
-  "nextSafeAction": "Commit the validated baseline on codex/pre-x-baseline-analytics, record the hash, then create codex/x-twitter-module from that commit.",
+  "lastCheckpoint": "phase-00-checkpoint-41fd0c2",
+  "nextSafeAction": "Create codex/x-twitter-module, update STATE to phase 01, then implement additive local schemas and unit tests without remote mutations.",
   "doNotRepeat": [
     "Do not apply migrations 210 through 222; they are already remote.",
     "Do not restart Instagram PM2 processes.",
