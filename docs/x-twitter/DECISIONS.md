@@ -82,3 +82,10 @@ Decisões são append-only. Mudanças exigem nova ADR que substitua explicitamen
 - Decisão: cada papel possui um flag próprio, incluindo `TWITTER_RECONCILE_WORKER_ENABLED`. O endpoint de heartbeat retorna `stopped` quando o papel/rollout não está autorizado e o executável encerra o ciclo imediatamente. Claims, reconciliação e fallback também reaplicam o gate global/canário em chamadas diretas.
 - Motivo: parar apenas publicação/analytics deixava a recuperação de reconciliação capaz de executar com o módulo desligado; também não bastava o servidor responder `stopped` se o processo ignorasse esse modo.
 - Consequência: um one-shot com flags off pode provar autenticação e pareamento sem mutação operacional. Ativar um papel exige habilitar explicitamente somente seu flag e os gates adicionais aplicáveis.
+
+## ADR-X-015 — revisão proporcional ao saldo e lock por perfil até reconciliação
+
+- Data: 22/08/2026
+- Decisão: o calendário de até 90 dias é calculado sob demanda; somente itens financiados são materializados. Um perfil fica bloqueado enquanto existir item `claimed`, `processing` ou `outcome_unknown`; retries futuros têm prioridade sobre novos itens do mesmo perfil.
+- Motivo: materializar 129.601 minutos por perfil tornava Revisar pesado apesar do teto de 800 posts baratos por carteira. Bloquear apenas `claimed` permitia novo envio após aceite ainda pendente e furava o backoff de 429.
+- Consequência: custo da revisão passa a ser limitado pelo saldo e pelo ciclo de combinações. Um resultado aceito/incerto precisa ser reconciliado antes de o perfil voltar a enviar.

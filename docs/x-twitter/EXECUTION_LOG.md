@@ -725,3 +725,14 @@ Registros são append-only.
 - Rollback: manter flags off; Vercel anterior imediato `dpl_7tjP62du6hnNXC84YkSbjbRiJqhy`; VPS anterior `46e09cc-20260822T213610Z`; ao reverter código antigo, restaurar explicitamente o backup legado. Nenhuma tabela/migration deve ser removida.
 - Riscos conhecidos: warnings metadata preexistentes; Vercel reporta cinco vulnerabilidades npm já presentes e fora desta unidade; analytics HTTP 200 continua bloqueio externo.
 - Próxima ação segura: auditoria final requisito por requisito, sem ativar rollout/fallback live.
+
+## X-0059 — auditoria corrige revisão pesada e concorrência por perfil
+
+- UTC: 2026-08-22T23:27:00Z; São Paulo: 2026-08-22T20:27:00-03:00.
+- Gaps encontrados: review criava array com até 129.601 horários por perfil; UI não mostrava o snapshot financeiro completo nem bloqueava carteira abaixo do custo mínimo; claim bloqueava somente `claimed`, permitindo novo envio durante `processing`/`outcome_unknown` e permitindo furar um retry 429 futuro.
+- Correção local: descritor de agenda sob demanda; busca limitada ao ciclo de combinações; no máximo 800 itens baratos por carteira de US$ 12; custo com/sem URL, carteira atual/reservada/disponível/projetada e distribuição por perfil na revisão; perfil abaixo de 15.000 micros marcado `Sem saldo` e desabilitado.
+- Banco pendente: migration 241 cria índice único para `claimed|processing|outcome_unknown` e dá prioridade a retry mesmo antes de ficar elegível, pausando o perfil até o backoff expirar. Teste SQL 241 é transacional/rollback.
+- Verificação: 183/183 testes Node, TypeScript, build e diff check aprovados. Cenário 90 dias: 129.601 slots solicitados, 800 materializados, 128.801 compactos; teste concluiu em aproximadamente 3,4 ms.
+- Ambientes remotos: ainda não alterados neste registro; Production X off, cinco workers X stopped, Supabase remoto até 240.
+- Rollback: reverter somente esta unidade local antes da migration; depois da aplicação, correção de banco apenas forward-only. Nenhum saldo/fila remota foi alterado.
+- Próxima ação segura: commit, dry-run/push da migration 241, teste SQL e reconferência dos invariantes financeiros.

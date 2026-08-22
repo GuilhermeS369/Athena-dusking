@@ -1,0 +1,10 @@
+begin;
+create extension if not exists pgtap with schema extensions;
+select extensions.plan(5);
+select extensions.has_index('public','twitter_publication_items','twitter_one_active_send_per_profile_idx','índice de envio ativo por perfil existe');
+select extensions.ok((select pg_get_indexdef(indexrelid) like '%claimed%processing%outcome_unknown%' from pg_index where indexrelid='public.twitter_one_active_send_per_profile_idx'::regclass),'índice cobre claimed, processing e outcome_unknown');
+select extensions.ok((select pg_get_functiondef('public.twitter_claim_publication_items(text,integer)'::regprocedure) like '%active_item.status in (''claimed'', ''processing'', ''outcome_unknown'')%'),'claim bloqueia perfil com envio ativo ou incerto');
+select extensions.ok((select pg_get_functiondef('public.twitter_claim_publication_items(text,integer)'::regprocedure) like '%case%first_item.status%retry%'),'retry futuro preserva o backoff do perfil');
+select extensions.ok(not has_function_privilege('authenticated','public.twitter_claim_publication_items(text,integer)','EXECUTE'),'claim continua restrito ao service role');
+select * from extensions.finish();
+rollback;

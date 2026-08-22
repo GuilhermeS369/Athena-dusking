@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T23:19:05Z / 2026-08-22T20:19:05-03:00
+- Atualizado em: 2026-08-22T23:27:00Z / 2026-08-22T20:27:00-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
@@ -24,7 +24,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 240.
-- Testes atuais: 181/181 aprovados.
+- Testes atuais: 183/183 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Executar a auditoria final requisito por requisito e registrar qualquer gap remanescente. Não ativar cron, fallback live ou rollout antes do analytics HTTP 200.
+Consolidar a correção local de revisão limitada por saldo e envio único por perfil; aplicar/testar a migration 241 com o módulo off. Depois continuar a auditoria final. Não ativar cron, fallback live ou rollout antes do analytics HTTP 200.
 
 ## Proibições imediatas
 
