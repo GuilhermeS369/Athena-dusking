@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T17:41:53Z",
-  "updatedAtSaoPaulo": "2026-08-22T14:41:53-03:00",
+  "updatedAtUtc": "2026-08-22T17:46:53Z",
+  "updatedAtSaoPaulo": "2026-08-22T14:46:53-03:00",
   "phase": {
-    "id": "02",
-    "name": "zernio-identities-and-profiles",
+    "id": "03",
+    "name": "media-groups-and-calendar",
     "status": "in_progress",
-    "gate": "implementation_passed_live_credential_pending"
+    "gate": "pending"
   },
   "git": {
     "branch": "codex/x-twitter-module",
     "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb",
     "checkpointCommit": "41fd0c2414a46672210487e0dcee25ecc17aed82",
-    "worktreeExpectedDirty": false,
+    "worktreeExpectedDirty": true,
     "phase01Commits": [
       "f861710fd2c4fd5268f0a88b846e4d80facb039f",
       "50355ade6cccd8b3522f3d59690ef2381d3b7a4a",
@@ -26,6 +26,7 @@
     "supabase": {
       "linkedProjectRef": "hqwhumdumfmixxbvneae",
       "lastVerifiedMigration": "226",
+      "pendingMigration": "227_twitter_media_and_groups.sql",
       "xMigrationsApplied": true
     },
     "vercel": {
@@ -43,8 +44,8 @@
     "twitterModuleEnabled": false,
     "twitterAnalyticsEnabled": false
   },
-  "lastCheckpoint": "phase-02-schema-and-contracts-validated",
-  "nextSafeAction": "Commit this remote checkpoint, then start Phase 3 media/groups locally behind the disabled flag. Do not live-test Zernio until an admin supplies a dedicated X credential through the UI.",
+  "lastCheckpoint": "phase-03-local-validation",
+  "nextSafeAction": "Commit Phase 3 local unit, reconfirm Supabase ref and dry-run, push only migration 227, then run SQL test 227 in a rollback transaction.",
   "doNotRepeat": [
     "Do not apply migrations 210 through 222; they are already remote.",
     "Do not restart Instagram PM2 processes.",

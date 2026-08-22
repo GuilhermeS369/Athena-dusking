@@ -2,8 +2,8 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T17:41:53Z / 2026-08-22T14:41:53-03:00
-- Fase: 2 — Zernio, identidades e perfis
+- Atualizado em: 2026-08-22T17:46:53Z / 2026-08-22T14:46:53-03:00
+- Fase: 3 — Galeria, grupos e agenda
 - Status: `in_progress`
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
@@ -24,7 +24,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 226.
-- Testes atuais: 152/152 aprovados.
+- Testes atuais: 153/153 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Iniciar a Fase 3 local (mídia, grupos e páginas isoladas). O aceite vivo da Fase 2 permanece pendente até um admin cadastrar uma API key Zernio X; não reutilizar credenciais Instagram para antecipar esse teste.
+Criar o commit local da Fase 3 e aplicar somente a migration 227 após reconfirmar o dry-run. Executar o teste SQL 227 em transação com rollback.
 
 ## Proibições imediatas
 

@@ -145,3 +145,25 @@ Registros são append-only.
 - Gate: implementação aprovada; teste vivo depende de API key X dedicada inserida por admin.
 - Próxima ação segura: commit da documentação e desenvolvimento local da Fase 3; rollout continua bloqueado até o teste vivo.
 - Não repetir: não reaplicar 226; não reutilizar secret Instagram; não executar sincronização real sem ação explícita de admin.
+
+## X-0011 — início controlado da Fase 3
+
+- UTC: 2026-08-22T17:41:53Z
+- São Paulo: 2026-08-22T14:41:53-03:00
+- Objetivo: assets, upload retomável, grupos e páginas X isoladas.
+- Estado inicial: branch limpa em `2d498a7`; Supabase alinhado até 226; flags desligadas.
+- Limite: nenhuma liberação/canário e nenhuma inferência de aprovação do gate vivo da Fase 2.
+- Próxima ação segura: criar migration 227 local, APIs/páginas e testes; dry-run antes de qualquer push.
+
+## X-0012 — Fase 3 validada localmente
+
+- UTC: 2026-08-22T17:46:53Z
+- São Paulo: 2026-08-22T14:46:53-03:00
+- Entregas: schema 227, teste SQL 227, upload TUS retomável, catálogo de assets, grupos/membros, galeria/grupos/agenda X.
+- Streaming: chunks de 6 MB; nenhum `File` completo é enviado ao Next.js ou carregado no worker.
+- Isolamento: bucket, paths, tabelas, APIs e páginas usam namespace X; grupos só referenciam `twitter_profiles`.
+- Testes: 153/153 Node; TypeScript aprovado; build aprovado; diff check aprovado.
+- Supabase: remoto permanece 226; dry-run lista somente 227.
+- Vercel/VPS: inalterados.
+- Status: `in_progress`, implementação local validada.
+- Próxima ação segura: commit e aplicação controlada de 227, seguida do teste SQL transacional.
