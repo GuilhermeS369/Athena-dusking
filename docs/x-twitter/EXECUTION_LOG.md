@@ -783,3 +783,15 @@ Registros são append-only.
 - Ambientes: nenhuma migration/deploy/chamada Zernio neste registro; Supabase segue 241, Production off, cinco X stopped e Instagram intocado.
 - Rollback antes do push: reverter somente esta unidade. Após migration 242, correções de banco serão forward-only.
 - Próxima ação segura: commit; dry-run/push exclusivo da 242; teste SQL 17/17 em transação rollback; verificar zero jobs residuais e one-shot sync com flag off.
+
+## X-0064 — migration 242 aplicada e fila de sync validada
+
+- UTC: 2026-08-22T23:48:18Z; São Paulo: 2026-08-22T20:48:18-03:00.
+- Commit de origem: `9193669`; worktree limpo antes do gate remoto.
+- Preflight: projeto vinculado confirmado; migrations 1–241 alinhadas; dry-run listou somente `242_twitter_sync_job_queue.sql`.
+- Aplicação: migration 242 concluída e histórico local/remoto alinhado até 242.
+- Teste: a primeira tentativa por `supabase test db --linked` abortou antes do plano por falta de `USAGE` em `extensions` na role do runner; nenhuma subexecução/mutação ocorreu. O comando canônico do runbook, `supabase db query --linked --file`, executou o arquivo completo em `BEGIN/ROLLBACK`: plano 17 e `finish=null`, isto é, nenhum diagnóstico de falha.
+- Pós-teste: zero `twitter_sync_jobs`; publicação/analytics não terminais zero; holds ativos zero; wallet 11.725.000 contábil/0 reservado, versão 21.
+- Segurança: flags X off, workers X stopped, nenhuma chamada Zernio, Vercel/VPS/Instagram não alterados nesta etapa.
+- Rollback: banco somente forward-only; manter sync off. Código pode ser revertido enquanto nenhuma UI nova tiver sido implantada, mas a tabela/migration não deve ser removida.
+- Próxima ação segura: Preview/Production off do commit `9193669`; release VPS versionado; one-shot dos cinco papéis em modo stopped; reconferir invariantes.

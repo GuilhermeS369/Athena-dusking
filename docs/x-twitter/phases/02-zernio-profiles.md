@@ -40,3 +40,5 @@ Início: 2026-08-22T17:30:50Z. A documentação oficial foi reconferida: OAuth u
 - UI: POST enfileira, GET acompanha por organização/conexão e polling encerra em sucesso/falha ou informa que o job continua na fila.
 - Verificação local: 193/193 testes, TypeScript, build, `node --check` e diff check aprovados. Somente warnings metadata preexistentes.
 - Estado remoto: migration 242 ainda não aplicada; sync/rollout off e workers X stopped. Próximo gate é commit, dry-run, push isolado, SQL 17/17 em rollback e zero resíduos.
+
+Gate remoto em 2026-08-22T23:48:18Z: commit `9193669`; dry-run listou exclusivamente 242; migration aplicada e local/remoto alinhados. `supabase test db --linked` falhou antes do primeiro teste por ACL do schema `extensions` na função do runner; a transação abortou sem mutação. O executor canônico `supabase db query --linked --file` executou o mesmo arquivo com `BEGIN/ROLLBACK`: 17 verificações e `finish=null` (nenhum diagnóstico pgTAP). Pós-teste: zero sync jobs, filas/holds não terminais zerados e wallet 11.725.000/0 versão 21.
