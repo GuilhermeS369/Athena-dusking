@@ -1,64 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T17:59:47Z",
-  "updatedAtSaoPaulo": "2026-08-22T14:59:47-03:00",
-  "phase": {
-    "id": "05",
-    "name": "shadow-operations",
-    "status": "in_progress",
-    "gate": "pending"
-  },
-  "git": {
-    "branch": "codex/x-twitter-module",
-    "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb",
-    "checkpointCommit": "41fd0c2414a46672210487e0dcee25ecc17aed82",
-    "worktreeExpectedDirty": true,
-    "phase01Commits": [
-      "f861710fd2c4fd5268f0a88b846e4d80facb039f",
-      "50355ade6cccd8b3522f3d59690ef2381d3b7a4a",
-      "49362c4ab62a79e02ae12b14086234bb066910cd"
-    ],
-    "phase02Commits": [
-      "fc6584f1126121658bd7fed779f05c49ed582cfb"
-    ],
-    "phase03Commits": [
-      "f47dd4cad2f09d55a621c744c7af4317b9a4c749"
-    ],
-    "phase04Commits": [
-      "f5c5d735b27acec17829d7e8c1aaa49f0a0c33a0"
-    ]
-  },
+  "updatedAtUtc": "2026-08-22T18:14:14Z",
+  "updatedAtSaoPaulo": "2026-08-22T15:14:14-03:00",
+  "phase": { "id": "06", "name": "publication-canary-preparation", "status": "in_progress", "gate": "blocked_live_credential" },
+  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "60a321b7cba9c7cfe1d377a5610a31e1798a80aa", "worktreeExpectedDirty": true, "phase05PendingCheckpointCommit": true },
   "environments": {
-    "supabase": {
-      "linkedProjectRef": "hqwhumdumfmixxbvneae",
-      "lastVerifiedMigration": "228",
-      "pendingMigration": "229_twitter_shadow_operations.sql",
-      "xMigrationsApplied": true
-    },
-    "vercel": {
-      "project": "pomodoro",
-      "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l",
-      "xDeploymentCreated": false
-    },
-    "vps": {
-      "hostname": "srv1881733",
-      "twitterProcessesInstalled": false,
-      "instagramProcessesWereOnlineAtBaseline": true
-    }
+    "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "232", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
+    "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "xDeploymentCreated": false },
+    "vps": { "hostname": "srv1881733", "twitterProcessesInstalled": false, "instagramProcessesWereOnlineAtBaseline": true }
   },
-  "featureFlags": {
-    "twitterModuleEnabled": false,
-    "twitterAnalyticsEnabled": false
-  },
-  "lastCheckpoint": "phase-05-schema-draft",
-  "nextSafeAction": "Review migration 229, add a rollback SQL test covering holds/claim/shadow/cancel/ACL, run dry-run, and only then commit/apply. Do not publish externally.",
-  "doNotRepeat": [
-    "Do not apply migrations 210 through 222; they are already remote.",
-    "Do not restart Instagram PM2 processes.",
-    "Do not expose environment values or SSH private keys.",
-    "Do not call a real Zernio credential during migration validation."
-  ],
-  "blockers": [
-    "Phase 2 live gate requires a dedicated Zernio X API key entered by an Athena admin; no existing Instagram credential may be reused implicitly."
-  ]
+  "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
+  "lastCheckpoint": "phase-05-shadow-and-financial-outcomes-validated",
+  "nextSafeAction": "Commit Phase 5, then implement the live Zernio adapter with mocked tests only. Do not publish externally.",
+  "doNotRepeat": ["Do not apply migrations 210 through 232; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose secrets.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
+  "blockers": ["A real Phase 6 canary requires a dedicated Zernio X API key entered by an Athena admin; existing Instagram credentials must not be reused."]
 }

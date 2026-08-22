@@ -1,0 +1,4 @@
+import { NextResponse } from 'next/server';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { isTwitterWorkerAuthorized } from '@/lib/twitter/worker-auth';
+export async function POST(request:Request){if(!isTwitterWorkerAuthorized(request))return NextResponse.json({error:'Não autorizado.'},{status:401});if(process.env.TWITTER_PUBLICATION_WORKER_ENABLED!=='true')return NextResponse.json({workerId:null,items:[],disabled:true});const body=await request.json().catch(()=>({})) as {workerId?:unknown;limit?:unknown};const workerId=typeof body.workerId==='string'?body.workerId.slice(0,120):'twitter-shadow';const limit=typeof body.limit==='number'?body.limit:1;const admin=createSupabaseAdminClient();const{data,error}=await admin.rpc('twitter_claim_publication_items',{p_worker_id:workerId,p_limit:limit});if(error)return NextResponse.json({error:'Falha no claim X.'},{status:500});return NextResponse.json({workerId,items:data??[],mode:'shadow'});}

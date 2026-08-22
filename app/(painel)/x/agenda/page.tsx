@@ -1,9 +1,4 @@
 import { notFound, redirect } from 'next/navigation';
-
-import { getOrganizationContext } from '@/lib/organizations/server';
-import { isTwitterModuleEnabled } from '@/lib/twitter/feature';
-
-export default async function TwitterAgendaPage() {
-  const context = await getOrganizationContext(); if (!context.user) redirect('/login'); if (!context.activeOrganization) redirect('/onboarding'); if (!isTwitterModuleEnabled(context.activeOrganization.id)) notFound();
-  return <div className="page-stack"><header className="page-heading"><div><span className="eyebrow">X / Twitter</span><h1>Agenda</h1><p>A agenda exibirá somente itens do X após a confirmação de programas em massa.</p></div></header><div className="empty-state"><h2>Nenhuma publicação X programada</h2><p>Itens do Instagram não aparecem nesta página.</p></div></div>;
-}
+import { getOrganizationContext } from '@/lib/organizations/server';import { createSupabaseAdminClient } from '@/lib/supabase/admin';import { isTwitterModuleEnabled } from '@/lib/twitter/feature';
+export const dynamic='force-dynamic';
+export default async function TwitterAgendaPage(){const context=await getOrganizationContext();if(!context.user)redirect('/login');if(!context.activeOrganization)redirect('/onboarding');if(!isTwitterModuleEnabled(context.activeOrganization.id))notFound();const{data}=await createSupabaseAdminClient().from('twitter_publication_items').select('id,content,execute_at,status,amount_micros').eq('organization_id',context.activeOrganization.id).in('status',['ready','retry','claimed','processing']).order('execute_at').limit(500);return <div className="page-stack"><header className="page-heading"><div><span className="eyebrow">X / Twitter</span><h1>Agenda</h1><p>Somente publicações financiadas do módulo X.</p></div></header><section className="content-stack">{!data?.length?<div className="empty-state"><h2>Nenhuma publicação X programada</h2><p>Itens do Instagram não aparecem nesta página.</p></div>:data.map(item=><article className="panel" key={item.id}><h2>{new Date(item.execute_at).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'})}</h2><p>{item.content}</p><small>{item.status} · US$ {(Number(item.amount_micros)/1e6).toFixed(3)}</small></article>)}</section></div>}

@@ -1,0 +1,3 @@
+import { NextResponse } from 'next/server';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';import { getTwitterRequestContext } from '@/lib/twitter/request-context';
+export async function GET(){const auth=await getTwitterRequestContext();if('response'in auth)return auth.response;const{data,error}=await createSupabaseAdminClient().from('twitter_publication_items').select('id,program_id,profile_id,execute_at,content,category,amount_micros,status,attempt_count,next_attempt_at,created_at').eq('organization_id',auth.context.activeOrganization.id).order('execute_at').limit(500);if(error)return NextResponse.json({error:'Falha ao carregar fila X.'},{status:500});return NextResponse.json({items:data??[]});}

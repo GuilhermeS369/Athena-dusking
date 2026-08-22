@@ -216,3 +216,23 @@ Registros são append-only.
 - Status: `in_progress`, não validado.
 - Próxima ação segura: revisar SQL e criar teste transacional antes de commit/push.
 - Não repetir: não aplicar 229 no estado de rascunho e não iniciar worker live.
+
+## X-0017 — Fase 5 aplicada, corrigida e validada
+
+- UTC: 2026-08-22T18:14:14Z
+- São Paulo: 2026-08-22T15:14:14-03:00
+- Executor: Codex GPT-5; task ID não exposto pelo ambiente.
+- Supabase: projeto `hqwhumdumfmixxbvneae`, antes 228 e depois 232; migrations aditivas 229–232.
+- A primeira execução do teste 229 revelou ambiguidade PL/pgSQL no retorno do claim; 230 corrigiu os nomes forward-only. Não reaplicar 229/230.
+- Schema: hold por item, tentativas, logs imutáveis, heartbeat, circuit breaker, matriz de resultados, resoluções manuais imutáveis, regras futuras, cancelamento por escopo e recuperação de lease.
+- Testes SQL: 229 com 18/18, 231 com 16/16 e 232 com 9/9; todos em `BEGIN`/`ROLLBACK`. Pós-teste: zero wallets, holds, tentativas, resoluções e logs residuais.
+- Invariantes: falha local/confirmada libera; 429 usa no mínimo 240s e mantém reserva; publicado liquida uma vez; timeout/5xx incerto mantém hold; lease pós-chamada nunca gera retry cego; cancelamento por item não amplia escopo.
+- Aplicação: fila, agenda e logs X; resolução manual com justificativa; endpoints internos start/result/reconcile; cinco roles de worker separadas, concorrência inicial 1 e modo shadow sem cliente Zernio.
+- Testes locais: 154/154, TypeScript, build e `git diff --check` aprovados. Build manteve somente warnings metadata preexistentes.
+- Lint remoto: nenhum erro X; permaneceram as ambiguidades legadas `state` e `batch_id` já registradas.
+- Zernio: documentação oficial reconferida; nenhuma credencial ou chamada real utilizada.
+- Vercel/VPS/PM2: inalterados; nenhum deploy, release ou restart.
+- Rollback: flags continuam off; banco é corrigido somente forward; remover código por revert de commit sem apagar migrations remotas.
+- Status: implementação shadow `completed`; instalação PM2 fica para a preparação de rollout.
+- Próxima ação segura: adaptador live com mocks e depois deploy desabilitado. Não publicar sem credencial dedicada e gate canário.
+- Não repetir: não reaplicar 229–232; não cancelar programa quando a intenção for item; não reclassificar `outcome_unknown` sem evidência e justificativa.

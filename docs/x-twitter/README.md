@@ -2,14 +2,14 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T17:59:47Z / 2026-08-22T14:59:47-03:00
+- Atualizado em: 2026-08-22T18:14:14Z / 2026-08-22T15:14:14-03:00
 - Fase atual: 5 — operações shadow (`in_progress`)
 - Status: `in_progress`
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Commit do checkpoint validado: `6d71972aaee6af493adf923d94d439f2c665ef49`
 - Feature flag X: criada e desligada
-- Mutação remota feita pelo módulo X: migrations aditivas 223–228
+- Mutação remota feita pelo módulo X: migrations aditivas 223–232
 
 ## Leitura obrigatória para continuar
 
@@ -23,7 +23,7 @@
 ## Baseline conhecido
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
-- Migrações local/remoto alinhadas até 228.
+- Migrações local/remoto alinhadas até 232.
 - Testes atuais: 154/154 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Validar a migration 229 em teste SQL local/remoto transacional antes de aplicá-la. Ela está somente local e não deve ser enviada ainda.
+Criar o adaptador de publicação Zernio e validá-lo apenas com mocks. Não iniciar canário real sem API key X dedicada cadastrada por admin.
 
 ## Proibições imediatas
 
