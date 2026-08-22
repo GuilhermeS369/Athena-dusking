@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(14);
+select extensions.plan(19);
 
 select extensions.has_table('public', 'twitter_global_identities', 'identidade Zernio global existe');
 select extensions.has_table('public', 'twitter_wallet_ledger', 'ledger imutável existe');
@@ -10,6 +10,27 @@ select extensions.has_function(
   'public', 'twitter_create_wallet_reservation',
   array['uuid', 'uuid', 'uuid', 'integer', 'twitter_price_category', 'twitter_financial_origin', 'uuid', 'bigint', 'bigint', 'text'],
   'reserva atômica versionada existe'
+);
+
+select extensions.ok(
+  not has_function_privilege('anon', 'public.twitter_register_identity_and_grant(uuid,text)', 'EXECUTE'),
+  'anon não executa concessão de identidade'
+);
+select extensions.ok(
+  has_function_privilege('authenticated', 'public.twitter_register_identity_and_grant(uuid,text)', 'EXECUTE'),
+  'authenticated pode executar concessão protegida por papel organizacional'
+);
+select extensions.ok(
+  not has_function_privilege('anon', 'public.twitter_get_wallet_snapshot(uuid,uuid)', 'EXECUTE'),
+  'anon não lê snapshot financeiro'
+);
+select extensions.ok(
+  not has_function_privilege('authenticated', 'public.twitter_settle_wallet_reservation(uuid,bigint,text,jsonb)', 'EXECUTE'),
+  'authenticated não liquida cobrança externa'
+);
+select extensions.ok(
+  has_function_privilege('service_role', 'public.twitter_settle_wallet_reservation(uuid,bigint,text,jsonb)', 'EXECUTE'),
+  'service_role pode liquidar cobrança externa'
 );
 
 insert into auth.users (
@@ -35,6 +56,7 @@ select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config('request.jwt.claim.email', 'twitter-admin-a@example.com', true);
 
 create temporary table twitter_test_context (identity_id uuid, reservation_id uuid) on commit drop;
+grant select, insert, update on table twitter_test_context to authenticated, service_role;
 
 do $$
 declare
