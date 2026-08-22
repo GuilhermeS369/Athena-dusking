@@ -1,6 +1,6 @@
 # Fase 06 — canário de publicação
 
-Status: `in_progress` — URL reservado; publicação live pendente
+Status: `in_progress` — seis canários positivos aprovados; cenários controlados de erro pendentes
 
 Ordem: texto, uma imagem, 2–4 imagens, GIF, vídeo e URL. Gate: publicação, ledger, reservas, logs e regressão Instagram aprovados.
 
@@ -39,3 +39,7 @@ Gate vídeo aprovado: uma tentativa HTTP 201 `published`; wallet 11.925.000/0, v
 O primeiro review URL revelou uma instabilidade determinística antes de qualquer mutação: `weighted_characters` alternava porque uma regex global compartilhava `lastIndex` entre contagem e detecção. O fix `31fb1d2` separa regex de match/test, adiciona teste de revisões consecutivas e diagnóstico seguro. Suite 165/165, TypeScript e build aprovados.
 
 Canário URL preparado: programa `97a662b2-d798-43d7-a18f-f4596d71d4d0`, item `884961c8-a3e1-4f97-bcb8-98c3911171f2`, execução 21:22Z, `ready`, zero tentativas e sem mídia. Categoria `post_create_url`, custo/reserva total 200.000 micros; wallet 11.925.000 contábil, 200.000 reservado, versão 12. Nenhuma chamada externa ocorreu; live continua desligado até novo preflight.
+
+Gate URL aprovado: uma tentativa HTTP 201 `published`; hold/chamada 21:22:04Z–21:22:08Z; reserva e hold settled em 200.000. Wallet 11.725.000/0, versão 13; ledger contém grant, cinco débitos sem URL de 15.000 e um débito URL único de 200.000. Zero não terminais. Worker parado, VPS false/shadow e Production segura `dpl_Dcrsn7Ty4dQnRTgcM8kCyyXTD2DF`.
+
+Ordem positiva concluída: texto, uma imagem, duas imagens, GIF, vídeo e URL. O gate da fase ainda exige os cenários controlados de cancelamento, timeout, 429, 4xx, 5xx e duplicidade. Esses testes não devem atingir a Zernio real sem uma injeção determinística que elimine cobrança ambígua.

@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:02:45Z / 2026-08-22T18:02:45-03:00
+- Atualizado em: 2026-08-22T21:23:50Z / 2026-08-22T18:23:50-03:00
 - Fase atual: 6 — canário de publicação (`in_progress`)
-- Status: texto, imagens, GIF e vídeo aprovados; URL reservada com execução desligada
+- Status: os seis canários positivos foram publicados e liquidados; testes controlados de cancelamento/erro pendentes
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `31fb1d2`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Reconfirmar flags `false`/`shadow`, item URL e reserva de 200.000 micros. Depois abrir uma janela live exclusiva, iniciar somente `athena-twitter-publication-worker`, monitorar o resultado e restaurar o kill switch imediatamente.
+Projetar e executar primeiro um canário de cancelamento totalmente local, sem chamada Zernio, comprovando liberação idempotente da reserva. Depois preparar injeções controladas para falha local, 429, 4xx, 5xx/timeout e duplicidade sem usar retry cego nem criar cobrança ambígua real.
 
 ## Proibições imediatas
 
@@ -46,6 +46,6 @@ Reconfirmar flags `false`/`shadow`, item URL e reserva de 200.000 micros. Depois
 
 ## Ambientes preparados
 
-- Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production desabilitada `dpl_CxzynkGZo6MEx3J8yjRcXQgxGnG9`, ambos `READY` no último preflight.
+- Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production segura `dpl_Dcrsn7Ty4dQnRTgcM8kCyyXTD2DF`, ambos `READY`. Última janela live: `dpl_EVTyHgmzvvKNPERB6M6Zz8BRmBUM`.
 - VPS: cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
 - Supabase: migrations 223–240 alinhadas; último one-shot deixou zero claims e zero operações financeiras.

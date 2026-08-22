@@ -458,3 +458,17 @@ Registros são append-only.
 - Segurança: a preparação ocorreu com execução desligada; a próxima mutação só pode ocorrer após reconfirmar Vercel/VPS `false`/`shadow` e worker X de publicação parado.
 - Rollback antes do claim: cancelamento idempotente do item deve liberar somente a reserva original de 200.000; não criar crédito.
 - Próxima ação segura: preflight read-only e janela live exclusiva para o URL.
+
+## X-0036 — URL publicado, liquidado e kill switch restaurado
+
+- UTC: 2026-08-22T21:23:50Z; São Paulo: 2026-08-22T18:23:50-03:00.
+- Preflight: Supabase confirmou item `ready`, tentativa 0, reserva aberta 200.000 e wallet 11.925.000/200.000 versão 12. VPS confirmou `false`/`shadow`, arquivo modo 600, cinco workers X parados e seis processos preexistentes online.
+- Janela live: Production `dpl_EVTyHgmzvvKNPERB6M6Zz8BRmBUM`, com o fix de URL `31fb1d2`; somente `athena-twitter-publication-worker` foi iniciado.
+- Agenda: monitor de 10 segundos comprovou zero claim antes de 21:22:00Z. Hold ativado 21:22:04Z, chamada externa iniciada 21:22:04Z e encerrada 21:22:08Z.
+- Resultado: item `published`, uma tentativa, HTTP 201, provider `published` e post ID persistido; request ID não foi devolvido. Não houve retry.
+- Financeiro: reserva e hold `settled`; 200.000 liquidados, zero liberados. Wallet 11.725.000 contábil, zero reservado, versão 13. Ledger: grant +12.000.000, cinco débitos `post_dm_create` de -15.000 e um único débito `post_create_url` de -200.000. O URL custou 200.000 no total, nunca 215.000.
+- Logs: `external_started` e `published`, custo estimado/liquidado 200.000; zero itens não terminais.
+- Kill switch: worker parado imediatamente; VPS restaurada para `false`/`shadow` em arquivo 600; cinco workers X parados e seis processos existentes online. Production segura `dpl_Dcrsn7Ty4dQnRTgcM8kCyyXTD2DF` `READY`.
+- Smoke: login 200; heartbeat POST sem segredo 401. Nenhuma leitura paga do post foi executada.
+- Status: todos os seis canários positivos da ordem obrigatória foram aprovados. A Fase 6 continua `in_progress` até os cenários controlados de cancelamento/erro.
+- Próxima ação segura: canário local de cancelamento e liberação idempotente, com live off.
