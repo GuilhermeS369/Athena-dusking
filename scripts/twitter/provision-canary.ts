@@ -43,11 +43,11 @@ async function main() {
     label,
     apiKey,
   });
-  const connectionId = String(provisioned.connection.id ?? '');
+  const connectionId = String(provisioned.connection.connectionId ?? provisioned.connection.id ?? '');
   if (!connectionId) throw new Error('Provisionamento não retornou connection ID.');
 
   const sync = await syncTwitterProfiles(organizationId, connectionId);
-  const identityId = String(provisioned.connection.identity_id ?? provisioned.wallet.identityId ?? '');
+  const identityId = String(provisioned.connection.identityId ?? provisioned.connection.identity_id ?? provisioned.wallet.identityId ?? '');
   if (!identityId) throw new Error('Provisionamento não retornou identity ID.');
 
   const [walletResult, grantResult, ledgerResult, reservationResult, connectionResult, profilesResult] = await Promise.all([
