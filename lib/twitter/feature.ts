@@ -25,5 +25,6 @@ export function isTwitterAnalyticsEnabled(
   environment: TwitterFeatureEnvironment = process.env as TwitterFeatureEnvironment,
 ) {
   return enabled(environment.TWITTER_ANALYTICS_ENABLED)
-    && parseOrganizationIds(environment.TWITTER_CANARY_ORGANIZATION_IDS).has(organizationId);
+    && (enabled(environment.TWITTER_MODULE_ENABLED)
+      || parseOrganizationIds(environment.TWITTER_CANARY_ORGANIZATION_IDS).has(organizationId));
 }

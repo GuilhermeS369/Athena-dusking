@@ -21,8 +21,14 @@ function enabled(value: string | undefined) {
   return value?.trim().toLowerCase() === 'true';
 }
 
+export function twitterRolloutScope(environment: TwitterRolloutEnvironment) {
+  const canaryOrganizationCount = new Set((environment.TWITTER_CANARY_ORGANIZATION_IDS ?? '').split(',').map((value) => value.trim()).filter(Boolean)).size;
+  const globalEnabled = enabled(environment.TWITTER_MODULE_ENABLED);
+  return { globalEnabled, canaryOrganizationCount, active: globalEnabled || canaryOrganizationCount > 0 };
+}
+
 export function expectedTwitterWorkers(environment: TwitterRolloutEnvironment) {
-  const moduleEnabled = enabled(environment.TWITTER_MODULE_ENABLED);
+  const moduleEnabled = twitterRolloutScope(environment).active;
   return new Map<TwitterWorkerName, boolean>([
     ['athena-twitter-publication-worker', moduleEnabled && enabled(environment.TWITTER_PUBLICATION_WORKER_ENABLED)],
     ['athena-twitter-generation-worker', moduleEnabled && enabled(environment.TWITTER_GENERATION_WORKER_ENABLED)],

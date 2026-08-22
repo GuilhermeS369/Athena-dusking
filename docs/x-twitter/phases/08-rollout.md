@@ -74,3 +74,15 @@ Após o smoke, a correção foi endurecida para falhar fechado quando a leitura 
 - Supabase local/remoto alinhado até 240. Regressão final desta unidade: 175/175 testes, TypeScript, build e diff check aprovados.
 
 Gate de observabilidade aprovado. A liberação geral e o fallback live continuam bloqueados exclusivamente pelo sucesso HTTP 200 de analytics e pelo checklist progressivo final.
+
+## Enforcement e checklist progressivo
+
+- Novo layout `/x/*` retorna 404 quando a organização ativa não está no escopo; esconder o menu não é mais a única barreira.
+- Todas as APIs públicas X foram varridas por teste: exigem `getTwitterRequestContext`; a única exceção é o webhook, protegido por HMAC e necessário para reconciliação.
+- Quote, confirm e UI de analytics agora usam `isTwitterAnalyticsEnabled(organizationId)`, evitando custo fora do canário.
+- Semântica validada: lista canário habilita seletivamente com flag global off; a flag global habilita todas; health reconhece ambos os estados sem expor IDs.
+- Preview `dpl_8UNUQJQFawiknFu8wAZBBxd9nJ7F`, `READY`, com lista canário vazia e todas as flags mutáveis off: health `ok`, zero fila/holds/unknowns/429/sinais.
+- `ROLLOUT_CHECKLIST.md` registra gates, sequência de uma organização por vez, janela mínima, critérios de pausa e rollback sem perda de ledger.
+- Testes: 178/178, TypeScript, build local/Vercel e diff check aprovados. Production, Supabase e VPS não foram alterados.
+
+Preparação local do rollout progressivo concluída. A execução continua proibida até o gate externo da Fase 7.

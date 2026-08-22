@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T22:32:36Z",
-  "updatedAtSaoPaulo": "2026-08-22T19:32:36-03:00",
+  "updatedAtUtc": "2026-08-22T22:38:32Z",
+  "updatedAtSaoPaulo": "2026-08-22T19:38:32-03:00",
   "phase": { "id": "08", "name": "rollout-preparation", "status": "in_progress", "gate": "provider_analytics_gate_pending" },
-  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "dbcf77c", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
+  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "f3b6ab1", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "240", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
-    "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_8M49y4r42PvVXJD2E9hCSBmmWCsc", "productionDeploymentId": "dpl_7T2ctsRQFrSrDqSLBCuYtqSqXY6y", "rollbackDeploymentId": "dpl_14raRXUnfUgWW6nWpN6XcYN8ppgB", "xDeploymentCreated": true, "canaryOrganization": "Pomodoro", "lastLiveCanaryDeploymentId": "dpl_8pkhNuc5hcPhcGQ7EsaWSMAHLuC5", "fallbackShadowDeploymentId": "dpl_EWZqz2kPtsBnqBiXNqRYV3Qvy3d2", "fallbackShadowDeploymentUrl": "https://pomodoro-mh4mbhh3y-shoows-projects-2caaf9e9.vercel.app", "fallbackSafePreviewUrl": "https://pomodoro-3o8tbywqd-shoows-projects-2caaf9e9.vercel.app", "rolloutHealthStatus": "ok" },
+    "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_8UNUQJQFawiknFu8wAZBBxd9nJ7F", "productionDeploymentId": "dpl_7T2ctsRQFrSrDqSLBCuYtqSqXY6y", "rollbackDeploymentId": "dpl_14raRXUnfUgWW6nWpN6XcYN8ppgB", "xDeploymentCreated": true, "canaryOrganization": "Pomodoro", "lastLiveCanaryDeploymentId": "dpl_8pkhNuc5hcPhcGQ7EsaWSMAHLuC5", "fallbackShadowDeploymentId": "dpl_EWZqz2kPtsBnqBiXNqRYV3Qvy3d2", "fallbackShadowDeploymentUrl": "https://pomodoro-mh4mbhh3y-shoows-projects-2caaf9e9.vercel.app", "fallbackSafePreviewUrl": "https://pomodoro-9x25bc3ak-shoows-projects-2caaf9e9.vercel.app", "rolloutHealthStatus": "ok" },
     "vps": { "hostname": "srv1881733", "release": "46e09cc-20260822T213610Z", "sha256": "183c3071ae66ecd1041581d84e481ad04c5d9ec2ad009b6875c805c6c16767b3", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
-  "lastCheckpoint": "phase-08-read-only-rollout-health-approved-in-safe-preview",
-  "nextSafeAction": "Audit canary organization enforcement and prepare the final progressive-rollout checklist without enabling any flag, cron or worker; the analytics HTTP 200 provider gate remains mandatory.",
+  "lastCheckpoint": "phase-08-progressive-organization-enforcement-and-checklist-approved",
+  "nextSafeAction": "Run the final requirement-by-requirement audit. Do not enable flags, cron or workers. After external confirmation that Zernio analytics is available, perform one new manually quoted canary and require HTTP 200 before following ROLLOUT_CHECKLIST.md.",
   "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not repeat the paid analytics read for item 7ce8553c-ceb9-4a25-a00f-c51b0ec249c5.", "Do not reclassify its outcome_unknown without provider or billing evidence and an audited justification.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
   "blockers": ["Phase 7 provider gate: three manual operations, including a later operation on the same already-synced post, returned HTTP 202 and were proven unmetered/reconciled. A successful analytics snapshot cannot be proven until Zernio returns 200.", "Phase 8 general rollout and live fallback activation remain prohibited until the Phase 7 provider gate succeeds."]
 }

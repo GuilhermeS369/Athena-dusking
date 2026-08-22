@@ -61,3 +61,10 @@ Decisões são append-only. Mudanças exigem nova ADR que substitua explicitamen
 - Decisão: um attempt HTTP 202 continua terminal e nunca recebe retry automático. Depois de duas conferências `GET /v1/usage` provarem ausência de `posts_read`, ele é reconciliado como não cobrado. Uma nova solicitação do mesmo recurso pode ser criada somente por novo quote/confirm manual, nova reserva, novo item e checkpoint, pois a documentação Zernio define 202 como sincronização pendente.
 - Motivo: consultar sempre um post diferente repete a primeira sincronização de cada recurso e não testa o caminho documentado de snapshot já sincronizado.
 - Consequência: preserva-se a proibição de retry cego, mas o gate pode testar o mesmo post posteriormente sem reutilizar attempt, idempotency key ou hold anteriores.
+
+## ADR-X-012 — ativação progressiva é aplicada em página, API e analytics
+
+- Data: 22/08/2026
+- Decisão: com `TWITTER_MODULE_ENABLED=false`, a lista `TWITTER_CANARY_ORGANIZATION_IDS` habilita organizações individualmente; com a flag global true, habilita todas. Páginas `/x/*` e todas as APIs públicas X reaplicam esse escopo. Analytics exige sua própria flag e o mesmo escopo organizacional.
+- Motivo: esconder apenas o menu não impede acesso direto por URL/API, e uma flag global de analytics isolada poderia criar custo fora do canário.
+- Consequência: o webhook Zernio permanece fora do gate de UI por ser autenticado por HMAC e necessário para reconciliar operações iniciadas; toda outra rota pública X exige contexto organizacional. O health global considera o rollout ativo quando existe ao menos um canário.

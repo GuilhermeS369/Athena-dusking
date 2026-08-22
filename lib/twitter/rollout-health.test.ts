@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import { classifyTwitterRolloutHealth, expectedTwitterWorkers, summarizeTwitterWorkers } from './rollout-health.ts';
+import { classifyTwitterRolloutHealth, expectedTwitterWorkers, summarizeTwitterWorkers, twitterRolloutScope } from './rollout-health.ts';
 
 test('workers X só são esperados quando suas flags exclusivas estão habilitadas', () => {
   const disabled = expectedTwitterWorkers({});
@@ -18,6 +18,14 @@ test('workers X só são esperados quando suas flags exclusivas estão habilitad
   assert.equal(enabled.get('athena-twitter-analytics-worker'), true);
   assert.equal(enabled.get('athena-twitter-webhook-reconcile-worker'), true);
   assert.equal(enabled.get('athena-twitter-vercel-fallback'), false);
+});
+
+test('escopo operacional reconhece canário sem confundi-lo com rollout global', () => {
+  assert.deepEqual(twitterRolloutScope({ TWITTER_MODULE_ENABLED: 'false', TWITTER_CANARY_ORGANIZATION_IDS: 'org-a, org-b,org-a' }), {
+    globalEnabled: false,
+    canaryOrganizationCount: 2,
+    active: true,
+  });
 });
 
 test('worker desligado não gera falso stale e worker esperado sem heartbeat gera alerta', () => {

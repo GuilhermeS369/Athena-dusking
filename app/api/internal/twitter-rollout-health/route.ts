@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { classifyTwitterRolloutHealth, summarizeTwitterWorkers, TWITTER_WORKER_NAMES, type TwitterWorkerHeartbeat } from '@/lib/twitter/rollout-health';
+import { classifyTwitterRolloutHealth, summarizeTwitterWorkers, twitterRolloutScope, TWITTER_WORKER_NAMES, type TwitterWorkerHeartbeat } from '@/lib/twitter/rollout-health';
 
 export const dynamic = 'force-dynamic';
 
@@ -90,8 +90,8 @@ export async function GET(request: Request) {
     const workers = summarizeTwitterWorkers((heartbeatsResult.data ?? []) as TwitterWorkerHeartbeat[], process.env, now.getTime(), staleAfterSeconds);
     const breakers = (breakersResult.data ?? []) as BreakerRow[];
     const openBreakers = breakers.filter((breaker) => breaker.state !== 'closed');
-    const moduleEnabled = process.env.TWITTER_MODULE_ENABLED === 'true';
-    const pausedQueueItems = moduleEnabled ? 0 : publicationNonTerminal + analyticsReserved + analyticsProcessing;
+    const rolloutScope = twitterRolloutScope(process.env);
+    const pausedQueueItems = rolloutScope.active ? 0 : publicationNonTerminal + analyticsReserved + analyticsProcessing;
     const health = classifyTwitterRolloutHealth({
       staleWorkers: workers.filter((worker) => worker.state === 'stale').length,
       openBreakers: openBreakers.length,
@@ -112,7 +112,9 @@ export async function GET(request: Request) {
       ok: health.status !== 'unhealthy',
       status: health.status,
       module: {
-        enabled: moduleEnabled,
+        enabled: rolloutScope.active,
+        globalEnabled: rolloutScope.globalEnabled,
+        canaryOrganizationCount: rolloutScope.canaryOrganizationCount,
         publicationWorkerEnabled: process.env.TWITTER_PUBLICATION_WORKER_ENABLED === 'true',
         analyticsEnabled: process.env.TWITTER_ANALYTICS_ENABLED === 'true' && process.env.TWITTER_ANALYTICS_WORKER_ENABLED === 'true',
         fallbackEnabled: process.env.TWITTER_FALLBACK_ENABLED === 'true',

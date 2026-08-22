@@ -35,6 +35,7 @@ $previewSecret = [Convert]::ToBase64String($secretBytes).TrimEnd('=').Replace('+
 try {
   Set-PreviewValue 'TWITTER_WORKER_SECRET' $previewSecret
   Set-PreviewValue 'TWITTER_MODULE_ENABLED' 'false'
+  Set-PreviewValue 'TWITTER_CANARY_ORGANIZATION_IDS' ','
   Set-PreviewValue 'TWITTER_PUBLICATION_WORKER_ENABLED' 'false'
   Set-PreviewValue 'TWITTER_GENERATION_WORKER_ENABLED' 'false'
   Set-PreviewValue 'TWITTER_SYNC_WORKER_ENABLED' 'false'
@@ -53,7 +54,7 @@ try {
   $smoke = $smokeText | ConvertFrom-Json
 
   if ($smoke.status -eq 'unhealthy') { throw "Saúde X retornou crítica: $smokeText" }
-  if ($smoke.module.enabled -or $smoke.module.publicationWorkerEnabled -or $smoke.module.analyticsEnabled -or $smoke.module.fallbackEnabled -or $smoke.module.fallbackLiveEnabled) {
+  if ($smoke.module.enabled -or $smoke.module.globalEnabled -or [int]$smoke.module.canaryOrganizationCount -ne 0 -or $smoke.module.publicationWorkerEnabled -or $smoke.module.analyticsEnabled -or $smoke.module.fallbackEnabled -or $smoke.module.fallbackLiveEnabled) {
     throw 'Alguma flag de mutação X ficou habilitada no Preview.'
   }
   if ([int]$smoke.publicationQueue.nonTerminal -ne 0 -or [int]$smoke.holds.active -ne 0 -or [int]$smoke.holds.outcomeUnknown -ne 0 -or [int]$smoke.holds.reservationOutcomeUnknown -ne 0) {

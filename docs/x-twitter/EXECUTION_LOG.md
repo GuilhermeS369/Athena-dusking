@@ -674,3 +674,15 @@ Registros são append-only.
 - Testes: 175/175, TypeScript, build e `git diff --check` aprovados. Warnings metadata preexistentes permanecem fora do escopo.
 - Rollback: manter flags off e Production atual; remover rota/helper/teste/variável/validador. Nenhuma migração ou alteração de dados foi criada pela unidade.
 - Próxima ação segura: auditar enforcement da organização canário e preparar checklist progressivo final, sem habilitar rollout antes do gate HTTP 200 de analytics.
+
+## X-0055 — enforcement organizacional e checklist progressivo aprovados
+
+- UTC: 2026-08-22T22:38:32Z; São Paulo: 2026-08-22T19:38:32-03:00.
+- Gap fechado: novo layout `/x/*` aplica 404 fora do escopo; acesso direto não depende mais apenas do menu. Todas as APIs públicas X usam o contexto canário, exceto webhook HMAC de reconciliação.
+- Analytics: UI, quote e confirm reaplicam flag + escopo da organização. No canário, apenas IDs listados; no rollout global, todas quando `TWITTER_MODULE_ENABLED=true`.
+- Health: reconhece rollout ativo por flag global ou presença de canários e publica somente a contagem, nunca os IDs.
+- Preview final: `dpl_8UNUQJQFawiknFu8wAZBBxd9nJ7F`, `READY`, URL `https://pomodoro-9x25bc3ak-shoows-projects-2caaf9e9.vercel.app`; canário efetivamente vazio e todas as flags mutáveis off; health `ok` e estado financeiro/filas zerado.
+- Checklist: `ROLLOUT_CHECKLIST.md` exige gate analytics 200, expansão de uma organização por vez, observação mínima, health/PM2/invariantes e rollback sem apagar histórico.
+- Verificação: 178/178 testes, TypeScript, build local/Vercel e diff check aprovados. Production/Supabase/VPS intocados.
+- Rollback: remover layout e reaplicações dos helpers; restaurar o helper anterior apenas por commit, nunca alterando dados. O Preview atual já está off.
+- Próxima ação segura: auditoria final requisito por requisito; não ativar rollout até novo canário analytics HTTP 200 liquidado.
