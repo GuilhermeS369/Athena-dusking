@@ -29,3 +29,5 @@ Canário 2 imagens preparado: novo asset `bf7678c6-6e5b-4a10-8860-75de6642afe2`,
 Gate 2 imagens aprovado: uma tentativa HTTP 201, `published`; wallet 11.955.000/0, versão 7; ledger grant + três débitos de 15.000. Reserva/hold liquidados, logs completos e zero não terminais. Worker parado e Production desabilitada `dpl_58q7bZmjMqCBrqDS9kFWc4UkZYrz`.
 
 GIF preparado: asset `7dea1898-89e8-4222-9183-3a3a38c7fdaa`, 640×360, 2s, 316.445 bytes, SHA-256 `8025a9a8a5de9e094513c314eef1d7cb38d8d7f2c09ac2d85dbf3ee036ddfccb`, leitura assinada aprovada. Programa `cd71cc46-ec4b-4209-86b3-436ee2ebf44a`, item `582c0a4f-7c65-4921-893b-661867ac518b`, execução 20:44Z; 15.000 reservado, tentativa 0, live off.
+
+Gate GIF aprovado: uma tentativa HTTP 201 `published`; wallet 11.940.000/0, versão 9; grant + quatro débitos de 15.000; reserva/hold settled e zero não terminais. Worker parado e Production segura `dpl_C1N6yohwYnJb96XmSi5D5KEviBQs`.

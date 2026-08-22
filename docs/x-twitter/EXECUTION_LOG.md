@@ -421,3 +421,11 @@ Registros são append-only.
 - Programa/item `cd71cc46-ec4b-4209-86b3-436ee2ebf44a` / `582c0a4f-7c65-4921-893b-661867ac518b`, execução 20:44Z, ready/0 attempts.
 - Financeiro: 11.955.000 contábil, 15.000 reservado, versão 8. Live off e workers X parados.
 - Próxima ação segura: janela live controlada para o GIF.
+
+## X-0032 — GIF publicado e liquidado
+
+- UTC: 2026-08-22T20:45:59Z; São Paulo: 2026-08-22T17:45:59-03:00.
+- Resultado: GIF `published`, uma tentativa, HTTP 201, post ID persistido; sem retry.
+- Financeiro: wallet 11.940.000/0, versão 9; grant + quatro débitos exatos de -15.000; reserva/hold settled.
+- Operação: zero não terminais; worker parado; flags false/shadow e Production segura `dpl_C1N6yohwYnJb96XmSi5D5KEviBQs`.
+- Próxima ação segura: gerar e validar MP4 pequeno; confirmar um item com live off.
