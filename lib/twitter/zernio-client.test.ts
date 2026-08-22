@@ -1,0 +1,61 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  createTwitterZernioClient,
+  immutableTwitterUserId,
+  stableZernioAccountId,
+} from './zernio-client.ts';
+
+test('cliente X usa apenas endpoints Twitter e força capabilities sem billing automático', async () => {
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    requests.push({ url: String(input), init });
+    return new Response(JSON.stringify({ valid: true, userId: 'user-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  const client = createTwitterZernioClient('secret-value', {
+    baseUrl: 'https://example.test/api',
+    fetchImpl,
+    timeoutMs: 5_000,
+  });
+
+  await client.verifyAuth();
+  await client.listTwitterAccounts('profile-1');
+  await client.getTwitterAccountHealth('profile-1');
+  await client.setAccountCapabilities('account-1');
+
+  assert.equal(requests[0]?.url, 'https://example.test/api/v1/auth/verify');
+  assert.match(requests[1]?.url ?? '', /platform=twitter/);
+  assert.match(requests[2]?.url ?? '', /accounts%2Fhealth|accounts\/health/);
+  assert.deepEqual(JSON.parse(String(requests[3]?.init?.body)), {
+    xCapabilities: { analytics: false, inbox: false },
+  });
+  assert.equal(requests.some((item) => item.url.includes('billing')), false);
+});
+
+test('identidade imutável nunca usa username como fallback', () => {
+  const account = { _id: 'z-account', username: 'nome_mutavel', profileData: { id: 'x-immutable' } };
+  assert.equal(stableZernioAccountId(account), 'z-account');
+  assert.equal(immutableTwitterUserId(account), 'x-immutable');
+  assert.equal(immutableTwitterUserId({ _id: 'z-account', username: 'nome_mutavel' }), null);
+});
+
+test('erro Zernio não expõe bearer e preserva código/request id', async () => {
+  const client = createTwitterZernioClient('super-secret', {
+    baseUrl: 'https://example.test/api',
+    timeoutMs: 5_000,
+    fetchImpl: async () => new Response(JSON.stringify({ code: 'invalid_key', message: 'Não autorizado' }), {
+      status: 401,
+      headers: { 'x-request-id': 'req-1' },
+    }),
+  });
+  await assert.rejects(client.verifyAuth(), (error: Error & { code?: string; requestId?: string }) => {
+    assert.equal(error.code, 'invalid_key');
+    assert.equal(error.requestId, 'req-1');
+    assert.doesNotMatch(error.message, /super-secret/);
+    return true;
+  });
+});

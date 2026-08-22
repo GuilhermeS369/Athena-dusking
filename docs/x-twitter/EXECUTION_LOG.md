@@ -98,3 +98,33 @@ Registros são append-only.
 - Rollback: flags já desligadas; schema é aditivo; correções posteriores serão forward-only.
 - Status: `completed`.
 - Próxima ação segura: commit do gate e início da Fase 2 local.
+
+## X-0008 — início da Fase 2 e reconferência Zernio
+
+- UTC: 2026-08-22T17:30:50Z
+- São Paulo: 2026-08-22T14:30:50-03:00
+- Fontes oficiais reconferidas: plataforma Twitter, Connecting Accounts, Account Health, auth/verify no changelog e x-pricing.
+- Decisões confirmadas: OAuth `twitter`; identidade global por `userId`; filtro por profile; health local; `analytics=false` e `inbox=false`; pricing externo apenas diagnóstico.
+- Restrição de identidade: username nunca será usado para fusão. Se o payload não trouxer ID imutável do X, o perfil permanece vinculado ao account ID Zernio e uma reconexão diferente não será mesclada automaticamente.
+- Escopo: migration 226, cliente separado e telas/APIs Zernio/Perfis.
+- Mutação remota nesta etapa: nenhuma ainda.
+- Status: `in_progress`.
+- Próxima ação segura: implementação local e testes.
+
+## X-0009 — implementação local da Fase 2 validada
+
+- UTC: 2026-08-22T17:39:53Z
+- São Paulo: 2026-08-22T14:39:53-03:00
+- Executor: Codex GPT-5; task ID não disponibilizado pelo ambiente.
+- Objetivo: implementar conexão Zernio X, identidade/perfil estáveis e épocas sem qualquer chamada real ao provedor.
+- Arquivos principais: migration/teste 226, cliente e serviços `lib/twitter/zernio-*`, guard de request, APIs `/api/x/integrations/zernio/*`, `/api/x/profiles`, páginas `/x/zernio` e `/x/perfis`.
+- Invariantes: nenhuma tabela/RPC Instagram referenciada; chave em tabela secreta; username não prova identidade; analytics/inbox false; grant não reinicia em rotação.
+- Validação: 152/152 testes Node; TypeScript aprovado; build aprovado; `git diff --check` aprovado.
+- Build: somente warnings de metadata preexistentes em login/onboarding/not-found.
+- Supabase: projeto ainda alinhado remotamente até 225; dry-run listou somente 226.
+- Vercel/VPS: sem deploy, release, segredo, worker ou restart.
+- Riscos pendentes: a migration 226 ainda precisa ser executada e testada no PostgreSQL remoto dentro de transação revertida.
+- Rollback: antes do push, reverter o commit local; depois do push, manter flags off e corrigir forward-only.
+- Status: `in_progress`, implementação local concluída.
+- Próxima ação segura: criar commit local, confirmar o projeto vinculado, aplicar apenas 226 e executar o teste SQL 226.
+- Não repetir: não cadastrar API key real para validar schema; não reiniciar PM2.

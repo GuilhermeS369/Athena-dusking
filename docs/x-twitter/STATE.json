@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T17:28:57Z",
-  "updatedAtSaoPaulo": "2026-08-22T14:28:57-03:00",
+  "updatedAtUtc": "2026-08-22T17:39:53Z",
+  "updatedAtSaoPaulo": "2026-08-22T14:39:53-03:00",
   "phase": {
-    "id": "01",
-    "name": "foundation-and-finance",
-    "status": "completed",
-    "gate": "passed"
+    "id": "02",
+    "name": "zernio-identities-and-profiles",
+    "status": "in_progress",
+    "gate": "pending"
   },
   "git": {
     "branch": "codex/x-twitter-module",
     "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb",
     "checkpointCommit": "41fd0c2414a46672210487e0dcee25ecc17aed82",
-    "worktreeExpectedDirty": false,
+    "worktreeExpectedDirty": true,
     "phase01Commits": [
       "f861710fd2c4fd5268f0a88b846e4d80facb039f",
       "50355ade6cccd8b3522f3d59690ef2381d3b7a4a",
@@ -23,6 +23,7 @@
     "supabase": {
       "linkedProjectRef": "hqwhumdumfmixxbvneae",
       "lastVerifiedMigration": "225",
+      "pendingMigration": "226_twitter_zernio_profiles_and_epochs.sql",
       "xMigrationsApplied": true
     },
     "vercel": {
@@ -40,12 +41,13 @@
     "twitterModuleEnabled": false,
     "twitterAnalyticsEnabled": false
   },
-  "lastCheckpoint": "phase-01-gate-passed",
-  "nextSafeAction": "Commit phase 01 documentation, set phase 02 in progress, then implement Zernio client/connections/profiles locally with analytics and inbox disabled.",
+  "lastCheckpoint": "phase-02-local-validation",
+  "nextSafeAction": "Commit the validated Phase 2 local unit, re-confirm linked Supabase project, push only migration 226, then run SQL test 226 through db query inside BEGIN/ROLLBACK.",
   "doNotRepeat": [
     "Do not apply migrations 210 through 222; they are already remote.",
     "Do not restart Instagram PM2 processes.",
-    "Do not expose environment values or SSH private keys."
+    "Do not expose environment values or SSH private keys.",
+    "Do not call a real Zernio credential during migration validation."
   ],
   "blockers": []
 }
