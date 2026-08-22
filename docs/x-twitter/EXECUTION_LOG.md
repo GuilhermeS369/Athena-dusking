@@ -334,3 +334,16 @@ Registros são append-only.
 - Status: gate de credencial/carteira/perfil `completed`; canário de publicação ainda `in_progress`.
 - Próxima ação segura: deploy do commit atual com flags globais off, smoke, depois review/confirm de um único texto sem URL; verificar reserva de 15.000 micros antes de ligar apenas o worker Twitter de publicação.
 - Não repetir: não provisionar de novo para inspeção; não criar novo profile; não chamar analytics/billing; não iniciar worker antes do item e da reserva serem auditados.
+
+## X-0024 — aplicação atual implantada com execução desligada
+
+- UTC: 2026-08-22T19:43:52Z; São Paulo: 2026-08-22T16:43:52-03:00.
+- Preview: `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf`, `READY`, smoke login 200, rota X protegida 307, heartbeat POST sem segredo 401.
+- Produção: `dpl_DiBtbGFbYLsNpEA5GpMCWNbLN5W7`, `READY`, alias principal atualizado; smoke repetiu 200/307/401.
+- Build Vercel: aprovado; somente warnings metadata preexistentes e aviso de dependências/npm audit já conhecido. Nenhuma correção adjacente foi misturada.
+- Flags: organização canário continua somente Pomodoro; módulo global, worker de publicação e analytics continuam `false`.
+- Supabase/Zernio/financeiro: nenhuma mudança neste deploy. Saldo continua 12.000.000 micros, reservado zero e zero débitos.
+- VPS/PM2: inalterados; cinco workers X `stopped`; processos Instagram não reiniciados.
+- Rollback Vercel: `dpl_EU8TNTWAWLGKy8GWbJUtSqZjFTPH`.
+- Status: deploy gate `completed`; publicação real ainda não iniciada.
+- Próxima ação segura: review/confirm de exatamente um texto único sem URL, com workers parados; auditar item e reserva de 15.000 micros.

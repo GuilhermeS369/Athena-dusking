@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T19:40:21Z / 2026-08-22T16:40:21-03:00
+- Atualizado em: 2026-08-22T19:43:52Z / 2026-08-22T16:43:52-03:00
 - Fase atual: 6 — canário de publicação (`in_progress`)
 - Status: credencial, carteira e perfil canário prontos; nenhuma publicação executada
 - Branch: `codex/x-twitter-module`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Implantar o checkpoint atual mantendo publicação e analytics desligados, executar smoke e então criar um único canário de texto sem URL pelo fluxo review/confirm. Conferir a reserva de 15.000 micros antes de ligar somente o worker Twitter de publicação em live para esse item.
+Criar um único canário de texto sem URL pelo fluxo review/confirm. Conferir um item em fila e reserva exata de 15.000 micros antes de ligar somente o worker Twitter de publicação em live para esse item.
 
 ## Proibições imediatas
 
@@ -46,6 +46,6 @@ Implantar o checkpoint atual mantendo publicação e analytics desligados, execu
 
 ## Ambientes preparados
 
-- Vercel: organização canário Pomodoro configurada; Preview `dpl_FtikYGRpuBhe6NvQZbL4WzwmNerf` e Production `dpl_EU8TNTWAWLGKy8GWbJUtSqZjFTPH`, ambos `READY`. Flags globais de módulo/publicação/analytics continuam desligadas.
+- Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production `dpl_DiBtbGFbYLsNpEA5GpMCWNbLN5W7`, ambos `READY`. Flags globais de módulo/publicação/analytics continuam desligadas.
 - VPS: cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
 - Supabase: migrations 223–240 alinhadas; último one-shot deixou zero claims e zero operações financeiras.

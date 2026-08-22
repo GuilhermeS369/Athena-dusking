@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T19:40:21Z",
-  "updatedAtSaoPaulo": "2026-08-22T16:40:21-03:00",
+  "updatedAtUtc": "2026-08-22T19:43:52Z",
+  "updatedAtSaoPaulo": "2026-08-22T16:43:52-03:00",
   "phase": { "id": "06", "name": "publication-canary", "status": "in_progress", "gate": "credential_and_wallet_ready" },
   "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "50469d4e87eed009c13c9e4bde5e1176cac7014c", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "240", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
-    "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_FtikYGRpuBhe6NvQZbL4WzwmNerf", "productionDeploymentId": "dpl_EU8TNTWAWLGKy8GWbJUtSqZjFTPH", "rollbackDeploymentId": "dpl_Akd9xnWZxrfeZpz9XpvsA5JgZgAR", "xDeploymentCreated": true, "canaryOrganization": "Pomodoro" },
+    "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf", "productionDeploymentId": "dpl_DiBtbGFbYLsNpEA5GpMCWNbLN5W7", "rollbackDeploymentId": "dpl_EU8TNTWAWLGKy8GWbJUtSqZjFTPH", "xDeploymentCreated": true, "canaryOrganization": "Pomodoro" },
     "vps": { "hostname": "srv1881733", "release": "3f3821171839-20260822T184649Z", "sha256": "9aaf4f732665bf3b853c2296646abe9f4a21f2a113f12de4dfd3621c7b87cb33", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
-  "lastCheckpoint": "phase-06-pomodoro-credential-wallet-profile-ready",
-  "nextSafeAction": "Deploy the current application commit with the existing Pomodoro-only canary setting and all global publication/analytics flags still false. Smoke it, then build a guarded text-only no-URL canary through review/confirm. Inspect the reservation before enabling only the Twitter publication worker in live mode for that single item.",
+  "lastCheckpoint": "phase-06-current-app-deployed-flags-off",
+  "nextSafeAction": "Build a guarded text-only no-URL canary through the existing review/confirm services for exactly one active profile. Inspect that it created one queued item and exactly 15,000 micros of reservation while all Twitter workers remain stopped. Do not enable live until this checkpoint is documented.",
   "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not call analytics or billing endpoints.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
   "blockers": ["No publication canary has been created or sent yet. The first required gate is one unique text-only post without URL, with reservation and ledger verified end to end."]
 }
