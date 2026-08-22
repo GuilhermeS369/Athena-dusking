@@ -413,3 +413,11 @@ Registros são append-only.
 - Financeiro: wallet 11.955.000/0, versão 7; grant + três débitos únicos de -15.000; reserva/hold settled e zero liberado.
 - Operação: logs `external_started`/`published`; zero itens não terminais; worker parado, VPS false/shadow e Production segura `dpl_58q7bZmjMqCBrqDS9kFWc4UkZYrz`.
 - Próxima ação segura: criar/validar GIF pequeno e confirmar um único item com live off.
+
+## X-0031 — GIF preparado com execução desligada
+
+- UTC: 2026-08-22T20:34:27Z; São Paulo: 2026-08-22T17:34:27-03:00.
+- Gerador guardado em `7ed2862`; GIF `7dea1898-89e8-4222-9183-3a3a38c7fdaa`, 640×360, 2s, 316.445 bytes, hash `8025a9a8a5de9e094513c314eef1d7cb38d8d7f2c09ac2d85dbf3ee036ddfccb`, signed read ok.
+- Programa/item `cd71cc46-ec4b-4209-86b3-436ee2ebf44a` / `582c0a4f-7c65-4921-893b-661867ac518b`, execução 20:44Z, ready/0 attempts.
+- Financeiro: 11.955.000 contábil, 15.000 reservado, versão 8. Live off e workers X parados.
+- Próxima ação segura: janela live controlada para o GIF.

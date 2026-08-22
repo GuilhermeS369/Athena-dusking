@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T20:32:57Z",
-  "updatedAtSaoPaulo": "2026-08-22T17:32:57-03:00",
-  "phase": { "id": "06", "name": "publication-canary", "status": "in_progress", "gate": "multi_image_passed_next_gif" },
+  "updatedAtUtc": "2026-08-22T20:34:27Z",
+  "updatedAtSaoPaulo": "2026-08-22T17:34:27-03:00",
+  "phase": { "id": "06", "name": "publication-canary", "status": "in_progress", "gate": "gif_reserved_worker_stopped" },
   "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "50469d4e87eed009c13c9e4bde5e1176cac7014c", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "240", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
@@ -10,8 +10,8 @@
     "vps": { "hostname": "srv1881733", "release": "3f3821171839-20260822T184649Z", "sha256": "9aaf4f732665bf3b853c2296646abe9f4a21f2a113f12de4dfd3621c7b87cb33", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
-  "lastCheckpoint": "phase-06-two-images-published-and-settled",
-  "nextSafeAction": "Create a small benign animated GIF in twitter-media, verify its hash/signed read, then confirm exactly one GIF item and 15,000-micro reservation while all live flags are false and workers stopped.",
+  "lastCheckpoint": "phase-06-gif-confirmed-and-reserved",
+  "nextSafeAction": "Reconfirm GIF item 582c0a4f-7c65-4921-893b-661867ac518b and signed asset, then open the controlled live window, start only publication worker, monitor through 2026-08-22T20:44:00Z, and restore false/shadow immediately after result.",
   "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not call analytics or billing endpoints.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
   "blockers": ["GIF, video and URL canaries remain pending. Live flags are false and all Twitter workers are stopped between gates."]
 }
