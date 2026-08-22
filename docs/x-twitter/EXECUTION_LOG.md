@@ -429,3 +429,11 @@ Registros são append-only.
 - Financeiro: wallet 11.940.000/0, versão 9; grant + quatro débitos exatos de -15.000; reserva/hold settled.
 - Operação: zero não terminais; worker parado; flags false/shadow e Production segura `dpl_C1N6yohwYnJb96XmSi5D5KEviBQs`.
 - Próxima ação segura: gerar e validar MP4 pequeno; confirmar um item com live off.
+
+## X-0033 — vídeo preparado com execução desligada
+
+- UTC: 2026-08-22T20:46:40Z; São Paulo: 2026-08-22T17:46:40-03:00.
+- Asset `3648930e-a2d1-4535-b248-6d7b3f9cccaf`: MP4 640×360, 2s, 116.645 bytes, SHA-256 `19bd78345e308eef3f807acf5a2ce8d49d2e67ba0dbd36d839f552e6229e8992`, signed read ok.
+- Programa/item `466ff096-82f1-4dd2-a75d-11c124bae815` / `93358c36-99ee-44d0-90c3-807dd6c9d71e`, execução 20:56Z, ready/0 attempts.
+- Financeiro: 11.940.000 contábil, 15.000 reservado, versão 10. Live off e workers X parados.
+- Próxima ação segura: janela live controlada do vídeo.
