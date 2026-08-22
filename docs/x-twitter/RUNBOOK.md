@@ -103,6 +103,14 @@ Processos planejados:
 - O heartbeat é a autorização operacional do ciclo: modo `stopped` deve encerrar o executável antes de claim, recovery, mutação financeira ou chamada Zernio. Claims, reconcile e fallback reaplicam o gate global/canário mesmo quando chamados diretamente.
 - Em deploy off/one-shot, exigir `stopped` para os cinco papéis e conferir zero mudança em fila, holds, attempts e ledger.
 
+### Sync de perfis X
+
+- O botão Sincronizar apenas cria `twitter_sync_jobs`; não faz leitura Zernio no request público.
+- Claim/result exclusivos: `/api/internal/twitter-sync-claims` e `/api/internal/twitter-sync-results`, autenticados somente pelo segredo do papel sync.
+- O worker usa lease de 900 segundos, concorrência 1 por conexão e limite de 500 contas por inventário; capabilities `analytics`/`inbox` permanecem false.
+- Antes de ativar `TWITTER_SYNC_WORKER_ENABLED`, exigir migrations até 242, release `a5edc6c049e1-20260822T235210Z` ou superior e fila inicialmente vazia.
+- Kill switch durante job impede novos claims; o claim atual deve concluir ou expirar. Nunca apagar jobs para recuperar lease.
+
 ## Rollback
 
 - desligar flags X;

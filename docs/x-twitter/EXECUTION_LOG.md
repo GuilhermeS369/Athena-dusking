@@ -795,3 +795,17 @@ Registros são append-only.
 - Segurança: flags X off, workers X stopped, nenhuma chamada Zernio, Vercel/VPS/Instagram não alterados nesta etapa.
 - Rollback: banco somente forward-only; manter sync off. Código pode ser revertido enquanto nenhuma UI nova tiver sido implantada, mas a tabela/migration não deve ser removida.
 - Próxima ação segura: Preview/Production off do commit `9193669`; release VPS versionado; one-shot dos cinco papéis em modo stopped; reconferir invariantes.
+
+## X-0065 — fila de sync implantada com todos os gates off
+
+- UTC: 2026-08-22T23:53:56Z; São Paulo: 2026-08-22T20:53:56-03:00.
+- Vercel Preview: `dpl_3PEDBeCXGNKn22ytn1CnjDcsJGeC`, `READY`, URL `https://pomodoro-pcp6sp965-shoows-projects-2caaf9e9.vercel.app`; rota sync sem segredo retornou 401.
+- Vercel Production: `dpl_AF46kbSRbDFUhJc7JFZQ6qZ3yM35`, `READY`, alias oficial `https://pomodoro-theta-one-82.vercel.app`; rota sync sem segredo retornou 401. Build teve somente warnings metadata e os cinco avisos npm preexistentes.
+- VPS preflight: `srv1881733`, Node 22.23.2, 42 GB livres, 2.895 MB disponíveis, sem swap; arquivo compartilhado modo 600; release anterior `dc997750ddc2-20260822T231419Z`.
+- Artefato ignorado: `artifacts/x-twitter/20260822T235210Z/athena-twitter-worker.tar.gz`; SHA-256 local/remoto `a6f1907de47fc9715b33d2a180cc55c818f9f82a5593ffe4771e98438faea4fe`.
+- Release: `/opt/athena-twitter/releases/a5edc6c049e1-20260822T235210Z`; sintaxe dos três arquivos aprovada; cinco one-shots retornaram 0 e gravaram heartbeat `stopped` antes de qualquer claim/chamada externa.
+- PM2: somente os cinco registros X foram recriados e parados. O primeiro comando ultrapassou 30 s enquanto reconcile estava `stopping`; inspeção read-only detectou isso e um stop explícito exclusivo o levou a `stopped`, seguido de `pm2 save`. Os seis processos existentes conservaram PIDs 99980, 27468, 136197, 127605, 122939 e 103209.
+- Pós-auditoria: cinco heartbeats X `stopped`; zero sync jobs, publicação/analytics não terminais e holds; wallet 11.725.000/0 versão 21. Heartbeat histórico do fallback permanece shadow, porém sem cron/flag live.
+- Limpeza: somente o tar temporário explicitamente validado em `/tmp` foi removido; artefato local e releases anteriores foram preservados.
+- Rollback: Vercel `dpl_soJv1T88XQ2iCmLFtW1fzw4jQLZu`; VPS `dc997750ddc2-20260822T231419Z`; manter todos os flags off e não remover migration 242.
+- Próxima ação segura: resolver por ADR o papel generation, hoje sem trabalho após heartbeat; não criar fila artificial nem mover a materialização financiada para fora da transação atômica.
