@@ -510,3 +510,12 @@ Registros são append-only.
 - Quote somente leitura: candidato `e5388d6a-82ce-45e7-81a3-27b37adc643b`; um recurso post, custo 5.000, canConfirm true. Wallet antes/depois 11.725.000/0, versão 15; projeção 11.720.000 e piso 5.000.000.
 - Mutação: nenhum job, item, reserva, tentativa, snapshot ou chamada Zernio foi criado nesta etapa.
 - Próxima ação segura: confirmar/reservar o mesmo recurso com analytics ainda off e auditar 5.000 micros.
+
+## X-0040 — uma leitura de post reservada com analytics desligado
+
+- UTC: 2026-08-22T21:38:40Z; São Paulo: 2026-08-22T18:38:40-03:00.
+- Job/item: `0b426171-833b-4767-9a92-1a1296aacbde` / `7ce8553c-ceb9-4a25-a00f-c51b0ec249c5`; recurso é o post `e5388d6a-82ce-45e7-81a3-27b37adc643b` com Zernio post ID persistido.
+- Financeiro: categoria `post_read`, custo/reserva aberta 5.000 micros. Wallet 11.725.000 contábil, 5.000 reservado, versão 16; piso projetado continua acima de 5.000.000.
+- Estado: job/item `reserved`, tentativa 0, snapshot 0; nenhuma chamada Zernio ocorreu.
+- Segurança: analytics e worker continuam desabilitados; cinco workers X parados. O Dashboard permanece somente em snapshots locais.
+- Próxima ação segura: preflight read-only, janela exclusiva do worker analytics, parada/restauração imediata após um resultado.

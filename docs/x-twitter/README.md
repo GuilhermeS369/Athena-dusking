@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:37:58Z / 2026-08-22T18:37:58-03:00
+- Atualizado em: 2026-08-22T21:38:40Z / 2026-08-22T18:38:40-03:00
 - Fase atual: 7 — análises manuais (`in_progress`)
-- Status: quote mínimo de analytics aprovado sem mutação; reserva/confirmação pendente
+- Status: uma leitura de post reservada em 5.000 micros; execução live pendente
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `31fb1d2`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Executar o modo guardado `reserve-one-post-read`, confirmar exatamente 5.000 micros reservados, zero tentativas/snapshots e saldo contábil inalterado. Manter analytics e worker desligados até o novo checkpoint.
+Reconfirmar job/item/reserva, flags analytics false e worker parado. Depois habilitar somente analytics na Production/VPS, iniciar apenas `athena-twitter-analytics-worker`, executar uma tentativa e restaurar o kill switch imediatamente após sucesso, falha ou resultado incerto.
 
 ## Proibições imediatas
 

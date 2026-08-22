@@ -23,6 +23,8 @@ Status: `in_progress` — implementação concluída; canário pago mínimo pend
 
 Checkpoint 2026-08-22T21:37:58Z: documentação oficial reconfirmou HTTP 202 para sync pendente. Worker corrigido em `46e09cc` para manter hold sem snapshot/retry; release VPS `46e09cc-20260822T213610Z`. Quote read-only de um post aprovou custo 5.000, projeção 11.720.000 e piso 5.000.000; wallet permaneceu 11.725.000/0 versão 15 e nenhuma entidade analytics foi criada.
 
+Reserva confirmada em 2026-08-22T21:38:40Z: job `0b426171-833b-4767-9a92-1a1296aacbde`, item `7ce8553c-ceb9-4a25-a00f-c51b0ec249c5`, um `post_read` de 5.000 micros. Wallet 11.725.000/5.000, versão 16; zero tentativas/snapshots e analytics ainda off.
+
 ## Rollback
 
 - Manter `TWITTER_ANALYTICS_ENABLED=false` e `TWITTER_ANALYTICS_WORKER_ENABLED=false`.
@@ -31,4 +33,4 @@ Checkpoint 2026-08-22T21:37:58Z: documentação oficial reconfirmou HTTP 202 par
 
 ## Próxima ação segura
 
-Confirmar a reserva de uma leitura de post por 5.000 micros com analytics/worker ainda desligados; auditar job/item/reserva antes da janela live.
+Executar uma janela analytics-only, auditar resultado financeiro/snapshot e restaurar todas as flags/worker para off.
