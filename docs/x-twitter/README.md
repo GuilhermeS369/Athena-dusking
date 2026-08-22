@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T23:36:27Z / 2026-08-22T20:36:27-03:00
+- Atualizado em: 2026-08-22T23:39:42Z / 2026-08-22T20:39:42-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint de código remoto atual: `dc99775` (segredos e kill switches independentes); unidade local de Logs parte de `0b9fab4`
+- Checkpoint de código remoto atual: `dc99775` (segredos e kill switches independentes); unidade local de Análises parte de `66d0bce`
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–241
 
@@ -24,7 +24,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 241.
-- Testes atuais: 186/186 aprovados.
+- Testes atuais: 190/190 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Continuar a auditoria final requisito por requisito pelos filtros locais de Análises (perfil, grupo, período e métrica). Logs financeiros já possuem contexto, timeline, evidências e controles por papel sem leitura Zernio. Não ativar cron, fallback live ou rollout antes do analytics HTTP 200.
+Continuar a auditoria final requisito por requisito pela completude operacional dos workers de geração e sync, que atualmente encerram após o heartbeat. Os filtros locais de Análises e os Logs financeiros já foram completados. Não ativar cron, fallback live ou rollout antes do analytics HTTP 200.
 
 ## Proibições imediatas
 

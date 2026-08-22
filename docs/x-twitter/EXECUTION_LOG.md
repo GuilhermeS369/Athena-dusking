@@ -759,3 +759,15 @@ Registros são append-only.
 - Ambientes: Supabase permanece alinhado até 241 e sem nova mutação; Production continua off; cinco workers X continuam stopped; nenhum processo Instagram foi reiniciado.
 - Rollback: reverter os dois componentes da página e o teste desta unidade. Não há dado, saldo, reserva, secret ou infraestrutura a desfazer.
 - Próxima ação segura: implementar filtros locais de Análises por perfil, grupo, período e tipo de métrica, mantendo quote/confirm como únicas operações potencialmente cobradas.
+
+## X-0062 — filtros locais de Análises completados
+
+- UTC: 2026-08-22T23:39:42Z; São Paulo: 2026-08-22T20:39:42-03:00.
+- Escopo: UI e função pura de filtragem; nenhuma chamada Zernio, quote, reserva, migration, deploy ou mutação remota.
+- Entrega: filtros combináveis por perfil, grupo, período e tipo de métrica; grupos usam `twitter_groups`/`twitter_group_members`; período afeta posts e respeita a data civil `America/Sao_Paulo`; perfis/followers permanecem selecionáveis independentemente do período.
+- Seleção: checkboxes continuam autoritativos. Ações explícitas selecionam somente recursos visíveis, limpam seleção ou filtros, e o total selecionado permanece visível mesmo se um filtro o ocultar.
+- Segurança financeira: o cliente não contém referência a Zernio ou `/v1/*`; filtrar não chama API. Somente `Revisar custo` usa quote read-only e somente a confirmação posterior cria job/reserva.
+- Verificação: 190/190 testes Node, `npx tsc --noEmit`, `npm run build` e `git diff --check` aprovados; apenas warnings preexistentes de metadata.
+- Ambientes: Supabase/Vercel/VPS não foram alterados; flags X seguem off; cinco workers X seguem stopped; Instagram não foi reiniciado.
+- Rollback: reverter página, cliente e helper/testes de filtros; não há saldo, fila, dado remoto ou infraestrutura a desfazer.
+- Próxima ação segura: auditar a completude dos papéis generation/sync, hoje deliberadamente sem trabalho após heartbeat, e formalizar ou implementar o contrato sem tocar rotinas Instagram.

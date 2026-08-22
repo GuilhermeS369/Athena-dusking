@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T23:36:27Z",
-  "updatedAtSaoPaulo": "2026-08-22T20:36:27-03:00",
+  "updatedAtUtc": "2026-08-22T23:39:42Z",
+  "updatedAtSaoPaulo": "2026-08-22T20:39:42-03:00",
   "phase": { "id": "08", "name": "rollout-preparation", "status": "in_progress", "gate": "provider_analytics_gate_pending" },
-  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "0b9fab4", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
+  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "66d0bce", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "241", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
     "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_95mw9RpuRp7aZ1gX1CSS1SUYfDiH", "productionDeploymentId": "dpl_soJv1T88XQ2iCmLFtW1fzw4jQLZu", "rollbackDeploymentId": "dpl_7tjP62du6hnNXC84YkSbjbRiJqhy", "xDeploymentCreated": true, "canaryOrganization": "Pomodoro", "lastLiveCanaryDeploymentId": "dpl_8pkhNuc5hcPhcGQ7EsaWSMAHLuC5", "fallbackShadowDeploymentId": "dpl_EWZqz2kPtsBnqBiXNqRYV3Qvy3d2", "fallbackShadowDeploymentUrl": "https://pomodoro-mh4mbhh3y-shoows-projects-2caaf9e9.vercel.app", "fallbackSafePreviewUrl": "https://pomodoro-mwqw12xhw-shoows-projects-2caaf9e9.vercel.app", "rolloutHealthStatus": "ok", "roleSecretsConfigured": true, "roleKillSwitchesValidated": true, "legacyWorkerSecretRemoved": true },
     "vps": { "hostname": "srv1881733", "release": "dc997750ddc2-20260822T231419Z", "sha256": "4bb116e2660be97c6d7f440363196da4b4313bb6e38c74bf5184375dd09b3f57", "rollbackRelease": "46e09cc-20260822T213610Z", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true, "legacyWorkerSecretRemoved": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false, "twitterReconcileWorkerEnabled": false },
-  "lastCheckpoint": "phase-08-final-audit-local-financial-logs-completed",
-  "nextSafeAction": "Audit and implement local-only analytics filters for profile, group, period and metric type. Do not call Zernio while filtering and keep every mutation flag off.",
+  "lastCheckpoint": "phase-08-final-audit-local-analytics-filters-completed",
+  "nextSafeAction": "Audit whether the generation and sync worker roles need real queues or should be formally removed from the runtime contract. Keep every mutation flag off and do not call Zernio.",
   "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not repeat the paid analytics read for item 7ce8553c-ceb9-4a25-a00f-c51b0ec249c5.", "Do not reclassify its outcome_unknown without provider or billing evidence and an audited justification.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
   "blockers": ["Phase 7 provider gate: three manual operations, including a later operation on the same already-synced post, returned HTTP 202 and were proven unmetered/reconciled. A successful analytics snapshot cannot be proven until Zernio returns 200.", "Phase 8 general rollout and live fallback activation remain prohibited until the Phase 7 provider gate succeeds."]
 }

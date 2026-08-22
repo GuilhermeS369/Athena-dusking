@@ -5,6 +5,7 @@ Status: `blocked` — implementação/proteção financeira aprovadas; Zernio re
 ## Entregas
 
 - `/x/analises` seleciona posts e perfis com checkbox.
+- Filtros locais combináveis por perfil, grupo, período civil de São Paulo e tipo de métrica; filtrar não consulta a Zernio nem reserva saldo.
 - Quote é somente leitura, assinado e válido por dez minutos.
 - Confirmação bloqueia todas as carteiras, revalida versões e preserva US$ 5,00 além de reservas existentes.
 - Post custa 5.000 micros; perfil/followers custa 10.000 micros.
@@ -44,6 +45,8 @@ Reavaliação em 2026-08-22T21:58:33Z: a documentação oficial define 202 como 
 Reserva em 2026-08-22T21:59:26Z: job `ccc4ec4e-956a-4500-af4d-8e9d779574e1`, item `132b6356-6b06-48d7-bff7-edd473bc87be`, mesma publicação sincronizada e novo fluxo independente. Reserva open 5.000; wallet 11.725.000/5.000 versão 20; item attempt 0, snapshots 0 e analytics off.
 
 Resultado final em 2026-08-22T22:01:08Z: a nova operação do mesmo post voltou a receber HTTP 202. Duas conferências posteriores de `GET /v1/usage` continuaram sem `posts_read`; o item foi reconciliado `failed/manual_not_metered`, liberando os 5.000 micros originais. Wallet 11.725.000/0 versão 21; três attempts HTTP 202 terminais, zero snapshots e zero débito analytics. Production segura `dpl_7T2ctsRQFrSrDqSLBCuYtqSqXY6y`; janela live `dpl_8pkhNuc5hcPhcGQ7EsaWSMAHLuC5`.
+
+Auditoria de UI em 2026-08-22T23:39:42Z: `/x/analises` passou a carregar grupos/membros locais e filtrar recursos por perfil, grupo, período e post/perfil-followers. A data de post usa `America/Sao_Paulo`, inclusive na virada UTC. Seleção visível e limpeza são explícitas; quote/confirm continuam sendo as únicas rotas financeiras. Teste estático proíbe referências a Zernio/endpoints externos no cliente. Regressão: 190/190 testes, TypeScript, build e diff check aprovados; nenhuma mutação remota.
 
 ## Rollback
 
