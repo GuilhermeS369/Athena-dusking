@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:56:14Z / 2026-08-22T18:56:14-03:00
-- Fase atual: 7 — análises manuais (`blocked`)
-- Status: `blocked` — dois posts distintos retornaram HTTP 202, ambos não cobrados/reconciliados; sucesso depende da disponibilidade da Zernio
+- Atualizado em: 2026-08-22T21:58:33Z / 2026-08-22T18:58:33-03:00
+- Fase atual: 7 — análises manuais (`in_progress`)
+- Status: novo quote manual aprovado para o mesmo post já sincronizado; nenhuma reserva criada ainda
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `46e09cc`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Não executar uma terceira leitura. Obter confirmação da Zernio de que analytics dos posts está disponível; somente então abrir um novo canário distinto após preflight e checkpoint. Fase 8 permanece fechada até esse gate.
+Reservar o novo item do mesmo post já sincronizado, com analytics off. O novo attempt será independente dos dois HTTP 202 reconciliados; janela live somente após checkpoint.
 
 ## Proibições imediatas
 

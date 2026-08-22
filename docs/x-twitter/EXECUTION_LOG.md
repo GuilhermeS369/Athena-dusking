@@ -599,3 +599,14 @@ Registros são append-only.
 - Gate: dois posts distintos retornaram HTTP 202 e nenhum foi medido. Não executar terceira leitura. Fase 7 fica `blocked` por disponibilidade externa; Fase 8 continua bloqueada por dependência, não mais por organização/credencial canário.
 - Drift corrigido: `phases/08-rollout.md` não afirma mais que faltam organização e API key; esses requisitos e os seis canários de publicação já foram concluídos.
 - Próxima ação segura: confirmação da Zernio de disponibilidade analytics; depois novo canário distinto, nunca retry dos itens resolvidos.
+
+## X-0048 — quote novo para o mesmo post já sincronizado
+
+- UTC: 2026-08-22T21:58:33Z; São Paulo: 2026-08-22T18:58:33-03:00.
+- Evidência oficial: `GET /v1/analytics` documenta HTTP 202 como `sync pending`. Os dois canários anteriores usaram posts distintos e, portanto, não validaram a leitura posterior do mesmo recurso.
+- Decisão ADR-X-011: attempts antigos continuam terminais e nunca são repetidos; após billing provar não cobrança, uma nova operação manual do mesmo recurso pode usar novo quote/confirm, item, reserva e idempotência.
+- Utilitário guardado: `scripts/twitter/prepare-synced-analytics-canary.ts` exige exatamente dois HTTP 202 reconciliados, zero holds/snapshots e um post que já tenha passado pela sincronização.
+- Quote read-only: publicação `66542b07-7e55-47f8-aaca-0075b98171db`, custo 5.000, wallet 11.725.000/0 versão 19, projeção 11.720.000 e piso 5.000.000. Nenhuma entidade ou chamada externa criada.
+- Segurança: Production/VPS false, workers X parados e processos existentes online. TypeScript aprovado.
+- Rollback: nenhum para o quote. Remover/reverter o utilitário não toca dados.
+- Próxima ação segura: reservar 5.000 micros com analytics off e documentar antes da janela live.

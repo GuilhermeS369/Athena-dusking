@@ -53,3 +53,11 @@ Decisões são append-only. Mudanças exigem nova ADR que substitua explicitamen
 
 - Decisão: código não avança de fase sem README, STATE, execution log, evidências, rollback e commit.
 - Consequência: uma nova conta GPT deve conseguir continuar sem o histórico da conversa.
+
+## ADR-X-011 — HTTP 202 não medido permite nova operação manual após sincronização
+
+- Data: 22/08/2026
+- Substitui parcialmente: ADR-X-006 apenas para analytics HTTP 202 comprovadamente não medido.
+- Decisão: um attempt HTTP 202 continua terminal e nunca recebe retry automático. Depois de duas conferências `GET /v1/usage` provarem ausência de `posts_read`, ele é reconciliado como não cobrado. Uma nova solicitação do mesmo recurso pode ser criada somente por novo quote/confirm manual, nova reserva, novo item e checkpoint, pois a documentação Zernio define 202 como sincronização pendente.
+- Motivo: consultar sempre um post diferente repete a primeira sincronização de cada recurso e não testa o caminho documentado de snapshot já sincronizado.
+- Consequência: preserva-se a proibição de retry cego, mas o gate pode testar o mesmo post posteriormente sem reutilizar attempt, idempotency key ou hold anteriores.
