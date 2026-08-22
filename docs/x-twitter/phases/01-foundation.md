@@ -21,3 +21,11 @@ Início: 2026-08-22T17:14:58Z. Migration prevista: `223`, após confirmação do
 - Mutação remota: nenhuma até este checkpoint.
 
 Próximo gate: commit local, push exclusivo da migration 223 e teste transacional 223 no projeto vinculado.
+
+## Checkpoint remoto — 2026-08-22T17:24:24Z
+
+- Migration 223 aplicada com sucesso no projeto esperado.
+- `supabase test db --linked` não executou porque o runner exige Docker, ausente localmente; nenhuma afirmação de pgTAP aprovado foi feita.
+- `supabase db lint --linked` encontrou dois erros novos do X: `CASE` inferido como `text` para os enums de evento e status.
+- Também mostrou dois erros preexistentes fora do X em `rollback_legacy_waiting_randomization` e `enqueue_zernio_organization_sync_batch`; não serão misturados nesta correção.
+- Próxima ação: migration forward-only 224 com casts explícitos; não editar a migration 223 já aplicada.

@@ -6,7 +6,7 @@
     "id": "01",
     "name": "foundation-and-finance",
     "status": "in_progress",
-    "gate": "local_validation_passed_remote_pending"
+    "gate": "remote_migration_applied_correction_required"
   },
   "git": {
     "branch": "codex/x-twitter-module",
@@ -17,8 +17,8 @@
   "environments": {
     "supabase": {
       "linkedProjectRef": "hqwhumdumfmixxbvneae",
-      "lastVerifiedMigration": "222",
-      "xMigrationsApplied": false
+      "lastVerifiedMigration": "223",
+      "xMigrationsApplied": true
     },
     "vercel": {
       "project": "pomodoro",
@@ -35,8 +35,8 @@
     "twitterModuleEnabled": false,
     "twitterAnalyticsEnabled": false
   },
-  "lastCheckpoint": "phase-01-local-validation",
-  "nextSafeAction": "Commit the validated phase 01 foundation; verify project ref/migration list; push only migration 223 and run supabase/tests/223 transactionally.",
+  "lastCheckpoint": "phase-01-remote-lint-found-enum-casts",
+  "nextSafeAction": "Create forward migration 224 replacing only the two Twitter functions with explicit enum casts; dry-run, push, and repeat linked db lint.",
   "doNotRepeat": [
     "Do not apply migrations 210 through 222; they are already remote.",
     "Do not restart Instagram PM2 processes.",

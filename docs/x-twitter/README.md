@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Criar o commit local da fundação validada. Depois, reconfirmar projeto/migrations, aplicar somente a migration 223 e executar exclusivamente o teste 223 transacional no projeto vinculado.
+Criar e aplicar uma migration corretiva 224 para os dois casts de enum apontados pelo lint remoto; repetir lint e só então concluir o teste financeiro por uma via sem Docker.
 
 ## Proibições imediatas
 

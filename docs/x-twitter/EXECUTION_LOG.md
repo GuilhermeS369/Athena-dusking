@@ -69,3 +69,17 @@ Registros são append-only.
 - Rollback previsto: desligar flags; migration é aditiva; eventual correção de banco será forward-only.
 - Status: `in_progress`, validação local concluída.
 - Próxima ação segura: commit local e aplicação controlada da migration 223.
+
+## X-0006 — migration 223 aplicada; correção forward-only necessária
+
+- UTC: 2026-08-22T17:24:24Z
+- São Paulo: 2026-08-22T14:24:24-03:00
+- Commit implantado no banco: `f861710fd2c4fd5268f0a88b846e4d80facb039f`.
+- Supabase: project ref confirmado; migration 223 aplicada isoladamente.
+- Teste pgTAP: não executado porque o runner do CLI exige Docker local.
+- Lint remoto: detectou casts ausentes em dois `CASE` de funções Twitter; migration foi criada, mas essas funções não devem ser chamadas antes da 224.
+- Erros preexistentes fora do escopo: duas ambiguidades PL/pgSQL em funções antigas não Twitter.
+- Decisão: preservar 223 e corrigir para frente em 224.
+- Rollback/mitigação: módulo e flags continuam desligados; nenhuma identidade, carteira ou reserva real foi criada.
+- Status: `in_progress`.
+- Próxima ação segura: criar/aplicar 224 e repetir lint.
