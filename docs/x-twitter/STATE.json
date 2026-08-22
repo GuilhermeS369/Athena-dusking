@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T21:55:13Z",
-  "updatedAtSaoPaulo": "2026-08-22T18:55:13-03:00",
-  "phase": { "id": "07", "name": "manual-analytics", "status": "in_progress", "gate": "second_http_202_billing_recheck_pending" },
+  "updatedAtUtc": "2026-08-22T21:56:14Z",
+  "updatedAtSaoPaulo": "2026-08-22T18:56:14-03:00",
+  "phase": { "id": "07", "name": "manual-analytics", "status": "blocked", "gate": "provider_analytics_availability_required" },
   "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "c56d6e9", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "240", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
@@ -10,8 +10,8 @@
     "vps": { "hostname": "srv1881733", "release": "46e09cc-20260822T213610Z", "sha256": "183c3071ae66ecd1041581d84e481ad04c5d9ec2ad009b6875c805c6c16767b3", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
-  "lastCheckpoint": "phase-07-second-distinct-post-read-http-202-safe-off",
-  "nextSafeAction": "After metering propagation, run only GET /v1/usage again. If posts_read remains absent, adapt the guarded reconciler for analytics item 1660fcd2-b0f2-41d4-8f47-32830282ad2b and release its original 5,000-micro hold with immutable evidence. Do not attempt a third analytics read.",
+  "lastCheckpoint": "phase-07-two-http-202-results-reconciled-no-open-holds",
+  "nextSafeAction": "Do not attempt another paid analytics read. Obtain provider-side confirmation that Twitter analytics for these posts is available, or wait for a later explicit continuation window. Before resuming, verify GET /v1/usage, zero open holds, safe flags/workers, and use a new distinct post only after an explicit checkpoint.",
   "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not repeat the paid analytics read for item 7ce8553c-ceb9-4a25-a00f-c51b0ec249c5.", "Do not reclassify its outcome_unknown without provider or billing evidence and an audited justification.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
-  "blockers": ["Two distinct published posts returned HTTP 202 from Zernio analytics. The second 5,000-micro hold remains open pending a later billing snapshot. Do not attempt a third read; successful snapshot validation requires provider-side analytics availability or support evidence."]
+  "blockers": ["Two distinct published posts returned HTTP 202 and both were proven unmetered by repeated GET /v1/usage snapshots, then reconciled as failed/not charged. Successful snapshot validation requires provider-side analytics availability; Phase 8 rollout remains gated until Phase 7 succeeds."]
 }

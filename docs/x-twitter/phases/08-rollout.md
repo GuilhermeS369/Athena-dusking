@@ -1,6 +1,6 @@
 # Fase 08 — rollout e handoff
 
-Status: `blocked`
+Status: `blocked` — aguardando o gate de snapshot bem-sucedido da Fase 7
 
 Entregas: ativação progressiva, fallback validado, monitoramento, comparação Instagram e handoff final. Gate: módulo independente, observável e reversível.
 
@@ -41,6 +41,6 @@ Próximo gate: preview Vercel com todas as flags X desligadas e smoke test. Não
 
 ## Bloqueio do gate
 
-Fases 6 e 8 não podem ser concluídas sem uma organização canário escolhida e uma API key Zernio dedicada a uma identidade X, cadastrada por admin. É proibido reutilizar credencial do Instagram. Até essa entrada existir, não habilitar flags, não iniciar workers e não configurar fallback Vercel.
+A organização Pomodoro, a credencial dedicada e os seis canários de publicação já foram aprovados; o bloqueio anterior está encerrado. A Fase 8 agora aguarda somente o gate da Fase 7: dois posts distintos retornaram HTTP 202 em analytics, foram comprovados como não cobrados e reconciliados sem holds. Não habilitar rollout geral nem fallback enquanto não existir um snapshot analytics bem-sucedido e liquidado.
 
-Próxima ação segura: informar o ID da organização canário; configurar somente `TWITTER_CANARY_ORGANIZATION_IDS`; um admin cadastra a chave na página X/Zernio; então executar o canário na ordem documentada antes de qualquer rollout.
+Próxima ação segura: obter confirmação da Zernio de que analytics dos posts está disponível; executar um novo canário distinto e, somente após sucesso, atualizar este gate para os preparativos progressivos de todas as organizações.

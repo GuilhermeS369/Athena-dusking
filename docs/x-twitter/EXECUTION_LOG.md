@@ -588,3 +588,14 @@ Registros são append-only.
 - Decisão: dois posts distintos apresentaram a mesma indisponibilidade do provedor. Não executar terceira leitura. Aguardar propagação do billing, reconciliar o hold se não medido e tratar snapshot de sucesso como dependência externa.
 - Rollback: manter estado seguro atual; não liberar/liquidar hold sem segunda evidência billing e não apagar eventos.
 - Próxima ação segura: segunda consulta read-only de billing; depois resolução auditada do segundo item, se não houver `posts_read`.
+
+## X-0047 — segundo HTTP 202 reconciliado; Fase 7 bloqueada no provedor
+
+- UTC: 2026-08-22T21:56:14Z; São Paulo: 2026-08-22T18:56:14-03:00.
+- Billing: segunda consulta read-only continuou com as seis criações exatas e sem `posts_read`.
+- Reconciliação: item `1660fcd2-b0f2-41d4-8f47-32830282ad2b` mudou para `failed/manual_not_metered`; reserva original liberada 5.000, zero liquidado, eventos `outcome_unknown` → `failed`.
+- Financeiro final: wallet 11.725.000 contábil/0 reservado, versão 19; zero snapshots, zero débitos analytics e zero holds analytics abertos.
+- Segurança: Production segura `dpl_14raRXUnfUgWW6nWpN6XcYN8ppgB`; VPS false/shadow, cinco workers X stopped, seis processos existentes online.
+- Gate: dois posts distintos retornaram HTTP 202 e nenhum foi medido. Não executar terceira leitura. Fase 7 fica `blocked` por disponibilidade externa; Fase 8 continua bloqueada por dependência, não mais por organização/credencial canário.
+- Drift corrigido: `phases/08-rollout.md` não afirma mais que faltam organização e API key; esses requisitos e os seis canários de publicação já foram concluídos.
+- Próxima ação segura: confirmação da Zernio de disponibilidade analytics; depois novo canário distinto, nunca retry dos itens resolvidos.

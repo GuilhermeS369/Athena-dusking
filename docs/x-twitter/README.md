@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:55:13Z / 2026-08-22T18:55:13-03:00
-- Fase atual: 7 — análises manuais (`in_progress`)
-- Status: segundo post distinto também retornou HTTP 202; hold preservado e kill switches restaurados
+- Atualizado em: 2026-08-22T21:56:14Z / 2026-08-22T18:56:14-03:00
+- Fase atual: 7 — análises manuais (`blocked`)
+- Status: `blocked` — dois posts distintos retornaram HTTP 202, ambos não cobrados/reconciliados; sucesso depende da disponibilidade da Zernio
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `46e09cc`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Após propagação, repetir somente o snapshot de billing. Se `posts_read` continuar ausente, reconciliar o segundo HTTP 202 como não cobrado. Não executar uma terceira leitura analytics; o gate de sucesso depende da disponibilidade do provedor.
+Não executar uma terceira leitura. Obter confirmação da Zernio de que analytics dos posts está disponível; somente então abrir um novo canário distinto após preflight e checkpoint. Fase 8 permanece fechada até esse gate.
 
 ## Proibições imediatas
 
@@ -49,4 +49,4 @@ Após propagação, repetir somente o snapshot de billing. Se `posts_read` conti
 
 - Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production segura `dpl_93z3VLkymZUoukP2w1hsK2ZeaWXC`, ambos `READY`. Última janela live analytics: `dpl_D9Kk5XtsWPZEcsqmjiAehuJt5GSF`.
 - VPS: release `46e09cc-20260822T213610Z`; cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
-- Supabase: migrations 223–240 alinhadas; primeiro analytics reconciliado sem cobrança; segundo está `outcome_unknown` HTTP 202, wallet 11.725.000/5.000 versão 18, zero snapshot e zero débito analytics.
+- Supabase: migrations 223–240 alinhadas; dois HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 19, zero snapshot, zero débito analytics e zero holds abertos.

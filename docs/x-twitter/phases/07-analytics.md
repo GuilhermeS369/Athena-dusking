@@ -1,6 +1,6 @@
 # Fase 07 — análises manuais
 
-Status: `in_progress` — implementação concluída; canário pago mínimo protegido em reconciliação
+Status: `blocked` — implementação e proteção financeira aprovadas; Zernio ainda não disponibilizou snapshot analytics para dois posts distintos
 
 ## Entregas
 
@@ -37,6 +37,8 @@ Reserva em 2026-08-22T21:51:48Z: job `85bd0298-432e-45ae-9248-abf306fd4207`, ite
 
 Segunda janela em 2026-08-22T21:53:37Z: outro post distinto também retornou HTTP 202 e foi preservado como `outcome_unknown`, sem retry/snapshot/débito. Primeiro snapshot posterior de billing continua com as seis criações conhecidas e sem `posts_read`. Worker foi parado; VPS false, arquivo 600, cinco workers X stopped e seis processos existentes online. Production segura `dpl_14raRXUnfUgWW6nWpN6XcYN8ppgB` `READY`; janela live `dpl_2U7h2iEaJk8TRB4HApE3gea9BUaV`.
 
+Reconciliação final em 2026-08-22T21:56:14Z: segunda conferência billing permaneceu sem `posts_read`; o segundo item foi resolvido `failed/manual_not_metered`, liberando somente os 5.000 micros originais. Wallet 11.725.000/0 versão 19; zero snapshots e zero débito analytics. Dois posts distintos produziram o mesmo 202, portanto nenhuma terceira leitura será feita sem confirmação externa de disponibilidade.
+
 ## Rollback
 
 - Manter `TWITTER_ANALYTICS_ENABLED=false` e `TWITTER_ANALYTICS_WORKER_ENABLED=false`.
@@ -45,4 +47,4 @@ Segunda janela em 2026-08-22T21:53:37Z: outro post distinto também retornou HTT
 
 ## Próxima ação segura
 
-Após propagação, repetir apenas billing e reconciliar o segundo hold se continuar não medido. Não fazer terceira leitura. O gate de snapshot bem-sucedido depende agora da disponibilidade da Zernio.
+Obter confirmação externa da Zernio de que o snapshot está disponível. Até lá, manter analytics off e não abrir outra leitura. O gate de snapshot bem-sucedido permanece bloqueado.
