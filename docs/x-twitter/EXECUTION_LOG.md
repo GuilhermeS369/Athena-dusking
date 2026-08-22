@@ -484,3 +484,17 @@ Registros são append-only.
 - Segurança: Production/VPS permaneceram `false`/`shadow`; cinco workers X parados; nenhuma chamada externa.
 - Verificação: 165/165 testes, TypeScript e diff check aprovados.
 - Próxima ação segura: mock loopback e one-shot guardado para os resultados de erro do worker.
+
+## X-0038 — matriz de erros fechada e Fase 6 concluída
+
+- UTC: 2026-08-22T21:32:11Z; São Paulo: 2026-08-22T18:32:11-03:00.
+- Código `ef0f0e9`: classificação HTTP extraída para `twitter-provider-classification.mjs` e usada diretamente pelo worker. Cobertura: 400→falha confirmada; 429→retry mínimo 240s; 500→resultado incerto; `existingPostId`→duplicidade confirmada; timeout permanece no catch como incerto.
+- Testes: 166/166 Node, TypeScript, build, sintaxe Node e diff check aprovados. SQL financeiro 231: 16/16 dentro de `BEGIN/ROLLBACK`, cobrindo falha local, 429, hold incerto, reconciliação manual e replay sem débito duplo.
+- Pós-SQL: organização/usuário de teste zero, uma carteira real e zero itens não terminais. Nenhum erro foi fabricado contra a Zernio real e nenhum saldo real foi alterado.
+- Release VPS: `/opt/athena-twitter/releases/ef0f0e9-20260822T213032Z`; pacote SHA-256 `2f16723db969cb67ebc959ead4fcda40bffca651cd7cf10761a7dcc612fd2b42`. Release anterior preservado.
+- One-shot: publicação com flags off não criou claim/reserva/débito. PM2 recriado apontando ao release novo e persistido com cinco workers X `stopped`; seis processos existentes mantiveram os PIDs.
+- Financeiro final da fase: wallet 11.725.000/0, versão 15; seis tentativas históricas de publicação, zero não terminais.
+- Decisão de segurança: duplicidade/5xx/timeout não foram provocados contra o provedor real, pois isso poderia gerar cobrança ambígua. O mesmo classificador executado pelo worker foi testado diretamente, e as transições financeiras foram testadas em transação revertida.
+- Rollback VPS: symlink para `/opt/athena-twitter/releases/3f3821171839-20260822T184649Z`, recriar somente os cinco processos X e mantê-los parados.
+- Status: Fase 6 `completed`; Fase 7 iniciada com analytics ainda off.
+- Próxima ação segura: quote de uma única leitura manual de post, 5.000 micros, sem confirmar antes do checkpoint.

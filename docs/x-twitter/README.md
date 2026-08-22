@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T21:25:56Z / 2026-08-22T18:25:56-03:00
-- Fase atual: 6 — canário de publicação (`in_progress`)
-- Status: seis canários positivos e cancelamento idempotente aprovados; matriz controlada de erros pendente
+- Atualizado em: 2026-08-22T21:32:11Z / 2026-08-22T18:32:11-03:00
+- Fase atual: 7 — análises manuais (`in_progress`)
+- Status: Fase 6 concluída; implementação de analytics pronta, canário pago mínimo pendente
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `31fb1d2`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Implementar um provedor mock estritamente local e um executor one-shot guardado para validar 429, 4xx, 5xx/timeout e duplicidade pelo worker real, sem atingir a Zernio. Antes de qualquer execução, provar por configuração que `ZERNIO_API_BASE_URL` aponta para loopback.
+Executar inventário somente leitura dos posts publicados e preparar quote de exatamente uma leitura de post por 5.000 micros. Confirmar piso protegido, reserva e ausência de chamadas automáticas antes de habilitar somente o worker X de analytics.
 
 ## Proibições imediatas
 
@@ -47,5 +47,5 @@ Implementar um provedor mock estritamente local e um executor one-shot guardado 
 ## Ambientes preparados
 
 - Vercel: organização canário Pomodoro configurada; Preview `dpl_4QkYfwXxWeYu4TY7EixwfVJUFrJf` e Production segura `dpl_Dcrsn7Ty4dQnRTgcM8kCyyXTD2DF`, ambos `READY`. Última janela live: `dpl_EVTyHgmzvvKNPERB6M6Zz8BRmBUM`.
-- VPS: cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
+- VPS: release `ef0f0e9-20260822T213032Z`; cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
 - Supabase: migrations 223–240 alinhadas; último one-shot deixou zero claims e zero operações financeiras.

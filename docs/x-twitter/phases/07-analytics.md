@@ -1,6 +1,6 @@
 # Fase 07 — análises manuais
 
-Status: `completed`
+Status: `in_progress` — implementação concluída; canário pago mínimo pendente
 
 ## Entregas
 
@@ -15,9 +15,9 @@ Status: `completed`
 
 ## Evidências
 
-- Migration 235–239 aplicadas; Supabase alinhado até 239.
-- Teste SQL 26/26 com rollback e zero resíduos.
-- 163/163 testes Node, TypeScript, build e diff check aprovados.
+- Migration 235–240 aplicadas; Supabase alinhado até 240.
+- Teste SQL 26/26 com rollback e zero resíduos na implementação.
+- Baseline atual: 166/166 testes Node, TypeScript, build e diff check aprovados.
 - Lint sem achados X; achados legados inalterados.
 - Nenhuma chamada real Zernio foi feita; flags analytics permanecem off.
 
@@ -29,4 +29,4 @@ Status: `completed`
 
 ## Próxima ação segura
 
-Deploy preview com flags X desligadas, smoke test e instalação dos workers X em shadow/parados.
+Inventariar posts elegíveis sem leitura externa, preparar quote de exatamente um post por 5.000 micros e documentar a reserva antes de habilitar analytics/worker para o canário.
