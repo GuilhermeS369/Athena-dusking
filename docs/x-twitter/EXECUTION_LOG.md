@@ -577,3 +577,14 @@ Registros são append-only.
 - Segurança: confirmação ocorreu com analytics/workers off; nenhuma chamada externa.
 - Rollback antes do claim: resolução/cancelamento deve liberar somente esta reserva original, sem crédito.
 - Próxima ação segura: preflight read-only e janela exclusiva do worker analytics; restaurar off após um resultado.
+
+## X-0046 — segundo post distinto também retornou HTTP 202
+
+- UTC: 2026-08-22T21:55:13Z; São Paulo: 2026-08-22T18:55:13-03:00.
+- Janela live: Production `dpl_2U7h2iEaJk8TRB4HApE3gea9BUaV`; somente os dois flags analytics e somente `athena-twitter-analytics-worker` foram ativados.
+- Resultado: item `1660fcd2-b0f2-41d4-8f47-32830282ad2b` teve uma tentativa em 21:53:37Z e recebeu HTTP 202 em 21:53:39Z. Job/item/tentativa `outcome_unknown`; zero retry e zero snapshot.
+- Financeiro: wallet 11.725.000/5.000 versão 18, hold aberto; nenhum débito analytics. Primeiro snapshot billing posterior segue `content_create=5`, `content_create_with_url=1`, sem `posts_read`.
+- Kill switch: worker parado; VPS analytics/publicação false e shadow, arquivo modo 600, cinco workers X stopped e seis existentes online. Production segura `dpl_14raRXUnfUgWW6nWpN6XcYN8ppgB` `READY` após restaurar flags false.
+- Decisão: dois posts distintos apresentaram a mesma indisponibilidade do provedor. Não executar terceira leitura. Aguardar propagação do billing, reconciliar o hold se não medido e tratar snapshot de sucesso como dependência externa.
+- Rollback: manter estado seguro atual; não liberar/liquidar hold sem segunda evidência billing e não apagar eventos.
+- Próxima ação segura: segunda consulta read-only de billing; depois resolução auditada do segundo item, se não houver `posts_read`.

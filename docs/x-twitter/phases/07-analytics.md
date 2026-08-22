@@ -35,6 +35,8 @@ Segundo quote em 2026-08-22T21:51:11Z: utilitário guardado selecionou outro pos
 
 Reserva em 2026-08-22T21:51:48Z: job `85bd0298-432e-45ae-9248-abf306fd4207`, item `1660fcd2-b0f2-41d4-8f47-32830282ad2b`, `post_read` distinto de 5.000 micros. Wallet 11.725.000/5.000 versão 18; item tentativa 0, total histórico de tentativas analytics 1 e snapshots 0. Analytics/workers continuam off.
 
+Segunda janela em 2026-08-22T21:53:37Z: outro post distinto também retornou HTTP 202 e foi preservado como `outcome_unknown`, sem retry/snapshot/débito. Primeiro snapshot posterior de billing continua com as seis criações conhecidas e sem `posts_read`. Worker foi parado; VPS false, arquivo 600, cinco workers X stopped e seis processos existentes online. Production segura `dpl_14raRXUnfUgWW6nWpN6XcYN8ppgB` `READY`; janela live `dpl_2U7h2iEaJk8TRB4HApE3gea9BUaV`.
+
 ## Rollback
 
 - Manter `TWITTER_ANALYTICS_ENABLED=false` e `TWITTER_ANALYTICS_WORKER_ENABLED=false`.
@@ -43,4 +45,4 @@ Reserva em 2026-08-22T21:51:48Z: job `85bd0298-432e-45ae-9248-abf306fd4207`, ite
 
 ## Próxima ação segura
 
-Executar uma janela analytics-only e restaurar flags/worker imediatamente após o primeiro resultado.
+Após propagação, repetir apenas billing e reconciliar o segundo hold se continuar não medido. Não fazer terceira leitura. O gate de snapshot bem-sucedido depende agora da disponibilidade da Zernio.
