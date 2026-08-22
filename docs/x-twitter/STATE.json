@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T20:07:17Z",
-  "updatedAtSaoPaulo": "2026-08-22T17:07:17-03:00",
-  "phase": { "id": "06", "name": "publication-canary", "status": "in_progress", "gate": "text_no_url_passed_next_one_image" },
+  "updatedAtUtc": "2026-08-22T20:09:48Z",
+  "updatedAtSaoPaulo": "2026-08-22T17:09:48-03:00",
+  "phase": { "id": "06", "name": "publication-canary", "status": "in_progress", "gate": "one_image_reserved_worker_stopped" },
   "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "50469d4e87eed009c13c9e4bde5e1176cac7014c", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "240", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
@@ -10,8 +10,8 @@
     "vps": { "hostname": "srv1881733", "release": "3f3821171839-20260822T184649Z", "sha256": "9aaf4f732665bf3b853c2296646abe9f4a21f2a113f12de4dfd3621c7b87cb33", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
-  "lastCheckpoint": "phase-06-text-no-url-published-and-settled",
-  "nextSafeAction": "Prepare the one-image canary: create a benign JPEG/PNG test asset, upload it to the isolated twitter-media bucket through the X media contract, and confirm exactly one 15,000-micro item while all live flags are false and workers stopped. Audit the signed media URL contract before the next controlled live window.",
+  "lastCheckpoint": "phase-06-one-image-confirmed-and-reserved",
+  "nextSafeAction": "Reconfirm item 66542b07-7e55-47f8-aaca-0075b98171db is ready, its single image is readable through a fresh signed URL, and 15,000 micros remain reserved. Open the same controlled Production live window, start only athena-twitter-publication-worker, monitor through 2026-08-22T20:19:00Z, then stop and restore false/shadow immediately.",
   "doNotRepeat": ["Do not apply migrations 210 through 240; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not call analytics or billing endpoints.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
-  "blockers": ["The one-image, multi-image, GIF, video and URL publication canaries remain pending. Live flags are false and all Twitter workers are stopped between gates."]
+  "blockers": ["The one-image item is scheduled but not sent. Multi-image, GIF, video and URL canaries remain pending. Live flags are false and all Twitter workers are stopped between gates."]
 }

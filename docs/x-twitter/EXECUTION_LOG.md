@@ -373,3 +373,13 @@ Registros são append-only.
 - Smoke final: login 200, heartbeat POST sem segredo 401. Logs PM2 do worker sem erros.
 - Status: primeiro passo da ordem canário `completed`; Fase 6 continua `in_progress`.
 - Próxima ação segura: preparar uma imagem de teste no bucket isolado, review/confirm de exatamente um item e reserva de 15.000 micros com live off; só depois abrir nova janela.
+
+## X-0027 — canário de uma imagem preparado com execução desligada
+
+- UTC: 2026-08-22T20:09:48Z; São Paulo: 2026-08-22T17:09:48-03:00.
+- Ferramentas guardadas: commit `8287c299cd18187550eca17cb2c435459671c734`; TypeScript e diff check aprovados.
+- Asset: `6b844cdc-9285-4c9d-aef1-b5403cb794e6`, bucket `twitter-media`, PNG 1200×675, 33.019 bytes, hash `6c4b088351e0f0b7488941a7a2ae82b71d8905f61083cbad2e05e2067bbc8122`; URL assinada testada sem documentá-la.
+- Programa/item: `d309ee0e-1a86-4df5-a840-49edec50ba32` / `66542b07-7e55-47f8-aaca-0075b98171db`; execução 20:19:00Z; um conjunto `images`, posição 0, item `ready`, tentativa 0.
+- Financeiro: carteira contábil 11.985.000 micros, reserva aberta 15.000, versão 4; custo é `post_dm_create`, não há URL.
+- Segurança: Production continua `false`/`shadow`, cinco workers X parados e nenhuma chamada externa desta etapa.
+- Próxima ação segura: preflight do item e assinatura; janela live Production; iniciar somente publication worker; parar/restaurar off após resultado.
