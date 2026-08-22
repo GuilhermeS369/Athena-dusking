@@ -3,7 +3,7 @@
   "updatedAtUtc": "2026-08-22T18:14:14Z",
   "updatedAtSaoPaulo": "2026-08-22T15:14:14-03:00",
   "phase": { "id": "06", "name": "publication-canary-preparation", "status": "in_progress", "gate": "blocked_live_credential" },
-  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "60a321b7cba9c7cfe1d377a5610a31e1798a80aa", "worktreeExpectedDirty": true, "phase05PendingCheckpointCommit": true },
+  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "5c79a0d76494ac2665b81cc64cb729bf03440a94", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "232", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
     "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "xDeploymentCreated": false },
@@ -11,7 +11,7 @@
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false },
   "lastCheckpoint": "phase-05-shadow-and-financial-outcomes-validated",
-  "nextSafeAction": "Commit Phase 5, then implement the live Zernio adapter with mocked tests only. Do not publish externally.",
+  "nextSafeAction": "Implement the live Zernio adapter with mocked tests only. Do not publish externally.",
   "doNotRepeat": ["Do not apply migrations 210 through 232; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose secrets.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
   "blockers": ["A real Phase 6 canary requires a dedicated Zernio X API key entered by an Athena admin; existing Instagram credentials must not be reused."]
 }
