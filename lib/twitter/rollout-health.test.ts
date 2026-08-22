@@ -16,7 +16,7 @@ test('workers X só são esperados quando suas flags exclusivas estão habilitad
   });
   assert.equal(enabled.get('athena-twitter-publication-worker'), true);
   assert.equal(enabled.get('athena-twitter-analytics-worker'), true);
-  assert.equal(enabled.get('athena-twitter-webhook-reconcile-worker'), true);
+  assert.equal(enabled.get('athena-twitter-webhook-reconcile-worker'), false);
   assert.equal(enabled.get('athena-twitter-vercel-fallback'), false);
 });
 

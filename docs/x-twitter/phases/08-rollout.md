@@ -97,3 +97,13 @@ Preparação local do rollout progressivo concluída. A execução continua proi
 - Verificação local: 180/180 testes e TypeScript aprovados antes do checkpoint; build/deploy final será registrado após o commit.
 
 Próximo gate: Production off + release VPS/one-shot. Só depois remover o segredo genérico legado dos ambientes.
+
+## Kill switches completos por papel
+
+- Gap adicional: reconciliação não possuía flag própria e seu ciclo de recovery podia prosseguir mesmo quando o heartbeat informava `stopped`.
+- Correção: `TWITTER_RECONCILE_WORKER_ENABLED=false` por padrão; heartbeat calcula modo por papel; o executável encerra imediatamente ao receber `stopped`.
+- Preview final `dpl_95mw9RpuRp7aZ1gX1CSS1SUYfDiH`, `READY`, URL `https://pomodoro-mwqw12xhw-shoows-projects-2caaf9e9.vercel.app`: cinco papéis autenticaram com modo `stopped`, cross-role foi rejeitado, chamadas diretas de publication claim, analytics claim, reconcile e fallback ficaram disabled e health `ok`.
+- Validação local: 181/181 testes, TypeScript, build, sintaxe do worker e diff check aprovados. Warnings de metadata permanecem preexistentes.
+- O segredo efêmero de health do Preview foi rotacionado preventivamente depois da validação; nenhum segredo Production/VPS foi afetado.
+
+Próximo gate: commit desta unidade, Production explicitamente off e release VPS versionado com one-shot dos cinco papéis.

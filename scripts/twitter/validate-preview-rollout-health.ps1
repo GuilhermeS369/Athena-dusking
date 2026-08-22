@@ -41,6 +41,7 @@ try {
   Set-PreviewValue 'TWITTER_SYNC_WORKER_ENABLED' 'false'
   Set-PreviewValue 'TWITTER_ANALYTICS_ENABLED' 'false'
   Set-PreviewValue 'TWITTER_ANALYTICS_WORKER_ENABLED' 'false'
+  Set-PreviewValue 'TWITTER_RECONCILE_WORKER_ENABLED' 'false'
   Set-PreviewValue 'TWITTER_FALLBACK_ENABLED' 'false'
   Set-PreviewValue 'TWITTER_FALLBACK_LIVE_ENABLED' 'false'
   Set-PreviewValue 'TWITTER_ROLLOUT_HEALTH_STALE_SECONDS' '120'

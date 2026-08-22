@@ -75,3 +75,10 @@ Decisões são append-only. Mudanças exigem nova ADR que substitua explicitamen
 - Decisão: publicação, geração, sync, analytics e reconciliação usam cinco segredos distintos; heartbeat/circuit breaker vinculam o segredo ao nome do processo. Fallback e health usam outros dois segredos exclusivos.
 - Motivo: um segredo compartilhado ampliava o raio de comprometimento e não atendia ao requisito de segredo próprio de cada worker.
 - Consequência: rotação e deploy precisam manter pareamento Vercel/VPS por papel. O nome genérico legado será removido após a validação do novo release e nunca será fallback silencioso.
+
+## ADR-X-014 — heartbeat parado é o kill switch autoritativo do worker
+
+- Data: 22/08/2026
+- Decisão: cada papel possui um flag próprio, incluindo `TWITTER_RECONCILE_WORKER_ENABLED`. O endpoint de heartbeat retorna `stopped` quando o papel/rollout não está autorizado e o executável encerra o ciclo imediatamente. Claims, reconciliação e fallback também reaplicam o gate global/canário em chamadas diretas.
+- Motivo: parar apenas publicação/analytics deixava a recuperação de reconciliação capaz de executar com o módulo desligado; também não bastava o servidor responder `stopped` se o processo ignorasse esse modo.
+- Consequência: um one-shot com flags off pode provar autenticação e pareamento sem mutação operacional. Ativar um papel exige habilitar explicitamente somente seu flag e os gates adicionais aplicáveis.

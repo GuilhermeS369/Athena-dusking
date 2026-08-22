@@ -60,7 +60,7 @@ try {
     TWITTER_PUBLICATION_WORKER_ENABLED = 'false'; TWITTER_GENERATION_WORKER_ENABLED = 'false';
     TWITTER_SYNC_WORKER_ENABLED = 'false'; TWITTER_ANALYTICS_ENABLED = 'false';
     TWITTER_ANALYTICS_WORKER_ENABLED = 'false'; TWITTER_FALLBACK_ENABLED = 'false';
-    TWITTER_FALLBACK_LIVE_ENABLED = 'false'; TWITTER_PUBLICATION_MODE = 'shadow'
+    TWITTER_RECONCILE_WORKER_ENABLED = 'false'; TWITTER_FALLBACK_LIVE_ENABLED = 'false'; TWITTER_PUBLICATION_MODE = 'shadow'
   }.GetEnumerator()) { Set-PreviewValue $entry.Key $entry.Value }
 
   $previewUrl = Deploy-Preview
@@ -79,8 +79,9 @@ try {
 
   $publication = Invoke-PreviewJson $previewUrl '/api/internal/twitter-publication-claims' $secrets['TWITTER_PUBLICATION_WORKER_SECRET'] '{}'
   $analytics = Invoke-PreviewJson $previewUrl '/api/internal/twitter-analytics-claims' $secrets['TWITTER_ANALYTICS_WORKER_SECRET'] '{}'
+  $reconcile = Invoke-PreviewJson $previewUrl '/api/internal/twitter-reconcile' $secrets['TWITTER_RECONCILE_WORKER_SECRET'] '{}'
   $fallback = Invoke-PreviewJson $previewUrl '/api/internal/twitter-fallback-dispatch' $secrets['TWITTER_FALLBACK_WORKER_SECRET'] '{}'
-  if ($publication.disabled -ne $true -or $analytics.disabled -ne $true -or $fallback.disabled -ne $true) { throw 'Algum claim/fallback não permaneceu desligado.' }
+  if ($publication.disabled -ne $true -or $analytics.disabled -ne $true -or $reconcile.disabled -ne $true -or $fallback.disabled -ne $true) { throw 'Algum claim/reconcile/fallback não permaneceu desligado.' }
 
   $healthResult = Invoke-VercelCapture @('curl', '/api/internal/twitter-rollout-health', '--deployment', $previewUrl, '--', '--header', "x-twitter-worker-secret: $($secrets['TWITTER_ROLLOUT_HEALTH_SECRET'])")
   $healthJson = $healthResult.Output | Where-Object { $_ -match '^\{' } | Select-Object -Last 1
@@ -94,6 +95,7 @@ try {
     crossRoleRejected = $true
     publicationClaimDisabled = $true
     analyticsClaimDisabled = $true
+    reconcileDisabled = $true
     fallbackDisabled = $true
     health = $health.status
     valuesPrinted = $false

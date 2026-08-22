@@ -34,7 +34,7 @@ export function expectedTwitterWorkers(environment: TwitterRolloutEnvironment) {
     ['athena-twitter-generation-worker', moduleEnabled && enabled(environment.TWITTER_GENERATION_WORKER_ENABLED)],
     ['athena-twitter-zernio-sync-worker', moduleEnabled && enabled(environment.TWITTER_SYNC_WORKER_ENABLED)],
     ['athena-twitter-analytics-worker', moduleEnabled && enabled(environment.TWITTER_ANALYTICS_ENABLED) && enabled(environment.TWITTER_ANALYTICS_WORKER_ENABLED)],
-    ['athena-twitter-webhook-reconcile-worker', moduleEnabled],
+    ['athena-twitter-webhook-reconcile-worker', moduleEnabled && enabled(environment.TWITTER_RECONCILE_WORKER_ENABLED)],
     ['athena-twitter-vercel-fallback', moduleEnabled && enabled(environment.TWITTER_FALLBACK_ENABLED) && enabled(environment.TWITTER_PUBLICATION_WORKER_ENABLED)],
   ]);
 }

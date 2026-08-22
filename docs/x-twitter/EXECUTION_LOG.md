@@ -698,3 +698,15 @@ Registros são append-only.
 - Regressão: 180/180 testes, TypeScript e diff check aprovados nesta unidade antes da documentação.
 - Rollback: Production antiga permanece segura com flags off; restaurar o backup remoto apenas se o novo release falhar. Não remover segredo legado antes do one-shot final.
 - Próxima ação segura: commit, deploy Production off, release versionado, one-shot dos cinco papéis; depois remover o nome legado e auditar novamente.
+
+## X-0057 — kill switches por papel aprovados em Preview
+
+- UTC: 2026-08-22T23:12:01Z; São Paulo: 2026-08-22T20:12:01-03:00.
+- Gap fechado: reconciliação ganhou `TWITTER_RECONCILE_WORKER_ENABLED`; heartbeat resolve rollout + flag de cada um dos cinco papéis e o worker encerra o ciclo antes de qualquer trabalho quando recebe `stopped`. Claims, reconcile e fallback também reaplicam rollout em chamadas diretas.
+- Preview final: `dpl_95mw9RpuRp7aZ1gX1CSS1SUYfDiH`, `READY`, URL `https://pomodoro-mwqw12xhw-shoows-projects-2caaf9e9.vercel.app`.
+- Evidência: cinco heartbeats retornaram `stopped`; cinco breakers aceitaram apenas seus papéis; analytics→publicação foi rejeitado; publication/analytics claims, reconcile e fallback permaneceram disabled; health `ok`.
+- Segurança: o segredo efêmero de health do Preview apareceu somente numa inspeção local de processo e foi imediatamente rotacionado sem exibição. Nenhum segredo Production/VPS, chave Zernio ou dado pessoal esteve envolvido.
+- Regressão: 181/181 testes, TypeScript, build, `node --check` e `git diff --check` aprovados. Warnings metadata preexistentes apenas.
+- Production: `dpl_n3GyADtJszuUn6fDKJorBAYNrbAK`, `READY`, flags X off; contém segredos por papel, mas ainda não esta unidade de kill switch. Supabase e VPS não foram mutados neste registro; cinco X permanecem stopped e seis processos existentes online.
+- Rollback: manter Production atual/off e release VPS atual; reverter somente esta unidade local se necessário. Nenhuma migração, claim, hold, débito ou chamada Zernio foi criada.
+- Próxima ação segura: commit; configurar reconcile=false em Production; novo deploy off; release VPS/one-shot dos cinco papéis.

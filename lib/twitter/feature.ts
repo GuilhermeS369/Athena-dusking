@@ -20,6 +20,13 @@ export function isTwitterModuleEnabled(
     || parseOrganizationIds(environment.TWITTER_CANARY_ORGANIZATION_IDS).has(organizationId);
 }
 
+export function isTwitterRolloutActive(
+  environment: TwitterFeatureEnvironment = process.env as TwitterFeatureEnvironment,
+) {
+  return enabled(environment.TWITTER_MODULE_ENABLED)
+    || parseOrganizationIds(environment.TWITTER_CANARY_ORGANIZATION_IDS).size > 0;
+}
+
 export function isTwitterAnalyticsEnabled(
   organizationId: string,
   environment: TwitterFeatureEnvironment = process.env as TwitterFeatureEnvironment,

@@ -96,6 +96,13 @@ Processos planejados:
 - `scripts/twitter/validate-preview-role-secrets.ps1` testa o pareamento com claims desligados e exige rejeição cruzada.
 - O nome legado `TWITTER_WORKER_SECRET` não pode voltar ao código; removê-lo dos ambientes somente após deploy/release e one-shot aprovados.
 
+### Kill switches por papel
+
+- Flags: `TWITTER_PUBLICATION_WORKER_ENABLED`, `TWITTER_GENERATION_WORKER_ENABLED`, `TWITTER_SYNC_WORKER_ENABLED`, `TWITTER_ANALYTICS_WORKER_ENABLED` e `TWITTER_RECONCILE_WORKER_ENABLED`.
+- Analytics também exige `TWITTER_ANALYTICS_ENABLED=true`; publicação live exige os gates de modo/canário já documentados.
+- O heartbeat é a autorização operacional do ciclo: modo `stopped` deve encerrar o executável antes de claim, recovery, mutação financeira ou chamada Zernio. Claims, reconcile e fallback reaplicam o gate global/canário mesmo quando chamados diretamente.
+- Em deploy off/one-shot, exigir `stopped` para os cinco papéis e conferir zero mudança em fila, holds, attempts e ledger.
+
 ## Rollback
 
 - desligar flags X;

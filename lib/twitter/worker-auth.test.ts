@@ -43,3 +43,22 @@ test('rotas internas não usam mais segredo genérico compartilhado', async () =
   assert.match(heartbeat, /isTwitterNamedWorkerAuthorized/);
   assert.match(breaker, /isTwitterNamedWorkerAuthorized/);
 });
+
+test('todo papel respeita heartbeat stopped e rollout antes de qualquer operação', async () => {
+  const [worker, heartbeat, example, publicationClaims, analyticsClaims, reconcile, fallback] = await Promise.all([
+    readFile(new URL('../../scripts/workers/twitter-worker.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/api/internal/twitter-heartbeat/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../.env.example', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/api/internal/twitter-publication-claims/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/api/internal/twitter-analytics-claims/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/api/internal/twitter-reconcile/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/api/internal/twitter-fallback-dispatch/route.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(worker, /heartbeat\.mode==='stopped'/);
+  for (const flag of ['TWITTER_PUBLICATION_WORKER_ENABLED', 'TWITTER_GENERATION_WORKER_ENABLED', 'TWITTER_SYNC_WORKER_ENABLED', 'TWITTER_ANALYTICS_WORKER_ENABLED', 'TWITTER_RECONCILE_WORKER_ENABLED']) {
+    assert.match(heartbeat, new RegExp(flag));
+    assert.match(example, new RegExp(`${flag}=false`));
+  }
+  for (const route of [heartbeat, publicationClaims, analyticsClaims, reconcile, fallback]) assert.match(route, /isTwitterRolloutActive/);
+  assert.match(reconcile, /TWITTER_RECONCILE_WORKER_ENABLED/);
+});

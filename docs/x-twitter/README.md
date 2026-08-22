@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T22:54:00Z / 2026-08-22T19:54:00-03:00
+- Atualizado em: 2026-08-22T23:12:01Z / 2026-08-22T20:12:01-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint de código atual: `aa28765` (enforcement progressivo guardado); segredos por papel validados aguardando o commit deste checkpoint
+- Checkpoint de código atual: `31f4dae` (segredos independentes); kill switches por papel validados aguardando o commit deste checkpoint
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–240
 
@@ -24,7 +24,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 240.
-- Testes atuais: 180/180 aprovados.
+- Testes atuais: 181/181 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Consolidar a unidade de segredos por papel; fazer deploy Production off e release VPS/one-shot dos cinco papéis. Depois executar a auditoria final. Não ativar cron, fallback live ou rollout antes do analytics HTTP 200.
+Consolidar a unidade de kill switches por papel; fazer novo deploy Production off e release VPS/one-shot dos cinco papéis. Depois executar a auditoria final. Não ativar cron, fallback live ou rollout antes do analytics HTTP 200.
 
 ## Proibições imediatas
 
@@ -47,6 +47,6 @@ Consolidar a unidade de segredos por papel; fazer deploy Production off e releas
 
 ## Ambientes preparados
 
-- Vercel: sete segredos por função configurados separadamente em Production/Preview; Preview de pareamento `dpl_GPSKWSXtc3YF3LLyrQjA9EQgHii9` `READY`, flags/claims off; Production segura ainda `dpl_7T2ctsRQFrSrDqSLBCuYtqSqXY6y` até o deploy desta unidade.
+- Vercel: sete segredos por função configurados separadamente em Production/Preview; Preview final de kill switches `dpl_95mw9RpuRp7aZ1gX1CSS1SUYfDiH` `READY`, cinco modos `stopped`, claims/reconcile/fallback off e health `ok`. Production segura `dpl_n3GyADtJszuUn6fDKJorBAYNrbAK`, com flags off, ainda sem esta última unidade.
 - VPS: release `46e09cc-20260822T213610Z`; cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
 - Supabase: migrations 223–240 alinhadas; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.
