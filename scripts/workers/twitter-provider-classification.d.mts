@@ -1,0 +1,2 @@
+export type TwitterProviderResolution = 'confirmed_failure' | 'rate_limited' | 'outcome_unknown' | 'existing_post' | 'published' | 'accepted';
+export function classifyTwitterProviderResponse(input: { ok:boolean;status:number;payload:unknown;requestId?:string|null;retryAfter?:string|null }): { resolution:TwitterProviderResolution;httpStatus:number;providerCode:string;requestId?:string|null;postId?:string|null;retryAfterSeconds?:number;message:string };
