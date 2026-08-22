@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T18:54:36Z / 2026-08-22T15:54:36-03:00
-- Fase atual: 8 — preparação de rollout (`blocked`)
-- Status: `blocked`
+- Atualizado em: 2026-08-22T19:27:10Z / 2026-08-22T16:27:10-03:00
+- Fase atual: 6 — canário de publicação (`in_progress`)
+- Status: pausado por solicitação do usuário, antes do provisionamento e de qualquer publicação
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Commit do checkpoint validado: `3f3821171839a4a16443cc61929703166aceeabd`
+- HEAD atual: `c71fad5fba9f618e2a898373fcff89344c3281c4`; há alterações locais intencionais e ainda não commitadas
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–240
 
@@ -24,7 +24,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 240.
-- Testes atuais: 163/163 aprovados.
+- Testes atuais: 164/164 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -33,18 +33,19 @@
 
 ## Próxima ação segura
 
-Escolher a organização canário e cadastrar nela uma API key Zernio dedicada ao X. Preview, produção e workers já estão preparados, mas desligados. Não iniciar canário com credencial Instagram.
+Revisar o último registro do `EXECUTION_LOG.md`, inspecionar e commitar o código pendente que adota com segurança o único profile Zernio exclusivamente Twitter e, só depois, provisionar de forma criptografada a chave já validada na organização Pomodoro. Sincronizar o único perfil X com `analytics=false` e `inbox=false`; conferir grant de 12.000.000 micros, zero reservas/débitos e limite conservador de 280 antes de criar o primeiro post canário.
 
 ## Proibições imediatas
 
 - Não rodar `git reset --hard`, checkout destrutivo ou limpeza recursiva.
 - Não reaplicar migrações 210–222: elas já constam no remoto.
-- Não chamar uma API key Zernio real enquanto o módulo estiver desligado e sem ação explícita de admin.
+- Não repetir a descoberta da credencial nem expor a chave fornecida no chat; ela ainda não foi persistida.
+- Não criar um segundo profile Zernio: o único profile existente foi confirmado como exclusivamente Twitter.
 - Não publicar secrets ou conteúdo de `.env*`.
 - Não reiniciar processos PM2 do Instagram.
 
 ## Ambientes preparados
 
-- Vercel: código em produção com flags X desligadas; deployment `dpl_Akd9xnWZxrfeZpz9XpvsA5JgZgAR`.
+- Vercel: organização canário Pomodoro configurada; Preview `dpl_FtikYGRpuBhe6NvQZbL4WzwmNerf` e Production `dpl_EU8TNTWAWLGKy8GWbJUtSqZjFTPH`, ambos `READY`. Flags globais de módulo/publicação/analytics continuam desligadas.
 - VPS: cinco processos X instalados e `stopped`; seis processos existentes continuam `online`.
 - Supabase: migrations 223–240 alinhadas; último one-shot deixou zero claims e zero operações financeiras.

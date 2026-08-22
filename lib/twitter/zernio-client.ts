@@ -64,6 +64,12 @@ function object(value: unknown): Record<string, unknown> {
     : {};
 }
 
+export function isTwitterOnlyAccountInventory(accounts: Array<{ platform?: unknown }>) {
+  return accounts.length > 0 && accounts.every((account) => (
+    typeof account.platform === 'string' && account.platform.trim().toLowerCase() === 'twitter'
+  ));
+}
+
 async function readResponse(response: Response) {
   const payload = object(await response.json().catch(() => ({})));
   if (response.ok) return payload;
@@ -141,6 +147,11 @@ export function createTwitterZernioClient(apiKey: string, options: ClientOptions
     async listTwitterAccounts(profileId: string) {
       return request('/v1/accounts', {
         query: { profileId, platform: 'twitter' },
+      }) as Promise<{ accounts?: TwitterZernioAccount[] }>;
+    },
+    async listAccounts(profileId: string) {
+      return request('/v1/accounts', {
+        query: { profileId },
       }) as Promise<{ accounts?: TwitterZernioAccount[] }>;
     },
     async getTwitterAccountHealth(profileId: string) {

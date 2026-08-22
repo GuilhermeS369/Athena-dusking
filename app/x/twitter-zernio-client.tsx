@@ -17,7 +17,7 @@ function usd(micros: number) {
 }
 
 async function responseJson(response: Response) {
-  const body = await response.json().catch(() => ({})) as { error?: string; authUrl?: string };
+  const body = await response.json().catch(() => ({})) as { error?: string; authUrl?: string; adoptedExistingProfile?: boolean };
   if (!response.ok) throw new Error(body.error ?? 'A operação não pôde ser concluída.');
   return body;
 }
@@ -33,10 +33,10 @@ export default function TwitterZernioClient({ connections, canManage }: { connec
     event.preventDefault();
     setBusy('create'); setMessage(null);
     try {
-      await responseJson(await fetch('/api/x/integrations/zernio/connections', {
+      const body = await responseJson(await fetch('/api/x/integrations/zernio/connections', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label, apiKey }),
       }));
-      setApiKey(''); setLabel(''); setMessage('Conexão cadastrada. Agora conecte as contas X.'); router.refresh();
+      setApiKey(''); setLabel(''); setMessage(body.adoptedExistingProfile ? 'Conexão cadastrada e profile X existente reconhecido. Agora sincronize.' : 'Conexão cadastrada. Agora conecte as contas X.'); router.refresh();
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Falha no cadastro.'); }
     finally { setBusy(null); }
   }

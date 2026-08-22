@@ -298,3 +298,22 @@ Registros são append-only.
 - Status: `blocked` no gate real das Fases 6/8.
 - Bloqueio: organização canário e API key Zernio X dedicada ainda não foram fornecidas/cadastradas.
 - Próxima ação segura: escolher organização canário, cadastrar a chave X por admin e executar a sequência de canário; não reutilizar segredo Instagram.
+
+## X-0022 — Pomodoro selecionada e credencial inspecionada; pausa antes do provisionamento
+
+- UTC: 2026-08-22T19:27:10Z; São Paulo: 2026-08-22T16:27:10-03:00.
+- Executor: Codex GPT-5; task ID não exposto pelo ambiente.
+- Solicitação final: o usuário confirmou organização Pomodoro, conta X conectada e tier Free; depois pediu documentação imediata e parada.
+- Git inicial/final: branch `codex/x-twitter-module`, HEAD `c71fad5fba9f618e2a898373fcff89344c3281c4`; worktree ficou intencionalmente sujo e sem novo commit.
+- Arquivos de implementação pendentes: `app/x/twitter-zernio-client.tsx`, `lib/twitter/zernio-client.ts`, `lib/twitter/zernio-connections.ts` e `lib/twitter/zernio-client.test.ts` (42 inserções, 8 remoções antes da documentação).
+- Motivo do código: o provisionamento anterior criaria um profile canônico novo e deixaria órfã a conta X já conectada. A mudança adota o profile existente somente se houver exatamente um profile e todas as contas dele forem Twitter; caso contrário mantém a criação isolada anterior.
+- Validação local: `git diff --check` aprovado; Node 164/164; `npx tsc --noEmit` aprovado; `npm run build` aprovado. Permanecem somente os warnings metadata preexistentes em `/login`, `/onboarding` e `/_not-found`.
+- Zernio read-only: segredo recebido no chat e usado apenas em memória. `auth/verify` válido com `userId` estável; um único profile; uma única conta conectada; plataforma exclusivamente Twitter; identidade X imutável presente. Tier ausente no payload, portanto aplicar fallback conservador Free/280 confirmado pelo usuário.
+- Chamadas não realizadas: nenhum post, analytics, followers, DM, billing ou preço; nenhuma tentativa de escrita remota no X.
+- Supabase: projeto permanece `hqwhumdumfmixxbvneae`, migrations alinhadas até 240. A chave ainda não foi cifrada/persistida; não há conexão/perfil X sincronizado por esta credencial e nenhum grant, reserva ou débito foi criado.
+- Vercel: `TWITTER_CANARY_ORGANIZATION_IDS` foi configurado somente para Pomodoro. Preview `dpl_FtikYGRpuBhe6NvQZbL4WzwmNerf` e Production `dpl_EU8TNTWAWLGKy8GWbJUtSqZjFTPH` ficaram `READY`; flags globais de módulo, publicação e analytics continuam `false`. Rollback imediato: deployment `dpl_Akd9xnWZxrfeZpz9XpvsA5JgZgAR` ou remoção da organização canário.
+- VPS/PM2: nenhuma alteração nesta retomada; cinco processos `athena-twitter-*` permanecem `stopped`; não reiniciar os seis processos preexistentes do Instagram.
+- Invariantes financeiras: nenhuma carteira foi criada ou alterada nesta retomada. Antes de publicar, verificar grant único de 12.000.000 micros, saldo reservado zero, ledger sem débito e limite 280.
+- Status: `in_progress`, pausado deliberadamente antes de qualquer provisionamento ou publicação.
+- Próxima ação segura: ler este registro; revisar e commitar as alterações locais; provisionar a chave por meio do serviço transacional existente, sem imprimi-la; sincronizar a conta com `analytics=false` e `inbox=false`; conferir carteira e perfil; só então iniciar o canário de texto sem URL.
+- Não repetir: não reaplicar migrations 210–240; não repetir deploy/canary env sem drift; não criar outro profile Zernio; não registrar a chave em documentação/comando versionado; não chamar post/analytics/billing; não iniciar workers antes do preflight financeiro.

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { encryptToken, decryptToken, tokenFingerprint } from '@/lib/security/token-crypto';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { createTwitterZernioClient } from '@/lib/twitter/zernio-client';
+import { createTwitterZernioClient, isTwitterOnlyAccountInventory } from '@/lib/twitter/zernio-client';
 
 export const TWITTER_ZERNIO_KEY_FINGERPRINT_DOMAIN = 'athena:twitter:zernio-api-key:v1';
 
@@ -45,9 +45,20 @@ export async function provisionTwitterZernioConnection(input: ProvisionInput) {
   }
 
   const canonicalProfileName = `${input.organizationName} · X · ${label}`.slice(0, 180);
-  const listed = await client.listProfiles(canonicalProfileName);
+  const listed = await client.listProfiles();
   const existingProfile = listed.profiles?.find((item) => item.name?.trim() === canonicalProfileName);
   let zernioProfileId = profileId(existingProfile);
+  let adoptedExistingProfile = false;
+  if (!zernioProfileId && listed.profiles?.length === 1) {
+    const soleProfileId = profileId(listed.profiles[0]);
+    if (soleProfileId) {
+      const inventory = await client.listAccounts(soleProfileId);
+      if (isTwitterOnlyAccountInventory(inventory.accounts ?? [])) {
+        zernioProfileId = soleProfileId;
+        adoptedExistingProfile = true;
+      }
+    }
+  }
   if (!zernioProfileId) {
     const created = await client.createProfile(
       canonicalProfileName,
@@ -75,6 +86,7 @@ export async function provisionTwitterZernioConnection(input: ProvisionInput) {
   return {
     connection: connection as Record<string, unknown>,
     wallet: wallet as Record<string, unknown>,
+    adoptedExistingProfile,
   };
 }
 

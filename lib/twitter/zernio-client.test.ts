@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   createTwitterZernioClient,
   immutableTwitterUserId,
+  isTwitterOnlyAccountInventory,
   stableZernioAccountId,
 } from './zernio-client.ts';
 
@@ -23,17 +24,27 @@ test('cliente X usa apenas endpoints Twitter e força capabilities sem billing a
   });
 
   await client.verifyAuth();
+  await client.listAccounts('profile-1');
   await client.listTwitterAccounts('profile-1');
   await client.getTwitterAccountHealth('profile-1');
   await client.setAccountCapabilities('account-1');
 
   assert.equal(requests[0]?.url, 'https://example.test/api/v1/auth/verify');
-  assert.match(requests[1]?.url ?? '', /platform=twitter/);
-  assert.match(requests[2]?.url ?? '', /accounts%2Fhealth|accounts\/health/);
-  assert.deepEqual(JSON.parse(String(requests[3]?.init?.body)), {
+  assert.doesNotMatch(requests[1]?.url ?? '', /platform=twitter/);
+  assert.match(requests[2]?.url ?? '', /platform=twitter/);
+  assert.match(requests[3]?.url ?? '', /accounts%2Fhealth|accounts\/health/);
+  assert.deepEqual(JSON.parse(String(requests[4]?.init?.body)), {
     xCapabilities: { analytics: false, inbox: false },
   });
   assert.equal(requests.some((item) => item.url.includes('billing')), false);
+});
+
+test('profile existente só é adotado quando todo o inventário é exclusivamente Twitter', () => {
+  assert.equal(isTwitterOnlyAccountInventory([{ platform: 'twitter' }]), true);
+  assert.equal(isTwitterOnlyAccountInventory([{ platform: 'Twitter' }, { platform: 'twitter' }]), true);
+  assert.equal(isTwitterOnlyAccountInventory([]), false);
+  assert.equal(isTwitterOnlyAccountInventory([{ platform: 'twitter' }, { platform: 'instagram' }]), false);
+  assert.equal(isTwitterOnlyAccountInventory([{ platform: undefined }]), false);
 });
 
 test('identidade imutável nunca usa username como fallback', () => {
