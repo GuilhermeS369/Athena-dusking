@@ -405,3 +405,11 @@ Registros são append-only.
 - Financeiro: 11.970.000 contábil, 15.000 reservado, versão 6; categoria sem URL.
 - Segurança: live off, workers X parados, nenhuma chamada externa neste checkpoint.
 - Próxima ação segura: janela live controlada e monitorada somente para este item.
+
+## X-0030 — canário com duas imagens publicado e liquidado
+
+- UTC: 2026-08-22T20:32:57Z; São Paulo: 2026-08-22T17:32:57-03:00.
+- Resultado: item `published`, uma tentativa, HTTP 201, post ID persistido; duas posições do set preservadas.
+- Financeiro: wallet 11.955.000/0, versão 7; grant + três débitos únicos de -15.000; reserva/hold settled e zero liberado.
+- Operação: logs `external_started`/`published`; zero itens não terminais; worker parado, VPS false/shadow e Production segura `dpl_58q7bZmjMqCBrqDS9kFWc4UkZYrz`.
+- Próxima ação segura: criar/validar GIF pequeno e confirmar um único item com live off.

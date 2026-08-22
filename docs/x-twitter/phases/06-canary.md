@@ -25,3 +25,5 @@ Canário de uma imagem preparado: asset `6b844cdc-9285-4c9d-aef1-b5403cb794e6`, 
 Gate de uma imagem aprovado às 2026-08-22T20:19:10Z. Uma tentativa, HTTP 201, provider `published`; reserva e hold `settled` em 15.000. Wallet 11.970.000, reservado zero, versão 5; ledger agora contém grant + dois débitos exatos de 15.000. Logs `external_started`/`published`, zero itens não terminais. Worker parado e Production novamente `false`/`shadow` em `dpl_ESxPGApRWS7ssj9j796PGCMZUabG`.
 
 Canário 2 imagens preparado: novo asset `bf7678c6-6e5b-4a10-8860-75de6642afe2`, PNG 1200×675, 32.587 bytes, hash `439012493da8b046b30a11671c01cab0b155d4c8358f29006e87187f8e4751bb`. Programa `fd765ce3-ce69-451c-9423-62479414f545`, item `25a8be0e-10ea-4937-9d7f-031dbfcfee2f`, execução 20:31Z. Set `images` com assets nas posições 0 e 1, reserva 15.000, tentativa 0, live off.
+
+Gate 2 imagens aprovado: uma tentativa HTTP 201, `published`; wallet 11.955.000/0, versão 7; ledger grant + três débitos de 15.000. Reserva/hold liquidados, logs completos e zero não terminais. Worker parado e Production desabilitada `dpl_58q7bZmjMqCBrqDS9kFWc4UkZYrz`.

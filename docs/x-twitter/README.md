@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T20:22:00Z / 2026-08-22T17:22:00-03:00
+- Atualizado em: 2026-08-22T20:32:57Z / 2026-08-22T17:32:57-03:00
 - Fase atual: 6 — canário de publicação (`in_progress`)
-- Status: texto e uma imagem aprovados; conjunto com duas imagens reservado, execução desligada
+- Status: texto, uma imagem e duas imagens aprovados; execução desligada
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de código atual: `50469d4e87eed009c13c9e4bde5e1176cac7014c`
