@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-22T23:58:14Z / 2026-08-22T20:58:14-03:00
+- Atualizado em: 2026-08-23T00:08:57Z / 2026-08-22T21:08:57-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint implantado: `a5edc6c`; fila dedicada de sync incluída e todos os flags/processos X off. ADR-X-017 remove localmente o papel vazio `generation`; deploy desta decisão ainda pendente.
+- Checkpoint implantado: `e732fed`; fila dedicada de sync e topologia de quatro workers incluídas, todos os flags/processos X off.
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–242
 
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Validar e implantar com flags off a topologia de quatro workers definida pela ADR-X-017. Depois remover somente as variáveis `TWITTER_GENERATION_*` dos ambientes e a entrada PM2 correspondente, preservando os seis processos existentes. Não ativar sync live, cron, fallback live ou rollout antes dos respectivos gates.
+Continuar a auditoria requisito por requisito pelas lacunas de UI/API ainda não encerradas, começando por ações granulares da fila e transferência administrativa de identidade. Não ativar sync live, cron, fallback live ou rollout antes dos respectivos gates.
 
 ## Proibições imediatas
 
@@ -47,6 +47,6 @@ Validar e implantar com flags off a topologia de quatro workers definida pela AD
 
 ## Ambientes preparados
 
-- Vercel: sete segredos por função configurados separadamente; Production `dpl_AF46kbSRbDFUhJc7JFZQ6qZ3yM35` `READY`, alias oficial, todos os flags mutáveis off e segredo genérico legado removido. Preview `dpl_3PEDBeCXGNKn22ytn1CnjDcsJGeC` `READY`.
-- VPS: release `a5edc6c049e1-20260822T235210Z`, hash `a6f1907de47fc9715b33d2a180cc55c818f9f82a5593ffe4771e98438faea4fe`; cinco processos X históricos apontam para ele e estão `stopped`. O próximo release deve manter somente quatro; segredo genérico removido; seis processos existentes continuam `online` com os PIDs preservados.
+- Vercel: segredos por função configurados separadamente; Production `dpl_BYjrGwDcg9WtPy4nV1CWwvZ9kKGv` `READY`, alias oficial, todos os flags mutáveis off e nomes genérico/`generation` removidos. Preview `dpl_FF72a8zwrhaJFDNfm9ord3ac5X27` `READY`.
+- VPS: release `e732fed77971-20260823T000341Z`, hash `c0834c2fda517056cb1e31a9a0e9d44c2c8b382b57d673df7c489b396014a4a8`; quatro processos X apontam para ele e estão `stopped`; nomes genérico/`generation` removidos; seis processos existentes continuam `online` com os PIDs preservados.
 - Supabase: migrations 223–242 alinhadas; teste 242 17/17 com rollback; zero sync jobs residuais; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.

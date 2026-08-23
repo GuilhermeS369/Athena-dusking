@@ -819,3 +819,19 @@ Registros são append-only.
 - Ambientes: nenhuma mutação remota, chamada Zernio, fila, hold ou débito. Production e todos os flags X seguem off; release VPS histórico mantém cinco entradas stopped até o deploy seguro.
 - Rollback local: reverter apenas esta unidade antes do deploy. Após deploy, reintroduzir um quinto processo somente por nova ADR e responsabilidade idempotente comprovada; não mover materialização para fora da transação.
 - Próxima ação segura: executar testes/TypeScript/build/diff check, criar checkpoint e implantar off; então remover somente as variáveis e entrada PM2 de generation, preservando os seis processos existentes.
+
+## X-0067 — topologia de quatro workers implantada com flags off
+
+- UTC: 2026-08-23T00:08:57Z; São Paulo: 2026-08-22T21:08:57-03:00.
+- Git: código `894091b`, checkpoint de estado `e732fed`; 194/194 testes, TypeScript, build, sintaxe e diff check aprovados antes da mutação remota.
+- Vercel de compatibilidade: Preview `dpl_ENEufHGksDmbHTBUbhPqgeC2Etxn` e Production `dpl_9rAv31d1QTHQzbhwMkcpJZV5CsEe` aprovaram o código ainda com variáveis antigas ignoradas; rotas sem segredo retornaram `401`.
+- Remoção controlada: somente `TWITTER_GENERATION_WORKER_SECRET` e `TWITTER_GENERATION_WORKER_ENABLED` foram removidas de Preview/Production. Deploys finais: Preview `dpl_FF72a8zwrhaJFDNfm9ord3ac5X27`; Production `dpl_BYjrGwDcg9WtPy4nV1CWwvZ9kKGv`, `READY` e alias oficial.
+- VPS preflight: `srv1881733`, Node 22.23.2, 42 GB livres, 2.902 MB disponíveis, sem swap; release anterior `a5edc6c049e1-20260822T235210Z`; env modo 600.
+- Pacote: artefato ignorado `artifacts/x-twitter/20260823T000341Z/athena-twitter-worker.tar.gz`; SHA-256 local/remoto `c0834c2fda517056cb1e31a9a0e9d44c2c8b382b57d673df7c489b396014a4a8`; release novo `/opt/athena-twitter/releases/e732fed77971-20260823T000341Z`.
+- Validação: três arquivos e quatro papéis conferidos; quatro one-shots retornaram 0/stopped; nenhum claim nem chamada Zernio. A primeira impressão auxiliar dos nomes falhou somente por escaping PowerShell após os checks de sintaxe e foi repetida com `grep`, sem mutação adicional.
+- Config remota: backup `/opt/athena-twitter/shared/.env.worker.backup-before-generation-removal-20260823T000341Z`; removidas somente linhas exatas `TWITTER_GENERATION_WORKER_{SECRET,ENABLED,CONCURRENCY}`; arquivo permaneceu 600 e contagem residual foi zero.
+- PM2: cinco entradas X históricas foram removidas; somente quatro foram recriadas e paradas. Os seis processos existentes preservaram PIDs 99980, 27468, 136197, 127605, 122939 e 103209. `pm2 save` aprovado.
+- Invariantes: migrations 1–242 alinhadas; sync/publicação/analytics não terminais 0; holds 0; snapshots 0; wallet 11.725.000/0 versão 21. Nenhum débito, reserva ou post foi criado.
+- Limpeza: removido somente `/tmp/athena-twitter-e732fed77971-20260823T000341Z.tar.gz`, previamente resolvido e validado. Artefato local, release novo e releases anteriores foram preservados.
+- Rollback: Vercel `dpl_9rAv31d1QTHQzbhwMkcpJZV5CsEe`; VPS `a5edc6c049e1-20260822T235210Z`; restaurar o backup remoto somente se também reintroduzir o release histórico, sempre com flags off.
+- Próxima ação segura: auditar ações granulares da fila e transferência administrativa de identidade; analytics HTTP 200 permanece bloqueio externo e não deve ser repetido por suposição.

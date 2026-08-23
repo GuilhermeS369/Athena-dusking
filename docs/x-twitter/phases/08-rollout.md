@@ -6,6 +6,17 @@ Entregas: ativação progressiva, fallback validado, monitoramento, comparação
 
 Nota de topologia atual: registros abaixo que mencionam cinco processos descrevem releases históricos. A ADR-X-017 reduziu o contrato vigente a quatro papéis reais — publicação, sync, analytics e reconciliação — sem alterar a confirmação financeira atômica.
 
+## Topologia de quatro workers implantada e desligada
+
+- ADR-X-017 implantada em 23/08/2026 UTC; confirmação continua materializando reservas e itens financiados atomicamente.
+- Preview `dpl_FF72a8zwrhaJFDNfm9ord3ac5X27` e Production `dpl_BYjrGwDcg9WtPy4nV1CWwvZ9kKGv` estão `READY`; alias oficial atualizado; rota interna sem segredo retorna `401`.
+- Variáveis `TWITTER_GENERATION_*` removidas de Preview/Production. Todos os demais flags X permanecem off.
+- Release VPS `/opt/athena-twitter/releases/e732fed77971-20260823T000341Z`, SHA-256 `c0834c2fda517056cb1e31a9a0e9d44c2c8b382b57d673df7c489b396014a4a8`; quatro one-shots off aprovados.
+- Arquivo remoto continua `600`; backup recuperável `/opt/athena-twitter/shared/.env.worker.backup-before-generation-removal-20260823T000341Z`; zero linhas `TWITTER_GENERATION_*` ativas.
+- PM2: quatro entradas X `stopped`; entrada generation ausente; seis processos existentes online com PIDs 99980, 27468, 136197, 127605, 122939 e 103209.
+- Supabase alinhado até 242; fila sync/publicação/analytics não terminal, holds e snapshots em zero; wallet 11.725.000/0 versão 21.
+- Rollback: Vercel `dpl_9rAv31d1QTHQzbhwMkcpJZV5CsEe`; VPS `a5edc6c049e1-20260822T235210Z`; ao voltar ao release antigo, restaurar explicitamente o backup com as variáveis antigas e manter tudo off.
+
 ## Checkpoint de segurança anterior ao preview
 
 - Migration 240 aplicada de forma aditiva e alinhada no remoto.
