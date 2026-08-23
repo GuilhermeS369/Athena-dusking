@@ -847,3 +847,15 @@ Registros são append-only.
 - Ambientes: nenhuma migration, deploy, fila, hold, débito ou chamada Zernio; Production e quatro workers X permanecem off/stopped; Instagram intocado.
 - Rollback: reverter página, cliente, duas rotas e teste. Não existe dado ou infraestrutura a desfazer.
 - Próxima ação segura: checkpoint Git; depois implementar transferência administrativa idempotente da identidade, exigindo admin na origem e destino.
+
+## X-0069 — transferência de identidade v2 implementada localmente
+
+- UTC: 2026-08-23T00:20:16Z; São Paulo: 2026-08-22T21:20:16-03:00.
+- Gap: a RPC 223 transferia carteira e identidade, porém não tinha idempotency key, API/UI ou verificação bilateral de administração; replay poderia gerar novo evento e versão.
+- Migration 243 pendente: evento ganha `actor_user_id` e chave única; RPC v2 rejeita origem=destino, tenant apagado, usuário sem admin em qualquer lado, conexão ativa e reserva restante. Replay idêntico retorna sem mutar; chave reutilizada em outro escopo falha. Execução da RPC antiga é revogada de `service_role`.
+- API/UI: somente admin; destino limitado às organizações que o usuário também administra e que estão no escopo X; identidade é buscada dentro do tenant atual sem revelar outro tenant. Confirmação exige `TRANSFERIR` e justificativa. Saldo é preservado, sem concessão, fila, grupo ou conexão automática.
+- Auditoria: até 50 eventos relacionados à origem/destino aparecem somente para admin na página X/Zernio; tabela permanece protegida pelo trigger imutável. Nenhuma chamada Zernio é feita.
+- Verificação: 196/196 testes, TypeScript, build e diff check; dry-run listou somente `243_twitter_identity_transfer_v2.sql`. Warnings metadata preexistentes apenas.
+- Ambientes: migration ainda não aplicada; Production/VPS/Supabase data não mutados; todos os flags X off e quatro workers stopped.
+- Rollback antes do push: reverter API, UI, migration e testes. Após aplicação, correções de banco apenas forward-only; nunca reabilitar a RPC v1 sem idempotência.
+- Próxima ação segura: commit; confirmar projeto; aplicar somente 243; teste SQL 13/13 em `BEGIN/ROLLBACK`; reconferir saldo 11.725.000/0 e zero filas/holds.

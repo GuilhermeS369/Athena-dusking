@@ -104,3 +104,10 @@ Decisões são append-only. Mudanças exigem nova ADR que substitua explicitamen
 - Decisão: remover o papel, processo, segredo e kill switch `generation` do runtime X. A confirmação transacional continua materializando somente os itens que a carteira financia. O runtime passa a ter publicação, sync, analytics e reconciliação.
 - Motivo: não existe trabalho pendente legítimo depois da confirmação. Tornar a materialização assíncrona permitiria saldo reservado sem fila pronta; manter um processo sem função aumentaria a superfície operacional e de autenticação sem benefício.
 - Consequência: confirmação falha por inteiro ou cria reserva e itens financiados na mesma transação. Novas responsabilidades assíncronas só poderão criar um quinto papel mediante ADR própria, fila/claim idempotentes, invariantes financeiras e gate de isolamento — nunca reutilizando um processo artificial vazio.
+
+## ADR-X-018 — transferência exige administração bilateral e idempotência
+
+- Data: 22/08/2026 (America/Sao_Paulo)
+- Decisão: transferir uma identidade global somente quando o mesmo usuário for admin nas organizações de origem e destino, ambas estiverem habilitadas para o módulo X, não houver conexão ativa nem reserva aberta e a chamada trouxer idempotency key inédita. A RPC antiga sem idempotência perde execução para `service_role`.
+- Motivo: um admin de tenant não deve escolher uma organização que não administra; repetição de request não pode duplicar evento nem incrementar versão da carteira novamente.
+- Consequência: saldo restante e carteira migram sem nova concessão; ledger, posts e histórico permanecem imutáveis; filas, grupos e conexões nunca são recriados no destino. Cada transferência produz um evento imutável visível a admins relacionados.

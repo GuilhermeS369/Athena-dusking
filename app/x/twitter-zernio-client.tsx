@@ -12,6 +12,10 @@ type Connection = {
   wallet: { posted_balance_micros: number; reserved_micros: number; version: number } | null;
 };
 
+type TransferIdentity = { id:string;wallet:{posted_balance_micros:number;reserved_micros:number;version:number}|null;connectionActive:boolean;openReservation:boolean };
+type Destination = { id:string;name:string };
+type TransferEvent = { id:string;identity_id:string;reason:string;actor_email:string;created_at:string;fromOrganizationName:string;toOrganizationName:string };
+
 function usd(micros: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' }).format(micros / 1_000_000);
 }
@@ -29,12 +33,16 @@ async function responseJson(response: Response) {
   return body;
 }
 
-export default function TwitterZernioClient({ connections, canManage }: { connections: Connection[]; canManage: boolean }) {
+export default function TwitterZernioClient({ connections, transferIdentities, destinations, transferEvents, canManage }: { connections: Connection[];transferIdentities:TransferIdentity[];destinations:Destination[];transferEvents:TransferEvent[];canManage: boolean }) {
   const router = useRouter();
   const [label, setLabel] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [transferIdentityId,setTransferIdentityId]=useState('');
+  const [destinationId,setDestinationId]=useState('');
+  const [transferReason,setTransferReason]=useState('');
+  const [transferConfirmation,setTransferConfirmation]=useState('');
 
   async function create(event: React.FormEvent) {
     event.preventDefault();
@@ -98,6 +106,15 @@ export default function TwitterZernioClient({ connections, canManage }: { connec
     finally { setBusy(null); }
   }
 
+  async function transferIdentity(event:React.FormEvent){
+    event.preventDefault();setBusy('transfer');setMessage(null);
+    try{
+      await responseJson(await fetch('/api/x/integrations/zernio/identities/transfer',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({identityId:transferIdentityId,destinationOrganizationId:destinationId,reason:transferReason,idempotencyKey:crypto.randomUUID()})}));
+      setMessage('Identidade e saldo transferidos. O histórico financeiro foi preservado e nenhuma conexão ou fila foi recriada.');setTransferIdentityId('');setDestinationId('');setTransferReason('');setTransferConfirmation('');router.refresh();
+    }catch(error){setMessage(error instanceof Error?error.message:'Falha na transferência.');}
+    finally{setBusy(null);}
+  }
+
   return <div className="content-stack">
     {message ? <div className="notice-banner">{message}</div> : null}
     {canManage ? <form className="panel auth-form" onSubmit={create}>
@@ -107,6 +124,18 @@ export default function TwitterZernioClient({ connections, canManage }: { connec
       <label>API key Zernio<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" required /></label>
       <button className="button button-primary" disabled={busy === 'create'}>{busy === 'create' ? 'Validando…' : 'Cadastrar conexão X'}</button>
     </form> : null}
+    {canManage ? <form className="panel auth-form" onSubmit={transferIdentity}>
+      <h2>Transferir identidade para outra organização</h2>
+      <p className="muted">A transferência preserva o saldo restante e a auditoria. Ela nunca cria nova concessão, não move filas e exige que você seja admin nas duas organizações.</p>
+      {destinations.length===0?<p className="field-error-message">Nenhuma outra organização habilitada para o X está disponível com seu papel de admin.</p>:<>
+        <label>Identidade<select value={transferIdentityId} onChange={(event)=>setTransferIdentityId(event.target.value)} required><option value="">Selecione</option>{transferIdentities.map((identity)=>{const blocked=identity.connectionActive||identity.openReservation;return <option key={identity.id} value={identity.id} disabled={blocked}>{identity.id.slice(0,8)} · {usd(Number(identity.wallet?.posted_balance_micros??0))}{identity.connectionActive?' · remova a conexão':identity.openReservation?' · resolva reservas':''}</option>;})}</select></label>
+        <label>Organização de destino<select value={destinationId} onChange={(event)=>setDestinationId(event.target.value)} required><option value="">Selecione</option>{destinations.map((destination)=><option key={destination.id} value={destination.id}>{destination.name}</option>)}</select></label>
+        <label>Justificativa<textarea value={transferReason} onChange={(event)=>setTransferReason(event.target.value)} minLength={5} maxLength={1000} rows={3} required /></label>
+        <label>Digite TRANSFERIR para confirmar<input value={transferConfirmation} onChange={(event)=>setTransferConfirmation(event.target.value)} autoComplete="off" required /></label>
+        <button className="button button-danger" disabled={busy!==null||!transferIdentityId||!destinationId||transferReason.trim().length<5||transferConfirmation!=='TRANSFERIR'}>{busy==='transfer'?'Transferindo…':'Transferir identidade e saldo'}</button>
+      </>}
+    </form>:null}
+    {canManage&&transferEvents.length?<section className="panel"><div className="panel-heading"><div><span className="section-kicker">Auditoria imutável</span><h2>Transferências recentes</h2><p>Eventos de origem ou destino desta organização. Eles não podem ser editados ou apagados.</p></div></div><div className="content-stack">{transferEvents.map((event)=><article key={event.id}><strong>{event.fromOrganizationName} → {event.toOrganizationName}</strong><p className="muted">Identidade {event.identity_id.slice(0,8)} · {new Date(event.created_at).toLocaleString('pt-BR')} · {event.actor_email}</p><p>{event.reason}</p></article>)}</div></section>:null}
     <section className="content-stack">
       {connections.length === 0 ? <div className="empty-state"><h2>Nenhuma conexão X</h2><p>Cadastre uma API key Zernio exclusiva para iniciar.</p></div> : connections.map((connection) => {
         const posted = Number(connection.wallet?.posted_balance_micros ?? 0);

@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T00:15:11Z / 2026-08-22T21:15:11-03:00
+- Atualizado em: 2026-08-23T00:20:16Z / 2026-08-22T21:20:16-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
@@ -24,7 +24,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 242.
-- Testes atuais: 195/195 aprovados.
+- Testes atuais: 196/196 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Implementar a transferência administrativa de identidade com idempotência, auditoria imutável e autorização admin nas organizações de origem e destino. A fila granular já está concluída localmente. Não ativar sync live, cron, fallback live ou rollout antes dos respectivos gates.
+Aplicar exclusivamente a migration 243 após o checkpoint Git; executar o teste SQL transacional 13/13 e reconferir que identidade/saldo/filas de produção não mudaram. O fluxo de transferência está implementado localmente. Não ativar sync live, cron, fallback live ou rollout.
 
 ## Proibições imediatas
 
