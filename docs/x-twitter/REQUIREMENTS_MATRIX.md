@@ -17,7 +17,7 @@ Atualizada em 2026-08-23T00:54:05Z. Esta matriz não substitui o plano; resume e
 | Agenda, fila e perfis | Concluído | Páginas locais, filtros/cancelamentos e detalhe estável com histórico/snapshots sem leitura automática. |
 | Workers/PM2 | Instalado e parado | Quatro papéis reais no release `e732fed77971-20260823T000341Z`; todos `stopped`; processos existentes intactos. |
 | Publicação canário | Concluído | Texto, imagens, GIF, vídeo, URL e matriz de erros validados; wallet atual 11.725.000 micros. |
-| Analytics manual | Implementado, gate externo bloqueado | Três operações retornaram HTTP 202 e zero snapshot. Billing tardio confirmou 27 reads/US$ 0,135; débito coletivo reconciliado pela migration 245. Não repetir cegamente. |
+| Analytics manual | Implementado, gate de sucesso/fan-out bloqueado | Três operações retornaram HTTP 202 e zero snapshot; billing tardio confirmou 27 reads/US$ 0,135 e foi reconciliado. Capability Athena passou em janela curta com delta zero, mas HTTP 200 e custo real por seleção ainda não foram provados. |
 | Rollout geral/fallback live | Não iniciado por gate | Proibido até uma operação analytics distinta retornar sucesso comprovado/HTTP 200 com snapshot e liquidação correta. |
 | CSS/UX responsivo do módulo X | Pendente de gate visual dedicado | A Fase 3 entregou páginas responsivas funcionais; falta inspeção visual sistemática de `/x/*`, breakpoints, acessibilidade e regressão Instagram. |
 
@@ -28,9 +28,9 @@ Atualizada em 2026-08-23T00:54:05Z. Esta matriz não substitui o plano; resume e
 - Preview: `dpl_2stTwHisyFgd6GfNFvCMihRJqZYs`, `READY`.
 - Supabase local/remoto alinhado até 245.
 - Publicação/analytics não terminais 0; holds 0; snapshots 0; transferências 0.
-- Wallet: 11.590.000 micros contábeis, 0 reservado, versão 22, após reconciliação imutável de 135.000 micros.
+- Wallet: 11.590.000 micros contábeis, 0 reservado, versão 24; reconciliação tardia debitou 135.000 e o canário reservou/liberou 6.590.000 sem débito.
 - Quatro workers X `stopped`; seis processos existentes `online` com PIDs preservados.
 
 ## Única próxima ação autorizada pelo plano
 
-Executar somente o canário temporário de capability com cobertura integral acima do piso, watchdog, desligamento obrigatório e dois snapshots finais estáveis. Não repetir os três endpoints de recurso já tentados e não habilitar rollout geral para contornar o gate.
+Executar o gate visual/CSS sem custo externo. Para Analytics, primeiro redesenhar quote/confirm para possível fan-out do provedor; não repetir os três endpoints já tentados nem habilitar rollout geral para contornar o gate.

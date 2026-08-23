@@ -86,3 +86,11 @@ Aguardar a Zernio disponibilizar resposta HTTP 200. Não criar novo canário pag
 - Migration 245 criou reconciliação retroativa imutável e RPC atômica. O evento coletivo debitou 135.000 micros uma única vez; replay foi idempotente. Wallet 11.590.000/0 versão 22.
 - Analytics e Inbox permaneceram desligados durante toda a investigação. Nenhuma leitura de recurso X foi feita; somente `GET /v1/usage` snapshot e metering diário.
 - O canário foi reforçado para exigir baseline já reconciliado, reservar toda a capacidade acima do piso e permitir ao watchdog marcar uma reserva aberta como `outcome_unknown` após forçar o desligamento.
+
+### Canário mínimo da capability — 22/08/2026
+
+- O Athena ativou Analytics por 60 segundos, manteve Inbox desligado e encerrou a capability automaticamente; o usuário não precisou abrir a Zernio.
+- Foram reservados 6.590.000 micros, toda a capacidade acima do piso; dois snapshots finais estáveis registraram delta zero e a reserva foi liberada integralmente.
+- Pós-watchdog: wallet 11.590.000/0 versão 24, reserva `released`, somente eventos `created` e `released`.
+- Gate aprovado: controle remoto, compensação, watchdog, cobertura financeira e ausência de cobrança automática na janela curta.
+- Gate ainda aberto: nenhuma leitura manual retornou HTTP 200/snapshot. Como os três HTTP 202 anteriores resultaram depois em 27 reads, o próximo desenho precisa cobrir fan-out real do provedor e não pode cotar cegamente apenas um `post_read`.

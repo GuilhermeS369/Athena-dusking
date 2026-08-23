@@ -1034,3 +1034,15 @@ Registros são append-only.
 - Correção de desenho: o canário passa a reservar toda a capacidade acima do piso de US$ 5, exige baseline já reconciliado e dá ao watchdog o ID da reserva para marcar incerteza se o executor desaparecer. ADR-X-021 substitui ADR-X-011 e a cobertura antiga da ADR-X-020.
 - Verificação final: 208/208 testes, TypeScript, sintaxe do canário, `STATE.json`, `git diff --check` e build de 41 páginas aprovados. Permanecem apenas os warnings preexistentes de metadata em login/onboarding/not-found.
 - Próxima ação segura: validar e versionar este checkpoint; só então executar uma janela mínima de capability com reserva integral e desligamento obrigatório.
+
+## X-0085 — canário mínimo de capability aprovado sem novas leituras
+
+- UTC: 2026-08-23T01:53:56Z; São Paulo: 2026-08-22T22:53:56-03:00.
+- Código executado: checkpoint `335bf16`, worktree limpo no início; confirmation literal, janela ativa de 60 segundos e dois intervalos finais de 30 segundos.
+- Cobertura: 6.590.000 micros reservados temporariamente, equivalentes a 1.318 reads e a toda capacidade acima do piso protegido de US$ 5,00.
+- Capability: Analytics foi ativado apenas pela automação Athena, Inbox permaneceu false, e o bloco `finally` confirmou ambos false no final. Nenhum endpoint manual de post/analytics foi chamado na janela.
+- Billing: baseline e dois snapshots finais estáveis permaneceram em `posts_read=27`; delta zero, débito zero. A reserva foi integralmente liberada, sem criar crédito.
+- Pós-watchdog: wallet 11.590.000/0 versão 24; reserva `released`, 6.590.000 liberados, eventos imutáveis exatamente `created` e `released`. O watchdog tardio não reabriu nem alterou a reserva encerrada.
+- Regressão: reconciliação das 27 reads continua idempotente; usage permanece US$ 0,410 total, sendo US$ 0,135 de reads. Workers X e flags gerais não foram iniciados.
+- Limite da evidência: a ativação por 60 segundos não gerou sync cobrado, mas não prova resposta HTTP 200 nem custo unitário de uma leitura manual após cache. Não executar nova leitura paga sem cobrir possível fan-out do provedor.
+- Próxima ação segura: documentar/commit; avançar no gate visual/CSS sem custo externo. O gate funcional Analytics continua pendente de desenho para fan-out e sucesso 200.
