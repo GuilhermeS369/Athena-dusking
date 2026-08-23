@@ -99,6 +99,15 @@ Criar e validar o executor guardado do novo canário. Um canário pago só pode 
 - Os seis processos existentes permaneceram `online` com os PIDs 99980, 27468, 136197, 127605, 122939 e 103209. O arquivo temporário remoto foi removido após validação do hash.
 - Rollback: Vercel `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D`; VPS `7c83ece-20260823T011500Z`; banco somente por migration corretiva forward.
 
+### Executor guardado do canário fan-out — 23/08/2026
+
+- Novo utilitário `scripts/twitter/prepare-fanout-analytics-canary.ts` separa auditoria read-only de reserva mutável por confirmações literais distintas.
+- Bloqueios: exatamente uma conexão ativa; Analytics/Inbox false; carteira sem reserva; nenhuma fila/hold incerto; nenhum item v2 anterior; nenhum snapshot; recurso nunca usado em Analytics.
+- Antes de reservar, exige `GET /v1/usage` válido e correspondência exata de `TWITTER_CANARY_EXPECTED_POSTS_READ`. O script não ativa capability, flag, worker ou endpoint Analytics.
+- Auditoria real read-only: baseline `posts_read=27`, `xSpendCents=41`; dois recursos históricos únicos excluídos; um novo post elegível; quote 9 × 5.000 = 45.000; projeção 11.545.000; carteira permaneceu 11.590.000/0 versão 24.
+- Regressão: 215/215 testes, TypeScript, build de 41 páginas e `git diff --check` aprovados. Warnings metadata preexistentes permanecem inalterados.
+- Nenhuma reserva, item, attempt, snapshot, capability ou chamada paga foi criada nesta unidade.
+
 ### Correção financeira por metering tardio — 22/08/2026
 
 - Dois snapshots somente leitura, com Analytics/Inbox desligados, estabilizaram em `posts_read=27` e `xSpendCents=41`.

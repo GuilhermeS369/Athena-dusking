@@ -1121,3 +1121,14 @@ Registros são append-only.
 - Supabase: migrations 1–246 alinhadas. Baseline final reconfirmado após o deploy: wallet 11.590.000/0 versão 24; publicação e Analytics não terminais, reservas abertas e holds ativos/incertos todos zero; conexão ativa com Analytics/Inbox false. Nenhum recurso X/Zernio foi chamado nesta unidade.
 - Rollback: manter flags off; promover Vercel `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D`; trocar somente o symlink/processos X para `7c83ece-20260823T011500Z`; banco somente por migration corretiva forward.
 - Próxima ação segura: criar executor de canário que recuse os três recursos históricos, confirme reserva de 45.000 micros, obtenha baseline de uso e garanta desligamento. Só depois executar uma janela paga mínima.
+
+## X-0091 — executor guardado e auditoria read-only do canário fan-out
+
+- UTC: 2026-08-23T11:45:21Z; São Paulo: 2026-08-23T08:45:21-03:00.
+- Origem: branch `codex/x-twitter-module`, checkpoint de entrada `5e128fc`, worktree limpo. Arquivos novos: `scripts/twitter/prepare-fanout-analytics-canary.ts` e teste estático dedicado.
+- O executor possui ações separadas `audit-fanout-post-read` e `reserve-fanout-post-read`; reserva exige baseline `posts_read` explícito, rejeita qualquer publicação usada antes e bloqueia se existir item v2, fila, reserva, hold, snapshot ou capability ativa.
+- Auditoria real consultou somente `/v1/usage` e dados locais. Baseline Metronome: 27 reads e 41 cents; dois IDs de publicação históricos únicos foram excluídos; um recurso inédito foi selecionado sem ser chamado.
+- Quote read-only: uma seleção, unidade 5.000, nove unidades, reserva máxima 45.000, projeção 11.545.000 e piso 5.000.000. Wallet antes/depois 11.590.000/0 versão 24.
+- Verificação: 215/215 testes, TypeScript, build de 41 páginas e `git diff --check` aprovados. O teste inicial tinha uma asserção textual apontando para o import em vez da chamada e foi corrigido; código de produção não mudou por esse achado.
+- Ambientes: nenhuma flag, deployment, release, PM2, capability, reserva, item, attempt, snapshot ou chamada paga foi alterada. Analytics/Inbox/workers continuam off.
+- Rollback: remover somente os dois arquivos novos; não há rollback remoto. Próxima ação segura: Production temporária para Pomodoro, reconferência do baseline, reserva única de 45.000, um one-shot e restauração imediata do deployment seguro.

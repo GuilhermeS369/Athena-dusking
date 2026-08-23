@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T11:39:58Z / 2026-08-23T08:39:58-03:00
+- Atualizado em: 2026-08-23T11:45:21Z / 2026-08-23T08:45:21-03:00
 - Fase atual: 8 — preparação do rollout progressivo (`in_progress`); gate visual/CSS e gate transacional do contrato fan-out concluídos; sem liberação geral
-- Status: migration 246, aplicação e release VPS do contrato fan-out implantados com tudo desligado. Analytics/Inbox e os quatro workers X continuam off; o canário controlado ainda não foi executado.
+- Status: migration 246, aplicação e release VPS do contrato fan-out implantados com tudo desligado. Executor guardado e auditoria read-only do novo canário aprovados; nenhuma reserva criada. Analytics/Inbox e os quatro workers X continuam off.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint Git executável mais recente: `d67a2ec`; Preview `dpl_7nHd2NqnixMUCHq51d2czH3Fkiqc` e Production `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch`, ambos `READY`. O escopo global e todos os workers/fallback continuam off; somente Pomodoro permanece canário.
@@ -34,7 +34,7 @@
 
 ## Próxima ação segura
 
-Criar um executor de canário Analytics específico para o contrato de nove reads, que recuse recursos históricos e confira baseline de uso, reserva de 45.000 micros, desligamento obrigatório e reconciliação exata. Antes da chamada paga, reconfirmar flags, carteira e filas zeradas.
+Criar uma Production temporária habilitando somente Analytics e seu worker para Pomodoro. Reconfirmar baseline de 27 reads, reservar exatamente 45.000 micros com `prepare-fanout-analytics-canary.ts`, executar um único one-shot VPS e restaurar imediatamente o deployment seguro. Não repetir o executor de reserva.
 
 ## Proibições imediatas
 
