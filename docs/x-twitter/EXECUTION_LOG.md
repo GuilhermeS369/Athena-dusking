@@ -1059,3 +1059,6 @@ Registros são append-only.
 - Ambientes: nenhuma flag, migration, dado, saldo, Zernio, Vercel, VPS ou PM2 foi alterado. Analytics/Inbox permanecem off.
 - Rollback: reverter somente `app/(painel)/x/layout.tsx`, o bloco X em `app/globals.css` e `lib/twitter/css-gate.test.ts`; não há rollback remoto.
 - Próxima ação segura: criar checkpoint Git, publicar Preview com flags off e concluir o smoke visual autenticado. Não executar Analytics antes de cobrir fan-out no quote/confirm.
+- Checkpoint executável: `07be9b1`. Preview `dpl_62c6NFsmkGL5JQ9HTHsHkwLd8nV8`, URL `https://pomodoro-a3mqrgn09-shoows-projects-2caaf9e9.vercel.app`, status `READY`; build Vercel de 41 páginas aprovado com os mesmos warnings metadata preexistentes.
+- Smoke sem sessão em `/x/postagem`: `307 /login`. O navegador de inspeção não possuía sessão Athena, portanto nenhuma página autenticada, dado, reserva ou chamada externa foi acessada. Production não foi promovida.
+- Atualização do registro: UTC 2026-08-23T02:05:29Z; São Paulo 2026-08-22T23:05:29-03:00.

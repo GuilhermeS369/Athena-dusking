@@ -91,6 +91,8 @@ Em 23/08/2026 UTC, a auditoria encontrou classes de composição usadas pelas p�
 
 Gate parcial: estrutura e responsividade local aprovadas. Próxima ação segura: checkpoint Git, Preview com flags off e smoke autenticado de todas as rotas `/x/*` antes de marcar o gate visual completo.
 
+Checkpoint `07be9b1` publicado somente em Preview: `dpl_62c6NFsmkGL5JQ9HTHsHkwLd8nV8`, `READY`. O smoke sem sessão retornou `307 /login`. Como não havia sessão Athena no navegador de inspeção, Production não foi promovida e o gate permanece parcial.
+
 ## Fallback Vercel exclusivo — implementação desligada
 
 - Rota exclusiva: `/api/internal/twitter-fallback-dispatch`.

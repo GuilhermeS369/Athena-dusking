@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T02:03:07Z / 2026-08-22T23:03:07-03:00
+- Atualizado em: 2026-08-23T02:05:29Z / 2026-08-22T23:05:29-03:00
 - Fase atual: 8 — gate visual/CSS (`in_progress`), com inspeção estrutural local aprovada e smoke autenticado ainda pendente; sem liberação geral
 - Status: controle auditado das capabilities aprovado em canário mínimo; Analytics/Inbox estão off. Gate HTTP 200 e proteção contra fan-out de reads permanecem pendentes.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint Git mais recente: `335bf16`; migration 245 e reconciliação tardia aplicadas. Checkpoint de aplicação implantado continua `7c83ece`, todos os flags/processos X off.
+- Checkpoint Git mais recente: `07be9b1`; gate CSS estrutural no Preview `dpl_62c6NFsmkGL5JQ9HTHsHkwLd8nV8`. Production continua no checkpoint anterior `7c83ece`, todos os flags/processos X off.
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–245
 
@@ -48,6 +48,6 @@ Versionar o gate CSS local e executar um smoke visual autenticado das páginas `
 
 ## Ambientes preparados
 
-- Vercel: Production `dpl_9zixyzBTcpjTjiG2RyeoyQDxipvL` (`https://pomodoro-8roycj5ks-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial; Preview `dpl_5DbmP76T7jqiBXFtbU9h5d9fuMhq` (`https://pomodoro-88ow92ms3-shoows-projects-2caaf9e9.vercel.app`) `READY`. O novo gate está explicitamente `false` nos dois ambientes.
+- Vercel: Production `dpl_9zixyzBTcpjTjiG2RyeoyQDxipvL` (`https://pomodoro-8roycj5ks-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial; Preview CSS `dpl_62c6NFsmkGL5JQ9HTHsHkwLd8nV8` (`https://pomodoro-a3mqrgn09-shoows-projects-2caaf9e9.vercel.app`) `READY`. O gate de capability continua explicitamente `false` nos dois ambientes.
 - VPS: release `7c83ece-20260823T011500Z`, hash `e71415e4f39d4056e5eacc7fd3a9bae6f501d3e8a31168616e4141ee9b7bf10a`; quatro processos X apontam para ele e estão `stopped`; seis processos existentes continuam `online` com os PIDs preservados.
 - Supabase: migrations 223–245 alinhadas; conexão Analytics/Inbox off, filas/holds/snapshots zerados e wallet 11.590.000/0 versão 24. As 27 reads tardias foram reconciliadas por evento imutável; o canário reservou/liberou 6.590.000 sem débito.
