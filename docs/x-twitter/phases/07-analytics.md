@@ -1,6 +1,6 @@
 # Fase 07 — análises manuais
 
-Status: `blocked` — implementação/proteção financeira aprovadas; Zernio retornou HTTP 202 inclusive para nova operação do mesmo post já sincronizado
+Status: `in_progress` — contrato fan-out corrigido localmente; migration 246, teste transacional e canário controlado pendentes
 
 ## Entregas
 
@@ -8,9 +8,9 @@ Status: `blocked` — implementação/proteção financeira aprovadas; Zernio re
 - Filtros locais combináveis por perfil, grupo, período civil de São Paulo e tipo de métrica; filtrar não consulta a Zernio nem reserva saldo.
 - Quote é somente leitura, assinado e válido por dez minutos.
 - Confirmação bloqueia todas as carteiras, revalida versões e preserva US$ 5,00 além de reservas existentes.
-- Post custa 5.000 micros; perfil/followers custa 10.000 micros.
+- Post custa 5.000 micros por read e reserva no máximo 9 reads (45.000 micros); perfil/followers custa e reserva 10.000 micros.
 - Worker analytics usa rotas, flag, heartbeat e endpoints Zernio próprios.
-- Sucesso liquida somente o recurso e cria snapshot local; falha confirmada libera; incerto mantém hold.
+- Sucesso liquida somente unidades comprovadas, libera o excedente e cria snapshot local; falha confirmada libera; incerto mantém hold.
 - Dashboard X lê apenas snapshots locais e nunca dispara coleta.
 - `/x/logs` permite resolver analytics incerta com justificativa auditada.
 
@@ -76,7 +76,16 @@ Auditoria de UI em 2026-08-22T23:39:42Z: `/x/analises` passou a carregar grupos/
 
 ## Próxima ação segura
 
-Aguardar a Zernio disponibilizar resposta HTTP 200. Não criar novo canário pago até mudança externa verificável.
+Versionar a correção fan-out, aplicar somente a migration 246 com todos os gates off e executar o pgTAP em transação/rollback. Um canário pago só pode ocorrer depois de confirmar reserva de 45.000 micros, baseline de billing e bloqueio por conexão.
+
+### Contrato fan-out aprovado — 23/08/2026
+
+- ADR-X-022 substitui o modelo de uma reserva por seleção: o preço unitário permanece 5.000 micros, mas cada post reserva até nove unidades.
+- Cotação e UI apresentam “reserva máxima”; o custo final depende exclusivamente de uso comprovado.
+- A RPC recebe `billed_units`, debita `unit_cost × billed_units` e libera atomicamente todo o restante do item. Zero unidades comprovadas é sucesso funcional sem débito.
+- HTTP 200 não liquida automaticamente: o worker preserva métricas como evidência pendente, marca `outcome_unknown` e bloqueia outra leitura na mesma conexão.
+- Antes da chamada paga, o worker exige baseline válido de `/v1/usage`; se ele não existir, falha localmente e libera a reserva sem tocar o recurso X.
+- Gate local: 213/213 testes, TypeScript, build de 41 páginas, sintaxe do worker, `git diff --check` e dry-run Supabase aprovados. Nenhuma flag, dado, saldo, Zernio, Vercel, VPS ou PM2 foi alterado.
 
 ### Correção financeira por metering tardio — 22/08/2026
 

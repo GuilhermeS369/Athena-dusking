@@ -27,6 +27,11 @@ type Quote = {
   postCount: number;
   profileCount: number;
   totalMicros: number;
+  postReadUnitMicros: number;
+  postReadReserveUnits: number;
+  postReadMaximumMicros: number;
+  profileReadUnitMicros: number;
+  profileReadReserveUnits: number;
   canConfirm: boolean;
   walletSnapshots: Array<{
     identityId: string;
@@ -278,7 +283,11 @@ export function TwitterAnalyticsClient({
 
       {filter.metricType !== 'profile' ? (
         <section className="panel content-stack">
-          <h2>Posts publicados · US$ 0,005 cada</h2>
+          <h2>Posts publicados · US$ 0,005 por leitura</h2>
+          <p>
+            Reserva máxima de 9 leituras (US$ 0,045) por post. Somente o uso
+            comprovado será debitado; o restante será liberado.
+          </p>
           {visiblePosts.length ? (
             visiblePosts.map((item) => (
               <label key={item.id}>
@@ -327,8 +336,16 @@ export function TwitterAnalyticsClient({
         <section className="panel content-stack">
           <h2>Revisão somente leitura</h2>
           <p>
-            {quote.postCount} post(s), {quote.profileCount} perfil(is). Total:{' '}
+            {quote.postCount} post(s), {quote.profileCount} perfil(is). Reserva
+            máxima:{' '}
             <strong>{usd(quote.totalMicros)}</strong>.
+          </p>
+          <p>
+            Posts: {usd(quote.postReadUnitMicros)} por leitura, até{' '}
+            {quote.postReadReserveUnits} leituras por post. Perfis:{' '}
+            {usd(quote.profileReadUnitMicros)} por leitura. A liquidação será
+            feita apenas após comprovação; resultados incertos ficam retidos
+            para reconciliação, sem retry automático.
           </p>
           {quote.walletSnapshots.map((wallet) => (
             <div className="summary-grid" key={wallet.identityId}>
@@ -341,11 +358,11 @@ export function TwitterAnalyticsClient({
                 <strong>{usd(wallet.reservedMicros)}</strong>
               </div>
               <div>
-                <span>Custo</span>
+                <span>Reserva máxima</span>
                 <strong>{usd(wallet.analyticsCostMicros)}</strong>
               </div>
               <div>
-                <span>Após análise</span>
+                <span>Após reserva máxima</span>
                 <strong>{usd(wallet.projectedAvailableMicros)}</strong>
               </div>
               <div>

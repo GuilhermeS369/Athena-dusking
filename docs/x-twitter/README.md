@@ -2,14 +2,14 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T02:24:45Z / 2026-08-22T23:24:45-03:00
-- Fase atual: 8 — preparação do rollout progressivo (`in_progress`); gate visual/CSS concluído, gate financeiro Analytics pendente; sem liberação geral
-- Status: controle auditado das capabilities aprovado em canário mínimo; Analytics/Inbox estão off. Gate HTTP 200 e proteção contra fan-out de reads permanecem pendentes.
+- Atualizado em: 2026-08-23T11:22:57Z / 2026-08-23T08:22:57-03:00
+- Fase atual: 8 — preparação do rollout progressivo (`in_progress`); gate visual/CSS concluído, contrato financeiro fan-out implementado localmente; sem liberação geral
+- Status: reserva máxima de nove reads e liquidação por uso comprovado aprovadas localmente. Analytics/Inbox e workers continuam off; migration 246 e canário controlado ainda não foram executados.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint Git executável mais recente: `9200b4e`; Preview `dpl_8aB1TheK2kW1noy9HJfAAGB7jozx` e Production `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D`, ambos `READY`. O escopo global e todos os workers/fallback continuam off; somente Pomodoro permanece canário.
 - Feature flag X: criada e desligada
-- Mutação remota feita pelo módulo X: migrations aditivas 223–245
+- Mutação remota feita pelo módulo X: migrations aditivas 223–245; migration 246 pendente e ainda somente local
 
 ## Leitura obrigatória para continuar
 
@@ -24,8 +24,8 @@
 ## Baseline conhecido
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
-- Migrações local/remoto alinhadas até 245.
-- Testes atuais: 210/210 aprovados.
+- Migrações local/remoto alinhadas até 245; dry-run lista somente 246.
+- Testes atuais: 213/213 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -34,12 +34,12 @@
 
 ## Próxima ação segura
 
-Tomar a decisão financeira sobre o fan-out Analytics observado: manter o preço nominal de uma read e bloquear novas operações, ou reservar até 9 reads por seleção e liquidar somente o uso comprovado. Não repetir os três recursos 202 nem iniciar rollout progressivo antes de implementar e testar a decisão.
+Criar o checkpoint Git desta unidade e validar a migration 246 no Supabase com Analytics/workers off. Depois, executar pgTAP transacional e reconferir carteira, filas e processos antes de qualquer canário pago.
 
 ## Proibições imediatas
 
 - Não rodar `git reset --hard`, checkout destrutivo ou limpeza recursiva.
-- Não reaplicar migrações 210–245: elas já constam no remoto.
+- Não reaplicar migrações 210–245: elas já constam no remoto. Aplicar somente 246 após o checkpoint e preflight.
 - Não repetir o provisionamento apenas para conferir estado nem expor a chave fornecida no chat; ela já foi persistida cifrada.
 - Não criar um segundo profile Zernio: o único profile existente foi confirmado como exclusivamente Twitter.
 - Não publicar secrets ou conteúdo de `.env*`.

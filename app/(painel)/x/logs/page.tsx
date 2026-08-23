@@ -121,7 +121,7 @@ export default async function TwitterLogsPage() {
   const analyticsItemsResult = analyticsIds.length
     ? await admin
         .from("twitter_analytics_items")
-        .select("id,profile_id,connection_id,category,amount_micros")
+        .select("id,profile_id,connection_id,category,amount_micros,unit_cost_micros,reserved_units,settled_units,released_micros")
         .eq("organization_id", org)
         .in("id", analyticsIds)
     : { data: [], error: null };
@@ -323,7 +323,7 @@ export default async function TwitterLogsPage() {
                   </strong>
                 </div>
                 <div>
-                  <span>Categoria / custo</span>
+                  <span>Categoria / reserva máxima</span>
                   <strong>
                     {item?.category ?? "—"} · {usd(item?.amount_micros)}
                   </strong>
@@ -348,7 +348,11 @@ export default async function TwitterLogsPage() {
                 <pre>{JSON.stringify(log.evidence ?? {}, null, 2)}</pre>
               </details>
               {log.status === "outcome_unknown" && canResolve ? (
-                <TwitterLogResolution attemptId={log.id} analytics />
+                <TwitterLogResolution
+                  attemptId={log.id}
+                  analytics
+                  maxBilledUnits={item?.reserved_units ?? 1}
+                />
               ) : null}
             </article>
           );

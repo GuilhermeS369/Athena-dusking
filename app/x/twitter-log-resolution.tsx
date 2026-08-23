@@ -3,11 +3,14 @@ import { useState } from "react";
 export function TwitterLogResolution({
   attemptId,
   analytics = false,
+  maxBilledUnits = 9,
 }: {
   attemptId: string;
   analytics?: boolean;
+  maxBilledUnits?: number;
 }) {
   const [j, setJ] = useState("");
+  const [billedUnits, setBilledUnits] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   async function resolve(success: boolean) {
@@ -29,6 +32,8 @@ export function TwitterLogResolution({
                 ? "published"
                 : "confirmed_failure",
             justification: j,
+            billedUnits:
+              analytics && success ? Number(billedUnits) : undefined,
           }),
         },
       );
@@ -56,13 +61,35 @@ export function TwitterLogResolution({
         onChange={(e) => setJ(e.target.value)}
         placeholder="Justificativa obrigatória e evidência conferida"
       />
+      {analytics ? (
+        <label>
+          Unidades comprovadamente cobradas (0 a {maxBilledUnits})
+          <input
+            type="number"
+            min="0"
+            max={maxBilledUnits}
+            step="1"
+            value={billedUnits}
+            onChange={(event) => setBilledUnits(event.target.value)}
+            placeholder="Confira nas evidências da Zernio"
+          />
+        </label>
+      ) : null}
       <div className="action-row">
         <button
-          disabled={busy || j.trim().length < 8}
+          disabled={
+            busy ||
+            j.trim().length < 8 ||
+            (analytics &&
+              (billedUnits === "" ||
+                !Number.isInteger(Number(billedUnits)) ||
+                Number(billedUnits) < 0 ||
+                Number(billedUnits) > maxBilledUnits))
+          }
           onClick={() => resolve(true)}
         >
           {analytics
-            ? "Confirmar leitura/cobrança"
+            ? "Liquidar uso comprovado"
             : "Confirmar publicado/cobrado"}
         </button>
         <button

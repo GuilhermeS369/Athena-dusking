@@ -1082,3 +1082,16 @@ Registros são append-only.
 - VPS read-only: `srv1881733`, 42 GB livres, 2.830 MB disponíveis, sem swap; quatro workers X `stopped`; seis processos existentes `online` com PIDs 99980, 27468, 136197, 127605, 122939 e 103209.
 - Gate visual/CSS concluído. O rollout progressivo permanece proibido por um único bloqueio financeiro: três requests Analytics produziram 27 reads tardias (fan-out observado de 9 por seleção), enquanto quote/confirm/settlement ainda reservam e debitam apenas uma unidade. Alterar esse preço sem decisão explícita violaria o plano aprovado.
 - Atualização final: UTC 2026-08-23T02:24:45Z; São Paulo 2026-08-22T23:24:45-03:00.
+
+## X-0088 — contrato financeiro fan-out implementado localmente
+
+- UTC: 2026-08-23T11:22:57Z; São Paulo: 2026-08-23T08:22:57-03:00.
+- Origem: branch `codex/x-twitter-module`, commit inicial `263c76b`; worktree limpo antes desta unidade. Usuário aprovou explicitamente reserva máxima de nove reads por post e liquidação somente do uso comprovado.
+- Implementação: migration aditiva 246; `unit_cost_micros`, `reserved_units`, `settled_units`, `released_micros` e versão do contrato por item; quote máximo de 45.000 micros por post; RPC de liquidação parcial/liberação atômica; input manual de unidades comprovadas; bloqueio de uma ocorrência incerta por conexão.
+- Worker: exige baseline `/v1/usage` antes da chamada paga. Se o recurso responder HTTP 200, preserva o payload como `pendingMetrics`, mas registra `billing_pending/outcome_unknown`; não liquida nem repete até prova e reconciliação. Falha de baseline ocorre antes da chamada paga e libera a reserva.
+- UI: preço unitário continua US$ 0,005/read, com reserva máxima de US$ 0,045 por post; revisão diferencia reserva máxima de custo final.
+- Verificação: 213/213 testes Node, TypeScript isolado, build de 41 páginas, `node --check`, `git diff --check` e `supabase db push --dry-run` aprovados. O primeiro TypeScript foi executado em paralelo com o build e encontrou `.next/types` transitório; repetido isoladamente após o build, aprovou. Warnings metadata de login/onboarding/not-found permanecem preexistentes.
+- Supabase: migrations remotas 1–245 alinhadas; dry-run apontou exclusivamente `246_twitter_analytics_billing_fanout.sql`. Migration 246 ainda não aplicada neste checkpoint.
+- Ambientes/dados: nenhuma mutação remota, chamada Zernio/X, reserva, débito, flag, deploy Vercel, release VPS ou processo PM2 nesta unidade. Analytics, Inbox, workers e fallback permanecem off.
+- Rollback local: reverter os arquivos desta unidade antes de aplicar 246. Depois da aplicação, banco somente por migration corretiva forward; nunca remover histórico remoto.
+- Próxima ação segura: criar commit do checkpoint, reconfirmar flags/filas/carteira, aplicar somente 246, executar pgTAP em transação/rollback e documentar o resultado antes de considerar canário.
