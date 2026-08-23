@@ -38,10 +38,12 @@ async function main() {
   const uniqueStamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
   const content = `Canário técnico Athena X — teste de publicação isolada ${uniqueStamp}`;
   const request: TwitterBulkRequest = {
+    scheduleVersion: 2,
+    name: 'Canário de texto',
     profileIds: [profiles[0].id],
     texts: [content],
     mediaSets: [],
-    schedule: { kind: 'interval', startsAt: executeAt.toISOString(), intervalMinutes: 1, durationMinutes: 0 },
+    schedule: { kind: 'interval', intervalMinutes: 1440, durationDays: 1 },
   };
 
   const review = await prepareTwitterBulkReview(organizationId, request);

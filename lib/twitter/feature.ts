@@ -11,6 +11,7 @@ type TwitterFeatureEnvironment = {
   TWITTER_CANARY_ORGANIZATION_IDS?: string;
   TWITTER_ANALYTICS_ENABLED?: string;
   TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED?: string;
+  TWITTER_BULK_SCHEDULE_V2_ENABLED?: string;
 };
 
 export function isTwitterModuleEnabled(
@@ -19,6 +20,10 @@ export function isTwitterModuleEnabled(
 ) {
   return enabled(environment.TWITTER_MODULE_ENABLED)
     || parseOrganizationIds(environment.TWITTER_CANARY_ORGANIZATION_IDS).has(organizationId);
+}
+
+export function isTwitterBulkScheduleV2Enabled(environment: TwitterFeatureEnvironment = process.env as TwitterFeatureEnvironment) {
+  return enabled(environment.TWITTER_BULK_SCHEDULE_V2_ENABLED);
 }
 
 export function isTwitterRolloutActive(

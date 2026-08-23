@@ -11,7 +11,9 @@ test('usa todas as combinações texto por mídia antes de repetir', () => {
   const combinations = buildTwitterCombinations(2, 3);
   assert.equal(combinations.length, 6);
   assert.deepEqual(new Set(combinations.map((item) => `${item.textIndex}:${item.mediaSetIndex}`)).size, 6);
-  assert.deepEqual(getTwitterCombinationForSlot(combinations, 0, 6), combinations[0]);
+  const cycle = Array.from({ length:combinations.length }, (_, slot) => getTwitterCombinationForSlot(combinations, 'profile-a', slot));
+  assert.equal(new Set(cycle.map((item) => `${item.textIndex}:${item.mediaSetIndex}`)).size, combinations.length);
+  assert.deepEqual(getTwitterCombinationForSlot(combinations, 'profile-a', combinations.length), cycle[0]);
 });
 
 test('perfis começam em deslocamentos determinísticos diferentes', () => {

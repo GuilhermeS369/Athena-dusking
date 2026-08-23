@@ -135,9 +135,12 @@ export default function TwitterZernioClient({ connections, transferIdentities, d
     finally{setBusy(null);}
   }
 
+  const onlineConnections=connections.filter(connection=>connection.status==='active'||connection.status==='online').length;
+  const availableTotal=connections.reduce((sum,connection)=>sum+Number(connection.wallet?.posted_balance_micros??0)-Number(connection.wallet?.reserved_micros??0),0);
   return <div className="content-stack">
     {message ? <div className="notice-banner">{message}</div> : null}
-    {canManage ? <form className="panel auth-form" onSubmit={create}>
+    <section className="zernio-metrics"><article className="metric-card"><span className="metric-label">Conexões</span><strong>{onlineConnections}/{connections.length}</strong><small className="metric-caption">Contas X operacionais</small></article><article className="metric-card"><span className="metric-label">Saldo disponível</span><strong>{usd(availableTotal)}</strong><small className="metric-caption">Após reservas abertas</small></article><article className="metric-card"><span className="metric-label">Analytics</span><strong>{connections.filter(connection=>connection.analytics_enabled).length}</strong><small className="metric-caption">Conexões opt-in</small></article></section>
+    {canManage ? <form className="panel auth-form zernio-create-panel" onSubmit={create}>
       <h2>Cadastrar identidade Zernio para o X</h2>
       <p className="muted">A identidade verificada recebe uma única concessão global de US$ 12,00. Trocar a chave não reinicia o saldo.</p>
       <label>Nome da conexão<input value={label} onChange={(event) => setLabel(event.target.value)} maxLength={120} required /></label>
@@ -156,11 +159,11 @@ export default function TwitterZernioClient({ connections, transferIdentities, d
       </>}
     </form>:null}
     {canManage&&transferEvents.length?<section className="panel"><div className="panel-heading"><div><span className="section-kicker">Auditoria imutável</span><h2>Transferências recentes</h2><p>Eventos de origem ou destino desta organização. Eles não podem ser editados ou apagados.</p></div></div><div className="content-stack">{transferEvents.map((event)=><article key={event.id}><strong>{event.fromOrganizationName} → {event.toOrganizationName}</strong><p className="muted">Identidade {event.identity_id.slice(0,8)} · {new Date(event.created_at).toLocaleString('pt-BR')} · {event.actor_email}</p><p>{event.reason}</p></article>)}</div></section>:null}
-    <section className="content-stack">
+    <section className="zernio-connection-grid">
       {connections.length === 0 ? <div className="empty-state"><h2>Nenhuma conexão X</h2><p>Cadastre uma API key Zernio exclusiva para iniciar.</p></div> : connections.map((connection) => {
         const posted = Number(connection.wallet?.posted_balance_micros ?? 0);
         const reserved = Number(connection.wallet?.reserved_micros ?? 0);
-        return <article className="panel" key={connection.id}>
+        return <article className="panel zernio-connection-card" key={connection.id}>
           <div className="standalone-header"><div><h2>{connection.label}</h2><p className="muted">Status: {connection.status} · Última sincronização: {connection.last_sync_at ? new Date(connection.last_sync_at).toLocaleString('pt-BR') : 'nunca'}</p></div></div>
           <div className="summary-grid">
             <div><span>Saldo contábil</span><strong>{usd(posted)}</strong></div>

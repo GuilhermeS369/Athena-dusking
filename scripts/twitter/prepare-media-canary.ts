@@ -34,10 +34,12 @@ async function main() {
   const executeAt = new Date(Date.now() + delayMinutes * 60_000); executeAt.setUTCSeconds(0, 0);
   const stamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
   const request: TwitterBulkRequest = {
+    scheduleVersion: 2,
+    name: `Canário de mídia ${setKind}`,
     profileIds: [profiles[0].id],
     texts: [`Canário técnico Athena X — teste isolado ${setKind} ${stamp}`],
     mediaSets: [{ clientKey: `canary-${randomUUID()}`, mediaKind: setKind, assetIds }],
-    schedule: { kind: 'interval', startsAt: executeAt.toISOString(), intervalMinutes: 1, durationMinutes: 0 },
+    schedule: { kind: 'interval', intervalMinutes: 1440, durationDays: 1 },
   };
   const review = await prepareTwitterBulkReview(organizationId, request);
   if (review.totalRequested !== 1 || review.fundedCount !== 1 || review.unfundedCount !== 0 || review.reservedMicros !== 15_000 || review.items[0]?.media_set_client_key == null) throw new Error('Revisão de mídia não produziu um slot de 15.000 micros.');

@@ -2,10 +2,12 @@ import { NextResponse } from 'next/server';
 
 import { prepareTwitterBulkReview, type TwitterBulkRequest } from '@/lib/twitter/bulk-service';
 import { getTwitterRequestContext } from '@/lib/twitter/request-context';
+import { isTwitterBulkScheduleV2Enabled } from '@/lib/twitter/feature';
 
 export async function POST(request: Request) {
   const auth = await getTwitterRequestContext('operator');
   if ('response' in auth) return auth.response;
+  if (!isTwitterBulkScheduleV2Enabled()) return NextResponse.json({ error: 'A agenda X V2 está temporariamente desativada.' }, { status: 503 });
   const body = await request.json().catch(() => null) as TwitterBulkRequest | null;
   if (!body) return NextResponse.json({ error: 'Requisição inválida.' }, { status: 400 });
   try {
@@ -21,6 +23,9 @@ export async function POST(request: Request) {
       walletSnapshots: review.walletSnapshots,
       shortfalls: review.shortfalls,
       schedule: review.schedule,
+      typeBreakdown: review.typeBreakdown,
+      warnings: review.warnings,
+      name: review.name,
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Falha na revisão X.' }, { status: 400 });

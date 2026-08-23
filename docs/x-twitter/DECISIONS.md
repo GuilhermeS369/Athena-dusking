@@ -2,6 +2,14 @@
 
 Decisões são append-only. Mudanças exigem nova ADR que substitua explicitamente a anterior.
 
+## ADR-X-019 — Galeria compartilha o cliente otimizado, não os dados operacionais
+
+- A Galeria X usa o mesmo componente de UX e pipeline de preparação do Instagram para impedir divergência de CSS, fila, retry, seleção e miniaturas.
+- Um adaptador escolhe limites, formatos, bucket e endpoints do X; nenhuma tabela, mídia, programa ou RPC do Instagram é consultado pelo fluxo X.
+- Vídeos são representados por JPEG persistido e nunca recebem autoplay na grade. O arquivo completo só é lido no upload ou quando o operador solicita recuperação da miniatura.
+- SHA-256 integral permanece para arquivos de até 64 MB. Acima disso, a fingerprint usa uma árvore SHA-256 de blocos de 8 MB para evitar duplicar até 512 MB no heap do navegador.
+- Deduplicação é por `(organization_id, sha256)`. Reenvios reutilizam o asset e apenas acrescentam a nova origem/grupo, permitindo uso do mesmo arquivo em outros perfis sem novo consumo de Storage.
+
 ## ADR-X-001 — módulo fisicamente isolado
 
 - Data: 22/08/2026
@@ -155,3 +163,10 @@ Decisões são append-only. Mudanças exigem nova ADR que substitua explicitamen
 - Decisão: quando uma leitura controlada retornar HTTP 200 `synced` com métricas, Analytics/Inbox forem desligados e duas conferências estáveis de `/v1/usage` permanecerem sem delta, o item pode terminar com zero unidades liquidadas e liberação integral da reserva. Os eventos de ativação/desligamento e a evidência da leitura ficam imutáveis. Qualquer incremento posterior do contador cumulativo será debitado uma única vez por reconciliação tardia baseada no delta desde o último total reconciliado.
 - Motivo: a API pode servir métricas já sincronizadas sem criar uma nova operação X imediatamente. Manter hold indefinidamente sem débito observado impediria o rollout; debitar uma leitura presumida violaria a regra de cobrança exata.
 - Consequência: o reconciliador tardio exige capabilities off, dois snapshots estáveis, saldo disponível, versão da carteira e idempotência por total observado. Ele nunca chama `/v1/analytics`, nunca cria crédito e não altera o histórico do item já concluído.
+
+## ADR-X-025 — programação em massa V2 acumula por perfil e revisa custos antes da reserva
+
+- Data: 23/08/2026 (America/Sao_Paulo).
+- Decisão: novas agendas contínuas começam em `max(agora, cauda ativa do perfil) + intervalo`, incluindo retries futuros; agendas diárias permanecem na próxima ocorrência fixa de `America/Sao_Paulo`. A confirmação bloqueia os perfis em ordem determinística, revalida a cauda e rejeita drift concorrente. A revisão é somente leitura e mostra custos, carteiras compartilhadas, shortfalls, tipos de mídia e bloqueios antes de qualquer reserva.
+- Motivo: a agenda anterior aceitava início manual, não acumulava de forma confiável depois de filas existentes e o visual não tornava saldo, custo e carga por tipo compreensíveis antes da aprovação.
+- Consequência: programas anteriores permanecem intactos, mas seus itens ativos participam da base de novos programas. O contrato novo exige `scheduleVersion: 2` e nome; fica protegido por `TWITTER_BULK_SCHEDULE_V2_ENABLED`. A linguagem visual é compartilhada com Instagram, enquanto tabelas, RPCs, APIs e workers continuam exclusivos do X.

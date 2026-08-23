@@ -29,10 +29,12 @@ async function main() {
   process.env.TWITTER_REVIEW_TOKEN_SECRET ??= randomBytes(32).toString('base64url');
   const executeAt = new Date(Date.now() + 60 * 60_000); executeAt.setUTCSeconds(0, 0);
   const request: TwitterBulkRequest = {
+    scheduleVersion: 2,
+    name: 'Canário de cancelamento',
     profileIds: [profiles[0].id],
     texts: [`Canário local Athena X — cancelamento sem chamada externa ${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')}`],
     mediaSets: [],
-    schedule: { kind: 'interval', startsAt: executeAt.toISOString(), intervalMinutes: 1, durationMinutes: 0 },
+    schedule: { kind: 'interval', intervalMinutes: 1440, durationDays: 1 },
   };
   const review = await prepareTwitterBulkReview(organizationId, request);
   if (review.fundedCount !== 1 || review.reservedMicros !== 15_000 || review.items[0]?.category !== 'post_dm_create') throw new Error('Review de cancelamento inválido.');

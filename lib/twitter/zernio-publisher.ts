@@ -8,10 +8,10 @@ function text(value:unknown){return typeof value==='string'?value:'';}
 function id(value:Record<string,unknown>){return [value._id,value.id].find((entry):entry is string=>typeof entry==='string'&&entry.length>0)??null;}
 
 export function buildTwitterPostBody(input:{content:string;accountId:string;media:TwitterMediaInput[]}){
-  if(!input.content.trim())throw new Error('Conteúdo X vazio.');if(!input.accountId.trim())throw new Error('Conta X ausente.');
+  if(!input.content.trim()&&!input.media.length)throw new Error('Conteúdo X vazio.');if(!input.accountId.trim())throw new Error('Conta X ausente.');
   const images=input.media.filter(item=>item.type==='image');const gifs=input.media.filter(item=>item.type==='gif');const videos=input.media.filter(item=>item.type==='video');
   if(images.length>4||gifs.length>1||videos.length>1||(images.length&&gifs.length)||(images.length&&videos.length)||(gifs.length&&videos.length))throw new Error('Combinação de mídia X inválida.');
-  return{content:input.content,mediaItems:input.media,platforms:[{platform:'twitter',accountId:input.accountId}],publishNow:true};
+  return{...(input.content.trim()?{content:input.content}:{}),mediaItems:input.media,platforms:[{platform:'twitter',accountId:input.accountId}],publishNow:true};
 }
 
 export function classifyTwitterPost(postValue:unknown,existing=false):{resolution:TwitterPublicationResolution;postId:string|null;providerCode:string;message:string}{

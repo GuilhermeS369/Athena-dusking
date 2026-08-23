@@ -155,18 +155,22 @@ export default async function TwitterLogsPage() {
     eventsByReservation.set(event.reservation_id, current);
   }
   const canResolve = context.activeOrganization.role !== "viewer";
+  const unknownCount=operations.filter(log=>log.phase==='outcome_unknown').length+analytics.filter(log=>log.status==='outcome_unknown').length;
+  const openReservations=(reservationsResult.data??[]).filter(reservation=>Number(reservation.remaining_micros)>0).length;
+  const settledTotal=operations.reduce((sum,log)=>sum+Number(log.settled_micros??0),0);
   return (
-    <div className="page-stack">
-      <header className="page-heading">
+    <main className="standalone-page operation-page">
+      <header className="standalone-header">
         <div>
-          <span className="eyebrow">X / Twitter</span>
-          <h1>Logs</h1>
+          <span className="section-kicker">{context.activeOrganization.name} · X / Twitter</span>
+          <h1>Status e logs</h1>
           <p>
             Timeline financeira e operacional exclusiva do X, construída somente
             com snapshots locais.
           </p>
         </div>
       </header>
+      <section className="metric-grid"><article className="metric-card"><span className="metric-label">Eventos</span><strong>{operations.length+analytics.length}</strong><small className="metric-caption">Publicação e analytics</small></article><article className={unknownCount?'metric-card operation-metric-danger':'metric-card'}><span className="metric-label">Exigem atenção</span><strong>{unknownCount}</strong><small className="metric-caption">Resultados incertos</small></article><article className="metric-card"><span className="metric-label">Reservas abertas</span><strong>{openReservations}</strong><small className="metric-caption">Holds financeiros</small></article><article className="metric-card"><span className="metric-label">Liquidado</span><strong>{usd(settledTotal)}</strong><small className="metric-caption">Nos eventos carregados</small></article></section>
       {context.activeOrganization.role === "admin" ? (
         <TwitterFinancialRules />
       ) : null}
@@ -363,6 +367,6 @@ export default async function TwitterLogsPage() {
           </div>
         ) : null}
       </section>
-    </div>
+    </main>
   );
 }

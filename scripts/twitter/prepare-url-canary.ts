@@ -27,10 +27,12 @@ async function main() {
   const executeAt = new Date(Date.now() + delayMinutes * 60_000); executeAt.setUTCSeconds(0, 0);
   const stamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
   const request: TwitterBulkRequest = {
+    scheduleVersion: 2,
+    name: 'Canário de URL',
     profileIds: [profiles[0].id],
     texts: [`Canário técnico Athena X — custo de URL ${stamp} https://example.com/`],
     mediaSets: [],
-    schedule: { kind: 'interval', startsAt: executeAt.toISOString(), intervalMinutes: 1, durationMinutes: 0 },
+    schedule: { kind: 'interval', intervalMinutes: 1440, durationDays: 1 },
   };
   const review = await prepareTwitterBulkReview(organizationId, request);
   const reviewedItem = review.items[0];
