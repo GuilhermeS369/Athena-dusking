@@ -214,3 +214,15 @@ Deploy final off: código `4cb7502`; Preview `dpl_2stTwHisyFgd6GfNFvCMihRJqZYs` 
 - O arquivo temporário remoto foi removido somente após confirmar o release e o hash. O bypass de proteção Vercel foi rotacionado preventivamente após exposição em saída operacional; nenhum segredo consta deste registro.
 
 Gate de deploy desligado concluído. Próxima unidade: executor guardado e canário de uma seleção inédita, com limite de 45.000 micros. Rollout geral e fallback live continuam proibidos.
+
+## Preflight formal da Fase 8 — sete de nove gates
+
+- Zernio já retornou HTTP 200 com métricas para o novo canário fan-out; este item do gate está aprovado.
+- Production segura `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch` está `READY`; login 200 e `/x/postagem` sem sessão 307 para login.
+- Supabase 246/246, nenhuma migration pendente. VPS release `d67a2ec-20260823T113709Z`, 42 GB livres, 2.917 MB disponíveis e sem swap.
+- Quatro processos X PM2 `stopped`; fallback Vercel não é PM2. Seis processos existentes `online` com PIDs 99980, 27468, 136197, 127605, 122939 e 103209.
+- Zero publicação não terminal, zero publicação unknown, zero breaker aberto e zero HTTP 429 em 24 horas.
+- O único sinal crítico é o item Analytics HTTP 200 em `billing_pending`, acompanhado de uma reserva aberta de 45.000 micros. Por isso health deve continuar `unhealthy` até reconciliação; esse estado não será mascarado.
+- Checklist corrigido para a topologia vigente de quatro PM2 + fallback separado. Sete de nove itens aprovados; faltam snapshot/débito exato/hold zero e health `ok` posterior.
+
+Nenhuma organização foi adicionada, nenhum worker foi iniciado e fallback continua off. A expansão progressiva permanece bloqueada até os dois itens restantes.

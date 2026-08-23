@@ -4,15 +4,17 @@ Este checklist é operacional e não autoriza ativação. Todos os gates precisa
 
 ## Gate zero — obrigatório antes de qualquer expansão
 
-- [ ] Zernio retornou HTTP 200 para analytics manual de um recurso canário.
+- [x] Zernio retornou HTTP 200 para analytics manual de um recurso canário.
 - [ ] Snapshot local criado e débito exato liquidado; zero hold ou outcome incerto.
 - [ ] `/api/internal/twitter-rollout-health` retorna `ok`, zero breakers abertos, zero unknowns e zero 429 na janela observada.
-- [ ] Production está `READY` no deployment documentado, com smoke de login e rotas X.
-- [ ] Cinco processos X e seis processos existentes conferidos separadamente no PM2.
-- [ ] Supabase local/remoto alinhado e nenhuma migration pendente.
-- [ ] Testes, TypeScript, build e `git diff --check` aprovados no commit candidato.
-- [ ] Rollback Vercel/VPS e IDs exatos registrados.
-- [ ] Gate visual/CSS de todas as rotas `/x/*` aprovado nos breakpoints documentados, com regressão das telas Instagram que usam estilos compartilhados.
+- [x] Production está `READY` no deployment documentado, com smoke de login e rotas X.
+- [x] Quatro processos X PM2 e seis processos existentes conferidos separadamente; fallback Vercel não é processo PM2.
+- [x] Supabase local/remoto alinhado e nenhuma migration pendente.
+- [x] Testes, TypeScript, build e `git diff --check` aprovados no commit candidato.
+- [x] Rollback Vercel/VPS e IDs exatos registrados.
+- [x] Gate visual/CSS de todas as rotas `/x/*` aprovado nos breakpoints documentados, com regressão das telas Instagram que usam estilos compartilhados.
+
+Estado em 23/08/2026 09:05 BRT: sete de nove itens aprovados. O health permanece propositalmente `unhealthy` por um único `twitter_analytics_item` HTTP 200 em `outcome_unknown/billing_pending` e sua reserva de 45.000 micros. Zero breaker e zero HTTP 429; não mascarar esse sinal nem marcar os dois itens restantes antes da liquidação comprovada.
 
 ## Semântica das flags
 

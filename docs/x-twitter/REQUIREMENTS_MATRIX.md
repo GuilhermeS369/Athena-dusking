@@ -1,6 +1,6 @@
 # Matriz final de requisitos — módulo X/Twitter
 
-Atualizada em 2026-08-23T02:03:07Z. Esta matriz não substitui o plano; resume evidência e gates para continuidade segura.
+Atualizada em 2026-08-23T12:05:47Z. Esta matriz não substitui o plano; resume evidência e gates para continuidade segura.
 
 | Área | Estado | Evidência / observação |
 |---|---|---|
@@ -15,22 +15,22 @@ Atualizada em 2026-08-23T02:03:07Z. Esta matriz não substitui o plano; resume e
 | Zernio/identidades/perfis | Concluído e off | Único conector X, identidade global, transferência auditada, épocas, remoção/reativação e sync dedicado. |
 | Galeria e grupos | Concluído | Upload TUS direto, mídia congelada preservada ao excluir, grupos editáveis e tenant isolation. |
 | Agenda, fila e perfis | Concluído | Páginas locais, filtros/cancelamentos e detalhe estável com histórico/snapshots sem leitura automática. |
-| Workers/PM2 | Instalado e parado | Quatro papéis reais no release `e732fed77971-20260823T000341Z`; todos `stopped`; processos existentes intactos. |
+| Workers/PM2 | Instalado e parado | Quatro papéis reais no release `d67a2ec-20260823T113709Z`; todos `stopped`; seis processos existentes intactos. Fallback Vercel é separado e não é processo PM2. |
 | Publicação canário | Concluído | Texto, imagens, GIF, vídeo, URL e matriz de erros validados; wallet atual 11.725.000 micros. |
-| Analytics manual | Implementado, gate de sucesso/fan-out bloqueado | Três operações retornaram HTTP 202 e zero snapshot; billing tardio confirmou 27 reads/US$ 0,135 e foi reconciliado. Capability Athena passou em janela curta com delta zero, mas HTTP 200 e custo real por seleção ainda não foram provados. |
-| Rollout geral/fallback live | Não iniciado por gate | Proibido até uma operação analytics distinta retornar sucesso comprovado/HTTP 200 com snapshot e liquidação correta. |
+| Analytics manual | HTTP 200 comprovado; billing pendente | Novo item fan-out recebeu HTTP 200 e métricas. Reserva máxima 45.000 está aberta; baseline e contador atual permanecem 27 reads. Sem snapshot/débito/retry até o metering provar o delta exato. |
+| Rollout geral/fallback live | Preflight iniciado; expansão bloqueada | Sete de nove itens do gate zero aprovados. Faltam liquidação/snapshot do HTTP 200 e health `ok` sem unknown; nenhuma organização adicional ou fallback live autorizado. |
 | CSS/UX responsivo do módulo X | Concluído | Shell e estilos específicos escopados em `.twitter-module-shell`. Matriz autenticada 10 rotas × 5 larguras aprovada localmente e repetida em Production canário; sem overflow, alvos mínimos de 44 px e foco visível. Postagem Instagram validada em desktop/mobile fora do wrapper X. |
 
 ## Estado operacional congelado
 
-- Todas as flags X e fallback estão off.
-- Production: `dpl_Cvbbi7kWV7w32ct71frjGR3SfRSj`, `READY`, alias oficial.
-- Preview: `dpl_2stTwHisyFgd6GfNFvCMihRJqZYs`, `READY`.
-- Supabase local/remoto alinhado até 245.
-- Publicação/analytics não terminais 0; holds 0; snapshots 0; transferências 0.
-- Wallet: 11.590.000 micros contábeis, 0 reservado, versão 24; reconciliação tardia debitou 135.000 e o canário reservou/liberou 6.590.000 sem débito.
+- Todas as flags mutáveis X e fallback estão off; Pomodoro permanece na lista canário do módulo.
+- Production: `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch`, `READY`, alias oficial. Rollback anterior: `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D`.
+- Preview: `dpl_7nHd2NqnixMUCHq51d2czH3Fkiqc`, `READY`.
+- Supabase local/remoto alinhado até 246.
+- Publicação não terminal 0; Analytics unknown 1; reserva aberta 1; snapshots 0; breakers abertos 0; HTTP 429 em 24 h 0.
+- Wallet: 11.590.000 micros contábeis, 45.000 reservado, versão 25. O hold pertence somente ao canário HTTP 200 aguardando billing.
 - Quatro workers X `stopped`; seis processos existentes `online` com PIDs preservados.
 
 ## Única próxima ação autorizada pelo plano
 
-Decidir e implementar a proteção financeira para o fan-out Analytics comprovado (27 reads em 3 seleções). Não repetir os três endpoints já tentados nem habilitar rollout geral para contornar o gate.
+Executar somente a auditoria de billing do item registrado em `STATE.json`. Quando `posts_read > 27` e o valor estiver estável, liquidar exatamente o delta, criar o snapshot com as métricas já preservadas e liberar o excedente da reserva. Depois repetir health; não chamar Analytics novamente nem habilitar rollout para contornar o gate.

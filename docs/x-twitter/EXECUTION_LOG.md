@@ -1144,3 +1144,13 @@ Registros são append-only.
 - Billing: múltiplas consultas somente leitura continuaram em 27 reads, US$ 0,410 total e US$ 0,135 de reads no dia. Hold integral preservado por atraso de metering.
 - Reconciliador novo `scripts/twitter/reconcile-fanout-analytics-canary.ts`: audita sem mutação; recusa delta zero; exige dois contadores finais estáveis e confirmação explícita; limita delta a nove; usa `p_billed_units` e libera o excedente atomicamente.
 - Verificação do reconciliador: teste dedicado 3/3, TypeScript e `git diff --check` aprovados. Próxima ação segura: apenas auditorar até `posts_read > 27`; então liquidar uma vez o delta comprovado. Não repetir Analytics ou reserva.
+
+## X-0093 — preflight formal da Fase 8 iniciado
+
+- UTC: 2026-08-23T12:05:47Z; São Paulo: 2026-08-23T09:05:47-03:00.
+- Billing read-only continuou em 27 reads; reconciliador confirmou delta zero, hold integral 45.000 e `readyToSettle=false`. Nenhuma mutação.
+- Production segura `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch` `READY`; login 200 e rota X sem sessão 307. Supabase local/remoto 246/246.
+- VPS: release `d67a2ec-20260823T113709Z`, 42 GB livres, 2.917 MB disponíveis, sem swap. Quatro PM2 X stopped e seis processos existentes online com PIDs preservados.
+- Banco: publicação não terminal/unknown 0; Analytics reserved/processing 0 e unknown 1; reserva aberta 1; hold de publicação ativo/unknown 0; breakers abertos 0; HTTP 429 publicação/Analytics em 24 h 0; wallet 11.590.000/45.000 versão 25.
+- Correção documental: o checklist dizia cinco processos X, mas a topologia vigente possui quatro processos PM2 e um fallback Vercel separado. Registros históricos de cinco papéis permanecem preservados.
+- Gate zero: sete de nove aprovados. Faltam somente liquidar/criar snapshot/liberar hold e obter health `ok` depois disso. Nenhuma organização adicional, worker ou fallback foi ativado.

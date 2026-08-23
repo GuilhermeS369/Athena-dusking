@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T11:52:12Z / 2026-08-23T08:52:12-03:00
+- Atualizado em: 2026-08-23T12:05:47Z / 2026-08-23T09:05:47-03:00
 - Fase atual: 8 — preparação do rollout progressivo (`in_progress`); gate visual/CSS e gate transacional do contrato fan-out concluídos; sem liberação geral
-- Status: o canário fan-out retornou HTTP 200 com métricas e foi preservado como `billing_pending`. Deployment seguro restaurado; Analytics/Inbox/workers off. Hold de 45.000 micros permanece até o contador Zernio superar o baseline 27 e estabilizar.
+- Status: Fase 8 formalmente em preflight, com sete de nove itens do gate zero aprovados. O canário HTTP 200 permanece `billing_pending`; faltam a liquidação/snapshot exatos e, depois, health `ok`. Deployment seguro restaurado; Analytics/Inbox/workers off.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint Git executável mais recente: `d67a2ec`; Preview `dpl_7nHd2NqnixMUCHq51d2czH3Fkiqc` e Production `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch`, ambos `READY`. O escopo global e todos os workers/fallback continuam off; somente Pomodoro permanece canário.
