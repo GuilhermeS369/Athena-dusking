@@ -86,7 +86,11 @@ test('auditoria de uso consulta somente o snapshot de billing sem ler recursos X
   });
 
   const snapshot = await client.getUsageSnapshot();
+  await client.getUsageMetering('7d');
   assert.deepEqual(snapshot.usage?.xApiCallsByOperation, { posts_read: 1 });
-  assert.deepEqual(requests, ['https://example.test/api/v1/usage']);
+  assert.deepEqual(requests, [
+    'https://example.test/api/v1/usage',
+    'https://example.test/api/v1/usage?range=7d&granularity=day',
+  ]);
   assert.equal(requests.some((url) => url.includes('/analytics') || url.includes('/posts/')), false);
 });

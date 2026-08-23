@@ -98,11 +98,20 @@ async function forceDisable(connectionId, actorUserId, reason) {
 }
 
 async function watchdog() {
-  const delaySeconds = integer(required('TWITTER_CAPABILITY_WATCHDOG_DELAY_SECONDS'), 60, 1_200);
+  const delaySeconds = integer(required('TWITTER_CAPABILITY_WATCHDOG_DELAY_SECONDS'), 60, 1_500);
   const connectionId = required('TWITTER_CAPABILITY_CONNECTION_ID');
   const actorUserId = required('TWITTER_CAPABILITY_ACTOR_USER_ID');
+  const reservationId = required('TWITTER_CAPABILITY_RESERVATION_ID');
+  const sourceId = required('TWITTER_CAPABILITY_SOURCE_ID');
   await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1_000));
   await forceDisable(connectionId, actorUserId, 'Watchdog independente encerrou a janela de Analytics sync.');
+  const { error } = await admin.rpc('twitter_mark_reservation_outcome_unknown', {
+    p_reservation_id: reservationId,
+    p_idempotency_key: `capability-watchdog-unknown:${sourceId}`,
+    p_reason: 'Watchdog encerrou a janela; o executor principal não comprovou a liquidação antes do prazo.',
+    p_metadata: { sourceId, watchdog: true },
+  });
+  if (error && !String(error.message ?? '').includes('Reserva encerrada')) throw error;
 }
 
 async function run() {
@@ -111,21 +120,21 @@ async function run() {
   const settleDelaySeconds = integer(process.env.TWITTER_CAPABILITY_USAGE_SETTLE_SECONDS ?? '60', 30, 180);
   const context = await connectionContext();
   if (context.connection.analytics_enabled || context.connection.inbox_enabled) throw new Error('Capabilities não começaram desligadas.');
-  const [{ data: membership }, { data: wallet }, { data: card }, publishedResult, openReservations] = await Promise.all([
+  const [{ data: membership }, { data: wallet }, { data: card }, openReservations, { data: reconciledUsage, error: reconciledUsageError }] = await Promise.all([
     admin.from('organization_members').select('user_id,role').eq('organization_id', organizationId).eq('role', 'admin').order('joined_at').limit(1).single(),
     admin.from('twitter_wallets').select('posted_balance_micros,reserved_micros,version').eq('identity_id', context.connection.identity_id).single(),
     admin.from('twitter_rate_cards').select('version').eq('active', true).single(),
-    admin.from('twitter_publication_items').select('id', { count: 'exact', head: true }).eq('organization_id', organizationId).eq('connection_id', context.connection.id).eq('status', 'published'),
     admin.from('twitter_wallet_reservations').select('id', { count: 'exact', head: true }).eq('identity_id', context.connection.identity_id).gt('remaining_micros', 0),
+    admin.from('twitter_provider_usage_reconciliations').select('observed_operation_total').eq('identity_id', context.connection.identity_id).eq('category', 'post_read').order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ]);
-  if (!membership || !wallet || !card || publishedResult.error || openReservations.error) throw new Error('Baseline local do canário indisponível.');
+  if (!membership || !wallet || !card || openReservations.error || reconciledUsageError) throw new Error('Baseline local do canário indisponível.');
   if ((openReservations.count ?? 0) !== 0 || Number(wallet.reserved_micros) !== 0) throw new Error('Existe reserva aberta antes do canário.');
-  const resourceCount = publishedResult.count ?? 0;
-  if (resourceCount < 1 || resourceCount > 1_000) throw new Error('Quantidade de posts publicados fora do limite do canário.');
-  const amountMicros = resourceCount * 5_000;
-  if (Number(wallet.posted_balance_micros) - amountMicros < 5_000_000) throw new Error('Piso protegido de US$ 5,00 seria violado.');
+  const amountMicros = Math.floor((Number(wallet.posted_balance_micros) - 5_000_000) / 5_000) * 5_000;
+  const coverageReads = amountMicros / 5_000;
+  if (!Number.isSafeInteger(amountMicros) || amountMicros <= 0 || !Number.isSafeInteger(coverageReads)) throw new Error('Não há capacidade segura acima do piso protegido de US$ 5,00.');
   const baseline = await usage(context.apiKey);
   if (!Number.isSafeInteger(baseline.postsRead) || baseline.postsRead < 0) throw new Error('Baseline posts_read inválido.');
+  if (Number(reconciledUsage?.observed_operation_total ?? -1) !== baseline.postsRead) throw new Error('O baseline posts_read ainda não está reconciliado no ledger Athena.');
 
   const sourceId = randomUUID();
   const { data: reservation, error: reservationError } = await admin.rpc('twitter_create_wallet_reservation', {
@@ -151,7 +160,9 @@ async function run() {
       TWITTER_CAPABILITY_CANARY_MODE: 'watchdog',
       TWITTER_CAPABILITY_CONNECTION_ID: context.connection.id,
       TWITTER_CAPABILITY_ACTOR_USER_ID: membership.user_id,
-      TWITTER_CAPABILITY_WATCHDOG_DELAY_SECONDS: String(durationSeconds + 90),
+      TWITTER_CAPABILITY_RESERVATION_ID: reservation.reservationId,
+      TWITTER_CAPABILITY_SOURCE_ID: sourceId,
+      TWITTER_CAPABILITY_WATCHDOG_DELAY_SECONDS: String(durationSeconds + (settleDelaySeconds * 2) + 60),
     },
   });
   watchdogProcess.unref();
@@ -186,7 +197,7 @@ async function run() {
     runError ??= error;
   }
   const delta = finalUsage ? finalUsage.postsRead - baseline.postsRead : null;
-  const safeDelta = Number.isSafeInteger(delta) && delta >= 0 && delta <= resourceCount;
+  const safeDelta = Number.isSafeInteger(delta) && delta >= 0 && delta <= coverageReads;
   if (!disableConfirmed || !safeDelta) {
     await admin.rpc('twitter_mark_reservation_outcome_unknown', {
       p_reservation_id: reservation.reservationId,
@@ -216,7 +227,7 @@ async function run() {
     if (error) throw error;
   }
   if (runError) throw runError;
-  process.stdout.write(`${JSON.stringify({ sourceId, reservationId: reservation.reservationId, resourceCount, durationSeconds, settleDelaySeconds, baselinePostsRead: baseline.postsRead, finalPostsRead: finalUsage.postsRead, billingSnapshotsConfirmed: 2, billedReads: delta, settledMicros, releasedMicros: amountMicros - settledMicros, analyticsEnabled: false, inboxEnabled: false }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ sourceId, reservationId: reservation.reservationId, coverageReads, durationSeconds, settleDelaySeconds, baselinePostsRead: baseline.postsRead, finalPostsRead: finalUsage.postsRead, billingSnapshotsConfirmed: 2, billedReads: delta, settledMicros, releasedMicros: amountMicros - settledMicros, analyticsEnabled: false, inboxEnabled: false }, null, 2)}\n`);
 }
 
 (mode === 'watchdog' ? watchdog() : run()).catch((error) => {

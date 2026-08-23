@@ -11,6 +11,9 @@ test('canário de capability reserva antes de ativar e sempre desliga em finally
   assert.match(source, /spawn\(process\.execPath/);
   assert.match(source, /windowsHide: true/);
   assert.match(source, /TWITTER_CAPABILITY_WATCHDOG_DELAY_SECONDS/);
+  assert.match(source, /TWITTER_CAPABILITY_RESERVATION_ID/);
+  assert.match(source, /capability-watchdog-unknown/);
+  assert.match(source, /durationSeconds \+ \(settleDelaySeconds \* 2\) \+ 60/);
 });
 
 test('canário mantém Inbox desligado e liquida somente delta comprovado de posts_read', async () => {
@@ -18,7 +21,10 @@ test('canário mantém Inbox desligado e liquida somente delta comprovado de pos
   assert.match(source, /xCapabilities: \{ analytics, inbox: false \}/);
   assert.match(source, /operations\.posts_read/);
   assert.match(source, /const settledMicros = delta \* 5_000/);
-  assert.match(source, /delta <= resourceCount/);
+  assert.match(source, /delta <= coverageReads/);
   assert.match(source, /firstFinalUsage\.postsRead !== secondFinalUsage\.postsRead/);
   assert.match(source, /5_000_000/);
+  assert.match(source, /twitter_provider_usage_reconciliations/);
+  assert.match(source, /baseline posts_read ainda não está reconciliado/);
+  assert.match(source, /posted_balance_micros\) - 5_000_000/);
 });

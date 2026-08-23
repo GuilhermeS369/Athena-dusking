@@ -12,6 +12,21 @@ function finiteInteger(value: unknown) {
   return Number.isSafeInteger(number) && number >= 0 ? number : null;
 }
 
+function finiteMoney(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function sanitizedMeteringRow(value: unknown) {
+  const row = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  return {
+    date: typeof row.date === 'string' ? row.date : null,
+    xApiUsd: finiteMoney(row.xApi),
+  };
+}
+
 async function main() {
   if (required('TWITTER_USAGE_AUDIT_CONFIRM') !== 'read-zernio-billed-usage') {
     throw new Error('Confirmação operacional inválida.');
@@ -28,7 +43,10 @@ async function main() {
   if (connections?.length !== 1) throw new Error('A auditoria exige exatamente uma conexão X ativa na organização.');
 
   const { client } = await loadTwitterZernioConnection(organizationId, connections[0].id);
-  const snapshot = await client.getUsageSnapshot();
+  const [snapshot, metering] = await Promise.all([
+    client.getUsageSnapshot(),
+    client.getUsageMetering('7d'),
+  ]);
   const operationSource = snapshot.usage?.xApiCallsByOperation ?? {};
   const operations = Object.fromEntries(
     Object.entries(operationSource)
@@ -46,6 +64,16 @@ async function main() {
       currentPeriodCents: finiteInteger(spend.currentPeriodCents),
       xSpendCents: finiteInteger(spend.xSpendCents),
       xSpendLimitCents: finiteInteger(spend.xSpendLimitCents),
+    },
+    metering7d: {
+      source: 'GET /v1/usage?range=7d&granularity=day',
+      supported: metering.supported !== false,
+      from: typeof metering.from === 'string' ? metering.from : null,
+      to: typeof metering.to === 'string' ? metering.to : null,
+      totals: {
+        xApiUsd: finiteMoney(metering.totals?.xApi),
+      },
+      days: (metering.days ?? []).map(sanitizedMeteringRow),
     },
   }, null, 2)}\n`);
 }

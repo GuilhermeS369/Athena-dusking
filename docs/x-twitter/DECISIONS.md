@@ -126,3 +126,11 @@ Decisões são append-only. Mudanças exigem nova ADR que substitua explicitamen
 - Decisão: o canário temporário reserva 5.000 micros para cada post publicado conhecido da conexão antes de ativar Analytics. A janela dura no máximo 15 minutos, mantém Inbox desligado, inicia um watchdog independente e desliga a capability em `finally`. Depois do desligamento, duas leituras de billing espaçadas precisam apresentar o mesmo `posts_read`; somente o delta comprovado é liquidado e o restante é liberado.
 - Motivo: Analytics sync autoriza operações periódicas cobradas. Uma simples ativação sem reserva e sem desligamento independente quebraria as invariantes financeiras caso o executor caísse ou o metering chegasse atrasado.
 - Consequência: delta negativo, crescente entre snapshots, maior que o número de posts cobertos ou desligamento não confirmado marca a reserva como `outcome_unknown` e interrompe o rollout. O watchdog nunca libera saldo: ele apenas força Analytics/Inbox para `false`; resolução financeira continua auditável.
+
+## ADR-X-021 — billing tardio prevalece sobre HTTP 202 e snapshots imediatos
+
+- Data: 22/08/2026 (America/Sao_Paulo).
+- Substitui: ADR-X-011 e a cobertura por quantidade de posts locais da ADR-X-020.
+- Decisão: HTTP 202 nunca será classificado como não cobrado somente porque snapshots imediatos não exibem `posts_read`. A medição Metronome diária reconciliada da fatura é a evidência financeira autoritativa. Custos confirmados tardiamente são registrados por reconciliação coletiva imutável, sem fabricar uma distribuição por attempt que o provedor não informou.
+- Motivo: três attempts HTTP 202 foram inicialmente reconciliados após dois snapshots sem reads, mas o billing posterior registrou 27 `posts_read`, US$ 0,135, no mesmo dia UTC. Nenhum snapshot de métricas foi produzido, portanto resultado funcional e resultado financeiro são independentes.
+- Consequência: a migration 245 permite débito retroativo atômico com ledger e carteira na mesma transação. O canário de capability reserva toda a capacidade disponível acima do piso de US$ 5,00, exige que o contador inicial já esteja reconciliado e usa o delta agregado como limite; não assume uma leitura por post Athena. O watchdog força capabilities off e marca reserva ainda aberta como incerta, sem liberar saldo.

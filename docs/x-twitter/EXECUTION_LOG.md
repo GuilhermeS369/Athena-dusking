@@ -1012,3 +1012,25 @@ Registros são append-only.
 - Falha fechada: desligamento incerto, metering crescente/negativo ou delta acima da cobertura marca a reserva `outcome_unknown`; watchdog nunca libera saldo.
 - Verificação: 206/206 testes, TypeScript, sintaxe do script e `git diff --check` aprovados. Estado remoto ainda não alterado neste registro.
 - Próxima ação segura: checkpoint Git; executar baseline read-only; somente então rodar uma janela curta com a confirmação literal. Registrar reserva, capabilities, billing, carteira e watchdog antes de tentar novo analytics manual.
+
+## X-0083 — baseline detectou leituras Zernio sem ledger Athena
+
+- UTC: 2026-08-23T01:40:22Z; São Paulo: 2026-08-22T22:40:22-03:00.
+- Checkpoint de origem: `472e8d3`; worktree limpo antes da atualização documental.
+- Consulta somente leitura: `GET /v1/usage` retornou `content_create=5`, `content_create_with_url=1`, `posts_read=27` e `xSpendCents=41`. A conta fecha exatamente em US$ 0,410: 5 × US$ 0,015 + 1 × US$ 0,200 + 27 × US$ 0,005.
+- Divergência: snapshots anteriores posteriores aos três attempts HTTP 202 não continham `posts_read`; Athena possui zero snapshots e zero débito analytics. Wallet permanece 11.725.000 micros, reserva zero, versão 21.
+- Estado seguro confirmado antes da investigação: uma conexão ativa, `analytics_enabled=false`, `inbox_enabled=false`, zero reservas abertas e zero jobs analytics não terminais.
+- Decisão fail-closed: o canário de capability não será executado; Analytics e Inbox não serão ativados; nenhuma leitura de recurso X será repetida; nenhum débito será inventado sem atribuição e evento auditado.
+- Próxima ação segura: repetir apenas snapshots de `GET /v1/usage` com as capabilities desligadas e consultar documentação/endpoints diagnósticos oficiais para determinar estabilidade e atribuição temporal das 27 leituras.
+
+## X-0084 — uso tardio reconciliado e canário reforçado
+
+- UTC: 2026-08-23T01:47:42Z; São Paulo: 2026-08-22T22:47:42-03:00.
+- Billing estável: duas leituras separadas mantiveram `posts_read=27`, `xSpendCents=41`; metering diário reconciliado mostrou US$ 0,275 em 22/08 UTC e US$ 0,135 em 23/08 UTC.
+- Migração: alinhamento 1–244 confirmado; dry-run listou somente 245; `245_twitter_provider_usage_reconciliation.sql` aplicada. A tabela/evento é imutável e a RPC grava reconciliação, ledger e carteira em uma única transação.
+- pgTAP: o runner CLI com `--linked` tentou iniciar Docker e falhou antes de executar SQL ou mutar dados. Validação funcional remota do reconciliador em dry-run aprovou todas as pré-condições.
+- Financeiro: 27 × 5.000 = 135.000 micros debitados coletivamente, sem atribuição artificial por attempt. Wallet 11.725.000/0 versão 21 → 11.590.000/0 versão 22. Reexecução retornou `idempotentReplay=true`, sem segundo débito.
+- Segurança: Analytics/Inbox permaneceram off; zero snapshots, zero reservas abertas e nenhuma leitura de recurso X. Somente endpoints diagnósticos `GET /v1/usage` foram chamados.
+- Correção de desenho: o canário passa a reservar toda a capacidade acima do piso de US$ 5, exige baseline já reconciliado e dá ao watchdog o ID da reserva para marcar incerteza se o executor desaparecer. ADR-X-021 substitui ADR-X-011 e a cobertura antiga da ADR-X-020.
+- Verificação final: 208/208 testes, TypeScript, sintaxe do canário, `STATE.json`, `git diff --check` e build de 41 páginas aprovados. Permanecem apenas os warnings preexistentes de metadata em login/onboarding/not-found.
+- Próxima ação segura: validar e versionar este checkpoint; só então executar uma janela mínima de capability com reserva integral e desligamento obrigatório.

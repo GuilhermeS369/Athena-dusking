@@ -67,7 +67,7 @@ Auditoria de UI em 2026-08-22T23:39:42Z: `/x/analises` passou a carregar grupos/
 
 - Utilitário guardado: `scripts/twitter/run-zernio-capability-canary.mjs`.
 - Pré-condições: uma conexão ativa, capabilities off, zero reserva aberta, piso de US$ 5 preservado e confirmação operacional literal.
-- Reserva: um `post_read` de 5.000 micros por publicação conhecida da conexão, antes da ativação.
+- Reserva corrigida após billing tardio: toda a capacidade da carteira acima do piso protegido de US$ 5,00, arredondada em unidades de 5.000 micros. A quantidade de posts locais não limita as leituras internas da Zernio.
 - Recuperação: `finally` local e subprocesso watchdog independente, oculto no Windows, ambos forçam Analytics/Inbox off.
 - Billing: duas conferências finais estáveis; liquidação exata do delta `posts_read`, liberação do restante ou `outcome_unknown` em qualquer incerteza.
 - Gate local: 206/206 testes, TypeScript, sintaxe e diff check aprovados. Nenhuma capability ou chamada Zernio executada nesta preparação.
@@ -77,3 +77,12 @@ Auditoria de UI em 2026-08-22T23:39:42Z: `/x/analises` passou a carregar grupos/
 ## Próxima ação segura
 
 Aguardar a Zernio disponibilizar resposta HTTP 200. Não criar novo canário pago até mudança externa verificável.
+
+### Correção financeira por metering tardio — 22/08/2026
+
+- Dois snapshots somente leitura, com Analytics/Inbox desligados, estabilizaram em `posts_read=27` e `xSpendCents=41`.
+- A visão diária reconciliada da fatura separou US$ 0,275 em 22/08 UTC, exatamente as seis criações conhecidas, e US$ 0,135 em 23/08 UTC, exatamente 27 reads na janela dos três attempts HTTP 202.
+- Os itens permanecem funcionalmente `failed/manual_not_metered` e sem snapshots: a Zernio não forneceu distribuição por attempt nem métricas. A descrição “not metered” deixa de ser uma conclusão financeira válida e fica preservada apenas como histórico imutável da decisão anterior.
+- Migration 245 criou reconciliação retroativa imutável e RPC atômica. O evento coletivo debitou 135.000 micros uma única vez; replay foi idempotente. Wallet 11.590.000/0 versão 22.
+- Analytics e Inbox permaneceram desligados durante toda a investigação. Nenhuma leitura de recurso X foi feita; somente `GET /v1/usage` snapshot e metering diário.
+- O canário foi reforçado para exigir baseline já reconciliado, reservar toda a capacidade acima do piso e permitir ao watchdog marcar uma reserva aberta como `outcome_unknown` após forçar o desligamento.

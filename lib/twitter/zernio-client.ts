@@ -188,6 +188,18 @@ export function createTwitterZernioClient(apiKey: string, options: ClientOptions
         };
       }>;
     },
+    async getUsageMetering(range: '7d' | '14d' | '30d' = '7d') {
+      return request('/v1/usage', {
+        query: { range, granularity: 'day' },
+      }) as Promise<{
+        supported?: boolean;
+        range?: string;
+        from?: string;
+        to?: string;
+        days?: Array<Record<string, unknown>>;
+        totals?: Record<string, unknown>;
+      }>;
+    },
   };
 }
 
