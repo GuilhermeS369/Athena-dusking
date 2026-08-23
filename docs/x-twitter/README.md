@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T17:19:10Z / 2026-08-23T14:19:10-03:00
+- Atualizado em: 2026-08-23T17:36:19Z / 2026-08-23T14:36:19-03:00
 - Fase atual: 8 — rollout global (`completed`)
-- Status: módulo X e Agenda V2 disponíveis para todas as organizações. Publicação, sync de contas, Analytics manual e reconciliação possuem workers próprios ativos; fallback e polling periódico de Analytics permanecem desligados. Incidente de gate V2 ausente corrigido e revisão financeira read-only aprovada em Production.
+- Status: módulo X e Agenda V2 disponíveis para todas as organizações. Postagem X usa imagens da origem individualmente quando não há conjuntos manuais e oferece a mesma rotação v2 do Instagram (`diversified`/`same_order`). Publicação, sync, Analytics manual e reconciliação seguem ativos; fallback e polling periódico de Analytics permanecem desligados.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint Git executável mais recente: `fcd21a3`; Preview `dpl_7dXwWdpF3qqwLpRhfBUE1FxZ2FQe` e Production `dpl_XFakKdYn6RmFWYPoMJ2VvK9ny3EU`, ambos `READY`. Alias oficial aponta para Production.
+- Checkpoint Git executável mais recente: `c38f246`; Preview `dpl_9gfsDZ5TqGB2aRQyVS3i3JHi1t3T` e Production `dpl_4ujKYUfURyvwrc2K92g2SY9JYDXW`, ambos `READY`. Alias oficial aponta para Production.
 - Feature flags X: módulo global e Agenda V2 ativas; fallback e `TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED` desligados
 - Mutação remota feita pelo módulo X: migrations aditivas 223–253
 
@@ -25,7 +25,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 253.
-- Testes atuais: 239/239 aprovados.
+- Testes atuais: 244/244 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -48,6 +48,6 @@ Antes de qualquer mudança futura, consultar o health X. Em cada conexão nova, 
 
 ## Ambientes preparados
 
-- Vercel: Production `dpl_XFakKdYn6RmFWYPoMJ2VvK9ny3EU` (`https://pomodoro-bup4fidcf-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial; Preview `dpl_7dXwWdpF3qqwLpRhfBUE1FxZ2FQe` (`https://pomodoro-rn27uzddq-shoows-projects-2caaf9e9.vercel.app`) `READY`. Módulo/Agenda V2/publicação/sync/Analytics manual/reconcile ativos; fallback e polling Analytics off. Rollback seguro do app: `dpl_5zRqhFci5wAin5ZbV8CeDykBZ17s` com Agenda V2 desligada.
+- Vercel: Production `dpl_4ujKYUfURyvwrc2K92g2SY9JYDXW` (`https://pomodoro-iiffbxesu-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial; Preview `dpl_9gfsDZ5TqGB2aRQyVS3i3JHi1t3T` (`https://pomodoro-oprfxstfu-shoows-projects-2caaf9e9.vercel.app`) `READY`. Módulo/Agenda V2/publicação/sync/Analytics manual/reconcile ativos; fallback e polling Analytics off. Rollback imediato do app: `dpl_XFakKdYn6RmFWYPoMJ2VvK9ny3EU`.
 - VPS: release atual `fcd21a3-20260823T171308Z`; worker de publicação hash `41567cea37e801d5b180bf803d423c4f7ab7ac3030ee8930cc7e005526c6078a`; publicação usa a release nova e os outros três papéis preservam a release compatível `d67a2ec-20260823T113709Z`. Quatro processos X ativos em `live`, zero restart inesperado; seis processos existentes continuam `online` com os PIDs preservados.
 - Supabase: migrations 223–253 alinhadas; testes SQL 247/248/249 aprovados em transação; conexão Analytics/Inbox off, publicação/Analytics não terminais, reservas abertas e holds ativos/incertos zerados; wallet 11.590.000/0 versão 26.

@@ -1245,3 +1245,12 @@ Registros são append-only.
 - Verificação local: 244/244 testes aprovados; TypeScript aprovado; build de 46 páginas aprovado. Warnings de metadata em login/onboarding/not-found permanecem preexistentes. `git diff --check` aprovado.
 - Banco/VPS: nenhuma migration, dado, saldo, reserva, ledger, release ou processo PM2 alterado. Supabase permanece alinhado até 253 e a release VPS permanece `fcd21a3-20260823T171308Z`.
 - Status: `in_progress`, aguardando commit, Preview, QA autenticado e promoção Production. Rollback local: reverter somente esta unidade; rollback remoto futuro: promover novamente `dpl_XFakKdYn6RmFWYPoMJ2VvK9ny3EU`.
+
+### X-0103 — conclusão e aceite em Production
+
+- Código `c38f246`; Preview `dpl_9gfsDZ5TqGB2aRQyVS3i3JHi1t3T` (`READY`); Production `dpl_4ujKYUfURyvwrc2K92g2SY9JYDXW` (`READY`) e alias oficial confirmado. Rollback imediato: `dpl_XFakKdYn6RmFWYPoMJ2VvK9ny3EU`.
+- QA autenticado em `/x/postagem`: grupo com duas imagens exibiu `2 compatíveis` e `2 conjuntos na rotação` sem conjunto manual. Depois de montar um conjunto com as duas imagens, exibiu `1 conjunto na rotação` e informou que somente o conjunto manual formaria o post.
+- Os dois valores de `Ordem da rotação` foram renderizados e selecionáveis. Uma revisão real, somente leitura, em `same_order` retornou 24 itens de imagem, reserva estimada de 360.000 micros e não foi confirmada.
+- Auditoria pós-QA confirmou wallet 11.590.000/0 versão 26, zero publicação pendente/unknown, zero reserva unknown, quatro workers esperados sem heartbeat stale e zero breaker. Logs do novo deployment não apresentaram erro.
+- Supabase local/remoto permaneceu 253/253; nenhuma migration ou dado foi criado. VPS/PM2 não mudaram porque a rotação é congelada nos itens pela API antes do claim.
+- Status: `completed`. `git diff --check`, 244/244 testes, TypeScript e build aprovados. Não repetir a revisão QA como confirmação; ela foi fechada sem criar programa.

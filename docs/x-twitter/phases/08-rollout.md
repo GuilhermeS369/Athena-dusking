@@ -272,3 +272,10 @@ Nenhuma organização foi adicionada, nenhum worker foi iniciado e fallback cont
 - Health final `ok`: quatro workers X live, seis workers existentes online, fila/holds/unknown/429/breakers zerados e wallet 11.590.000/0. Auditoria do primeiro envio permaneceu `first_send_approved`.
 - Validação: 239/239 testes, TypeScript, build de 46 páginas, `git diff --check` e testes SQL 247/248/249 aprovados. Warnings metadata preexistentes inalterados.
 - Rollback: desligar somente `TWITTER_BULK_SCHEDULE_V2_ENABLED`, promover `dpl_5zRqhFci5wAin5ZbV8CeDykBZ17s` se necessário e recolocar apenas o worker de publicação em `d67a2ec-20260823T113709Z`; não reverter migrations remotas.
+
+### Paridade de rotação de imagens/conjuntos — 23/08/2026
+
+- Código `c38f246` faz cada imagem da origem virar uma unidade individual quando não há conjunto manual. Ao criar um ou mais conjuntos, somente eles entram na rotação, com 1–4 imagens por post.
+- O campo `Ordem da rotação` e o algoritmo determinístico v2 foram reaproveitados do Instagram: modo diversificado usa offset por perfil e passo coprimo; modo mesma ordem preserva a sequência canônica. O ciclo texto × mídia utiliza todas as combinações antes de repetir.
+- Preview `dpl_9gfsDZ5TqGB2aRQyVS3i3JHi1t3T` e Production `dpl_4ujKYUfURyvwrc2K92g2SY9JYDXW`, ambos `READY`. QA autenticado comprovou as contagens 2→1 ao criar um conjunto de duas imagens e revisão financeira read-only em `same_order`.
+- Pós-QA: wallet 11.590.000/0, zero fila/unknown, quatro workers saudáveis e zero breaker. Supabase 253/253; banco e VPS não mudaram. Rollback Vercel: `dpl_XFakKdYn6RmFWYPoMJ2VvK9ny3EU`.
