@@ -1,6 +1,6 @@
 # Matriz final de requisitos — módulo X/Twitter
 
-Atualizada em 2026-08-23T00:54:05Z. Esta matriz não substitui o plano; resume evidência e gates para continuidade segura.
+Atualizada em 2026-08-23T02:03:07Z. Esta matriz não substitui o plano; resume evidência e gates para continuidade segura.
 
 | Área | Estado | Evidência / observação |
 |---|---|---|
@@ -19,7 +19,7 @@ Atualizada em 2026-08-23T00:54:05Z. Esta matriz não substitui o plano; resume e
 | Publicação canário | Concluído | Texto, imagens, GIF, vídeo, URL e matriz de erros validados; wallet atual 11.725.000 micros. |
 | Analytics manual | Implementado, gate de sucesso/fan-out bloqueado | Três operações retornaram HTTP 202 e zero snapshot; billing tardio confirmou 27 reads/US$ 0,135 e foi reconciliado. Capability Athena passou em janela curta com delta zero, mas HTTP 200 e custo real por seleção ainda não foram provados. |
 | Rollout geral/fallback live | Não iniciado por gate | Proibido até uma operação analytics distinta retornar sucesso comprovado/HTTP 200 com snapshot e liquidação correta. |
-| CSS/UX responsivo do módulo X | Pendente de gate visual dedicado | A Fase 3 entregou páginas responsivas funcionais; falta inspeção visual sistemática de `/x/*`, breakpoints, acessibilidade e regressão Instagram. |
+| CSS/UX responsivo do módulo X | Gate estrutural local aprovado; smoke autenticado pendente | Shell e estilos específicos foram escopados em `.twitter-module-shell`, sem alterar seletores operacionais do Instagram. Harness representativo aprovado em 1440/1024/768/390/320 px, sem overflow horizontal, com alvos de 44 px e foco visível. Falta percorrer todas as rotas autenticadas em Preview e arquivar as evidências finais. |
 
 ## Estado operacional congelado
 
@@ -33,4 +33,4 @@ Atualizada em 2026-08-23T00:54:05Z. Esta matriz não substitui o plano; resume e
 
 ## Única próxima ação autorizada pelo plano
 
-Executar o gate visual/CSS sem custo externo. Para Analytics, primeiro redesenhar quote/confirm para possível fan-out do provedor; não repetir os três endpoints já tentados nem habilitar rollout geral para contornar o gate.
+Versionar o CSS e concluir o smoke visual autenticado em Preview, com flags mutáveis off. Para Analytics, primeiro redesenhar quote/confirm para possível fan-out do provedor; não repetir os três endpoints já tentados nem habilitar rollout geral para contornar o gate.

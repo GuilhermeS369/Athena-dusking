@@ -1046,3 +1046,16 @@ Registros são append-only.
 - Regressão: reconciliação das 27 reads continua idempotente; usage permanece US$ 0,410 total, sendo US$ 0,135 de reads. Workers X e flags gerais não foram iniciados.
 - Limite da evidência: a ativação por 60 segundos não gerou sync cobrado, mas não prova resposta HTTP 200 nem custo unitário de uma leitura manual após cache. Não executar nova leitura paga sem cobrir possível fan-out do provedor.
 - Próxima ação segura: documentar/commit; avançar no gate visual/CSS sem custo externo. O gate funcional Analytics continua pendente de desenho para fan-out e sucesso 200.
+
+## X-0086 — gate CSS estrutural local aprovado
+
+- UTC: 2026-08-23T02:03:07Z; São Paulo: 2026-08-22T23:03:07-03:00.
+- Origem: branch `codex/x-twitter-module`, commit inicial desta unidade `5bb69a4`; worktree limpo antes do CSS.
+- Auditoria: as páginas X usavam classes de layout sem regras correspondentes, e o reset global de margens tornava título, descrição, painéis e ações visualmente comprimidos.
+- Implementação: wrapper `.twitter-module-shell` em `/x/*` e regras exclusivamente escopadas para stacks, cabeçalhos, avisos, resumos, formulários, mídia, ações e estados vazios. Breakpoints explícitos em 1100, 700 e 430 px. Nenhum seletor Instagram foi alterado.
+- Evidência local: harness representativo em 1440/1024/768/390/320 px, sem overflow horizontal no documento ou conteúdo; botões X com mínimo de 44 px; foco por teclado com outline visível de 3 px.
+- Limite: não havia sessão autenticada no navegador de inspeção. O harness valida a estrutura compartilhada por todas as rotas X, mas o gate final ainda exige smoke autenticado de cada página em Preview.
+- Verificação: 210/210 testes e build de 41 páginas aprovados. O primeiro `tsc` concorreu indevidamente com o build e falhou ao ler `.next/types` durante regeneração; repetido isoladamente após o build, passou. Warnings metadata de login/onboarding/not-found continuam preexistentes.
+- Ambientes: nenhuma flag, migration, dado, saldo, Zernio, Vercel, VPS ou PM2 foi alterado. Analytics/Inbox permanecem off.
+- Rollback: reverter somente `app/(painel)/x/layout.tsx`, o bloco X em `app/globals.css` e `lib/twitter/css-gate.test.ts`; não há rollback remoto.
+- Próxima ação segura: criar checkpoint Git, publicar Preview com flags off e concluir o smoke visual autenticado. Não executar Analytics antes de cobrir fan-out no quote/confirm.

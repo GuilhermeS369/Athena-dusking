@@ -77,6 +77,20 @@ A organização Pomodoro, a credencial dedicada e os seis canários de publicaç
 
 Próxima ação segura: obter confirmação da Zernio de que analytics dos posts está disponível; executar um novo canário distinto e, somente após sucesso, atualizar este gate para os preparativos progressivos de todas as organizações.
 
+## Gate visual/CSS — inspeção estrutural local
+
+Em 23/08/2026 UTC, a auditoria encontrou classes de composição usadas pelas páginas X sem definição global (`page-stack`, `content-stack`, `summary-grid`, `notice-banner` e linhas de ações). Como o reset global remove margens de títulos e parágrafos, isso deixava as páginas visualmente comprimidas.
+
+- Foi criado um wrapper exclusivo `.twitter-module-shell` no layout `/x/*`.
+- Todos os estilos novos ficaram abaixo desse wrapper: espaçamento, formulários, avisos, resumos, ações, estados vazios e breakpoints. Nenhum seletor operacional Instagram foi alterado.
+- Um harness local ignorado pelo Git reproduziu os estados representativos de cabeçalho, resumo, formulário, galeria e ações. Em 1440, 1024, 768, 390 e 320 px, `scrollWidth === clientWidth` no documento e no conteúdo X.
+- Todos os botões X medidos ficaram com altura mínima de 44 px. A navegação por teclado apresentou outline visível de 3 px.
+- A inspeção real sem sessão confirmou apenas o redirecionamento de proteção; portanto, o smoke visual autenticado de todas as rotas em Preview continua sendo parte do gate, não foi presumido a partir do harness.
+- Regressão: 210/210 testes, TypeScript isolado e build de 41 páginas aprovados. O primeiro TypeScript foi iniciado em paralelo ao build e recebeu `TS6053` enquanto o Next regenerava `.next/types`; repetido após o build, passou sem erros. Permanecem apenas os warnings preexistentes de metadata.
+- Rollback local: reverter o wrapper em `app/(painel)/x/layout.tsx`, o bloco `.twitter-module-shell` em `app/globals.css` e `lib/twitter/css-gate.test.ts`. Não há banco, saldo, Storage, Zernio, Vercel ou VPS para desfazer nesta unidade.
+
+Gate parcial: estrutura e responsividade local aprovadas. Próxima ação segura: checkpoint Git, Preview com flags off e smoke autenticado de todas as rotas `/x/*` antes de marcar o gate visual completo.
+
 ## Fallback Vercel exclusivo — implementação desligada
 
 - Rota exclusiva: `/api/internal/twitter-fallback-dispatch`.

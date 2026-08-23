@@ -2,8 +2,8 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T01:53:56Z / 2026-08-22T22:53:56-03:00
-- Fase atual: 8 — gate visual/CSS (`in_progress`), sem liberação geral
+- Atualizado em: 2026-08-23T02:03:07Z / 2026-08-22T23:03:07-03:00
+- Fase atual: 8 — gate visual/CSS (`in_progress`), com inspeção estrutural local aprovada e smoke autenticado ainda pendente; sem liberação geral
 - Status: controle auditado das capabilities aprovado em canário mínimo; Analytics/Inbox estão off. Gate HTTP 200 e proteção contra fan-out de reads permanecem pendentes.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
@@ -25,7 +25,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 245.
-- Testes atuais: 208/208 aprovados.
+- Testes atuais: 210/210 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -34,7 +34,7 @@
 
 ## Próxima ação segura
 
-Executar o gate visual/CSS de todas as páginas `/x/*` sem habilitar flags ou chamar recursos Zernio. Não repetir os três recursos 202; antes de novo teste pago, o quote/confirm precisa cobrir fan-out do provedor.
+Versionar o gate CSS local e executar um smoke visual autenticado das páginas `/x/*` em Preview, ainda com todas as flags mutáveis off. Não repetir os três recursos 202; antes de novo teste pago, o quote/confirm precisa cobrir fan-out do provedor.
 
 ## Proibições imediatas
 
