@@ -28,3 +28,22 @@ export function twitterFormatProgress(published: unknown, scheduled: unknown) {
     progress: total ? Math.min(100, (safePublished / total) * 100) : 0,
   };
 }
+
+export type TwitterImageRotationAsset = { id: string };
+export type TwitterImageRotationSet = {
+  clientKey: string;
+  mediaKind: "images" | "gif" | "video";
+  assetIds: string[];
+};
+
+export function resolveTwitterImageRotationSets(
+  originAssets: TwitterImageRotationAsset[],
+  manualSets: TwitterImageRotationSet[],
+) {
+  if (manualSets.length > 0) return manualSets;
+  return originAssets.map((asset) => ({
+    clientKey: `origin:images:${asset.id}`,
+    mediaKind: "images" as const,
+    assetIds: [asset.id],
+  }));
+}

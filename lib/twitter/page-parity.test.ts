@@ -173,6 +173,14 @@ test("composer X preserva a estrutura compacta e as interações críticas do In
   assert.match(client, /Origem de mídia/);
   assert.match(client, /Todos os[\s\S]*elegíveis da origem serão usados/);
   assert.match(client, /format === "images"/);
+  assert.match(client, /resolveTwitterImageRotationSets\(originAssets, imageSets\)/);
+  assert.match(client, /Ordem da rotação/);
+  assert.match(client, /Diversificada e determinística/);
+  assert.match(client, /Mesma ordem em todos os perfis/);
+  assert.match(client, /orderMode,/);
+  assert.match(client, /rotationSeed: rotationSeedValue/);
+  assert.match(client, /todas as imagens compatíveis serão publicadas uma a uma/i);
+  assert.match(client, /somente eles serão publicados e cada conjunto formará um post/i);
   assert.match(page, /twitter_bulk_profile_format_summary/);
   assert.match(migration, /published_(text|image|gif|video)_count/);
   assert.doesNotMatch(

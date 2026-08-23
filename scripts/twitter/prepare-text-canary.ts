@@ -43,6 +43,8 @@ async function main() {
     profileIds: [profiles[0].id],
     texts: [content],
     mediaSets: [],
+    orderMode: 'same_order',
+    rotationSeed: `text-canary-${randomUUID()}`,
     schedule: { kind: 'interval', intervalMinutes: 1440, durationDays: 1 },
   };
 

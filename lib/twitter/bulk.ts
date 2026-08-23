@@ -1,4 +1,10 @@
 import { assertMicros } from './pricing.ts';
+import {
+  bulkRotationMediaIndex,
+  bulkRotationProfileOffset,
+  bulkRotationProfileStep,
+  type BulkRotationOrderMode,
+} from '../publications/bulk-rotation.ts';
 
 export type TwitterCombination = {
   textIndex: number;
@@ -35,39 +41,30 @@ export function buildTwitterCombinations(textCount: number, mediaSetCount: numbe
 
 export function getTwitterCombinationForSlot(
   combinations: TwitterCombination[],
-  profileSeed: string | number,
+  rotation: {
+    orderMode: BulkRotationOrderMode;
+    rotationSeed: string;
+    profileOrdinal: number;
+  },
   slotIndex: number,
 ) {
   if (combinations.length === 0) throw new TypeError('Combinações vazias.');
-  if ((typeof profileSeed === 'number' && (!Number.isInteger(profileSeed) || profileSeed < 0)) || !Number.isInteger(slotIndex) || slotIndex < 0) {
+  if (!Number.isInteger(rotation.profileOrdinal) || rotation.profileOrdinal < 0 || !Number.isInteger(slotIndex) || slotIndex < 0) {
     throw new TypeError('Índices de rotação inválidos.');
   }
-  const seed = String(profileSeed);
-  const offset = stableHash(`${seed}:offset`) % combinations.length;
-  const step = coprimeStep(stableHash(`${seed}:step`), combinations.length);
-  return combinations[(offset + slotIndex * step) % combinations.length];
-}
-
-function stableHash(value: string) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function gcd(left: number, right: number) {
-  let a = Math.abs(left); let b = Math.abs(right);
-  while (b) [a, b] = [b, a % b];
-  return a;
-}
-
-function coprimeStep(hash: number, length: number) {
-  if (length <= 1) return 1;
-  let candidate = (hash % (length - 1)) + 1;
-  while (gcd(candidate, length) !== 1) candidate = candidate === length - 1 ? 1 : candidate + 1;
-  return candidate;
+  const shared = {
+    orderMode: rotation.orderMode,
+    profileOrdinal: rotation.profileOrdinal,
+    mediaCount: combinations.length,
+    rotationSeed: rotation.rotationSeed,
+  };
+  const combinationIndex = bulkRotationMediaIndex({
+    slotIndex,
+    mediaCount: combinations.length,
+    profileOffset: bulkRotationProfileOffset(shared),
+    profileStep: bulkRotationProfileStep(shared),
+  });
+  return combinations[combinationIndex];
 }
 
 export function allocateTwitterFundingRoundRobin(

@@ -1234,3 +1234,14 @@ Registros são append-only.
 - Aceite autenticado: nove páginas X carregadas; Review V2 real somente leitura abriu a confirmação financeira com 24/24 financiáveis e nenhuma reserva criada. Sete páginas Instagram passaram em smoke. A confirmação da programação não foi clicada. React 418 não fatal foi isolado em `/perfis` e `/zernio` do Instagram; demais cinco páginas Instagram e as páginas X não reproduziram o aviso em isolamento.
 - Estado final: health `ok`; quatro workers X live; fila publicação/Analytics, holds, reservations unknown, 429 e breakers em zero; wallet 11.590.000/0 versão 26; first-send audit `first_send_approved`.
 - Rollback: desligar o gate V2, promover `dpl_5zRqhFci5wAin5ZbV8CeDykBZ17s` e apontar/recriar somente a publicação em `d67a2ec-20260823T113709Z`. Migrações 247–253 permanecem e qualquer correção de banco será forward-only.
+
+## X-0103 — rotação de mídia X alinhada ao Instagram (pré-deploy)
+
+- UTC: 2026-08-23T17:31:48Z; São Paulo: 2026-08-23T14:31:48-03:00. Entrada: branch `codex/x-twitter-module`, commit `77845b8`, worktree inicialmente limpo.
+- Escopo: somente compositor/revisão X e canários X. Nenhuma tabela, RPC, página, worker ou rotina operacional do Instagram foi alterada.
+- Regra implementada: em Imagens, quando não há conjunto manual, cada imagem elegível da origem vira um conjunto individual e todas entram na rotação. A existência de ao menos um conjunto manual substitui os individuais; cada conjunto manual forma um post com 1–4 imagens.
+- Paridade Instagram: campo `Ordem da rotação` com `Diversificada e determinística` (padrão) e `Mesma ordem em todos os perfis`. O X reutiliza diretamente o algoritmo v2 compartilhado de offset e passo coprimo; todas as combinações texto × unidade de mídia são percorridas antes de repetir.
+- Integridade de revisão: `orderMode` e `rotationSeed` entram no digest assinado e são recalculados na confirmação; qualquer alteração posterior invalida a revisão. Os itens continuam congelados na confirmação e os workers não precisaram ser modificados.
+- Verificação local: 244/244 testes aprovados; TypeScript aprovado; build de 46 páginas aprovado. Warnings de metadata em login/onboarding/not-found permanecem preexistentes. `git diff --check` aprovado.
+- Banco/VPS: nenhuma migration, dado, saldo, reserva, ledger, release ou processo PM2 alterado. Supabase permanece alinhado até 253 e a release VPS permanece `fcd21a3-20260823T171308Z`.
+- Status: `in_progress`, aguardando commit, Preview, QA autenticado e promoção Production. Rollback local: reverter somente esta unidade; rollback remoto futuro: promover novamente `dpl_XFakKdYn6RmFWYPoMJ2VvK9ny3EU`.

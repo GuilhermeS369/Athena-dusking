@@ -39,6 +39,8 @@ async function main() {
     profileIds: [profiles[0].id],
     texts: [`Canário técnico Athena X — teste isolado ${setKind} ${stamp}`],
     mediaSets: [{ clientKey: `canary-${randomUUID()}`, mediaKind: setKind, assetIds }],
+    orderMode: 'same_order',
+    rotationSeed: `media-canary-${randomUUID()}`,
     schedule: { kind: 'interval', intervalMinutes: 1440, durationDays: 1 },
   };
   const review = await prepareTwitterBulkReview(organizationId, request);

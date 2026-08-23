@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   fillTwitterTextFieldsFromClipboard,
+  resolveTwitterImageRotationSets,
   twitterFormatProgress,
 } from "./bulk-ui.ts";
 test("colagem tabular preenche somente os campos de texto já abertos", () => {
@@ -38,4 +39,16 @@ test("barra por formato representa publicadas sobre publicadas mais agendadas", 
     total: 0,
     progress: 0,
   });
+});
+
+test("imagens da origem viram conjuntos individuais quando não há conjuntos manuais", () => {
+  assert.deepEqual(resolveTwitterImageRotationSets([{id:"a"},{id:"b"}],[]),[
+    {clientKey:"origin:images:a",mediaKind:"images",assetIds:["a"]},
+    {clientKey:"origin:images:b",mediaKind:"images",assetIds:["b"]},
+  ]);
+});
+
+test("conjuntos manuais substituem as imagens individuais da origem", () => {
+  const manual=[{clientKey:"images:a:b",mediaKind:"images" as const,assetIds:["a","b"]}];
+  assert.equal(resolveTwitterImageRotationSets([{id:"a"},{id:"b"},{id:"c"}],manual),manual);
 });

@@ -32,6 +32,8 @@ async function main() {
     profileIds: [profiles[0].id],
     texts: [`Canário técnico Athena X — custo de URL ${stamp} https://example.com/`],
     mediaSets: [],
+    orderMode: 'same_order',
+    rotationSeed: `url-canary-${randomUUID()}`,
     schedule: { kind: 'interval', intervalMinutes: 1440, durationDays: 1 },
   };
   const review = await prepareTwitterBulkReview(organizationId, request);

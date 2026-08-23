@@ -19,8 +19,10 @@ import {
 } from "@/lib/twitter/pricing";
 import {
   fillTwitterTextFieldsFromClipboard,
+  resolveTwitterImageRotationSets,
   twitterFormatProgress,
 } from "@/lib/twitter/bulk-ui";
+import type { BulkRotationOrderMode } from "@/lib/publications/bulk-rotation";
 import styles from "./twitter-bulk.module.css";
 
 type PostFormat = "text" | "images" | "gif" | "video";
@@ -115,6 +117,7 @@ const usd = (value: number) =>
   `US$ ${(value / 1e6).toFixed(3).replace(".", ",")}`;
 const date = (value: string) =>
   new Date(value).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+const rotationSeed = () => `twitter-rotation-${crypto.randomUUID()}`;
 const queueForFormat = (profile: Profile, format: PostFormat) =>
   format === "text"
     ? profile.queue.text_count
@@ -160,6 +163,9 @@ export default function TwitterBulkClient({
   const [originKey, setOriginKey] = useState("");
   const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
   const [imageSets, setImageSets] = useState<MediaSet[]>([]);
+  const [orderMode, setOrderMode] =
+    useState<BulkRotationOrderMode>("diversified");
+  const [rotationSeedValue, setRotationSeedValue] = useState(rotationSeed);
   const [scheduleKind, setScheduleKind] = useState<"interval" | "daily">(
     "interval",
   );
@@ -244,7 +250,8 @@ export default function TwitterBulkClient({
   }, [assets, originKey, format]);
   const effectiveMediaSets = useMemo<MediaSet[]>(() => {
     if (format === "text") return [];
-    if (format === "images") return imageSets;
+    if (format === "images")
+      return resolveTwitterImageRotationSets(originAssets, imageSets);
     return originAssets.map((asset) => ({
       clientKey: `origin:${format}:${asset.id}`,
       mediaKind: format,
@@ -284,6 +291,8 @@ export default function TwitterBulkClient({
     profileIds: profileSelection.ids,
     texts: usableTexts,
     mediaSets: effectiveMediaSets,
+    orderMode,
+    rotationSeed: rotationSeedValue,
     schedule:
       scheduleKind === "interval"
         ? { kind: scheduleKind, intervalMinutes, durationDays }
@@ -419,6 +428,7 @@ export default function TwitterBulkClient({
       );
       setReview(null);
       setConfirmed(true);
+      setRotationSeedValue(rotationSeed());
       router.refresh();
     } catch (error) {
       setMessage(
@@ -716,7 +726,7 @@ export default function TwitterBulkClient({
                   </select>
                   <small>
                     {format === "images"
-                      ? "Escolha de 1 a 4 imagens para cada conjunto."
+                      ? "Sem conjuntos, cada imagem da origem vira um post. Monte conjuntos apenas para publicar de 1 a 4 imagens juntas."
                       : `Todos os ${formatLabels[format]} elegíveis da origem serão usados; não é necessário selecionar um por um.`}
                   </small>
                 </label>
@@ -795,6 +805,28 @@ export default function TwitterBulkClient({
                   </label>
                 </>
               )}
+              <label className={`${base.field} ${base.wideField}`}>
+                Ordem da rotação
+                <select
+                  value={orderMode}
+                  onChange={(event) => {
+                    invalidate();
+                    setOrderMode(event.target.value as BulkRotationOrderMode);
+                  }}
+                >
+                  <option value="diversified">
+                    Diversificada e determinística
+                  </option>
+                  <option value="same_order">
+                    Mesma ordem em todos os perfis
+                  </option>
+                </select>
+                <small>
+                  Vale para imagens individuais, conjuntos, GIFs, vídeos e
+                  combinações com textos. Todas as combinações são usadas antes
+                  de repetir.
+                </small>
+              </label>
             </div>
           </section>
           <section className={base.card}>
@@ -881,7 +913,9 @@ export default function TwitterBulkClient({
                 <strong>Mídias da origem</strong>
                 <small>
                   {format === "images"
-                    ? "Monte os conjuntos que entrarão na rotação"
+                    ? imageSets.length
+                      ? "Os conjuntos manuais abaixo serão as unidades da rotação"
+                      : "Cada imagem da origem será uma unidade da rotação"
                     : "Origem completa, sem seleção manual"}
                 </small>
               </header>
@@ -950,20 +984,27 @@ export default function TwitterBulkClient({
                     })}
                   </div>
                   {format === "images" ? (
-                    <div className={styles.mediaBuilder}>
-                      <p>
-                        {selectedAssets.length}/4 imagens selecionadas para o
-                        próximo conjunto
+                    <>
+                      <div className={styles.mediaBuilder}>
+                        <p>
+                          {selectedAssets.length}/4 imagens selecionadas para o
+                          próximo conjunto
+                        </p>
+                        <button
+                          className={base.subtleButton}
+                          type="button"
+                          disabled={!selectedAssets.length}
+                          onClick={addImageSet}
+                        >
+                          Adicionar conjunto
+                        </button>
+                      </div>
+                      <p className={styles.originRule}>
+                        {imageSets.length
+                          ? "Há conjuntos manuais: somente eles serão publicados e cada conjunto formará um post."
+                          : "Nenhum conjunto manual: todas as imagens compatíveis serão publicadas uma a uma."}
                       </p>
-                      <button
-                        className={base.subtleButton}
-                        type="button"
-                        disabled={!selectedAssets.length}
-                        onClick={addImageSet}
-                      >
-                        Adicionar conjunto
-                      </button>
-                    </div>
+                    </>
                   ) : (
                     <p className={styles.originRule}>
                       Cada arquivo compatível vira um conjunto e todos

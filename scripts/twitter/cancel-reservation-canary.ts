@@ -34,6 +34,8 @@ async function main() {
     profileIds: [profiles[0].id],
     texts: [`Canário local Athena X — cancelamento sem chamada externa ${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')}`],
     mediaSets: [],
+    orderMode: 'same_order',
+    rotationSeed: `cancel-canary-${randomUUID()}`,
     schedule: { kind: 'interval', intervalMinutes: 1440, durationDays: 1 },
   };
   const review = await prepareTwitterBulkReview(organizationId, request);

@@ -11,21 +11,30 @@ test('usa todas as combinações texto por mídia antes de repetir', () => {
   const combinations = buildTwitterCombinations(2, 3);
   assert.equal(combinations.length, 6);
   assert.deepEqual(new Set(combinations.map((item) => `${item.textIndex}:${item.mediaSetIndex}`)).size, 6);
-  const cycle = Array.from({ length:combinations.length }, (_, slot) => getTwitterCombinationForSlot(combinations, 'profile-a', slot));
+  const rotation = { orderMode:'diversified' as const, rotationSeed:'campanha-a', profileOrdinal:0 };
+  const cycle = Array.from({ length:combinations.length }, (_, slot) => getTwitterCombinationForSlot(combinations, rotation, slot));
   assert.equal(new Set(cycle.map((item) => `${item.textIndex}:${item.mediaSetIndex}`)).size, combinations.length);
-  assert.deepEqual(getTwitterCombinationForSlot(combinations, 'profile-a', combinations.length), cycle[0]);
+  assert.deepEqual(getTwitterCombinationForSlot(combinations, rotation, combinations.length), cycle[0]);
 });
 
-test('perfis começam em deslocamentos determinísticos diferentes', () => {
-  const combinations = buildTwitterCombinations(2, 2);
+test('modo diversificado replica a rotação v2 do Instagram por ordinal de perfil', () => {
+  const combinations = buildTwitterCombinations(2, 3);
   assert.notDeepEqual(
-    getTwitterCombinationForSlot(combinations, 0, 0),
-    getTwitterCombinationForSlot(combinations, 1, 0),
+    getTwitterCombinationForSlot(combinations, {orderMode:'diversified',rotationSeed:'campanha-a',profileOrdinal:0}, 0),
+    getTwitterCombinationForSlot(combinations, {orderMode:'diversified',rotationSeed:'campanha-a',profileOrdinal:1}, 0),
   );
   assert.deepEqual(
-    getTwitterCombinationForSlot(combinations, 1, 0),
-    getTwitterCombinationForSlot(combinations, 1, 4),
+    getTwitterCombinationForSlot(combinations, {orderMode:'diversified',rotationSeed:'campanha-a',profileOrdinal:1}, 0),
+    getTwitterCombinationForSlot(combinations, {orderMode:'diversified',rotationSeed:'campanha-a',profileOrdinal:1}, combinations.length),
   );
+});
+
+test('modo mesma ordem preserva a sequência canônica em todos os perfis', () => {
+  const combinations = buildTwitterCombinations(2, 2);
+  for (let slot=0;slot<combinations.length;slot+=1) {
+    assert.deepEqual(getTwitterCombinationForSlot(combinations,{orderMode:'same_order',rotationSeed:'ignorada',profileOrdinal:0},slot),combinations[slot]);
+    assert.deepEqual(getTwitterCombinationForSlot(combinations,{orderMode:'same_order',rotationSeed:'outra',profileOrdinal:9},slot),combinations[slot]);
+  }
 });
 
 test('round-robin é justo e pula URL cara procurando slots baratos', () => {
