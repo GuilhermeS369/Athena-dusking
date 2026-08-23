@@ -859,3 +859,15 @@ Registros são append-only.
 - Ambientes: migration ainda não aplicada; Production/VPS/Supabase data não mutados; todos os flags X off e quatro workers stopped.
 - Rollback antes do push: reverter API, UI, migration e testes. Após aplicação, correções de banco apenas forward-only; nunca reabilitar a RPC v1 sem idempotência.
 - Próxima ação segura: commit; confirmar projeto; aplicar somente 243; teste SQL 13/13 em `BEGIN/ROLLBACK`; reconferir saldo 11.725.000/0 e zero filas/holds.
+
+## X-0070 — migration 243 aplicada e transferência v2 validada
+
+- UTC: 2026-08-23T00:21:29Z; São Paulo: 2026-08-22T21:21:29-03:00.
+- Commit de origem `df6a12f`; project ref confirmado `hqwhumdumfmixxbvneae`; dry-run listou somente `243_twitter_identity_transfer_v2.sql`.
+- Aplicação: migration 243 concluída; histórico remoto mais recente 243. Nenhuma outra migration, tabela Instagram ou worker foi alterado.
+- Teste SQL: plano 13 executado em `BEGIN/ROLLBACK`; diagnóstico `finish=null`, evento temporário 1 antes do rollback. Pós-teste possui zero eventos reais e uma única identidade de produção.
+- Privilégios: RPC v1 sem idempotência tem `service_role execute=false`; v2 tem `service_role execute=true` e cliente autenticado continua sem execução direta.
+- Invariantes: wallet 11.725.000/0 versão 21; sync/publicação/analytics não terminais 0; holds 0. Nenhuma transferência, concessão, débito, reserva ou chamada Zernio real.
+- Vercel/VPS: ainda não alterados neste registro; Production off, quatro X stopped, seis processos existentes online.
+- Rollback: banco somente forward-only; não remover 243 nem reabilitar v1. UI/API ainda podem ser revertidas antes do deploy, mantendo v2 dormente.
+- Próxima ação segura: checkpoint de documentação e deploy Vercel Preview/Production com flags off; smoke 401, sem transferência real.

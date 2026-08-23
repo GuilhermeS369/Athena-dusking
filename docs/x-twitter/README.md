@@ -2,14 +2,14 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T00:20:16Z / 2026-08-22T21:20:16-03:00
+- Atualizado em: 2026-08-23T00:21:29Z / 2026-08-22T21:21:29-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint implantado: `e732fed`; fila dedicada de sync e topologia de quatro workers incluídas, todos os flags/processos X off.
 - Feature flag X: criada e desligada
-- Mutação remota feita pelo módulo X: migrations aditivas 223–242
+- Mutação remota feita pelo módulo X: migrations aditivas 223–243
 
 ## Leitura obrigatória para continuar
 
@@ -23,7 +23,7 @@
 ## Baseline conhecido
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
-- Migrações local/remoto alinhadas até 242.
+- Migrações local/remoto alinhadas até 243.
 - Testes atuais: 196/196 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Aplicar exclusivamente a migration 243 após o checkpoint Git; executar o teste SQL transacional 13/13 e reconferir que identidade/saldo/filas de produção não mudaram. O fluxo de transferência está implementado localmente. Não ativar sync live, cron, fallback live ou rollout.
+Implantar em Preview/Production com todos os flags X off as melhorias de fila e transferência já validadas. A migration 243 e o teste 13/13 estão aprovados. Não ativar sync live, cron, fallback live ou rollout.
 
 ## Proibições imediatas
 
@@ -49,4 +49,4 @@ Aplicar exclusivamente a migration 243 após o checkpoint Git; executar o teste 
 
 - Vercel: segredos por função configurados separadamente; Production `dpl_BYjrGwDcg9WtPy4nV1CWwvZ9kKGv` `READY`, alias oficial, todos os flags mutáveis off e nomes genérico/`generation` removidos. Preview `dpl_FF72a8zwrhaJFDNfm9ord3ac5X27` `READY`.
 - VPS: release `e732fed77971-20260823T000341Z`, hash `c0834c2fda517056cb1e31a9a0e9d44c2c8b382b57d673df7c489b396014a4a8`; quatro processos X apontam para ele e estão `stopped`; nomes genérico/`generation` removidos; seis processos existentes continuam `online` com os PIDs preservados.
-- Supabase: migrations 223–242 alinhadas; teste 242 17/17 com rollback; zero sync jobs residuais; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.
+- Supabase: migrations 223–243 alinhadas; teste 243 13/13 com rollback; zero evento de transferência real ou job residual; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.

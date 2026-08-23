@@ -38,7 +38,7 @@ Próximo gate: commit local, push exclusivo da migration 223 e teste transaciona
 - Estado após teste: zero identidades, wallets, grants, ledger e reservas de teste.
 - ACL: `anon=false` em todas as sete RPCs Twitter; funções de settle/unknown/transfer também têm `authenticated=false`; service role mantém acesso.
 
-Auditoria final em 23/08/2026 UTC: a transferência original de suporte não possuía idempotency key. A migration 243 introduz a RPC v2, evento com autor estável e chave única, replay sem nova versão/evento, administração obrigatória na origem e destino e revogação da RPC antiga para `service_role`. A UI exige confirmação textual, conexão removida e reservas resolvidas; não move filas ou grupos. Admins relacionados veem os últimos eventos imutáveis. Gate local: 196/196 testes, TypeScript, build e dry-run exclusivo da 243; aplicação remota ainda pendente neste registro.
+Auditoria final em 23/08/2026 UTC: a transferência original de suporte não possuía idempotency key. A migration 243 introduziu a RPC v2, evento com autor estável e chave única, replay sem nova versão/evento, administração obrigatória na origem e destino e revogação da RPC antiga para `service_role`. A UI exige confirmação textual, conexão removida e reservas resolvidas; não move filas ou grupos. Admins relacionados veem os últimos eventos imutáveis. Aplicação remota exclusiva aprovada; teste SQL 13/13 em `BEGIN/ROLLBACK`; zero resíduo/evento real; wallet 11.725.000/0 versão 21 e filas/holds zero.
 - Rate card remoto: versão 1 ativa com 5.000, 10.000, 15.000 e 200.000 micros.
 - Node: 149/149; TypeScript/build aprovados.
 - Flags X e analytics: desligadas.
