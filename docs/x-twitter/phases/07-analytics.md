@@ -108,6 +108,16 @@ Criar e validar o executor guardado do novo canário. Um canário pago só pode 
 - Regressão: 215/215 testes, TypeScript, build de 41 páginas e `git diff --check` aprovados. Warnings metadata preexistentes permanecem inalterados.
 - Nenhuma reserva, item, attempt, snapshot, capability ou chamada paga foi criada nesta unidade.
 
+### Canário fan-out HTTP 200 aguardando billing — 23/08/2026
+
+- Deployment temporário `dpl_FUd2VpUyXestmt6cagvr7q7nDV5T` habilitou somente Analytics e seu worker para Pomodoro. As variáveis persistentes foram imediatamente devolvidas a false.
+- Um one-shot vazio validou heartbeat/claim; a primeira tentativa local falhou antes da rede por não carregar o env compartilhado e foi repetida corretamente com zero item. Nenhuma chamada paga ocorreu nesse desvio.
+- Reserva única: job `54280755-b580-4208-a302-90d7af10027f`, item `78dcecae-6c1e-4a58-9017-709ce83d6df0`, 45.000 micros, wallet 11.590.000/45.000 versão 25.
+- Um único one-shot pago retornou HTTP 200. O worker preservou métricas em evidência, marcou `outcome_unknown/billing_pending`, manteve o hold integral e não criou snapshot/débito/retry.
+- Evidência imediata e conferências posteriores: baseline/observado `posts_read=27`, `xSpendCents=41`; portanto zero unidades ainda comprovadas. Deployment seguro `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch` foi promovido imediatamente após o one-shot.
+- Novo reconciliador guardado recusa liquidação com delta zero, exige contador final explícito e estável, limita a nove unidades e liquida/libera atomicamente pelo RPC 246.
+- Próxima ação permitida: somente auditorar billing. Proibido chamar o recurso novamente, criar nova reserva ou liberar manualmente enquanto o metering estiver atrasado.
+
 ### Correção financeira por metering tardio — 22/08/2026
 
 - Dois snapshots somente leitura, com Analytics/Inbox desligados, estabilizaram em `posts_read=27` e `xSpendCents=41`.

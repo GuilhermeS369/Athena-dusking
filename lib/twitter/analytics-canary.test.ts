@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const canaryUrl = new URL('../../scripts/twitter/prepare-fanout-analytics-canary.ts', import.meta.url);
+const reconciliationUrl = new URL('../../scripts/twitter/reconcile-fanout-analytics-canary.ts', import.meta.url);
 
 test('canário fan-out exige auditoria, recurso inédito e baseline explícito antes de reservar', async () => {
   const source = await readFile(canaryUrl, 'utf8');
@@ -21,4 +22,14 @@ test('canário fan-out valida nove unidades e nunca ativa capability ou worker',
   assert.doesNotMatch(source, /setAccountCapabilities/);
   assert.doesNotMatch(source, /twitter-heartbeat/);
   assert.doesNotMatch(source, /twitter-analytics-claims/);
+});
+
+test('reconciliação fan-out mantém hold sem delta e liquida somente unidades comprovadas', async () => {
+  const source = await readFile(reconciliationUrl, 'utf8');
+  assert.match(source, /audit-fanout-canary-billing/);
+  assert.match(source, /Metering ainda não registrou a leitura; manter hold/);
+  assert.match(source, /p_billed_units: billedUnits/);
+  assert.match(source, /billingSource: 'GET \/v1\/usage'/);
+  assert.match(source, /expectedReleasedMicros = MAXIMUM_MICROS - expectedSettledMicros/);
+  assert.doesNotMatch(source, /setAccountCapabilities/);
 });

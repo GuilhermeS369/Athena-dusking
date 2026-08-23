@@ -1132,3 +1132,15 @@ Registros são append-only.
 - Verificação: 215/215 testes, TypeScript, build de 41 páginas e `git diff --check` aprovados. O teste inicial tinha uma asserção textual apontando para o import em vez da chamada e foi corrigido; código de produção não mudou por esse achado.
 - Ambientes: nenhuma flag, deployment, release, PM2, capability, reserva, item, attempt, snapshot ou chamada paga foi alterada. Analytics/Inbox/workers continuam off.
 - Rollback: remover somente os dois arquivos novos; não há rollback remoto. Próxima ação segura: Production temporária para Pomodoro, reconferência do baseline, reserva única de 45.000, um one-shot e restauração imediata do deployment seguro.
+
+## X-0092 — canário fan-out recebeu HTTP 200 e aguarda metering
+
+- UTC: 2026-08-23T11:52:12Z; São Paulo: 2026-08-23T08:52:12-03:00.
+- Origem: commit `bcacf5a`, worktree limpo. Production temporária `dpl_FUd2VpUyXestmt6cagvr7q7nDV5T` com somente `TWITTER_ANALYTICS_ENABLED` e `TWITTER_ANALYTICS_WORKER_ENABLED` true para Pomodoro; demais workers, publicação, sync, Inbox, reconcile e fallback off.
+- Os valores persistentes das duas flags foram restaurados a false logo após o deployment. Um one-shot vazio inicialmente falhou antes de rede porque foi chamado sem carregar `/opt/athena-twitter/shared/.env.worker`; repetido com o env compartilhado, aprovou heartbeat/claim vazio. Zero recurso e zero custo nesse desvio.
+- Reserva: baseline 27 reads; job `54280755-b580-4208-a302-90d7af10027f`; item `78dcecae-6c1e-4a58-9017-709ce83d6df0`; 45.000 micros; wallet 11.590.000/0 versão 24 → 11.590.000/45.000 versão 25.
+- Execução: exatamente um one-shot Analytics. Resultado HTTP 200 com métricas pendentes; attempt `20f45045-fd3a-44be-bbed-fe3dbd45fd07` ficou `outcome_unknown/billing_pending`. Baseline e contador imediato ambos 27; `billingProof=false`; snapshot 0; débito 0; retry 0.
+- Recuperação: deployment seguro `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch` promovido imediatamente. PM2 X permaneceu stopped; a execução foi one-shot fora do PM2.
+- Billing: múltiplas consultas somente leitura continuaram em 27 reads, US$ 0,410 total e US$ 0,135 de reads no dia. Hold integral preservado por atraso de metering.
+- Reconciliador novo `scripts/twitter/reconcile-fanout-analytics-canary.ts`: audita sem mutação; recusa delta zero; exige dois contadores finais estáveis e confirmação explícita; limita delta a nove; usa `p_billed_units` e libera o excedente atomicamente.
+- Verificação do reconciliador: teste dedicado 3/3, TypeScript e `git diff --check` aprovados. Próxima ação segura: apenas auditorar até `posts_read > 27`; então liquidar uma vez o delta comprovado. Não repetir Analytics ou reserva.
