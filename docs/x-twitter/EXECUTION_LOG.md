@@ -871,3 +871,14 @@ Registros são append-only.
 - Vercel/VPS: ainda não alterados neste registro; Production off, quatro X stopped, seis processos existentes online.
 - Rollback: banco somente forward-only; não remover 243 nem reabilitar v1. UI/API ainda podem ser revertidas antes do deploy, mantendo v2 dormente.
 - Próxima ação segura: checkpoint de documentação e deploy Vercel Preview/Production com flags off; smoke 401, sem transferência real.
+
+## X-0071 — fila granular e transferência v2 implantadas off
+
+- UTC: 2026-08-23T00:24:48Z; São Paulo: 2026-08-22T21:24:48-03:00.
+- Preview: `dpl_C2KQoYkdeMGbRtw1evfTFHsU3ZK4`, URL `https://pomodoro-62ahm3lcx-shoows-projects-2caaf9e9.vercel.app`, `READY`; cancelamento e transferência sem sessão retornaram `401`.
+- Production: `dpl_A1ByNkEstDGPsLejpaXXgHj3q5tu`, URL `https://pomodoro-ea11n6r2s-shoows-projects-2caaf9e9.vercel.app`, `READY`, alias oficial; as duas rotas sem sessão retornaram `401`.
+- Build Vercel: 41 páginas, TypeScript aprovado; warnings metadata e cinco avisos npm preexistentes. Todos os flags X permaneceram off.
+- Pós-deploy: zero evento de transferência, zero fila não terminal/holds; wallet 11.725.000/0 versão 21. Nenhuma transferência, cancelamento, chamada Zernio ou cobrança foi executada.
+- VPS read-only: release `e732fed77971-20260823T000341Z`; quatro X stopped; seis processos existentes online com PIDs 99980, 27468, 136197, 127605, 122939 e 103209.
+- Rollback: Vercel `dpl_BYjrGwDcg9WtPy4nV1CWwvZ9kKGv`; banco 243 permanece forward-only e seguro sem consumidores antigos; VPS não requer rollback.
+- Próxima ação segura: auditar Dashboard geral/seleção de plataforma e garantir snapshots X exclusivamente locais; não repetir analytics bloqueada.

@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T00:21:29Z / 2026-08-22T21:21:29-03:00
+- Atualizado em: 2026-08-23T00:24:48Z / 2026-08-22T21:24:48-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint implantado: `e732fed`; fila dedicada de sync e topologia de quatro workers incluídas, todos os flags/processos X off.
+- Checkpoint de aplicação implantado: `a09bbc1`; fila granular, transferência v2, fila dedicada de sync e topologia de quatro workers incluídas, todos os flags/processos X off.
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–243
 
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Implantar em Preview/Production com todos os flags X off as melhorias de fila e transferência já validadas. A migration 243 e o teste 13/13 estão aprovados. Não ativar sync live, cron, fallback live ou rollout.
+Auditar o Dashboard geral e a seleção de plataforma, garantindo rótulos/snapshots X locais e link para Análises sem leitura automática. Não ativar sync live, cron, fallback live ou rollout.
 
 ## Proibições imediatas
 
@@ -47,6 +47,6 @@ Implantar em Preview/Production com todos os flags X off as melhorias de fila e 
 
 ## Ambientes preparados
 
-- Vercel: segredos por função configurados separadamente; Production `dpl_BYjrGwDcg9WtPy4nV1CWwvZ9kKGv` `READY`, alias oficial, todos os flags mutáveis off e nomes genérico/`generation` removidos. Preview `dpl_FF72a8zwrhaJFDNfm9ord3ac5X27` `READY`.
+- Vercel: segredos por função configurados separadamente; Production `dpl_A1ByNkEstDGPsLejpaXXgHj3q5tu` `READY`, alias oficial, todos os flags mutáveis off e nomes genérico/`generation` removidos. Preview `dpl_C2KQoYkdeMGbRtw1evfTFHsU3ZK4` `READY`.
 - VPS: release `e732fed77971-20260823T000341Z`, hash `c0834c2fda517056cb1e31a9a0e9d44c2c8b382b57d673df7c489b396014a4a8`; quatro processos X apontam para ele e estão `stopped`; nomes genérico/`generation` removidos; seis processos existentes continuam `online` com os PIDs preservados.
 - Supabase: migrations 223–243 alinhadas; teste 243 13/13 com rollback; zero evento de transferência real ou job residual; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.

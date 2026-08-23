@@ -17,6 +17,14 @@ Nota de topologia atual: registros abaixo que mencionam cinco processos descreve
 - Supabase alinhado até 242; fila sync/publicação/analytics não terminal, holds e snapshots em zero; wallet 11.725.000/0 versão 21.
 - Rollback: Vercel `dpl_9rAv31d1QTHQzbhwMkcpJZV5CsEe`; VPS `a5edc6c049e1-20260822T235210Z`; ao voltar ao release antigo, restaurar explicitamente o backup com as variáveis antigas e manter tudo off.
 
+## Fila granular e transferência v2 implantadas off
+
+- Preview `dpl_C2KQoYkdeMGbRtw1evfTFHsU3ZK4` e Production `dpl_A1ByNkEstDGPsLejpaXXgHj3q5tu` `READY`; alias oficial atualizado.
+- Rotas de cancelamento e transferência retornaram `401` sem sessão tanto no Preview quanto no smoke final de Production; nenhuma mutação funcional foi invocada.
+- Supabase migration 243 e teste 13/13 aprovados; após deploy: zero evento de transferência, zero filas/holds, wallet 11.725.000/0 versão 21.
+- VPS não recebeu release: quatro workers X seguem `stopped`; seis processos existentes mantêm os PIDs preservados.
+- Rollback Vercel imediato: `dpl_BYjrGwDcg9WtPy4nV1CWwvZ9kKGv`; migration 243 permanece forward-only e dormente se a UI for revertida.
+
 ## Checkpoint de segurança anterior ao preview
 
 - Migration 240 aplicada de forma aditiva e alinhada no remoto.
