@@ -62,6 +62,15 @@ Auditoria de UI em 2026-08-22T23:39:42Z: `/x/analises` passou a carregar grupos/
 - Nova rota Admin propaga a configuração às contas locais da conexão; ativação parcial falha fechado e tenta compensar todas para `false`.
 - O worker de sync replica `analytics_enabled` do claim e força `inbox=false`, evitando configuração manual no painel Zernio.
 - Estado implantado no banco: Analytics/Inbox da conexão existente continuam desligados; nenhum endpoint de Analytics ou recurso X foi chamado.
+
+### Preparação do canário financeiro da capability
+
+- Utilitário guardado: `scripts/twitter/run-zernio-capability-canary.mjs`.
+- Pré-condições: uma conexão ativa, capabilities off, zero reserva aberta, piso de US$ 5 preservado e confirmação operacional literal.
+- Reserva: um `post_read` de 5.000 micros por publicação conhecida da conexão, antes da ativação.
+- Recuperação: `finally` local e subprocesso watchdog independente, oculto no Windows, ambos forçam Analytics/Inbox off.
+- Billing: duas conferências finais estáveis; liquidação exata do delta `posts_read`, liberação do restante ou `outcome_unknown` em qualquer incerteza.
+- Gate local: 206/206 testes, TypeScript, sintaxe e diff check aprovados. Nenhuma capability ou chamada Zernio executada nesta preparação.
 - Parar apenas `athena-twitter-analytics-worker` quando instalado.
 - Banco recebe somente correção forward-only; código pode ser revertido pelo commit da fase.
 

@@ -12,6 +12,7 @@ Este checklist é operacional e não autoriza ativação. Todos os gates precisa
 - [ ] Supabase local/remoto alinhado e nenhuma migration pendente.
 - [ ] Testes, TypeScript, build e `git diff --check` aprovados no commit candidato.
 - [ ] Rollback Vercel/VPS e IDs exatos registrados.
+- [ ] Gate visual/CSS de todas as rotas `/x/*` aprovado nos breakpoints documentados, com regressão das telas Instagram que usam estilos compartilhados.
 
 ## Semântica das flags
 

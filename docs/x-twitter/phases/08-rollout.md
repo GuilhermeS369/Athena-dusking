@@ -6,6 +6,10 @@ Entregas: ativação progressiva, fallback validado, monitoramento, comparação
 
 Nota de topologia atual: registros abaixo que mencionam cinco processos descrevem releases históricos. A ADR-X-017 reduziu o contrato vigente a quatro papéis reais — publicação, sync, analytics e reconciliação — sem alterar a confirmação financeira atômica.
 
+## Gate visual/CSS obrigatório
+
+A menção original a páginas responsivas na Fase 3 não substitui uma auditoria visual completa. Antes do rollout geral, todas as páginas `/x/*` serão inspecionadas em 1440, 1024, 768, 390 e 320 px, incluindo estados vazio/erro/loading/sem saldo, overflow, foco/teclado, contraste, modais e formulários. Estilos novos serão isolados por classes `twitter-*`/`x-*`; qualquer seletor compartilhado alterado exige evidência de regressão das telas Instagram correspondentes.
+
 ## Topologia de quatro workers implantada e desligada
 
 - ADR-X-017 implantada em 23/08/2026 UTC; confirmação continua materializando reservas e itens financiados atomicamente.

@@ -218,6 +218,20 @@ Primeiros posts reais: texto sem URL, uma imagem, 2–4 imagens, GIF, vídeo e U
 7. Analytics: manual, piso de US$ 5 e snapshots.
 8. Rollout: ativação progressiva, monitoramento e handoff final.
 
+### Gate visual e CSS do módulo X
+
+Antes da liberação geral, executar uma revisão visual exclusiva de todas as rotas `/x/*`, sem alterar seletores que sustentam as páginas Instagram. O gate cobre:
+
+- desktop, tablet e celular nos breakpoints de 1440, 1024, 768, 390 e 320 px;
+- menus expansíveis, cabeçalhos, cards, tabelas, modais, formulários e ações destrutivas;
+- overflow horizontal/vertical, textos longos, IDs, valores financeiros e mídia;
+- estados vazio, carregando, erro, sem saldo, desabilitado e somente leitura;
+- contraste, foco visível, navegação por teclado e alvos de toque;
+- consistência entre Postagem, Fila, Galeria, Perfis, Grupos, Agenda, Zernio, Logs e Análises;
+- screenshots de evidência e smoke visual após o build.
+
+Novos estilos específicos ficam sob classes/containers `twitter-*` ou `x-*`. Alterações em seletores compartilhados exigem regressão visual explícita das páginas Instagram afetadas.
+
 Cada gate exige documentação/`STATE.json`, `git diff --check`, testes, verificação de ambientes, rollback e commit do checkpoint.
 
 ## 10. Aceite final
@@ -229,4 +243,5 @@ Cada gate exige documentação/`STATE.json`, `git diff --check`, testes, verific
 - nenhum retry cego após resultado incerto;
 - RLS e papéis aprovados;
 - regressão Instagram verde;
+- gate visual/CSS X aprovado em desktop e mobile sem regressão visual Instagram;
 - outra conta GPT continua somente pela documentação versionada.

@@ -19,6 +19,7 @@ Atualizada em 2026-08-23T00:54:05Z. Esta matriz não substitui o plano; resume e
 | Publicação canário | Concluído | Texto, imagens, GIF, vídeo, URL e matriz de erros validados; wallet atual 11.725.000 micros. |
 | Analytics manual | Implementado, gate externo bloqueado | Três operações retornaram HTTP 202, comprovadas sem cobrança e reconciliadas. Zero snapshot; não repetir cegamente. |
 | Rollout geral/fallback live | Não iniciado por gate | Proibido até uma operação analytics distinta retornar sucesso comprovado/HTTP 200 com snapshot e liquidação correta. |
+| CSS/UX responsivo do módulo X | Pendente de gate visual dedicado | A Fase 3 entregou páginas responsivas funcionais; falta inspeção visual sistemática de `/x/*`, breakpoints, acessibilidade e regressão Instagram. |
 
 ## Estado operacional congelado
 

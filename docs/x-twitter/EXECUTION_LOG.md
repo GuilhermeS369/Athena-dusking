@@ -1003,3 +1003,12 @@ Registros são append-only.
 - Pós-deploy: conexão Analytics/Inbox off, capability events 0, publicação/analytics não terminais 0, holds 0, snapshots 0, wallet 11.725.000/0 versão 21. Nenhuma chamada Zernio/X foi feita.
 - Rollback de aplicação: Production `dpl_Cvbbi7kWV7w32ct71frjGR3SfRSj`; rollback VPS `e732fed77971-20260823T000341Z`. Banco somente por migration corretiva forward e sem remover 244.
 - Próxima ação segura: desenhar o canário financeiro de capability com duração limitada e baseline/final de uso antes de ativar o gate exclusivo. Rollout geral e fallback continuam proibidos.
+
+## X-0082 — gate CSS e canário de capability preparados localmente
+
+- UTC: 2026-08-23T01:38:23Z; São Paulo: 2026-08-22T22:38:23-03:00.
+- CSS: o plano original tinha apenas “páginas responsivas” na Fase 3. Foi acrescentado gate visual obrigatório para todas as rotas `/x/*` em 1440/1024/768/390/320 px, estados de UI, overflow, contraste, teclado e regressão Instagram. Estilos X devem usar escopo `twitter-*`/`x-*`.
+- Canário: utilitário operacional reserva antecipadamente todas as leituras possíveis da janela, preserva o piso de US$ 5, inicia watchdog independente, mantém Inbox false, desliga em `finally`, exige dois snapshots finais estáveis e liquida apenas o delta `posts_read` comprovado.
+- Falha fechada: desligamento incerto, metering crescente/negativo ou delta acima da cobertura marca a reserva `outcome_unknown`; watchdog nunca libera saldo.
+- Verificação: 206/206 testes, TypeScript, sintaxe do script e `git diff --check` aprovados. Estado remoto ainda não alterado neste registro.
+- Próxima ação segura: checkpoint Git; executar baseline read-only; somente então rodar uma janela curta com a confirmação literal. Registrar reserva, capabilities, billing, carteira e watchdog antes de tentar novo analytics manual.
