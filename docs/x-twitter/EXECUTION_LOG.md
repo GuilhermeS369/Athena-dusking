@@ -952,3 +952,15 @@ Registros são append-only.
 - Verificação: 201/201 testes, TypeScript, build de 41 páginas e `git diff --check` aprovados; warnings de metadata em login/onboarding/not-found permanecem preexistentes.
 - Rollback local: reverter as cinco unidades de aplicação e o teste de paridade; não há banco, saldo, Storage ou infraestrutura para desfazer.
 - Próxima ação segura: commit; deploy Preview/Production com flags off; smokes sem sessão de Galeria, Grupos, Postagem e `/api/x/bulk/review`, sem criar dados.
+
+## X-0078 — paridade de conteúdo e Revisão implantada off
+
+- UTC: 2026-08-23T00:48:56Z; São Paulo: 2026-08-22T21:48:56-03:00.
+- Código de origem `b37e09f`; Preview `dpl_6FUjQ5g5DGoFeUzedD7NFZj4hfjp` e Production `dpl_5P8V7o1iyS9ckkkXkfDUHqSXzQhe`, ambos `READY`; alias oficial atualizado.
+- Smokes Preview/Production: Galeria, Grupos e Postagem redirecionaram visitante para `/login`; Review sem sessão retornou `401`. Nenhuma operação autenticada ou mutável foi usada.
+- Verificação implantada: 201/201 testes, TypeScript e builds local/Vercel aprovados; 41 páginas; somente warnings metadata e avisos npm preexistentes.
+- Supabase: migrations 1–243 permanecem alinhadas; publicação não terminal 0, analytics não terminal 0, holds 0, snapshots 0, transferências 0; wallet 11.725.000/0 versão 21.
+- VPS read-only: quatro workers X `stopped`; seis processos existentes `online` com PIDs 99980, 27468, 136197, 127605, 122939 e 103209. A tentativa inicial de resumir PM2 com `jq` falhou por utilitário ausente e foi repetida com `pm2 ls`; nenhum processo mudou.
+- Flags/fallback continuam off. Nenhuma migration, release VPS, Storage, grupo, revisão, reserva ou chamada Zernio foi executada.
+- Rollback: Production anterior `dpl_44NHJUgWMrcW1kA9mwhedcBYyd7W`; Supabase/VPS não requerem rollback.
+- Próxima ação segura: auditoria estrutural final de navegação, permissões e isolamento; não repetir analytics bloqueada.

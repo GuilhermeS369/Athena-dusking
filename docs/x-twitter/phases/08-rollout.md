@@ -160,3 +160,14 @@ Próxima ação segura: auditoria final requisito por requisito. Rollout geral/f
 - Rollback de aplicação: promover `dpl_HMe8QrEt4YDPnTTztNFjiP9JZXtf`; Supabase e VPS não exigem rollback.
 
 Próxima ação segura: auditar Galeria, Grupos e Postagem em massa X. Todas as flags permanecem off; gate de rollout geral continua bloqueado pelo analytics HTTP 200.
+
+## Galeria, Grupos e contrato de Revisão implantados off
+
+- Código implantado: `b37e09f`.
+- Preview: `dpl_6FUjQ5g5DGoFeUzedD7NFZj4hfjp`, URL `https://pomodoro-mbz7bkpje-shoows-projects-2caaf9e9.vercel.app`, `READY`.
+- Production: `dpl_5P8V7o1iyS9ckkkXkfDUHqSXzQhe`, URL `https://pomodoro-bvqsmutez-shoows-projects-2caaf9e9.vercel.app`, `READY`, alias oficial preservado.
+- Smokes: `/x/galeria`, `/x/grupos` e `/x/postagem` retornaram `307 /login`; `POST /api/x/bulk/review` sem sessão retornou `401`. Nenhuma revisão, reserva, upload, grupo ou chamada externa foi criada.
+- Pós-deploy: publicação/analytics não terminais 0, holds 0, snapshots 0, transferências 0; wallet 11.725.000/0 versão 21. Quatro X stopped; seis existentes online com PIDs preservados.
+- Rollback: promover `dpl_44NHJUgWMrcW1kA9mwhedcBYyd7W`; banco e VPS não foram alterados.
+
+Próxima ação segura: auditoria estrutural final requisito por requisito. Rollout geral e fallback live continuam bloqueados pelo gate analytics HTTP 200.
