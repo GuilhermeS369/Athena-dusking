@@ -1,6 +1,6 @@
 # Fase 07 — análises manuais
 
-Status: `in_progress` — contrato fan-out corrigido localmente; migration 246, teste transacional e canário controlado pendentes
+Status: `in_progress` — contrato fan-out e migration 246 aprovados; deploy off e canário controlado pendentes
 
 ## Entregas
 
@@ -86,6 +86,8 @@ Versionar a correção fan-out, aplicar somente a migration 246 com todos os gat
 - HTTP 200 não liquida automaticamente: o worker preserva métricas como evidência pendente, marca `outcome_unknown` e bloqueia outra leitura na mesma conexão.
 - Antes da chamada paga, o worker exige baseline válido de `/v1/usage`; se ele não existir, falha localmente e libera a reserva sem tocar o recurso X.
 - Gate local: 213/213 testes, TypeScript, build de 41 páginas, sintaxe do worker, `git diff --check` e dry-run Supabase aprovados. Nenhuma flag, dado, saldo, Zernio, Vercel, VPS ou PM2 foi alterado.
+- Gate de banco: migration 246 aplicada com Analytics/Inbox/workers off. O teste legado foi tornado tenant-scoped após o primeiro runner encontrar jobs históricos reais; ambas as execuções ocorreram em `BEGIN/ROLLBACK`. Repetição final passou 29 verificações, sem organização/reserva/item residual.
+- Quote somente leitura sobre um post publicado confirmou preço unitário 5.000, nove unidades, reserva máxima 45.000, projeção 11.545.000 e piso 5.000.000. Carteira permaneceu 11.590.000/0 versão 24.
 
 ### Correção financeira por metering tardio — 22/08/2026
 

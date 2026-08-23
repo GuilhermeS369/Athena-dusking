@@ -1095,3 +1095,15 @@ Registros são append-only.
 - Ambientes/dados: nenhuma mutação remota, chamada Zernio/X, reserva, débito, flag, deploy Vercel, release VPS ou processo PM2 nesta unidade. Analytics, Inbox, workers e fallback permanecem off.
 - Rollback local: reverter os arquivos desta unidade antes de aplicar 246. Depois da aplicação, banco somente por migration corretiva forward; nunca remover histórico remoto.
 - Próxima ação segura: criar commit do checkpoint, reconfirmar flags/filas/carteira, aplicar somente 246, executar pgTAP em transação/rollback e documentar o resultado antes de considerar canário.
+
+## X-0089 — migration 246 e liquidação parcial aprovadas no Supabase
+
+- UTC: 2026-08-23T11:30:08Z; São Paulo: 2026-08-23T08:30:08-03:00.
+- Checkpoint executável de entrada: `fc00e28`. Preflight: local/remoto alinhados até 245 e dry-run listando somente 246; wallet 11.590.000/0 versão 24; publicação/Analytics não terminais, reservas abertas e holds ativos/incertos todos zero; conexão ativa com Analytics/Inbox false.
+- VPS read-only: `srv1881733`, Node 22.23.2, 42 GB livres, 2.886 MB disponíveis, sem swap, env modo 600; release `7c83ece-20260823T011500Z`; quatro workers X stopped. Seis processos existentes permaneceram online com PIDs 99980, 27468, 136197, 127605, 122939 e 103209.
+- Banco: `supabase db push` aplicou exclusivamente `246_twitter_analytics_billing_fanout.sql`; o warning posterior foi apenas cache local dependente de Docker indisponível. Migration list confirmou 246/246.
+- Teste: primeiro runner pgTAP retornou `21000` porque asserções antigas consultavam jobs globais reais. O arquivo estava em `BEGIN/ROLLBACK`, portanto não deixou mutação. Todas as asserções foram restringidas à organização/identidade sintética e a repetição concluiu o plano 29 sem falha; `extensions.finish()` vazio confirma zero diagnóstico de falha.
+- Invariantes verificadas pelo teste: reserva 45.000 por post + 10.000 por perfil; apenas um claim por conexão; débito `unit_cost × billed_units`; excedente liberado; replay sem débito duplicado; falha libera; unknown mantém; piso US$ 5 bloqueia; ledger/eventos imutáveis.
+- Quote real somente leitura: um post, unidade 5.000, nove unidades, máximo 45.000, projeção 11.545.000, piso 5.000.000 e `canConfirm=true`. Segredo de assinatura usado foi efêmero e local, sem persistência.
+- Pós-teste: wallet 11.590.000/0 versão 24; zero publicação/Analytics não terminal, reserva aberta ou hold ativo/incerto; organização sintética residual zero. Nenhuma chamada Zernio/X, alteração de capability, Vercel ou PM2.
+- Rollback: não apagar migration 246; qualquer correção de banco será migration forward. Manter Analytics/Inbox/workers/fallback off. Próxima ação segura: commit documental/teste, deploy Preview/Production off e release VPS parado.

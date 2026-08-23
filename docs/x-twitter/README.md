@@ -2,14 +2,14 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T11:22:57Z / 2026-08-23T08:22:57-03:00
-- Fase atual: 8 — preparação do rollout progressivo (`in_progress`); gate visual/CSS concluído, contrato financeiro fan-out implementado localmente; sem liberação geral
-- Status: reserva máxima de nove reads e liquidação por uso comprovado aprovadas localmente. Analytics/Inbox e workers continuam off; migration 246 e canário controlado ainda não foram executados.
+- Atualizado em: 2026-08-23T11:30:08Z / 2026-08-23T08:30:08-03:00
+- Fase atual: 8 — preparação do rollout progressivo (`in_progress`); gate visual/CSS e gate transacional do contrato fan-out concluídos; sem liberação geral
+- Status: migration 246 aplicada e pgTAP 29/29 com rollback aprovado. Analytics/Inbox e workers continuam off; aplicação/worker atualizados e canário controlado ainda não foram implantados/executados.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint Git executável mais recente: `9200b4e`; Preview `dpl_8aB1TheK2kW1noy9HJfAAGB7jozx` e Production `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D`, ambos `READY`. O escopo global e todos os workers/fallback continuam off; somente Pomodoro permanece canário.
 - Feature flag X: criada e desligada
-- Mutação remota feita pelo módulo X: migrations aditivas 223–245; migration 246 pendente e ainda somente local
+- Mutação remota feita pelo módulo X: migrations aditivas 223–246
 
 ## Leitura obrigatória para continuar
 
@@ -24,7 +24,7 @@
 ## Baseline conhecido
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
-- Migrações local/remoto alinhadas até 245; dry-run lista somente 246.
+- Migrações local/remoto alinhadas até 246.
 - Testes atuais: 213/213 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
@@ -34,12 +34,12 @@
 
 ## Próxima ação segura
 
-Criar o checkpoint Git desta unidade e validar a migration 246 no Supabase com Analytics/workers off. Depois, executar pgTAP transacional e reconferir carteira, filas e processos antes de qualquer canário pago.
+Versionar o ajuste tenant-scoped do teste, criar Preview com flags off e depois Production off. Atualizar somente o release dos quatro workers X, mantendo-os parados; nenhum canário pago antes do checkpoint pós-deploy.
 
 ## Proibições imediatas
 
 - Não rodar `git reset --hard`, checkout destrutivo ou limpeza recursiva.
-- Não reaplicar migrações 210–245: elas já constam no remoto. Aplicar somente 246 após o checkpoint e preflight.
+- Não reaplicar migrações 210–246: elas já constam no remoto.
 - Não repetir o provisionamento apenas para conferir estado nem expor a chave fornecida no chat; ela já foi persistida cifrada.
 - Não criar um segundo profile Zernio: o único profile existente foi confirmado como exclusivamente Twitter.
 - Não publicar secrets ou conteúdo de `.env*`.
