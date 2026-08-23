@@ -121,6 +121,8 @@ npx tsx --env-file=.env.local scripts/twitter/audit-first-send-readiness.ts
 ### Kill switches por papel
 
 - Flags: `TWITTER_PUBLICATION_WORKER_ENABLED`, `TWITTER_SYNC_WORKER_ENABLED`, `TWITTER_ANALYTICS_WORKER_ENABLED` e `TWITTER_RECONCILE_WORKER_ENABLED`.
+- A Agenda/Postagem em massa V2 possui gate próprio `TWITTER_BULK_SCHEDULE_V2_ENABLED`. Ele deve existir em Preview e Production antes do deploy que passa a exigir `scheduleVersion: 2`; ausência ou `false` produz HTTP 503 em Review/Confirm.
+- Antes de ativar a Agenda V2, exigir migrations 247–253, Preview aprovado, worker de publicação com suporte a mídia sem texto e health global `ok`. Depois do deploy, executar uma revisão autenticada somente leitura e confirmar que nenhum saldo foi reservado.
 - Analytics também exige `TWITTER_ANALYTICS_ENABLED=true`; publicação live exige os gates de modo/canário já documentados.
 - A capability de sincronização periódica da Zernio exige adicionalmente `TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED=true`. Não confundir esse gate com as análises manuais; por padrão ele fica `false` e Inbox nunca é habilitado.
 - O heartbeat é a autorização operacional do ciclo: modo `stopped` deve encerrar o executável antes de claim, recovery, mutação financeira ou chamada Zernio. Claims, reconcile e fallback reaplicam o gate global/canário mesmo quando chamados diretamente.

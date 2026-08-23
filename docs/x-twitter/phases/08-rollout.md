@@ -262,3 +262,13 @@ Nenhuma organização foi adicionada, nenhum worker foi iniciado e fallback cont
 - Auditoria da conexão existente: `first_send_approved`, um perfil publicável, seis itens publicados, saldo 11.590.000/0, zero unknown, zero worker stale e zero breaker aberto.
 - Validação: 223/223 testes, TypeScript, build de 41 páginas e `git diff --check`. Somente warnings metadata preexistentes.
 - Nenhuma publicação, reserva, débito, migration, chamada Zernio, alteração de flag, deployment ou reinício PM2 ocorreu nesta unidade.
+
+### Correção de drift da Agenda V2 — 23/08/2026
+
+- Causa: o código/migrations 247–253 da Agenda V2 haviam sido enviados à Vercel/Supabase sem criar `TWITTER_BULK_SCHEDULE_V2_ENABLED`; Review e Confirm retornavam 503. O worker de publicação permanecia na release anterior, incompatível com mídia sem texto.
+- Correção: checkpoint `fcd21a3`, gate V2 ativo em Preview/Production, Preview `dpl_7dXwWdpF3qqwLpRhfBUE1FxZ2FQe`, Production `dpl_XFakKdYn6RmFWYPoMJ2VvK9ny3EU` e release VPS `fcd21a3-20260823T171308Z` para publicação.
+- Revisão autenticada em Production retornou 24 slots financiáveis, custo US$ 0,360 e exibiu explicitamente que nenhuma reserva havia sido criada. A confirmação não foi executada e nenhuma publicação foi criada.
+- Smoke autenticado: nove páginas X e sete páginas Instagram carregaram conteúdo sem erro fatal; nenhuma página X manteve o aviso de gate. Logs Vercel: zero error e zero 5xx após o deploy. Avisos client-side React 418 foram isolados somente nas páginas Instagram preexistentes `/perfis` e `/zernio`; não bloqueiam conteúdo e não foram misturados à correção X.
+- Health final `ok`: quatro workers X live, seis workers existentes online, fila/holds/unknown/429/breakers zerados e wallet 11.590.000/0. Auditoria do primeiro envio permaneceu `first_send_approved`.
+- Validação: 239/239 testes, TypeScript, build de 46 páginas, `git diff --check` e testes SQL 247/248/249 aprovados. Warnings metadata preexistentes inalterados.
+- Rollback: desligar somente `TWITTER_BULK_SCHEDULE_V2_ENABLED`, promover `dpl_5zRqhFci5wAin5ZbV8CeDykBZ17s` se necessário e recolocar apenas o worker de publicação em `d67a2ec-20260823T113709Z`; não reverter migrations remotas.

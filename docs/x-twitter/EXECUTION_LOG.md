@@ -1223,3 +1223,14 @@ Registros são append-only.
 - Verificação: 223/223 testes aprovados; TypeScript, build de 41 páginas e `git diff --check` aprovados. Warnings metadata em login/onboarding/not-found permanecem preexistentes.
 - Ambientes: nenhuma migration, flag, deployment, release, processo PM2, publicação, chamada Zernio, reserva, hold, ledger ou saldo foi alterado. O procedimento foi documentado no Runbook e na Fase 8.
 - Rollback: reverter somente `1cf7241`; não há rollback remoto. Próxima ação segura: para cada conexão nova, auditar após sync, após confirmar o primeiro programa e após o primeiro resultado terminal; exigir health `ok` e `first_send_approved`.
+
+## X-0102 — incidente de implantação parcial da Agenda V2 corrigido
+
+- UTC: 2026-08-23T17:19:10Z; São Paulo: 2026-08-23T14:19:10-03:00. Entrada: commit `4e84dc4` e worktree com a evolução V2 ainda não consolidada; Production parcial `dpl_BgSPrtePYhGcaNRqnoexpc9tAgtE`.
+- Sintoma confirmado: Review/Confirm continham `TWITTER_BULK_SCHEDULE_V2_ENABLED`, mas a variável não existia na Vercel; a UI mostrava “A agenda X V2 está temporariamente desativada”. Supabase já estava em 253 e o worker de publicação ainda executava `d67a2ec`.
+- Código V2 preservado e consolidado em `fcd21a3` depois de 239/239 testes, TypeScript, build de 46 páginas, diff check, busca de secrets e testes SQL transacionais 247/248/249.
+- Deploy: gate V2 criado em Preview/Production; Preview `dpl_7dXwWdpF3qqwLpRhfBUE1FxZ2FQe` e Production `dpl_XFakKdYn6RmFWYPoMJ2VvK9ny3EU`, ambos `READY`. Produção não registrou error/5xx após o deploy.
+- VPS: release nova `fcd21a3-20260823T171308Z`; hash do worker `41567cea37e801d5b180bf803d423c4f7ab7ac3030ee8930cc7e005526c6078a`. One-shot aprovado; somente `athena-twitter-publication-worker` foi substituído, PID 154355, zero restart. Três workers X compatíveis permaneceram na release anterior; seis workers Instagram mantiveram seus processos online.
+- Aceite autenticado: nove páginas X carregadas; Review V2 real somente leitura abriu a confirmação financeira com 24/24 financiáveis e nenhuma reserva criada. Sete páginas Instagram passaram em smoke. A confirmação da programação não foi clicada. React 418 não fatal foi isolado em `/perfis` e `/zernio` do Instagram; demais cinco páginas Instagram e as páginas X não reproduziram o aviso em isolamento.
+- Estado final: health `ok`; quatro workers X live; fila publicação/Analytics, holds, reservations unknown, 429 e breakers em zero; wallet 11.590.000/0 versão 26; first-send audit `first_send_approved`.
+- Rollback: desligar o gate V2, promover `dpl_5zRqhFci5wAin5ZbV8CeDykBZ17s` e apontar/recriar somente a publicação em `d67a2ec-20260823T113709Z`. Migrações 247–253 permanecem e qualquer correção de banco será forward-only.
