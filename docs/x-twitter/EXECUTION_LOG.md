@@ -964,3 +964,14 @@ Registros são append-only.
 - Flags/fallback continuam off. Nenhuma migration, release VPS, Storage, grupo, revisão, reserva ou chamada Zernio foi executada.
 - Rollback: Production anterior `dpl_44NHJUgWMrcW1kA9mwhedcBYyd7W`; Supabase/VPS não requerem rollback.
 - Próxima ação segura: auditoria estrutural final de navegação, permissões e isolamento; não repetir analytics bloqueada.
+
+## X-0079 — navegação e permissão Viewer alinhadas localmente
+
+- UTC: 2026-08-23T00:51:31Z; São Paulo: 2026-08-22T21:51:31-03:00.
+- Auditoria: menus Instagram e X/Twitter possuem todas as rotas aprovadas e ficam expansíveis; Dashboard permanece geral. O utilitário geral foi renomeado visualmente de `Bulk Import` para `Importação em massa`.
+- Permissão: Viewer não recebe mais o composer de Postagem em massa X; vê aviso somente leitura. As APIs Review/Confirm já exigiam `operator`, mantendo defesa server-side.
+- Teste estrutural novo fixa as duas seções, todas as rotas, páginas gerais e o gate Viewer/Operator/Admin.
+- Verificação: 203/203 testes, TypeScript, build de 41 páginas e `git diff --check`; somente warnings metadata preexistentes.
+- Ambientes: nenhuma migration, deploy, Supabase, VPS, saldo, Storage ou Zernio alterado neste registro.
+- Rollback: reverter shell, página X/Postagem e teste; não há infraestrutura para desfazer.
+- Próxima ação segura: commit e deploy Preview/Production off; depois matriz final de requisitos e pendências externas.

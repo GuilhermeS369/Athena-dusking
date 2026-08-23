@@ -171,3 +171,7 @@ Próxima ação segura: auditar Galeria, Grupos e Postagem em massa X. Todas as 
 - Rollback: promover `dpl_44NHJUgWMrcW1kA9mwhedcBYyd7W`; banco e VPS não foram alterados.
 
 Próxima ação segura: auditoria estrutural final requisito por requisito. Rollout geral e fallback live continuam bloqueados pelo gate analytics HTTP 200.
+
+## Auditoria estrutural final de navegação e papéis
+
+Em 23/08/2026 UTC, os dois menus expansíveis foram reconferidos com todas as rotas Instagram/X, Dashboard geral e importação geral. O rótulo compartilhado foi alinhado para “Importação em massa”. Viewer agora recebe explicitamente uma página somente leitura em `/x/postagem`, sem composer; Review e Confirm continuam exigindo Operator/Admin no servidor. Gate local: 203/203 testes, TypeScript, build e diff check; nenhuma mutação remota.

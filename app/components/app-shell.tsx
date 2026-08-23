@@ -44,7 +44,7 @@ const twitterNavigation: NavigationItem[] = [
 ];
 
 const utilityNavigation: NavigationItem[] = [
-  { label: 'Bulk Import', icon: 'upload', href: '/bulk-import' },
+  { label: 'Importação em massa', icon: 'upload', href: '/bulk-import' },
 ];
 
 export default function AppShell({
