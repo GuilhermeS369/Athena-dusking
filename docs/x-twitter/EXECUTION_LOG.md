@@ -916,3 +916,15 @@ Registros são append-only.
 - Ambientes: nenhuma migration, deploy, saldo, fila ou chamada externa; Production off e workers stopped.
 - Rollback: reverter página, client e teste; sem dados/infraestrutura a desfazer.
 - Próxima ação segura: checkpoint Git; criar detalhe local de Perfis X com épocas, conexão, grupos, itens e snapshots já existentes.
+
+## X-0075 — detalhe local de Perfis X concluído
+
+- UTC: 2026-08-23T00:36:24Z; São Paulo: 2026-08-22T21:36:24-03:00.
+- Entrega: lista de perfis ganhou link interno e link público X; nova rota `/x/perfis/[profileId]` preserva o perfil estável como centro do histórico.
+- Dados locais: identidade imutável/confiança, tier, token/capacidades, health, conexão, até 50 épocas, grupos atuais, 50 itens recentes e 50 snapshots já persistidos.
+- Analytics: abrir detalhe nunca enfileira leitura; seção informa “Sem leitura automática” e direciona para `/x/analises`.
+- Segurança: todas as consultas usam organização ativa + `twitter_*`; perfil inexistente/cross-tenant retorna 404. Teste proíbe tabelas Instagram e endpoints externos.
+- Verificação: 199/199 testes, TypeScript, build e diff check; warnings metadata preexistentes.
+- Ambientes: nenhuma migration, deploy, saldo, fila ou chamada externa neste registro; flags off/workers stopped.
+- Rollback: reverter lista, detalhe e teste; nenhum dado/infraestrutura a desfazer.
+- Próxima ação segura: checkpoint Git; deploy Vercel de Agenda+Perfis com flags off e smoke sem sessão, sem analytics.

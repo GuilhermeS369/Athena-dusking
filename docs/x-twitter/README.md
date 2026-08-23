@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T00:33:23Z / 2026-08-22T21:33:23-03:00
+- Atualizado em: 2026-08-23T00:36:24Z / 2026-08-22T21:36:24-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
@@ -24,7 +24,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 243.
-- Testes atuais: 198/198 aprovados.
+- Testes atuais: 199/199 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Criar o detalhe local de Perfis X com conexão/épocas, grupos, publicações e snapshots já armazenados. A Agenda completa está validada localmente. Preservar namespace/tabelas X e não ativar analytics, sync, cron, fallback live ou rollout.
+Implantar Agenda e detalhe de Perfis X em Preview/Production com flags off; smoke apenas proteção das páginas/rotas, sem analytics ou Zernio. Depois continuar a auditoria final de paridade.
 
 ## Proibições imediatas
 

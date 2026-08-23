@@ -31,3 +31,7 @@ Início: 2026-08-22T17:41:53Z. A implementação seguirá atrás da feature flag
 ## Auditoria final da Agenda
 
 Em 23/08/2026 UTC, a lista simples foi substituída por filtros locais de perfil, status e janela, com programa, custo, tentativas, retry e horário `America/Sao_Paulo`. Cancelamento individual reutiliza `/api/x/queue/cancel`, exige motivo e mantém `outcome_unknown` em hold até Logs/reconciliação. Limite visual de 500 itens; somente `twitter_publication_items`/`twitter_profiles`; zero endpoint externo. Gate local: 198/198 testes, TypeScript, build e diff check; nenhuma mutação remota.
+
+## Detalhe local de Perfis
+
+Em 23/08/2026 UTC, `/x/perfis/[profileId]` passou a apresentar ID imutável, tier/capacidades, health e conexão atual, épocas de conexão, grupos atuais, 50 itens recentes e até 50 snapshots armazenados. Tudo é scoped pela organização e lê somente tabelas `twitter_*`; snapshots não são atualizados ao abrir. A lista ganhou links para detalhe e perfil público X. Gate local: 199/199 testes, TypeScript, build e diff check; nenhum endpoint Zernio/X ou tabela Instagram.
