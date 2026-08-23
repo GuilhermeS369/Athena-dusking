@@ -175,3 +175,5 @@ Próxima ação segura: auditoria estrutural final requisito por requisito. Roll
 ## Auditoria estrutural final de navegação e papéis
 
 Em 23/08/2026 UTC, os dois menus expansíveis foram reconferidos com todas as rotas Instagram/X, Dashboard geral e importação geral. O rótulo compartilhado foi alinhado para “Importação em massa”. Viewer agora recebe explicitamente uma página somente leitura em `/x/postagem`, sem composer; Review e Confirm continuam exigindo Operator/Admin no servidor. Gate local: 203/203 testes, TypeScript, build e diff check; nenhuma mutação remota.
+
+Deploy final off: código `4cb7502`; Preview `dpl_2stTwHisyFgd6GfNFvCMihRJqZYs` e Production `dpl_Cvbbi7kWV7w32ct71frjGR3SfRSj`, ambos `READY`. `/x/postagem` retornou `307 /login` nos dois ambientes. Pós-deploy: filas/holds/snapshots/transferências 0 e wallet 11.725.000/0. Rollback Vercel: `dpl_5P8V7o1iyS9ckkkXkfDUHqSXzQhe`; banco/VPS não mudaram.

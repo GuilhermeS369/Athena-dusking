@@ -975,3 +975,14 @@ Registros são append-only.
 - Ambientes: nenhuma migration, deploy, Supabase, VPS, saldo, Storage ou Zernio alterado neste registro.
 - Rollback: reverter shell, página X/Postagem e teste; não há infraestrutura para desfazer.
 - Próxima ação segura: commit e deploy Preview/Production off; depois matriz final de requisitos e pendências externas.
+
+## X-0080 — auditoria estrutural final implantada e matriz registrada
+
+- UTC: 2026-08-23T00:54:05Z; São Paulo: 2026-08-22T21:54:05-03:00.
+- Código `4cb7502`; Preview `dpl_2stTwHisyFgd6GfNFvCMihRJqZYs` e Production `dpl_Cvbbi7kWV7w32ct71frjGR3SfRSj`, `READY`; alias oficial preservado; flags X/fallback off.
+- Smoke `/x/postagem`: `307 /login` em ambos. Nenhum fluxo autenticado, revisão, reserva ou chamada externa.
+- Pós-deploy Supabase: publicação/analytics não terminais 0, holds 0, snapshots 0, transferências 0; wallet 11.725.000/0. Migrações permanecem 1–243.
+- Verificação: 203/203 testes, TypeScript e builds local/Vercel aprovados; warnings preexistentes somente.
+- `REQUIREMENTS_MATRIX.md` criado com estado requisito por requisito. Fases 0–6 e implementação da 7 concluídas; gate externo da 7 e rollout geral da 8 permanecem abertos.
+- Rollback: promover `dpl_5P8V7o1iyS9ckkkXkfDUHqSXzQhe`; banco/VPS sem alteração.
+- Próxima ação segura: obter confirmação da Zernio e executar apenas um canário analytics novo/distinto após evidência de disponibilidade. Não repetir recursos 202 anteriores.

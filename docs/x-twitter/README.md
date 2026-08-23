@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T00:51:31Z / 2026-08-22T21:51:31-03:00
+- Atualizado em: 2026-08-23T00:54:05Z / 2026-08-22T21:54:05-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint de aplicação implantado: `b37e09f`; contrato financeiro de Revisão, Galeria e Grupos endurecidos sobre Agenda/Perfis/fila/transferência, todos os flags/processos X off.
+- Checkpoint de aplicação implantado: `4cb7502`; navegação/papéis e contrato financeiro/conteúdo endurecidos, todos os flags/processos X off.
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–243
 
@@ -19,6 +19,7 @@
 4. último registro de `docs/x-twitter/EXECUTION_LOG.md`
 5. arquivo da fase atual em `docs/x-twitter/phases/`
 6. `docs/x-twitter/RUNBOOK.md` antes de qualquer operação remota
+7. `docs/x-twitter/REQUIREMENTS_MATRIX.md` para o mapa final de concluído/bloqueado
 
 ## Baseline conhecido
 
@@ -33,7 +34,7 @@
 
 ## Próxima ação segura
 
-Criar o checkpoint e implantar o acabamento final de navegação/permissão com flags off. Depois registrar a matriz final de requisitos e pendências externas; não habilitar rollout/fallback nem repetir analytics Zernio.
+Obter confirmação/evidência da Zernio de que analytics X conclui com sucesso; só então preparar um canário novo e distinto conforme a Fase 7. Não repetir recursos anteriores, não habilitar rollout/fallback e não resolver resultados por suposição.
 
 ## Proibições imediatas
 
@@ -47,6 +48,6 @@ Criar o checkpoint e implantar o acabamento final de navegação/permissão com 
 
 ## Ambientes preparados
 
-- Vercel: segredos por função configurados separadamente; Production `dpl_5P8V7o1iyS9ckkkXkfDUHqSXzQhe` (`https://pomodoro-bvqsmutez-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial, todos os flags mutáveis off e nomes genérico/`generation` removidos. Preview `dpl_6FUjQ5g5DGoFeUzedD7NFZj4hfjp` (`https://pomodoro-mbz7bkpje-shoows-projects-2caaf9e9.vercel.app`) `READY`.
+- Vercel: segredos por função configurados separadamente; Production `dpl_Cvbbi7kWV7w32ct71frjGR3SfRSj` (`https://pomodoro-olajyhsul-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial, todos os flags mutáveis off. Preview `dpl_2stTwHisyFgd6GfNFvCMihRJqZYs` (`https://pomodoro-kvoyqfj6r-shoows-projects-2caaf9e9.vercel.app`) `READY`.
 - VPS: release `e732fed77971-20260823T000341Z`, hash `c0834c2fda517056cb1e31a9a0e9d44c2c8b382b57d673df7c489b396014a4a8`; quatro processos X apontam para ele e estão `stopped`; nomes genérico/`generation` removidos; seis processos existentes continuam `online` com os PIDs preservados.
 - Supabase: migrations 223–243 alinhadas; teste 243 13/13 com rollback; zero evento de transferência real ou job residual; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.
