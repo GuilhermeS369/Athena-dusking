@@ -109,7 +109,7 @@ Não instalar `athena-twitter-generation-worker`: a ADR-X-017 mantém a material
 
 - O botão Sincronizar apenas cria `twitter_sync_jobs`; não faz leitura Zernio no request público.
 - Claim/result exclusivos: `/api/internal/twitter-sync-claims` e `/api/internal/twitter-sync-results`, autenticados somente pelo segredo do papel sync.
-- O worker usa lease de 900 segundos, concorrência 1 por conexão e limite de 500 contas por inventário; capabilities `analytics`/`inbox` permanecem false.
+- O worker usa lease de 900 segundos, concorrência 1 por conexão e limite de 500 contas por inventário; reaplica `analytics_enabled` do estado auditado e sempre força `inbox=false`.
 - Antes de ativar `TWITTER_SYNC_WORKER_ENABLED`, exigir migrations até 242, release `a5edc6c049e1-20260822T235210Z` ou superior e fila inicialmente vazia.
 - Kill switch durante job impede novos claims; o claim atual deve concluir ou expirar. Nunca apagar jobs para recuperar lease.
 

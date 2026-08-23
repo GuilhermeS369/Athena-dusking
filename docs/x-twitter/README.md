@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T01:08:10Z / 2026-08-22T22:08:10-03:00
+- Atualizado em: 2026-08-23T01:16:47Z / 2026-08-22T22:16:47-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: controle auditado das capabilities Zernio implementado; Analytics/Inbox continuam off e o gate HTTP 200 permanece pendente
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint de aplicação implantado: `4cb7502`; navegação/papéis e contrato financeiro/conteúdo endurecidos, todos os flags/processos X off.
+- Checkpoint de aplicação implantado: `7c83ece`; controle Athena das capabilities Zernio adicionado, todos os flags/processos X off.
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–244
 
@@ -34,7 +34,7 @@
 
 ## Próxima ação segura
 
-Criar o checkpoint Git da unidade 244 e implantar aplicação/worker com todos os gates e processos X desligados. Só depois preparar um canário controlado da capability; não repetir recursos 202 anteriores nem habilitar rollout/fallback.
+Projetar e documentar o canário financeiro da capability antes de ativá-la: janela curta, baseline/final de uso e compensação para `false`. Não repetir recursos 202 anteriores nem habilitar rollout/fallback.
 
 ## Proibições imediatas
 
@@ -48,6 +48,6 @@ Criar o checkpoint Git da unidade 244 e implantar aplicação/worker com todos o
 
 ## Ambientes preparados
 
-- Vercel: segredos por função configurados separadamente; Production `dpl_Cvbbi7kWV7w32ct71frjGR3SfRSj` (`https://pomodoro-olajyhsul-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial, todos os flags mutáveis off. Preview `dpl_2stTwHisyFgd6GfNFvCMihRJqZYs` (`https://pomodoro-kvoyqfj6r-shoows-projects-2caaf9e9.vercel.app`) `READY`.
-- VPS: release `e732fed77971-20260823T000341Z`, hash `c0834c2fda517056cb1e31a9a0e9d44c2c8b382b57d673df7c489b396014a4a8`; quatro processos X apontam para ele e estão `stopped`; nomes genérico/`generation` removidos; seis processos existentes continuam `online` com os PIDs preservados.
-- Supabase: migrations 223–243 alinhadas; teste 243 13/13 com rollback; zero evento de transferência real ou job residual; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.
+- Vercel: Production `dpl_9zixyzBTcpjTjiG2RyeoyQDxipvL` (`https://pomodoro-8roycj5ks-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial; Preview `dpl_5DbmP76T7jqiBXFtbU9h5d9fuMhq` (`https://pomodoro-88ow92ms3-shoows-projects-2caaf9e9.vercel.app`) `READY`. O novo gate está explicitamente `false` nos dois ambientes.
+- VPS: release `7c83ece-20260823T011500Z`, hash `e71415e4f39d4056e5eacc7fd3a9bae6f501d3e8a31168616e4141ee9b7bf10a`; quatro processos X apontam para ele e estão `stopped`; seis processos existentes continuam `online` com os PIDs preservados.
+- Supabase: migrations 223–244 alinhadas; teste 244 10/10 com rollback; conexão Analytics/Inbox off, zero evento de capability, filas/holds/snapshots zerados e wallet 11.725.000/0 versão 21.
