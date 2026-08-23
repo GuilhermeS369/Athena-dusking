@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T12:05:47Z / 2026-08-23T09:05:47-03:00
+- Atualizado em: 2026-08-23T12:28:13Z / 2026-08-23T09:28:13-03:00
 - Fase atual: 8 — preparação do rollout progressivo (`in_progress`); gate visual/CSS e gate transacional do contrato fan-out concluídos; sem liberação geral
 - Status: Fase 8 formalmente em preflight, com sete de nove itens do gate zero aprovados. O canário HTTP 200 permanece `billing_pending`; faltam a liquidação/snapshot exatos e, depois, health `ok`. Deployment seguro restaurado; Analytics/Inbox/workers off.
 - Branch: `codex/x-twitter-module`

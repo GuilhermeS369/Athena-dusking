@@ -226,3 +226,11 @@ Gate de deploy desligado concluído. Próxima unidade: executor guardado e caná
 - Checklist corrigido para a topologia vigente de quatro PM2 + fallback separado. Sete de nove itens aprovados; faltam snapshot/débito exato/hold zero e health `ok` posterior.
 
 Nenhuma organização foi adicionada, nenhum worker foi iniciado e fallback continua off. A expansão progressiva permanece bloqueada até os dois itens restantes.
+
+### Inventário e aceite por tipo de organização
+
+- O ambiente contém três organizações: uma com conexão X ativa e duas sem conexão X.
+- A organização conectada exigirá 30 minutos de observação, uma publicação confirmada, ledger/hold reconciliados e health antes/depois.
+- Cada organização sem conexão exigirá 30 minutos, páginas/rotas e permissões corretas, estados vazios e zero chamada externa/fila/reserva/ledger. Nenhuma credencial ou publicação artificial será criada.
+- Após uma organização sem conexão adicionar X futuramente, o primeiro envio terá gate operacional próprio; a aprovação visual anterior não autoriza publicação automática.
+- ADR-X-023 registra esta distinção. A ordem concreta e IDs permanecerão fora da documentação pública; somente contagens são registradas.

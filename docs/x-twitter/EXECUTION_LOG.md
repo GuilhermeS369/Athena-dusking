@@ -1154,3 +1154,12 @@ Registros são append-only.
 - Banco: publicação não terminal/unknown 0; Analytics reserved/processing 0 e unknown 1; reserva aberta 1; hold de publicação ativo/unknown 0; breakers abertos 0; HTTP 429 publicação/Analytics em 24 h 0; wallet 11.590.000/45.000 versão 25.
 - Correção documental: o checklist dizia cinco processos X, mas a topologia vigente possui quatro processos PM2 e um fallback Vercel separado. Registros históricos de cinco papéis permanecem preservados.
 - Gate zero: sete de nove aprovados. Faltam somente liquidar/criar snapshot/liberar hold e obter health `ok` depois disso. Nenhuma organização adicional, worker ou fallback foi ativado.
+
+## X-0094 — inventário de rollout e aceite sem conexão definidos
+
+- UTC: 2026-08-23T12:28:13Z; São Paulo: 2026-08-23T09:28:13-03:00.
+- Billing do canário continuou em 27 reads; nenhuma liquidação ou mutação foi executada.
+- Inventário somente leitura: três organizações e três memberships; uma organização possui conexão X ativa e duas não possuem.
+- ADR-X-023: organização conectada exige publicação real e reconciliação; organização sem conexão exige estados vazios/permissões e zero chamada externa/fila/reserva/ledger. Todas exigem janela mínima de 30 minutos.
+- Nenhuma organização adicional foi adicionada ao canário, nenhum nome adicional foi documentado e nenhuma conexão artificial será criada.
+- Próxima ação segura permanece a auditoria do billing HTTP 200. O inventário apenas elimina uma exigência impossível antes da expansão futura.

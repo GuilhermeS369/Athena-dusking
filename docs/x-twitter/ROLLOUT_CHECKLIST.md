@@ -29,10 +29,12 @@ Estado em 23/08/2026 09:05 BRT: sete de nove itens aprovados. O health permanece
 1. Manter a flag global false e adicionar uma organização por vez à lista canário.
 2. Fazer deploy Production com workers X ainda parados; validar navegação/API dentro e fora da organização habilitada.
 3. Iniciar somente os workers X necessários, concorrência 1, sem tocar processos Instagram.
-4. Observar no mínimo 30 minutos e uma publicação confirmada por organização antes de adicionar a próxima.
+4. Observar no mínimo 30 minutos antes de adicionar a próxima. Organização com conexão X ativa exige uma publicação confirmada; organização sem conexão exige estados vazios/permissões e prova de zero chamada externa, fila, reserva ou ledger.
 5. Exigir health `ok` antes e depois de cada expansão; registrar fila, holds, wallet, attempts, 429, breakers, heartbeats e PM2.
 6. Somente após todas as organizações selecionadas permanecerem estáveis, considerar `TWITTER_MODULE_ENABLED=true`.
 7. Analytics e fallback live são expansões separadas; não ativar ambos no mesmo checkpoint da liberação global.
+
+Inventário atual: três organizações, uma com conexão X ativa e duas sem conexão. Não documentar nomes adicionais nem criar conexões artificiais para o rollout.
 
 ## Critérios de pausa imediata
 
