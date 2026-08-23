@@ -234,3 +234,12 @@ Nenhuma organização foi adicionada, nenhum worker foi iniciado e fallback cont
 - Cada organização sem conexão exigirá 30 minutos, páginas/rotas e permissões corretas, estados vazios e zero chamada externa/fila/reserva/ledger. Nenhuma credencial ou publicação artificial será criada.
 - Após uma organização sem conexão adicionar X futuramente, o primeiro envio terá gate operacional próprio; a aprovação visual anterior não autoriza publicação automática.
 - ADR-X-023 registra esta distinção. A ordem concreta e IDs permanecerão fora da documentação pública; somente contagens são registradas.
+
+### Gate zero financeiro concluído e onboarding de novas organizações — 23/08/2026
+
+- O canário Analytics está terminal com snapshot e zero hold; wallet 11.590.000/0 versão 26. A ocorrência não deve ser repetida.
+- Foi criado reconciliador cumulativo para qualquer cobrança tardia futura, sem nova leitura de recurso.
+- Organização sem conexão recebe estados vazios em Postagem, Fila, Galeria, Perfis, Grupos, Agenda, Zernio, Logs e Análises. Postagem orienta para `/x/zernio` e bloqueia Revisar sem perfil, texto e início.
+- Nenhum desses estados vazios referencia tabelas/rotas Instagram ou endpoint externo. Futuras organizações permanecem aptas a conectar seu próprio X e recebem o grant único por identidade pelo fluxo já implementado.
+- Validação local: 218/218 testes, TypeScript, build de 41 páginas e `git diff --check`; warnings metadata preexistentes inalterados.
+- Próximo gate: checkpoint Git, Preview seguro, QA autenticado e promoção Production antes da ativação progressiva.

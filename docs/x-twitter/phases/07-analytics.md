@@ -118,6 +118,15 @@ Criar e validar o executor guardado do novo canário. Um canário pago só pode 
 - Novo reconciliador guardado recusa liquidação com delta zero, exige contador final explícito e estável, limita a nove unidades e liquida/libera atomicamente pelo RPC 246.
 - Próxima ação permitida: somente auditorar billing. Proibido chamar o recurso novamente, criar nova reserva ou liberar manualmente enquanto o metering estiver atrasado.
 
+### Gate Analytics concluído — 23/08/2026
+
+- Uma primeira janela de 120 segundos comprovou que ativar o sync, sem consultar recurso, não altera `posts_read`; desligamento remoto/local e duas leituras estáveis foram confirmados.
+- A segunda janela fez exatamente uma leitura do mesmo post enquanto Analytics estava temporariamente ativo. Resposta: HTTP 200, `syncStatus=synced`, métricas presentes. Não houve retry. Analytics e Inbox voltaram a false pelo `finally`, com watchdog independente armado.
+- Baseline/final permaneceu `posts_read=27`. O item fan-out foi concluído com zero unidades, snapshot local criado e reserva de 45.000 micros liberada integralmente. Wallet 11.590.000/0 versão 26; nenhum ledger artificial.
+- O primeiro validador pós-RPC informou divergência porque esperava reservation `settled`; a auditoria imediata provou que o banco corretamente usa `released` quando zero unidades são liquidadas. O validador foi corrigido sem repetir a mutação.
+- `reconcile-provider-usage-delta.ts` protege contra metering tardio: calcula somente o delta acima do último total reconciliado, exige duas leituras estáveis/capabilities off e usa a RPC idempotente existente. Dry-run posterior confirmou delta zero.
+- Gate: métricas HTTP 200, snapshot, hold zero e reconciliação financeira consistente aprovados. Analytics automático/background permanece desligado.
+
 ### Correção financeira por metering tardio — 22/08/2026
 
 - Dois snapshots somente leitura, com Analytics/Inbox desligados, estabilizaram em `posts_read=27` e `xSpendCents=41`.

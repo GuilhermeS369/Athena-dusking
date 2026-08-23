@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T12:28:13Z / 2026-08-23T09:28:13-03:00
+- Atualizado em: 2026-08-23T12:55:56Z / 2026-08-23T09:55:56-03:00
 - Fase atual: 8 — preparação do rollout progressivo (`in_progress`); gate visual/CSS e gate transacional do contrato fan-out concluídos; sem liberação geral
-- Status: Fase 8 formalmente em preflight, com sete de nove itens do gate zero aprovados. O canário HTTP 200 permanece `billing_pending`; faltam a liquidação/snapshot exatos e, depois, health `ok`. Deployment seguro restaurado; Analytics/Inbox/workers off.
+- Status: gate financeiro Analytics concluído. Uma leitura controlada com sync temporário retornou HTTP 200 `synced`, snapshot foi criado, zero unidades apareceram no contador e os 45.000 micros foram liberados. Reconciliador tardio cobra apenas eventual delta posterior. Falta implantar este checkpoint e concluir o rollout progressivo; Analytics/Inbox/workers continuam off.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint Git executável mais recente: `d67a2ec`; Preview `dpl_7nHd2NqnixMUCHq51d2czH3Fkiqc` e Production `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch`, ambos `READY`. O escopo global e todos os workers/fallback continuam off; somente Pomodoro permanece canário.
@@ -25,7 +25,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 246.
-- Testes atuais: 213/213 aprovados.
+- Testes atuais: 218/218 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -34,7 +34,7 @@
 
 ## Próxima ação segura
 
-Executar somente `audit-fanout-canary-billing` para o item registrado em `STATE.json`. Quando `posts_read` for maior que 27 e estável, liquidar uma única vez o delta exato, limitado a nove unidades, usando `reconcile-fanout-analytics-canary.ts`. Não chamar Analytics, não reservar novamente e não liberar o hold por ausência temporária de metering.
+Criar o checkpoint Git desta unidade, gerar Preview com flags mutáveis off e validar o onboarding X. Depois promover Production e iniciar a ativação progressiva. Não repetir o canário Analytics encerrado; qualquer aumento posterior de `posts_read` deve passar somente por `reconcile-provider-usage-delta.ts`.
 
 ## Proibições imediatas
 
@@ -50,4 +50,4 @@ Executar somente `audit-fanout-canary-billing` para o item registrado em `STATE.
 
 - Vercel: Production `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch` (`https://pomodoro-9tf7p5e5o-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial; Preview `dpl_7nHd2NqnixMUCHq51d2czH3Fkiqc` (`https://pomodoro-jrsivz8sl-shoows-projects-2caaf9e9.vercel.app`) `READY`. Flags globais, workers, Analytics e fallback permanecem off. O segredo de bypass da proteção foi rotacionado durante o smoke e nenhum valor foi documentado.
 - VPS: release `d67a2ec-20260823T113709Z`, hash `be77ef65f7369cd6da5def3d844e23f0cfa4ebcbfbceb7ab6b3ee3ae3008a24e`; quatro processos X apontam para ele e estão `stopped`; seis processos existentes continuam `online` com os PIDs preservados. Rollback: `7c83ece-20260823T011500Z`.
-- Supabase: migrations 223–246 alinhadas; conexão Analytics/Inbox off, publicação/Analytics não terminais, reservas abertas e holds ativos/incertos zerados; wallet 11.590.000/0 versão 24. As 27 reads tardias foram reconciliadas por evento imutável; o canário de capability reservou/liberou 6.590.000 sem débito.
+- Supabase: migrations 223–246 alinhadas; conexão Analytics/Inbox off, publicação/Analytics não terminais, reservas abertas e holds ativos/incertos zerados; wallet 11.590.000/0 versão 26. O canário fan-out terminou `succeeded/billing_reconciled_zero`, com um snapshot e liberação integral da reserva. As 27 reads históricas permanecem reconciliadas uma única vez.

@@ -1163,3 +1163,33 @@ Registros são append-only.
 - ADR-X-023: organização conectada exige publicação real e reconciliação; organização sem conexão exige estados vazios/permissões e zero chamada externa/fila/reserva/ledger. Todas exigem janela mínima de 30 minutos.
 - Nenhuma organização adicional foi adicionada ao canário, nenhum nome adicional foi documentado e nenhuma conexão artificial será criada.
 - Próxima ação segura permanece a auditoria do billing HTTP 200. O inventário apenas elimina uma exigência impossível antes da expansão futura.
+
+## X-0095 — capability temporária sem leitura não alterou billing
+
+- UTC: 2026-08-23T12:55:56Z; São Paulo: 2026-08-23T09:55:56-03:00. Origem: branch `codex/x-twitter-module`, commit inicial `6201524`, worktree limpo antes da unidade.
+- Preflight: exatamente seis posts X locais publicados, uma conexão ativa, um item Analytics pendente, uma reserva aberta de 45.000 micros e capabilities false. Os nove reads reservados cobriam os seis posts locais.
+- Executor `resume-fanout-analytics-sync-canary.mjs`: `finally` e watchdog independente; Inbox sempre false; recusa outro item, outro account, baseline divergente ou posts locais acima da cobertura.
+- Primeira janela: Analytics ativo por 120 segundos, sem chamada de recurso; depois desligado. Duas leituras finais estáveis: `posts_read=27`, delta zero. Nenhum saldo ou item foi alterado.
+
+## X-0096 — uma leitura synced controlada com capability temporária
+
+- Segunda janela explicitamente autorizada: capability ativa, espera de 15 segundos, exatamente um GET do mesmo post, zero retry, desligamento obrigatório e duas conferências finais.
+- Resultado externo: HTTP 200, `syncStatus=synced`, métricas presentes. Resultado operacional: Analytics/Inbox false; contador baseline/final 27 e delta zero.
+- A execução não criou outra reserva nem liquidou o item. Eventos imutáveis registraram habilitação e desligamento. O watchdog ficou disponível como compensação independente.
+
+## X-0097 — snapshot criado, hold liberado e reconciliador tardio guardado
+
+- ADR-X-024 aprovado: HTTP 200 synced + capabilities off + contador estável sem delta permite sucesso funcional com zero débito; eventual incremento posterior será cobrado pelo delta cumulativo.
+- `reconcile-provider-usage-delta.ts` exige duas leituras estáveis, capabilities off, saldo disponível, rate card e versão da wallet; nunca chama Analytics. Dry-run posterior confirmou 27→27, delta zero.
+- Liquidação: item/attempt `succeeded/billing_reconciled_zero`; snapshot 1; reserva `released`, 45.000 liberados, zero liquidado; wallet 11.590.000/0 versão 26; nenhum ledger artificial.
+- O comando mutável reportou validação final divergente depois da RPC. Nenhuma repetição foi feita. Auditoria imediata mostrou que todos os invariantes estavam corretos e que somente o validador esperava `settled`; para zero unidades o status correto do banco é `released`. Validador corrigido e coberto por teste.
+- Rollback: não alterar o evento terminal ou apagar snapshot/histórico. Se `posts_read` subir, usar somente o reconciliador tardio idempotente.
+
+## X-0098 — organizações novas e regressão local aprovadas
+
+- Postagem X agora mostra CTA para `/x/zernio` quando não há perfil e bloqueia Revisar sem perfil selecionado, texto e início. Ausência de mídia é explicada sem bloquear post somente texto.
+- Fila, Galeria, Perfis, Grupos, Agenda, Zernio, Logs e Análises foram auditados com arrays vazios; os estados não chamam endpoint externo nem referenciam estruturas Instagram.
+- Browser autenticado em Production confirmou `/x/analises` sem overflow. O deployment ainda mostra o gate antigo off, como esperado antes do novo deploy; nenhuma leitura foi acionada.
+- Verificação: 218/218 testes Node, TypeScript, build de 41 páginas e `git diff --check` aprovados. Warnings metadata em login/onboarding/not-found permanecem preexistentes.
+- Ambientes: Supabase 246/246; nenhuma migration nova. Vercel/VPS/PM2 ainda no deployment/release seguro anterior, todos os workers X off e processos Instagram não tocados.
+- Próxima ação segura: commit desta unidade, Preview com flags mutáveis off, QA do onboarding e promoção Production. Não repetir X-0096/X-0097.

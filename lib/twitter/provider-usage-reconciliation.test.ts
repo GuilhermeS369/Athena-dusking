@@ -24,3 +24,12 @@ test('executor exige billing exato, capabilities off e replay idempotente', asyn
   assert.doesNotMatch(source, /\/analytics|\/posts\//);
 });
 
+test('reconciliador contínuo cobra somente o delta cumulativo posterior', async () => {
+  const source = await readFile(new URL('../../scripts/twitter/reconcile-provider-usage-delta.ts', import.meta.url), 'utf8');
+  assert.match(source, /observed - previousObserved/);
+  assert.match(source, /firstObserved !== observed/);
+  assert.match(source, /posted_balance_micros\) - Number\(wallet\.reserved_micros/);
+  assert.match(source, /reconcile-current-provider-posts-read-delta/);
+  assert.match(source, /twitter_reconcile_provider_usage/);
+  assert.doesNotMatch(source, /\/v1\/analytics|inbox:\s*true/);
+});

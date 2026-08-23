@@ -27,9 +27,13 @@ test('canário fan-out valida nove unidades e nunca ativa capability ou worker',
 test('reconciliação fan-out mantém hold sem delta e liquida somente unidades comprovadas', async () => {
   const source = await readFile(reconciliationUrl, 'utf8');
   assert.match(source, /audit-fanout-canary-billing/);
+  assert.match(source, /settle-fanout-canary-zero-after-synced-read/);
   assert.match(source, /Metering ainda não registrou a leitura; manter hold/);
+  assert.match(source, /twitter_connection_events/);
+  assert.match(source, /lateUsageReconciliationRequired: true/);
   assert.match(source, /p_billed_units: billedUnits/);
   assert.match(source, /billingSource: 'GET \/v1\/usage'/);
   assert.match(source, /expectedReleasedMicros = MAXIMUM_MICROS - expectedSettledMicros/);
+  assert.match(source, /expectedSettledMicros === 0 \? 'released' : 'settled'/);
   assert.doesNotMatch(source, /setAccountCapabilities/);
 });

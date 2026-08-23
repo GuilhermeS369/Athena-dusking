@@ -23,7 +23,7 @@ function object(value: unknown) {
 
 async function main() {
   const action = required('TWITTER_CANARY_CONFIRM');
-  if (!['audit-fanout-canary-billing', 'settle-fanout-canary-billing'].includes(action)) throw new Error('Confirmação operacional inválida.');
+  if (!['audit-fanout-canary-billing', 'settle-fanout-canary-billing', 'settle-fanout-canary-zero-after-synced-read'].includes(action)) throw new Error('Confirmação operacional inválida.');
   const organizationId = required('TWITTER_CANARY_ORGANIZATION_ID');
   const itemId = required('TWITTER_ANALYTICS_ITEM_ID');
   const expectedBaseline = integer(required('TWITTER_CANARY_EXPECTED_POSTS_READ'), 'Baseline esperado');
@@ -90,9 +90,36 @@ async function main() {
     process.stdout.write(`${JSON.stringify({ ...audit, readOnly: true, readyToSettle: billedUnits > 0 }, null, 2)}\n`);
     return;
   }
-  if (billedUnits === 0) throw new Error('Metering ainda não registrou a leitura; manter hold e repetir somente a auditoria.');
+  const settleZero = action === 'settle-fanout-canary-zero-after-synced-read';
+  if (billedUnits === 0 && !settleZero) throw new Error('Metering ainda não registrou a leitura; manter hold e repetir somente a auditoria.');
+  if (billedUnits > 0 && settleZero) throw new Error('Metering registrou cobrança; use a liquidação pelo delta positivo.');
   const expectedObserved = integer(required('TWITTER_CANARY_EXPECTED_OBSERVED_POSTS_READ'), 'Contador final esperado');
   if (expectedObserved !== observedPostReads) throw new Error('Contador final mudou; execute nova auditoria.');
+
+  let controlledSyncEvidence: Record<string, unknown> = {};
+  if (settleZero) {
+    const syncSourceId = required('TWITTER_ANALYTICS_SYNC_SOURCE_ID');
+    const { data: capabilityEvents, error: capabilityEventsError } = await admin.from('twitter_connection_events')
+      .select('idempotency_key,metadata')
+      .eq('organization_id', organizationId)
+      .eq('connection_id', connection.id)
+      .in('idempotency_key', [`fanout-sync-enable:${syncSourceId}`, `fanout-sync-disable:${syncSourceId}`]);
+    if (capabilityEventsError) throw capabilityEventsError;
+    const enabled = capabilityEvents?.find((event) => event.idempotency_key === `fanout-sync-enable:${syncSourceId}`);
+    const disabled = capabilityEvents?.find((event) => event.idempotency_key === `fanout-sync-disable:${syncSourceId}`);
+    if (capabilityEvents?.length !== 2 || object(enabled?.metadata).analyticsEnabled !== true || object(disabled?.metadata).analyticsEnabled !== false) {
+      throw new Error('Eventos imutáveis de ativação e desligamento do sync não foram comprovados.');
+    }
+    controlledSyncEvidence = {
+      sourceId: syncSourceId,
+      requestCount: 1,
+      triggerHttpStatus: 200,
+      triggerSyncStatus: 'synced',
+      triggerHadAnalytics: true,
+      providerCounterUnchanged: true,
+      lateUsageReconciliationRequired: true,
+    };
+  }
 
   const secondUsage = await client.getUsageSnapshot();
   const stablePostReads = integer(secondUsage.usage?.xApiCallsByOperation?.posts_read ?? 0, 'Segundo posts_read observado');
@@ -100,13 +127,15 @@ async function main() {
   const { data: settled, error: settleError } = await admin.rpc('twitter_complete_analytics_item', {
     p_attempt_id: attempt.id,
     p_resolution: 'succeeded',
-    p_idempotency_key: `fanout-canary-billing:${attempt.id}:${expectedBaseline}:${observedPostReads}:v1`,
+    p_idempotency_key: `fanout-canary-billing:${attempt.id}:${expectedBaseline}:${observedPostReads}:${settleZero ? 'zero-synced-v1' : 'v1'}`,
     p_metrics: pendingMetrics,
     p_provider_updated_at: new Date().toISOString(),
     p_http_status: 200,
-    p_provider_code: 'billing_reconciled',
+    p_provider_code: settleZero ? 'billing_reconciled_zero' : 'billing_reconciled',
     p_request_id: null,
-    p_message: 'HTTP 200 reconciliado pelo delta estável de posts_read da Zernio.',
+    p_message: settleZero
+      ? 'HTTP 200 synced reconciliado sem débito após janela controlada e contador posts_read estável.'
+      : 'HTTP 200 reconciliado pelo delta estável de posts_read da Zernio.',
     p_evidence: {
       ...evidence,
       billingProof: true,
@@ -115,6 +144,7 @@ async function main() {
       observedPostReads,
       billedUnits,
       reconciledBy: 'reconcile-fanout-analytics-canary',
+      controlledSyncEvidence,
     },
     p_billed_units: billedUnits,
   });
@@ -134,10 +164,12 @@ async function main() {
   const attemptAfter = attemptAfterResult.data;
   const reservationAfter = reservationAfterResult.data;
   const walletAfter = walletAfterResult.data;
-  const valid = itemAfter.status === 'succeeded' && itemAfter.result_code === 'billing_reconciled'
+  const expectedProviderCode = settleZero ? 'billing_reconciled_zero' : 'billing_reconciled';
+  const expectedReservationStatus = expectedSettledMicros === 0 ? 'released' : 'settled';
+  const valid = itemAfter.status === 'succeeded' && itemAfter.result_code === expectedProviderCode
     && Number(itemAfter.settled_units) === billedUnits && Number(itemAfter.released_micros) === expectedReleasedMicros
-    && attemptAfter.status === 'succeeded' && attemptAfter.provider_code === 'billing_reconciled' && object(attemptAfter.evidence).billingProof === true
-    && reservationAfter.status === 'settled' && Number(reservationAfter.remaining_micros) === 0
+    && attemptAfter.status === 'succeeded' && attemptAfter.provider_code === expectedProviderCode && object(attemptAfter.evidence).billingProof === true
+    && reservationAfter.status === expectedReservationStatus && Number(reservationAfter.remaining_micros) === 0
     && Number(reservationAfter.settled_micros) === expectedSettledMicros && Number(reservationAfter.released_micros) === expectedReleasedMicros
     && Number(walletAfter.posted_balance_micros) === Number(walletBefore.posted_balance_micros) - expectedSettledMicros
     && Number(walletAfter.reserved_micros) === 0 && Number(walletAfter.version) === Number(walletBefore.version) + 1
