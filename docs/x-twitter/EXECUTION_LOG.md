@@ -1213,3 +1213,13 @@ Registros são append-only.
 - Supabase local/remoto 246/246; Vercel `READY`; fallback permanece disabled/shadow. Organizações: três habilitadas globalmente, uma já conectada e duas prontas no fluxo vazio. Conexão futura recebe gate próprio no primeiro envio.
 - Rollback: promover `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch`, restaurar o backup explícito da configuração e parar somente os quatro `athena-twitter-*`; preservar tabelas, ledger, logs e snapshots. Banco não exige rollback.
 - Status: Fase 8 `completed`. Próxima ação segura de produto: conectar contas X em `/x/zernio` e usar Postagem em massa; verificar health antes de mudanças operacionais futuras.
+
+## X-0101 — gate do primeiro envio operacionalizado
+
+- UTC: 2026-08-23T14:55:49Z; São Paulo: 2026-08-23T11:55:49-03:00. Entrada: branch `codex/x-twitter-module`, checkpoint documental `8349fe5`; checkpoint executável criado: `1cf7241`.
+- Nova auditoria `scripts/twitter/audit-first-send-readiness.ts`: somente leitura, consulta exclusivamente dados `twitter_*`, aceita filtro opcional por organização/conexão e nunca chama a Zernio.
+- Classificação: `awaiting_profile`, `ready_for_first_program`, `monitoring_first_send`, `first_send_approved` ou `blocked`. Bloqueia carteira ausente/insuficiente, falta de perfil publicável, `outcome_unknown`, worker stale e breaker aberto.
+- Execução real read-only aprovou a conexão existente: um perfil ativo/publicável, sete itens totais, seis publicados, nenhum pendente/unknown, wallet 11.590.000/0 versão 26, quatro workers live e zero breaker.
+- Verificação: 223/223 testes aprovados; TypeScript, build de 41 páginas e `git diff --check` aprovados. Warnings metadata em login/onboarding/not-found permanecem preexistentes.
+- Ambientes: nenhuma migration, flag, deployment, release, processo PM2, publicação, chamada Zernio, reserva, hold, ledger ou saldo foi alterado. O procedimento foi documentado no Runbook e na Fase 8.
+- Rollback: reverter somente `1cf7241`; não há rollback remoto. Próxima ação segura: para cada conexão nova, auditar após sync, após confirmar o primeiro programa e após o primeiro resultado terminal; exigir health `ok` e `first_send_approved`.

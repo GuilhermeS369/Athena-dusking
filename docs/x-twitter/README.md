@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T13:40:12Z / 2026-08-23T10:40:12-03:00
+- Atualizado em: 2026-08-23T14:55:49Z / 2026-08-23T11:55:49-03:00
 - Fase atual: 8 — rollout global (`completed`)
 - Status: módulo X disponível para todas as organizações. Publicação, sync de contas, Analytics manual e reconciliação possuem workers próprios ativos; fallback e polling periódico de Analytics permanecem desligados. Janela de 30 minutos concluída com 31/31 health `ok`.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint Git executável mais recente: `29edd03`; Preview `dpl_Hq2HPHWfWwXR8kK1sJf1KAgAo7GU` e Production `dpl_5zRqhFci5wAin5ZbV8CeDykBZ17s`, ambos `READY`. Alias oficial aponta para Production.
+- Checkpoint Git executável mais recente: `1cf7241`; Preview `dpl_Hq2HPHWfWwXR8kK1sJf1KAgAo7GU` e Production `dpl_5zRqhFci5wAin5ZbV8CeDykBZ17s`, ambos `READY`. O novo checkpoint é uma ferramenta operacional local read-only e não exige redeploy. Alias oficial aponta para Production.
 - Feature flag X: global ativa; fallback e `TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED` desligados
 - Mutação remota feita pelo módulo X: migrations aditivas 223–246
 
@@ -25,7 +25,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 246.
-- Testes atuais: 218/218 aprovados.
+- Testes atuais: 223/223 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -34,7 +34,7 @@
 
 ## Próxima ação segura
 
-Antes de qualquer mudança futura, consultar o health X. O usuário já pode cadastrar novas identidades Zernio/X e criar programas. Não repetir o canário Analytics encerrado; qualquer aumento posterior de `posts_read` deve passar somente por `reconcile-provider-usage-delta.ts`.
+Antes de qualquer mudança futura, consultar o health X. Em cada conexão nova, executar `audit-first-send-readiness.ts` após o sync, após confirmar o primeiro programa e após o primeiro estado terminal. A conexão existente foi aprovada. Não repetir o canário Analytics encerrado; qualquer aumento posterior de `posts_read` deve passar somente por `reconcile-provider-usage-delta.ts`.
 
 ## Proibições imediatas
 

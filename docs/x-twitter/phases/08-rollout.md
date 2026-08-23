@@ -253,3 +253,12 @@ Nenhuma organização foi adicionada, nenhum worker foi iniciado e fallback cont
 - Aceite das três organizações: a conectada já possui seis canários de publicação e reconciliação financeira; as duas sem conexão passaram pelo contrato de estados vazios/zero external call e ficam prontas para onboarding. Primeiro envio de uma conexão futura exige novo gate próprio.
 - Wallet final 11.590.000 contábil, zero reservado, versão 26; snapshot Analytics 1; migrations 246/246.
 - Fase 8 concluída. Rollback exato documentado no README, STATE e X-0100.
+
+### Gate permanente do primeiro envio — 23/08/2026
+
+- Checkpoint executável `1cf7241` adiciona uma auditoria escalável, somente leitura e sem chamadas ao provedor para cada conexão nova.
+- Estados explícitos: aguardando perfil, pronta para primeiro programa, acompanhando primeiro envio, aprovada ou bloqueada.
+- A aprovação verifica perfil publicável, carteira mínima, publicações, resultados financeiros incertos, quatro heartbeats e circuit breakers; a saúde contínua permanece no endpoint oficial do rollout.
+- Auditoria da conexão existente: `first_send_approved`, um perfil publicável, seis itens publicados, saldo 11.590.000/0, zero unknown, zero worker stale e zero breaker aberto.
+- Validação: 223/223 testes, TypeScript, build de 41 páginas e `git diff --check`. Somente warnings metadata preexistentes.
+- Nenhuma publicação, reserva, débito, migration, chamada Zernio, alteração de flag, deployment ou reinício PM2 ocorreu nesta unidade.
