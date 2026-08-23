@@ -243,3 +243,13 @@ Nenhuma organização foi adicionada, nenhum worker foi iniciado e fallback cont
 - Nenhum desses estados vazios referencia tabelas/rotas Instagram ou endpoint externo. Futuras organizações permanecem aptas a conectar seu próprio X e recebem o grant único por identidade pelo fluxo já implementado.
 - Validação local: 218/218 testes, TypeScript, build de 41 páginas e `git diff --check`; warnings metadata preexistentes inalterados.
 - Próximo gate: checkpoint Git, Preview seguro, QA autenticado e promoção Production antes da ativação progressiva.
+
+### Rollout global concluído — 23/08/2026
+
+- Código `29edd03`; Preview `dpl_Hq2HPHWfWwXR8kK1sJf1KAgAo7GU`; Production `dpl_5zRqhFci5wAin5ZbV8CeDykBZ17s`, ambos `READY`.
+- `TWITTER_MODULE_ENABLED=true` disponibiliza X para organizações atuais e futuras. Publicação, sync de contas, Analytics manual e reconciliação estão ativos; fallback e polling Analytics continuam off.
+- Quatro workers X PM2 active/live, concorrência inicial preservada, zero restart. Seis processos Instagram existentes mantiveram PIDs e smoke funcional.
+- Health oficial: 31/31 amostras `ok` durante 30 minutos; zero fila, hold, unknown, 429, breaker, sinal crítico ou aviso.
+- Aceite das três organizações: a conectada já possui seis canários de publicação e reconciliação financeira; as duas sem conexão passaram pelo contrato de estados vazios/zero external call e ficam prontas para onboarding. Primeiro envio de uma conexão futura exige novo gate próprio.
+- Wallet final 11.590.000 contábil, zero reservado, versão 26; snapshot Analytics 1; migrations 246/246.
+- Fase 8 concluída. Rollback exato documentado no README, STATE e X-0100.

@@ -2,6 +2,8 @@
 
 > Status: aprovado para execução em 22/08/2026.
 >
+> Execução concluída em 23/08/2026: módulo global ativo, quatro workers X live, 31/31 amostras de health `ok`. Evidências e rollback em `docs/x-twitter/`.
+>
 > Regra de continuidade: o estado executado fica em `docs/x-twitter/README.md`, `STATE.json` e `EXECUTION_LOG.md`. Este arquivo registra o desenho aprovado e não deve ser reescrito silenciosamente durante a implementação.
 
 ## 1. Resultado esperado e invariantes

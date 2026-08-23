@@ -5,8 +5,8 @@ Este checklist é operacional e não autoriza ativação. Todos os gates precisa
 ## Gate zero — obrigatório antes de qualquer expansão
 
 - [x] Zernio retornou HTTP 200 para analytics manual de um recurso canário.
-- [ ] Snapshot local criado e débito exato liquidado; zero hold ou outcome incerto.
-- [ ] `/api/internal/twitter-rollout-health` retorna `ok`, zero breakers abertos, zero unknowns e zero 429 na janela observada.
+- [x] Snapshot local criado e custo exato liquidado (zero unidades observadas); zero hold ou outcome incerto.
+- [x] `/api/internal/twitter-rollout-health` retorna `ok`, zero breakers abertos, zero unknowns e zero 429 na janela observada.
 - [x] Production está `READY` no deployment documentado, com smoke de login e rotas X.
 - [x] Quatro processos X PM2 e seis processos existentes conferidos separadamente; fallback Vercel não é processo PM2.
 - [x] Supabase local/remoto alinhado e nenhuma migration pendente.
@@ -14,7 +14,7 @@ Este checklist é operacional e não autoriza ativação. Todos os gates precisa
 - [x] Rollback Vercel/VPS e IDs exatos registrados.
 - [x] Gate visual/CSS de todas as rotas `/x/*` aprovado nos breakpoints documentados, com regressão das telas Instagram que usam estilos compartilhados.
 
-Estado em 23/08/2026 09:05 BRT: sete de nove itens aprovados. O health permanece propositalmente `unhealthy` por um único `twitter_analytics_item` HTTP 200 em `outcome_unknown/billing_pending` e sua reserva de 45.000 micros. Zero breaker e zero HTTP 429; não mascarar esse sinal nem marcar os dois itens restantes antes da liquidação comprovada.
+Estado em 23/08/2026 10:40 BRT: nove de nove itens aprovados. O rollout global foi observado por 30 minutos com 31 amostras `ok`: zero fila, hold, unknown, breaker, 429, sinal crítico ou aviso. Snapshot Analytics 1; wallet 11.590.000/0; quatro workers X ativos e fallback desligado.
 
 ## Semântica das flags
 
@@ -35,6 +35,8 @@ Estado em 23/08/2026 09:05 BRT: sete de nove itens aprovados. O health permanece
 7. Analytics e fallback live são expansões separadas; não ativar ambos no mesmo checkpoint da liberação global.
 
 Inventário atual: três organizações, uma com conexão X ativa e duas sem conexão. Não documentar nomes adicionais nem criar conexões artificiais para o rollout.
+
+Conclusão: a organização conectada já cumpriu os canários reais de publicação e financeiro. As duas organizações sem conexão cumpriram o aceite aplicável por estados vazios, proteção de rotas, isolamento e ausência de dados/chamadas externas. Uma conexão futura inicia seu próprio gate de primeiro envio.
 
 ## Critérios de pausa imediata
 

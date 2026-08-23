@@ -1193,3 +1193,23 @@ Registros são append-only.
 - Verificação: 218/218 testes Node, TypeScript, build de 41 páginas e `git diff --check` aprovados. Warnings metadata em login/onboarding/not-found permanecem preexistentes.
 - Ambientes: Supabase 246/246; nenhuma migration nova. Vercel/VPS/PM2 ainda no deployment/release seguro anterior, todos os workers X off e processos Instagram não tocados.
 - Próxima ação segura: commit desta unidade, Preview com flags mutáveis off, QA do onboarding e promoção Production. Não repetir X-0096/X-0097.
+
+## X-0099 — checkpoint implantado e flags operacionais alinhadas
+
+- UTC final: 2026-08-23T13:40:12Z; São Paulo: 2026-08-23T10:40:12-03:00. Código `29edd03`; worktree limpo antes do rollout.
+- Preview `dpl_Hq2HPHWfWwXR8kK1sJf1KAgAo7GU`, URL `https://pomodoro-ax8n0cv9e-shoows-projects-2caaf9e9.vercel.app`, `READY`. Smokes sem sessão: página X 307 para login e API 401.
+- Production final `dpl_5zRqhFci5wAin5ZbV8CeDykBZ17s`, URL `https://pomodoro-emtspdy1k-shoows-projects-2caaf9e9.vercel.app`, `READY`, alias oficial. Rollback com gates off: `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch`.
+- Flags ativas: módulo global, publication/sync/analytics manual/reconcile e seus workers. Flags inativas: fallback, fallback live e sync periódico de Analytics. Inbox permanece proibido.
+- Segredo de health foi rotacionado sem registrar valor e alinhado entre Production/VPS. Uma tentativa anterior de copiar o segredo existente foi bloqueada antes da execução; nenhum arquivo temporário foi criado. A primeira transferência base64 do segredo novo emitiu aviso por CR, mas o valor decodificado foi validado pelo endpoint oficial após o deployment.
+
+## X-0100 — quatro workers live e rollout global observado
+
+- Release VPS permanece `d67a2ec-20260823T113709Z`, hash `be77ef65f7369cd6da5def3d844e23f0cfa4ebcbfbceb7ab6b3ee3ae3008a24e`; o worker não mudou entre esse release e `29edd03`.
+- Gap prevenido: o release ainda não possuía `.env.worker`; foi criado um symlink validado para `/opt/athena-twitter/shared/.env.worker`, configuração fora do release, target modo 600. Backup pré-rollout: `/opt/athena-twitter/shared/.env.worker.backup-before-phase8-20260823T1300Z`.
+- Quatro one-shots passaram antes do PM2. Publicação, Zernio sync, Analytics manual e webhook reconcile foram iniciados; quatro PIDs novos, zero restart. Seis workers existentes preservaram PIDs 99980, 27468, 136197, 127605, 122939 e 103209.
+- Um comando de status imprimiu corretamente o PM2 e depois falhou apenas por terminador CR de here-document; nenhuma mutação foi repetida. Reconfirmação independente provou todos online.
+- Logs de erro com conteúdo eram históricos das 11:37 UTC, antes do symlink; nenhum erro novo após 13:04 UTC. Smoke autenticado confirmou Postagem X, Análises manuais e Zernio; sync periódico Analytics aparece bloqueado. Smoke Instagram confirmou compositor íntegro, zero overflow e ausência do shell X.
+- Observação: 31 amostras entre 13:09:16Z e 13:39:37Z, todas `status=ok` e zero sinal crítico. Estado final oficial: quatro workers active/live; fila publicação 0; Analytics pendente 0; holds/reservas 0; 429 0; breakers 0; warnings 0; snapshot 1; wallet 11.590.000/0.
+- Supabase local/remoto 246/246; Vercel `READY`; fallback permanece disabled/shadow. Organizações: três habilitadas globalmente, uma já conectada e duas prontas no fluxo vazio. Conexão futura recebe gate próprio no primeiro envio.
+- Rollback: promover `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch`, restaurar o backup explícito da configuração e parar somente os quatro `athena-twitter-*`; preservar tabelas, ledger, logs e snapshots. Banco não exige rollback.
+- Status: Fase 8 `completed`. Próxima ação segura de produto: conectar contas X em `/x/zernio` e usar Postagem em massa; verificar health antes de mudanças operacionais futuras.

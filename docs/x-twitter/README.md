@@ -2,13 +2,13 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T12:55:56Z / 2026-08-23T09:55:56-03:00
-- Fase atual: 8 — preparação do rollout progressivo (`in_progress`); gate visual/CSS e gate transacional do contrato fan-out concluídos; sem liberação geral
-- Status: gate financeiro Analytics concluído. Uma leitura controlada com sync temporário retornou HTTP 200 `synced`, snapshot foi criado, zero unidades apareceram no contador e os 45.000 micros foram liberados. Reconciliador tardio cobra apenas eventual delta posterior. Falta implantar este checkpoint e concluir o rollout progressivo; Analytics/Inbox/workers continuam off.
+- Atualizado em: 2026-08-23T13:40:12Z / 2026-08-23T10:40:12-03:00
+- Fase atual: 8 — rollout global (`completed`)
+- Status: módulo X disponível para todas as organizações. Publicação, sync de contas, Analytics manual e reconciliação possuem workers próprios ativos; fallback e polling periódico de Analytics permanecem desligados. Janela de 30 minutos concluída com 31/31 health `ok`.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint Git executável mais recente: `d67a2ec`; Preview `dpl_7nHd2NqnixMUCHq51d2czH3Fkiqc` e Production `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch`, ambos `READY`. O escopo global e todos os workers/fallback continuam off; somente Pomodoro permanece canário.
-- Feature flag X: criada e desligada
+- Checkpoint Git executável mais recente: `29edd03`; Preview `dpl_Hq2HPHWfWwXR8kK1sJf1KAgAo7GU` e Production `dpl_5zRqhFci5wAin5ZbV8CeDykBZ17s`, ambos `READY`. Alias oficial aponta para Production.
+- Feature flag X: global ativa; fallback e `TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED` desligados
 - Mutação remota feita pelo módulo X: migrations aditivas 223–246
 
 ## Leitura obrigatória para continuar
@@ -34,7 +34,7 @@
 
 ## Próxima ação segura
 
-Criar o checkpoint Git desta unidade, gerar Preview com flags mutáveis off e validar o onboarding X. Depois promover Production e iniciar a ativação progressiva. Não repetir o canário Analytics encerrado; qualquer aumento posterior de `posts_read` deve passar somente por `reconcile-provider-usage-delta.ts`.
+Antes de qualquer mudança futura, consultar o health X. O usuário já pode cadastrar novas identidades Zernio/X e criar programas. Não repetir o canário Analytics encerrado; qualquer aumento posterior de `posts_read` deve passar somente por `reconcile-provider-usage-delta.ts`.
 
 ## Proibições imediatas
 
@@ -48,6 +48,6 @@ Criar o checkpoint Git desta unidade, gerar Preview com flags mutáveis off e va
 
 ## Ambientes preparados
 
-- Vercel: Production `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch` (`https://pomodoro-9tf7p5e5o-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial; Preview `dpl_7nHd2NqnixMUCHq51d2czH3Fkiqc` (`https://pomodoro-jrsivz8sl-shoows-projects-2caaf9e9.vercel.app`) `READY`. Flags globais, workers, Analytics e fallback permanecem off. O segredo de bypass da proteção foi rotacionado durante o smoke e nenhum valor foi documentado.
-- VPS: release `d67a2ec-20260823T113709Z`, hash `be77ef65f7369cd6da5def3d844e23f0cfa4ebcbfbceb7ab6b3ee3ae3008a24e`; quatro processos X apontam para ele e estão `stopped`; seis processos existentes continuam `online` com os PIDs preservados. Rollback: `7c83ece-20260823T011500Z`.
+- Vercel: Production `dpl_5zRqhFci5wAin5ZbV8CeDykBZ17s` (`https://pomodoro-emtspdy1k-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial; Preview `dpl_Hq2HPHWfWwXR8kK1sJf1KAgAo7GU` (`https://pomodoro-ax8n0cv9e-shoows-projects-2caaf9e9.vercel.app`) `READY`. Módulo/publicação/sync/Analytics manual/reconcile ativos; fallback e polling Analytics off. Rollback seguro com flags off: `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch`.
+- VPS: release `d67a2ec-20260823T113709Z`, hash `be77ef65f7369cd6da5def3d844e23f0cfa4ebcbfbceb7ab6b3ee3ae3008a24e`; quatro processos X ativos em `live`, zero restart nesta ativação; seis processos existentes continuam `online` com os PIDs preservados. Configuração compartilhada modo 600 e backup pré-rollout preservado.
 - Supabase: migrations 223–246 alinhadas; conexão Analytics/Inbox off, publicação/Analytics não terminais, reservas abertas e holds ativos/incertos zerados; wallet 11.590.000/0 versão 26. O canário fan-out terminou `succeeded/billing_reconciled_zero`, com um snapshot e liberação integral da reserva. As 27 reads históricas permanecem reconciliadas uma única vez.
