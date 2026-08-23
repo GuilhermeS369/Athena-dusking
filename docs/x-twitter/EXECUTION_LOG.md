@@ -941,3 +941,14 @@ Registros são append-only.
 - Testes do código implantado: 199/199, TypeScript, build e `git diff --check` aprovados no checkpoint anterior; warnings de metadata permanecem preexistentes.
 - Rollback: promover o deployment anterior `dpl_HMe8QrEt4YDPnTTztNFjiP9JZXtf`; banco e VPS não foram alterados e não precisam de rollback.
 - Próxima ação segura: auditar Galeria, Grupos e Postagem em massa X mantendo flags off. Não repetir analytics nem executar Zernio enquanto o gate HTTP 200 estiver pendente.
+
+## X-0077 — paridade de Galeria, Grupos e contrato de Revisão corrigida localmente
+
+- UTC: 2026-08-23T00:45:20Z; São Paulo: 2026-08-22T21:45:20-03:00.
+- Gap crítico: a API de revisão retornava `wallets` e omitia `costBreakdown`; o cliente esperava `walletSnapshots`/`costBreakdown` e poderia falhar depois de uma resposta 200. O contrato foi alinhado e a UI agora recusa payload incompleto sem confirmar ou reservar.
+- Galeria: remoção faz soft-delete primeiro; objeto de Storage é preservado quando referenciado por conjunto de programa confirmado ou quando a inspeção falha. Erro de limpeza deixa órfão reconciliável, nunca fila quebrada. UI trata respostas e renderiza preview de vídeo.
+- Grupos: criação/edição compartilham formulário; descrição e membros podem ser atualizados; falhas de save/delete são exibidas; viewer continua sem controles mutáveis.
+- Isolamento: somente rotas/tabelas `twitter_*` e bucket `twitter-media`; nenhuma referência operacional Instagram, migration, Supabase remoto, Vercel, VPS ou Zernio foi alterada.
+- Verificação: 201/201 testes, TypeScript, build de 41 páginas e `git diff --check` aprovados; warnings de metadata em login/onboarding/not-found permanecem preexistentes.
+- Rollback local: reverter as cinco unidades de aplicação e o teste de paridade; não há banco, saldo, Storage ou infraestrutura para desfazer.
+- Próxima ação segura: commit; deploy Preview/Production com flags off; smokes sem sessão de Galeria, Grupos, Postagem e `/api/x/bulk/review`, sem criar dados.

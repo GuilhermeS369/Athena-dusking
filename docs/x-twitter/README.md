@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T00:40:31Z / 2026-08-22T21:40:31-03:00
+- Atualizado em: 2026-08-23T00:45:20Z / 2026-08-22T21:45:20-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Continuar a auditoria final de paridade das páginas X restantes, começando por Galeria, Grupos e Postagem. Preservar flags off e não executar analytics/Zernio enquanto o gate HTTP 200 estiver pendente.
+Criar o checkpoint Git da correção do contrato financeiro de Revisão e do endurecimento de Galeria/Grupos; depois implantar em Preview/Production com flags off e smokes sem sessão. Não executar revisão real, confirmação, upload ou Zernio.
 
 ## Proibições imediatas
 

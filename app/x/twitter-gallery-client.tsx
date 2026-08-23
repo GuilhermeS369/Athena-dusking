@@ -26,6 +26,20 @@ export default function TwitterGalleryClient({ assets, canEdit }: { assets: Asse
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Falha no upload.'); }
     finally { setProgress(null); if (input.current) input.current.value = ''; }
   }
-  async function remove(id: string) { if (!confirm('Remover esta mídia da galeria X?')) return; await fetch(`/api/x/media/${id}`, { method: 'DELETE' }); router.refresh(); }
-  return <div className="content-stack">{message ? <div className="notice-banner">{message}</div> : null}{canEdit ? <div className="panel"><input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }} disabled={progress !== null} />{progress !== null ? <p>Upload retomável: {Math.round(progress * 100)}%</p> : <p className="muted">Até 512 MB. O navegador envia em blocos diretamente ao Storage.</p>}</div> : null}<section className="media-grid">{assets.length === 0 ? <div className="empty-state"><h2>Galeria X vazia</h2></div> : assets.map((asset) => <article className="media-card" key={asset.id}>{asset.signedUrl && asset.media_kind !== 'video' ? <img src={asset.signedUrl} alt={asset.original_name} /> : <div className="empty-state-icon">{asset.media_kind === 'video' ? '▶' : 'X'}</div>}<div className="media-card-body"><strong>{asset.original_name}</strong><span>{(asset.byte_size / 1024 / 1024).toFixed(1)} MB</span>{canEdit ? <button className="button button-danger" onClick={() => void remove(asset.id)}>Remover</button> : null}</div></article>)}</section></div>;
+  async function remove(id: string) {
+    if (!confirm('Remover esta mídia da galeria X? Programas já confirmados continuarão preservando o arquivo.')) return;
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/x/media/${id}`, { method: 'DELETE' });
+      const body = await response.json() as { error?: string; warning?: string; storageRetained?: boolean };
+      if (!response.ok) throw new Error(body.error ?? 'Não foi possível remover a mídia X.');
+      setMessage(body.warning ?? (body.storageRetained
+        ? 'Mídia removida da galeria; o arquivo foi preservado porque pertence a um programa.'
+        : 'Mídia removida da galeria X.'));
+      router.refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Falha ao remover a mídia X.');
+    }
+  }
+  return <div className="content-stack">{message ? <div className="notice-banner">{message}</div> : null}{canEdit ? <div className="panel"><input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }} disabled={progress !== null} />{progress !== null ? <p>Upload retomável: {Math.round(progress * 100)}%</p> : <p className="muted">Até 512 MB. O navegador envia em blocos diretamente ao Storage.</p>}</div> : null}<section className="media-grid">{assets.length === 0 ? <div className="empty-state"><h2>Galeria X vazia</h2></div> : assets.map((asset) => <article className="media-card" key={asset.id}>{asset.signedUrl ? (asset.media_kind === 'video' ? <video src={asset.signedUrl} controls preload="metadata" aria-label={asset.original_name} /> : <img src={asset.signedUrl} alt={asset.original_name} />) : <div className="empty-state-icon">{asset.media_kind === 'video' ? '▶' : 'X'}</div>}<div className="media-card-body"><strong>{asset.original_name}</strong><span>{(asset.byte_size / 1024 / 1024).toFixed(1)} MB</span>{canEdit ? <button className="button button-danger" onClick={() => void remove(asset.id)}>Remover</button> : null}</div></article>)}</section></div>;
 }

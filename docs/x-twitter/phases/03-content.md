@@ -35,3 +35,7 @@ Em 23/08/2026 UTC, a lista simples foi substituída por filtros locais de perfil
 ## Detalhe local de Perfis
 
 Em 23/08/2026 UTC, `/x/perfis/[profileId]` passou a apresentar ID imutável, tier/capacidades, health e conexão atual, épocas de conexão, grupos atuais, 50 itens recentes e até 50 snapshots armazenados. Tudo é scoped pela organização e lê somente tabelas `twitter_*`; snapshots não são atualizados ao abrir. A lista ganhou links para detalhe e perfil público X. Gate local: 199/199 testes, TypeScript, build e diff check; nenhum endpoint Zernio/X ou tabela Instagram.
+
+## Auditoria final de Galeria e Grupos
+
+Em 23/08/2026 UTC, a remoção de mídia passou a fazer soft-delete antes da limpeza do Storage e a preservar o objeto sempre que estiver congelado em `twitter_program_media_set_assets`. Assim, excluir da Galeria não quebra filas futuras nem histórico; falha de inspeção/Storage também falha para o lado seguro, mantendo o objeto. A Galeria agora trata erros e exibe preview de vídeo. Grupos ganharam descrição, edição de nome/membros, estado de salvamento e tratamento explícito de erros. Gate local: 201/201 testes, TypeScript, build e diff check; nenhuma migration ou mutação remota.
