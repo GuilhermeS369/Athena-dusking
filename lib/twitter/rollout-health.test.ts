@@ -30,14 +30,12 @@ test('escopo operacional reconhece canário sem confundi-lo com rollout global',
 
 test('worker desligado não gera falso stale e worker esperado sem heartbeat gera alerta', () => {
   const now = Date.parse('2026-08-22T22:00:00Z');
-  const workers = summarizeTwitterWorkers([
-    { worker_name: 'athena-twitter-generation-worker', mode: 'stopped', last_seen_at: '2026-08-01T00:00:00Z' },
-  ], {
+  const workers = summarizeTwitterWorkers([], {
     TWITTER_MODULE_ENABLED: 'true',
     TWITTER_PUBLICATION_WORKER_ENABLED: 'true',
   }, now, 120);
 
-  assert.equal(workers.find((worker) => worker.name === 'athena-twitter-generation-worker')?.state, 'disabled');
+  assert.equal(workers.some((worker) => worker.name.includes('generation')), false);
   assert.equal(workers.find((worker) => worker.name === 'athena-twitter-publication-worker')?.state, 'stale');
 });
 

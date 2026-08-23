@@ -25,7 +25,6 @@
     "worker:publication-telemetry": "node scripts/workers/validate-publication-dispatch-telemetry.mjs",
     "worker:twitter:publication": "node scripts/workers/twitter-worker.mjs --role=publication",
     "worker:twitter:publication:once": "node scripts/workers/twitter-worker.mjs --role=publication --once",
-    "worker:twitter:generation": "node scripts/workers/twitter-worker.mjs --role=generation",
     "worker:twitter:sync": "node scripts/workers/twitter-worker.mjs --role=sync",
     "worker:twitter:analytics": "node scripts/workers/twitter-worker.mjs --role=analytics",
     "worker:twitter:reconcile": "node scripts/workers/twitter-worker.mjs --role=reconcile",

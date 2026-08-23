@@ -96,3 +96,11 @@ Decisões são append-only. Mudanças exigem nova ADR que substitua explicitamen
 - Decisão: o botão Sincronizar cria um `twitter_sync_job` idempotente. O worker VPS exclusivo lê contas/health da Zernio, força `analytics=false` e `inbox=false`, e envia somente o inventário sanitizável para persistência. Claim usa lease e token renovado; uma conexão possui no máximo um job ativo.
 - Motivo: executar duas leituras externas e updates por conta dentro do request público expõe a sincronização a timeout da Vercel e mistura o papel da interface com processamento operacional.
 - Consequência: a UI acompanha o job por polling local; nenhuma API key retorna ao navegador ou ao payload de resultado. A migration 242 e o worker permanecem desligados até teste transacional e one-shot off.
+
+## ADR-X-017 — geração financiada permanece na confirmação atômica
+
+- Data: 22/08/2026
+- Substitui parcialmente: ADR-X-013 quanto à existência de cinco processos e cinco segredos de worker; os isolamentos por papel permanecem válidos para os quatro processos reais.
+- Decisão: remover o papel, processo, segredo e kill switch `generation` do runtime X. A confirmação transacional continua materializando somente os itens que a carteira financia. O runtime passa a ter publicação, sync, analytics e reconciliação.
+- Motivo: não existe trabalho pendente legítimo depois da confirmação. Tornar a materialização assíncrona permitiria saldo reservado sem fila pronta; manter um processo sem função aumentaria a superfície operacional e de autenticação sem benefício.
+- Consequência: confirmação falha por inteiro ou cria reserva e itens financiados na mesma transação. Novas responsabilidades assíncronas só poderão criar um quinto papel mediante ADR própria, fila/claim idempotentes, invariantes financeiras e gate de isolamento — nunca reutilizando um processo artificial vazio.

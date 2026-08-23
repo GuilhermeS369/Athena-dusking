@@ -43,7 +43,6 @@ function Invoke-PreviewJson([string]$Url, [string]$Path, [string]$Secret, [strin
 
 $roles = [ordered]@{
   'athena-twitter-publication-worker' = 'TWITTER_PUBLICATION_WORKER_SECRET'
-  'athena-twitter-generation-worker' = 'TWITTER_GENERATION_WORKER_SECRET'
   'athena-twitter-zernio-sync-worker' = 'TWITTER_SYNC_WORKER_SECRET'
   'athena-twitter-analytics-worker' = 'TWITTER_ANALYTICS_WORKER_SECRET'
   'athena-twitter-webhook-reconcile-worker' = 'TWITTER_RECONCILE_WORKER_SECRET'
@@ -57,7 +56,7 @@ try {
   foreach ($entry in $secrets.GetEnumerator()) { Set-PreviewValue $entry.Key $entry.Value }
   foreach ($entry in @{
     TWITTER_MODULE_ENABLED = 'false'; TWITTER_CANARY_ORGANIZATION_IDS = ',';
-    TWITTER_PUBLICATION_WORKER_ENABLED = 'false'; TWITTER_GENERATION_WORKER_ENABLED = 'false';
+    TWITTER_PUBLICATION_WORKER_ENABLED = 'false';
     TWITTER_SYNC_WORKER_ENABLED = 'false'; TWITTER_ANALYTICS_ENABLED = 'false';
     TWITTER_ANALYTICS_WORKER_ENABLED = 'false'; TWITTER_FALLBACK_ENABLED = 'false';
     TWITTER_RECONCILE_WORKER_ENABLED = 'false'; TWITTER_FALLBACK_LIVE_ENABLED = 'false'; TWITTER_PUBLICATION_MODE = 'shadow'

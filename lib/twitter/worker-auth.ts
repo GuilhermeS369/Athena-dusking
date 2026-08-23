@@ -1,10 +1,9 @@
 import { timingSafeEqual } from 'node:crypto';
 
-export type TwitterWorkerRole = 'publication' | 'generation' | 'sync' | 'analytics' | 'reconcile';
+export type TwitterWorkerRole = 'publication' | 'sync' | 'analytics' | 'reconcile';
 
 const secretNameByRole: Record<TwitterWorkerRole, string> = {
   publication: 'TWITTER_PUBLICATION_WORKER_SECRET',
-  generation: 'TWITTER_GENERATION_WORKER_SECRET',
   sync: 'TWITTER_SYNC_WORKER_SECRET',
   analytics: 'TWITTER_ANALYTICS_WORKER_SECRET',
   reconcile: 'TWITTER_RECONCILE_WORKER_SECRET',
@@ -12,7 +11,6 @@ const secretNameByRole: Record<TwitterWorkerRole, string> = {
 
 const roleByWorkerName: Record<string, TwitterWorkerRole> = {
   'athena-twitter-publication-worker': 'publication',
-  'athena-twitter-generation-worker': 'generation',
   'athena-twitter-zernio-sync-worker': 'sync',
   'athena-twitter-analytics-worker': 'analytics',
   'athena-twitter-webhook-reconcile-worker': 'reconcile',
@@ -27,6 +25,7 @@ function safeEqual(left: string, right: string) {
 function roleForInternalPath(request: Request): TwitterWorkerRole | null {
   const path = new URL(request.url).pathname;
   if (path.includes('/twitter-publication-')) return 'publication';
+  if (path.includes('/twitter-sync-')) return 'sync';
   if (path.includes('/twitter-analytics-')) return 'analytics';
   if (path.endsWith('/twitter-reconcile')) return 'reconcile';
   return null;

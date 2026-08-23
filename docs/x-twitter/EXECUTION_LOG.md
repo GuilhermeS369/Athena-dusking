@@ -809,3 +809,13 @@ Registros são append-only.
 - Limpeza: somente o tar temporário explicitamente validado em `/tmp` foi removido; artefato local e releases anteriores foram preservados.
 - Rollback: Vercel `dpl_soJv1T88XQ2iCmLFtW1fzw4jQLZu`; VPS `dc997750ddc2-20260822T231419Z`; manter todos os flags off e não remover migration 242.
 - Próxima ação segura: resolver por ADR o papel generation, hoje sem trabalho após heartbeat; não criar fila artificial nem mover a materialização financiada para fora da transação atômica.
+
+## X-0066 — contrato local reduzido a quatro workers reais
+
+- UTC: 2026-08-22T23:58:14Z; São Paulo: 2026-08-22T20:58:14-03:00.
+- Decisão: ADR-X-017 remove `generation` do runtime X. A confirmação RPC continua criando reserva e somente os itens financiados na mesma transação; não foi criada fila artificial.
+- Código local: removidos papel, segredo, kill switch, heartbeat, circuit breaker, script npm e entrada de ecosystem exclusivamente do X. Publicação, sync, analytics e reconciliação permanecem independentes. A inferência de autenticação também passou a reconhecer a rota sync pelo próprio namespace.
+- Cobertura: teste estrutural exige exatamente os quatro papéis reais e proíbe referências `TWITTER_GENERATION`/`twitter-generation` no runtime. Gate local aprovado com 194/194 testes, TypeScript, build, sintaxe do worker, `git diff --check` e parse do `STATE.json`; somente warnings metadata preexistentes. Deploy ainda pendente neste registro.
+- Ambientes: nenhuma mutação remota, chamada Zernio, fila, hold ou débito. Production e todos os flags X seguem off; release VPS histórico mantém cinco entradas stopped até o deploy seguro.
+- Rollback local: reverter apenas esta unidade antes do deploy. Após deploy, reintroduzir um quinto processo somente por nova ADR e responsabilidade idempotente comprovada; não mover materialização para fora da transação.
+- Próxima ação segura: executar testes/TypeScript/build/diff check, criar checkpoint e implantar off; então remover somente as variáveis e entrada PM2 de generation, preservando os seis processos existentes.

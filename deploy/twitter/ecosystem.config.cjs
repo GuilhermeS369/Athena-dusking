@@ -24,7 +24,6 @@ function worker(name, role) {
 module.exports = {
   apps: [
     worker('athena-twitter-publication-worker', 'publication'),
-    worker('athena-twitter-generation-worker', 'generation'),
     worker('athena-twitter-zernio-sync-worker', 'sync'),
     worker('athena-twitter-analytics-worker', 'analytics'),
     worker('athena-twitter-webhook-reconcile-worker', 'reconcile'),

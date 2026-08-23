@@ -55,10 +55,11 @@ test('todo papel respeita heartbeat stopped e rollout antes de qualquer opera√ß√
     readFile(new URL('../../app/api/internal/twitter-fallback-dispatch/route.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(worker, /heartbeat\.mode==='stopped'/);
-  for (const flag of ['TWITTER_PUBLICATION_WORKER_ENABLED', 'TWITTER_GENERATION_WORKER_ENABLED', 'TWITTER_SYNC_WORKER_ENABLED', 'TWITTER_ANALYTICS_WORKER_ENABLED', 'TWITTER_RECONCILE_WORKER_ENABLED']) {
+  for (const flag of ['TWITTER_PUBLICATION_WORKER_ENABLED', 'TWITTER_SYNC_WORKER_ENABLED', 'TWITTER_ANALYTICS_WORKER_ENABLED', 'TWITTER_RECONCILE_WORKER_ENABLED']) {
     assert.match(heartbeat, new RegExp(flag));
     assert.match(example, new RegExp(`${flag}=false`));
   }
+  assert.doesNotMatch(`${worker}\n${heartbeat}\n${example}`, /TWITTER_GENERATION_WORKER/);
   for (const route of [heartbeat, publicationClaims, analyticsClaims, reconcile, fallback]) assert.match(route, /isTwitterRolloutActive/);
   assert.match(reconcile, /TWITTER_RECONCILE_WORKER_ENABLED/);
 });

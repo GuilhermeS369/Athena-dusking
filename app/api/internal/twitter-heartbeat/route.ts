@@ -6,7 +6,6 @@ import { isTwitterNamedWorkerAuthorized } from '@/lib/twitter/worker-auth';
 
 const workerFlags: Record<string, () => boolean> = {
   'athena-twitter-publication-worker': () => process.env.TWITTER_PUBLICATION_WORKER_ENABLED === 'true',
-  'athena-twitter-generation-worker': () => process.env.TWITTER_GENERATION_WORKER_ENABLED === 'true',
   'athena-twitter-zernio-sync-worker': () => process.env.TWITTER_SYNC_WORKER_ENABLED === 'true',
   'athena-twitter-analytics-worker': () => process.env.TWITTER_ANALYTICS_ENABLED === 'true' && process.env.TWITTER_ANALYTICS_WORKER_ENABLED === 'true',
   'athena-twitter-webhook-reconcile-worker': () => process.env.TWITTER_RECONCILE_WORKER_ENABLED === 'true',

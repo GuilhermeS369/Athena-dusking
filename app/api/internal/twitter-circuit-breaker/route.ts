@@ -5,7 +5,6 @@ import { isTwitterNamedWorkerAuthorized } from '@/lib/twitter/worker-auth';
 
 const workers = new Set([
   'athena-twitter-publication-worker',
-  'athena-twitter-generation-worker',
   'athena-twitter-zernio-sync-worker',
   'athena-twitter-analytics-worker',
   'athena-twitter-webhook-reconcile-worker',

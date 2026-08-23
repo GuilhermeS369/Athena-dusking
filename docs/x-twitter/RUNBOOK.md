@@ -51,10 +51,11 @@ Antes de deploy, registrar `pm2 status`, disco, memória, release e hashes. Rele
 Processos planejados:
 
 - `athena-twitter-publication-worker`
-- `athena-twitter-generation-worker`
 - `athena-twitter-zernio-sync-worker`
 - `athena-twitter-analytics-worker`
 - `athena-twitter-webhook-reconcile-worker`
+
+Não instalar `athena-twitter-generation-worker`: a ADR-X-017 mantém a materialização financiada dentro da confirmação transacional.
 
 ## Ordem segura de deploy
 
@@ -89,7 +90,7 @@ Processos planejados:
 
 ### Segredos por papel
 
-- Cada processo usa exclusivamente seu segredo: `TWITTER_PUBLICATION_WORKER_SECRET`, `TWITTER_GENERATION_WORKER_SECRET`, `TWITTER_SYNC_WORKER_SECRET`, `TWITTER_ANALYTICS_WORKER_SECRET` ou `TWITTER_RECONCILE_WORKER_SECRET`.
+- Cada processo usa exclusivamente seu segredo: `TWITTER_PUBLICATION_WORKER_SECRET`, `TWITTER_SYNC_WORKER_SECRET`, `TWITTER_ANALYTICS_WORKER_SECRET` ou `TWITTER_RECONCILE_WORKER_SECRET`.
 - Heartbeat e circuit breaker autenticam o segredo contra o `workerName`; um papel não pode operar como outro.
 - Fallback e health usam `TWITTER_FALLBACK_WORKER_SECRET` e `TWITTER_ROLLOUT_HEALTH_SECRET`, sem reutilizar segredos dos workers.
 - `scripts/twitter/configure-role-secrets.ps1` configura Production/Preview e atualiza atomicamente a VPS sem imprimir valores.
@@ -98,10 +99,10 @@ Processos planejados:
 
 ### Kill switches por papel
 
-- Flags: `TWITTER_PUBLICATION_WORKER_ENABLED`, `TWITTER_GENERATION_WORKER_ENABLED`, `TWITTER_SYNC_WORKER_ENABLED`, `TWITTER_ANALYTICS_WORKER_ENABLED` e `TWITTER_RECONCILE_WORKER_ENABLED`.
+- Flags: `TWITTER_PUBLICATION_WORKER_ENABLED`, `TWITTER_SYNC_WORKER_ENABLED`, `TWITTER_ANALYTICS_WORKER_ENABLED` e `TWITTER_RECONCILE_WORKER_ENABLED`.
 - Analytics também exige `TWITTER_ANALYTICS_ENABLED=true`; publicação live exige os gates de modo/canário já documentados.
 - O heartbeat é a autorização operacional do ciclo: modo `stopped` deve encerrar o executável antes de claim, recovery, mutação financeira ou chamada Zernio. Claims, reconcile e fallback reaplicam o gate global/canário mesmo quando chamados diretamente.
-- Em deploy off/one-shot, exigir `stopped` para os cinco papéis e conferir zero mudança em fila, holds, attempts e ledger.
+- Em deploy off/one-shot, exigir `stopped` para os quatro papéis e conferir zero mudança em fila, holds, attempts e ledger.
 
 ### Sync de perfis X
 

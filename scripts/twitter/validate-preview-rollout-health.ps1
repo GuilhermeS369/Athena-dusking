@@ -37,7 +37,6 @@ try {
   Set-PreviewValue 'TWITTER_MODULE_ENABLED' 'false'
   Set-PreviewValue 'TWITTER_CANARY_ORGANIZATION_IDS' ','
   Set-PreviewValue 'TWITTER_PUBLICATION_WORKER_ENABLED' 'false'
-  Set-PreviewValue 'TWITTER_GENERATION_WORKER_ENABLED' 'false'
   Set-PreviewValue 'TWITTER_SYNC_WORKER_ENABLED' 'false'
   Set-PreviewValue 'TWITTER_ANALYTICS_ENABLED' 'false'
   Set-PreviewValue 'TWITTER_ANALYTICS_WORKER_ENABLED' 'false'

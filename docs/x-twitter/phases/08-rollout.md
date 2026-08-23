@@ -4,6 +4,8 @@ Status: `in_progress` — preparação reversível; rollout geral/live bloqueado
 
 Entregas: ativação progressiva, fallback validado, monitoramento, comparação Instagram e handoff final. Gate: módulo independente, observável e reversível.
 
+Nota de topologia atual: registros abaixo que mencionam cinco processos descrevem releases históricos. A ADR-X-017 reduziu o contrato vigente a quatro papéis reais — publicação, sync, analytics e reconciliação — sem alterar a confirmação financeira atômica.
+
 ## Checkpoint de segurança anterior ao preview
 
 - Migration 240 aplicada de forma aditiva e alinhada no remoto.

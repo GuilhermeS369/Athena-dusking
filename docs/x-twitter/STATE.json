@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-22T23:53:56Z",
-  "updatedAtSaoPaulo": "2026-08-22T20:53:56-03:00",
+  "updatedAtUtc": "2026-08-22T23:58:14Z",
+  "updatedAtSaoPaulo": "2026-08-22T20:58:14-03:00",
   "phase": { "id": "08", "name": "rollout-preparation", "status": "in_progress", "gate": "provider_analytics_gate_pending" },
-  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "a5edc6c", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
+  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "22015ca", "worktreeExpectedDirty": true, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "242", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
     "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_3PEDBeCXGNKn22ytn1CnjDcsJGeC", "productionDeploymentId": "dpl_AF46kbSRbDFUhJc7JFZQ6qZ3yM35", "rollbackDeploymentId": "dpl_soJv1T88XQ2iCmLFtW1fzw4jQLZu", "xDeploymentCreated": true, "canaryOrganization": "Pomodoro", "lastLiveCanaryDeploymentId": "dpl_8pkhNuc5hcPhcGQ7EsaWSMAHLuC5", "fallbackShadowDeploymentId": "dpl_EWZqz2kPtsBnqBiXNqRYV3Qvy3d2", "fallbackShadowDeploymentUrl": "https://pomodoro-mh4mbhh3y-shoows-projects-2caaf9e9.vercel.app", "fallbackSafePreviewUrl": "https://pomodoro-pcp6sp965-shoows-projects-2caaf9e9.vercel.app", "rolloutHealthStatus": "ok", "roleSecretsConfigured": true, "roleKillSwitchesValidated": true, "legacyWorkerSecretRemoved": true },
     "vps": { "hostname": "srv1881733", "release": "a5edc6c049e1-20260822T235210Z", "sha256": "a6f1907de47fc9715b33d2a180cc55c818f9f82a5593ffe4771e98438faea4fe", "rollbackRelease": "dc997750ddc2-20260822T231419Z", "twitterProcessesInstalled": true, "twitterProcessesStatus": "stopped", "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true, "legacyWorkerSecretRemoved": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false, "twitterReconcileWorkerEnabled": false },
-  "lastCheckpoint": "phase-08-final-audit-sync-queue-deployed-off",
-  "nextSafeAction": "Resolve the generation-worker contract. Prefer removing the idle runtime role unless a real bounded responsibility can be defined without moving funded item materialization out of the atomic confirmation transaction.",
+  "lastCheckpoint": "phase-08-generation-role-removal-local-in-progress",
+  "nextSafeAction": "Run the full local gate, commit ADR-X-017, deploy Preview and Production with all X flags off, then remove only TWITTER_GENERATION_* environment entries and the stopped PM2 generation process while preserving the six existing worker PIDs.",
   "doNotRepeat": ["Do not apply migrations 210 through 242; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not repeat the paid analytics read for item 7ce8553c-ceb9-4a25-a00f-c51b0ec249c5.", "Do not reclassify its outcome_unknown without provider or billing evidence and an audited justification.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item."],
   "blockers": ["Phase 7 provider gate: three manual operations, including a later operation on the same already-synced post, returned HTTP 202 and were proven unmetered/reconciled. A successful analytics snapshot cannot be proven until Zernio returns 200.", "Phase 8 general rollout and live fallback activation remain prohibited until the Phase 7 provider gate succeeds."]
 }

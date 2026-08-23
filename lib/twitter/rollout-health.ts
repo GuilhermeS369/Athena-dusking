@@ -1,6 +1,5 @@
 export const TWITTER_WORKER_NAMES = [
   'athena-twitter-publication-worker',
-  'athena-twitter-generation-worker',
   'athena-twitter-zernio-sync-worker',
   'athena-twitter-analytics-worker',
   'athena-twitter-webhook-reconcile-worker',
@@ -31,7 +30,6 @@ export function expectedTwitterWorkers(environment: TwitterRolloutEnvironment) {
   const moduleEnabled = twitterRolloutScope(environment).active;
   return new Map<TwitterWorkerName, boolean>([
     ['athena-twitter-publication-worker', moduleEnabled && enabled(environment.TWITTER_PUBLICATION_WORKER_ENABLED)],
-    ['athena-twitter-generation-worker', moduleEnabled && enabled(environment.TWITTER_GENERATION_WORKER_ENABLED)],
     ['athena-twitter-zernio-sync-worker', moduleEnabled && enabled(environment.TWITTER_SYNC_WORKER_ENABLED)],
     ['athena-twitter-analytics-worker', moduleEnabled && enabled(environment.TWITTER_ANALYTICS_ENABLED) && enabled(environment.TWITTER_ANALYTICS_WORKER_ENABLED)],
     ['athena-twitter-webhook-reconcile-worker', moduleEnabled && enabled(environment.TWITTER_RECONCILE_WORKER_ENABLED)],

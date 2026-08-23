@@ -185,10 +185,11 @@ Abaixo do piso, analytics desabilita e publicação continua. Sucesso parcial li
 Processos separados:
 
 - `athena-twitter-publication-worker`;
-- `athena-twitter-generation-worker`;
 - `athena-twitter-zernio-sync-worker`;
 - `athena-twitter-analytics-worker`;
 - `athena-twitter-webhook-reconcile-worker`.
+
+O worker `athena-twitter-generation-worker` previsto na versão inicial do plano foi removido pela ADR-X-017. A confirmação transacional já materializa somente os itens financiados; deslocar esse trabalho para uma fila assíncrona criaria reserva sem item pronto e enfraqueceria a atomicidade. Os quatro processos restantes correspondem a responsabilidades operacionais reais e independentes.
 
 Cada processo terá secret, heartbeat, claim, circuit breaker, métricas, feature flag, kill switch e concorrência inicial 1 próprios. Workers X não importam lógica operacional Instagram-específica.
 
