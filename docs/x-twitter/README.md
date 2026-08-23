@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T02:17:58Z / 2026-08-22T23:17:58-03:00
-- Fase atual: 8 — gate visual/CSS (`in_progress`), com matriz autenticada local 50/50 aprovada e novo Preview ainda pendente; sem liberação geral
+- Atualizado em: 2026-08-23T02:24:45Z / 2026-08-22T23:24:45-03:00
+- Fase atual: 8 — preparação do rollout progressivo (`in_progress`); gate visual/CSS concluído, gate financeiro Analytics pendente; sem liberação geral
 - Status: controle auditado das capabilities aprovado em canário mínimo; Analytics/Inbox estão off. Gate HTTP 200 e proteção contra fan-out de reads permanecem pendentes.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint Git mais recente: `07be9b1`; gate CSS estrutural no Preview `dpl_62c6NFsmkGL5JQ9HTHsHkwLd8nV8`. Production continua no checkpoint anterior `7c83ece`, todos os flags/processos X off.
+- Checkpoint Git executável mais recente: `9200b4e`; Preview `dpl_8aB1TheK2kW1noy9HJfAAGB7jozx` e Production `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D`, ambos `READY`. O escopo global e todos os workers/fallback continuam off; somente Pomodoro permanece canário.
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–245
 
@@ -34,7 +34,7 @@
 
 ## Próxima ação segura
 
-Versionar as correções encontradas no smoke autenticado e criar novo Preview com todas as flags mutáveis off. Não repetir os três recursos 202; antes de novo teste pago, o quote/confirm precisa cobrir fan-out do provedor.
+Tomar a decisão financeira sobre o fan-out Analytics observado: manter o preço nominal de uma read e bloquear novas operações, ou reservar até 9 reads por seleção e liquidar somente o uso comprovado. Não repetir os três recursos 202 nem iniciar rollout progressivo antes de implementar e testar a decisão.
 
 ## Proibições imediatas
 
@@ -48,6 +48,6 @@ Versionar as correções encontradas no smoke autenticado e criar novo Preview c
 
 ## Ambientes preparados
 
-- Vercel: Production `dpl_9zixyzBTcpjTjiG2RyeoyQDxipvL` (`https://pomodoro-8roycj5ks-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial; Preview CSS `dpl_62c6NFsmkGL5JQ9HTHsHkwLd8nV8` (`https://pomodoro-a3mqrgn09-shoows-projects-2caaf9e9.vercel.app`) `READY`. O gate de capability continua explicitamente `false` nos dois ambientes.
+- Vercel: Production `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D` (`https://pomodoro-k1s5wb6rs-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial; Preview `dpl_8aB1TheK2kW1noy9HJfAAGB7jozx` (`https://pomodoro-9i1lwi0se-shoows-projects-2caaf9e9.vercel.app`) `READY`. Flags globais, workers, Analytics e fallback permanecem off.
 - VPS: release `7c83ece-20260823T011500Z`, hash `e71415e4f39d4056e5eacc7fd3a9bae6f501d3e8a31168616e4141ee9b7bf10a`; quatro processos X apontam para ele e estão `stopped`; seis processos existentes continuam `online` com os PIDs preservados.
 - Supabase: migrations 223–245 alinhadas; conexão Analytics/Inbox off, filas/holds/snapshots zerados e wallet 11.590.000/0 versão 24. As 27 reads tardias foram reconciliadas por evento imutável; o canário reservou/liberou 6.590.000 sem débito.

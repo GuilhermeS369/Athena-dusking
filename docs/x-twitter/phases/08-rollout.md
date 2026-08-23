@@ -95,6 +95,10 @@ Checkpoint `07be9b1` publicado somente em Preview: `dpl_62c6NFsmkGL5JQ9HTHsHkwLd
 
 Uma sessão Athena autorizada permitiu a matriz real local contra a organização Pomodoro, sem persistir credenciais. O domínio Preview permaneceu protegido pela Vercel; a proteção não foi reduzida. Foram executados 50 casos autenticados (10 rotas × 5 larguras), que revelaram e permitiram corrigir a grade da Galeria, a seleção de conjuntos de mídia, o overflow interno dos Logs e o cabeçalho de perfil em 320 px. Reexecução: 50/50 sem overflow, zero alvo abaixo de 44 px e foco visível. Analytics/Inbox/workers permaneceram off. Novo Preview do checkpoint corrigido ainda é o próximo gate.
 
+Checkpoint `9200b4e` foi implantado em Preview `dpl_8aB1TheK2kW1noy9HJfAAGB7jozx` e Production `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D`, ambos `READY`. A matriz 10 × 5 foi repetida em Production canário com 50/50 aprovações efetivas; dois carregamentos a 320 px apenas precisaram de espera maior. Postagem Instagram passou em 1440/390 px e permaneceu fora do wrapper X. Gate visual/CSS concluído. Banco e VPS continuaram sem fila/hold e com workers X parados.
+
+O início do rollout progressivo continua bloqueado pelo gate financeiro Analytics: três seleções cobraram 27 `posts_read`, mas o contrato atual reserva uma unidade por seleção. É necessária decisão explícita antes de alterar o custo exibido/reservado ou executar novo canário pago.
+
 ## Fallback Vercel exclusivo — implementação desligada
 
 - Rota exclusiva: `/api/internal/twitter-fallback-dispatch`.

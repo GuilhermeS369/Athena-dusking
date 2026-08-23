@@ -19,7 +19,7 @@ Atualizada em 2026-08-23T02:03:07Z. Esta matriz não substitui o plano; resume e
 | Publicação canário | Concluído | Texto, imagens, GIF, vídeo, URL e matriz de erros validados; wallet atual 11.725.000 micros. |
 | Analytics manual | Implementado, gate de sucesso/fan-out bloqueado | Três operações retornaram HTTP 202 e zero snapshot; billing tardio confirmou 27 reads/US$ 0,135 e foi reconciliado. Capability Athena passou em janela curta com delta zero, mas HTTP 200 e custo real por seleção ainda não foram provados. |
 | Rollout geral/fallback live | Não iniciado por gate | Proibido até uma operação analytics distinta retornar sucesso comprovado/HTTP 200 com snapshot e liquidação correta. |
-| CSS/UX responsivo do módulo X | Matriz autenticada local aprovada; Preview final pendente | Shell e estilos específicos estão escopados em `.twitter-module-shell`. Foram aprovados 50 casos reais: 10 rotas × 1440/1024/768/390/320 px, sem overflow, com alvos de 44 px e foco visível. O Preview protegido não aceitou a sessão Athena; falta publicar o checkpoint corrigido e validar build/redirecionamento antes de Production. |
+| CSS/UX responsivo do módulo X | Concluído | Shell e estilos específicos escopados em `.twitter-module-shell`. Matriz autenticada 10 rotas × 5 larguras aprovada localmente e repetida em Production canário; sem overflow, alvos mínimos de 44 px e foco visível. Postagem Instagram validada em desktop/mobile fora do wrapper X. |
 
 ## Estado operacional congelado
 
@@ -33,4 +33,4 @@ Atualizada em 2026-08-23T02:03:07Z. Esta matriz não substitui o plano; resume e
 
 ## Única próxima ação autorizada pelo plano
 
-Publicar o checkpoint CSS corrigido em Preview, mantendo flags mutáveis off. Para Analytics, primeiro redesenhar quote/confirm para possível fan-out do provedor; não repetir os três endpoints já tentados nem habilitar rollout geral para contornar o gate.
+Decidir e implementar a proteção financeira para o fan-out Analytics comprovado (27 reads em 3 seleções). Não repetir os três endpoints já tentados nem habilitar rollout geral para contornar o gate.

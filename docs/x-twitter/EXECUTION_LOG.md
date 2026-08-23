@@ -1075,3 +1075,10 @@ Registros são append-only.
 - Regressão: 210/210 testes, TypeScript, build de 41 páginas e `git diff --check` aprovados. Apenas warnings metadata preexistentes.
 - Dados/ambientes: navegação e APIs de leitura locais; nenhuma reserva, débito, publicação, Analytics, alteração de capability, migration, Storage, Vercel Production, VPS ou PM2 foi mutado.
 - Rollback: reverter as regras adicionais em `app/globals.css` e as asserções de `lib/twitter/css-gate.test.ts`. Próxima ação segura: checkpoint Git e novo Preview; Production somente após smoke protegido sem sessão e confirmação do build.
+- Checkpoint executável: `9200b4e`. Preview `dpl_8aB1TheK2kW1noy9HJfAAGB7jozx` e Production `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D`, ambos `READY`; alias oficial atualizado. Rollback Vercel: `dpl_9zixyzBTcpjTjiG2RyeoyQDxipvL`.
+- Preview: Postagem, Galeria e Logs sem sessão retornaram `307 /login`. Production canário: a matriz 10 × 5 foi repetida; dois carregamentos a 320 px ultrapassaram a espera inicial de 650 ms e passaram após 2,2 s, sem overflow ou alvo curto. Resultado efetivo 50/50.
+- Regressão Instagram em Production: `/postagem` carregada em 1440 e 390 px, sem overflow e sem `.twitter-module-shell`; screenshot mobile confirmou o compositor existente íntegro.
+- Pós-deploy Supabase read-only: wallet 11.590.000/0 versão 24; publicação não terminal 0; holds ativos/incertos 0; jobs e itens Analytics não terminais 0; conexão ativa com Analytics/Inbox false.
+- VPS read-only: `srv1881733`, 42 GB livres, 2.830 MB disponíveis, sem swap; quatro workers X `stopped`; seis processos existentes `online` com PIDs 99980, 27468, 136197, 127605, 122939 e 103209.
+- Gate visual/CSS concluído. O rollout progressivo permanece proibido por um único bloqueio financeiro: três requests Analytics produziram 27 reads tardias (fan-out observado de 9 por seleção), enquanto quote/confirm/settlement ainda reservam e debitam apenas uma unidade. Alterar esse preço sem decisão explícita violaria o plano aprovado.
+- Atualização final: UTC 2026-08-23T02:24:45Z; São Paulo 2026-08-22T23:24:45-03:00.
