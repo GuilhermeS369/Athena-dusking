@@ -893,3 +893,14 @@ Registros são append-only.
 - Ambientes: nenhuma migration/deploy/chamada Zernio neste registro; flags X off, quatro workers stopped, banco e Instagram intocados.
 - Rollback: reverter page, client, rota snapshot e teste; não há dado/infraestrutura a desfazer.
 - Próxima ação segura: checkpoint Git e deploy Vercel off; smoke 401 da rota local, sem ativar analytics.
+
+## X-0073 — Dashboard X local implantado off
+
+- UTC: 2026-08-23T00:30:45Z; São Paulo: 2026-08-22T21:30:45-03:00.
+- Código de origem: `d22d6dc`; Preview `dpl_8LaGXgY5ATkhLWitQmVbXbfYp4ZY`, URL `https://pomodoro-1dkqjkj0i-shoows-projects-2caaf9e9.vercel.app`, `READY`.
+- Production `dpl_HMe8QrEt4YDPnTTztNFjiP9JZXtf`, URL `https://pomodoro-foyi1cus3-shoows-projects-2caaf9e9.vercel.app`, `READY`, alias oficial.
+- Smoke: rota local de snapshots retornou `401` sem sessão nos dois ambientes; não houve leitura Zernio/X nem confirmação de analytics.
+- Pós-deploy: snapshots 0, eventos de transferência 0, fila não terminal/holds 0, wallet 11.725.000/0. Flags X off; VPS/PM2/Instagram não alterados.
+- Build: 41 páginas; warnings metadata e cinco avisos npm preexistentes. Regressão local anterior 197/197, TypeScript/build/diff check.
+- Rollback: Vercel `dpl_A1ByNkEstDGPsLejpaXXgHj3q5tu`; Supabase/VPS não requerem rollback.
+- Próxima ação segura: auditar Agenda e Perfis X, hoje mais simples que a fila; manter tudo local e sem analytics.

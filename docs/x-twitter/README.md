@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T00:27:58Z / 2026-08-22T21:27:58-03:00
+- Atualizado em: 2026-08-23T00:30:45Z / 2026-08-22T21:30:45-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Implantar o endurecimento do Dashboard X em Preview/Production com flags off; smoke somente proteção da rota local. Depois continuar a auditoria final das páginas/contratos restantes. Não ativar analytics, sync, cron, fallback live ou rollout.
+Continuar a auditoria de paridade funcional das páginas X restantes, começando por Agenda e Perfis, que ainda são resumos simples. Preservar namespace/tabelas X e não ativar analytics, sync, cron, fallback live ou rollout.
 
 ## Proibições imediatas
 
@@ -47,6 +47,6 @@ Implantar o endurecimento do Dashboard X em Preview/Production com flags off; sm
 
 ## Ambientes preparados
 
-- Vercel: segredos por função configurados separadamente; Production `dpl_A1ByNkEstDGPsLejpaXXgHj3q5tu` `READY`, alias oficial, todos os flags mutáveis off e nomes genérico/`generation` removidos. Preview `dpl_C2KQoYkdeMGbRtw1evfTFHsU3ZK4` `READY`.
+- Vercel: segredos por função configurados separadamente; Production `dpl_HMe8QrEt4YDPnTTztNFjiP9JZXtf` `READY`, alias oficial, todos os flags mutáveis off e nomes genérico/`generation` removidos. Preview `dpl_8LaGXgY5ATkhLWitQmVbXbfYp4ZY` `READY`.
 - VPS: release `e732fed77971-20260823T000341Z`, hash `c0834c2fda517056cb1e31a9a0e9d44c2c8b382b57d673df7c489b396014a4a8`; quatro processos X apontam para ele e estão `stopped`; nomes genérico/`generation` removidos; seis processos existentes continuam `online` com os PIDs preservados.
 - Supabase: migrations 223–243 alinhadas; teste 243 13/13 com rollback; zero evento de transferência real ou job residual; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.

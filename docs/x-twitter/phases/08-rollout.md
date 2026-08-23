@@ -25,6 +25,13 @@ Nota de topologia atual: registros abaixo que mencionam cinco processos descreve
 - VPS não recebeu release: quatro workers X seguem `stopped`; seis processos existentes mantêm os PIDs preservados.
 - Rollback Vercel imediato: `dpl_BYjrGwDcg9WtPy4nV1CWwvZ9kKGv`; migration 243 permanece forward-only e dormente se a UI for revertida.
 
+## Dashboard X local implantado off
+
+- Preview `dpl_8LaGXgY5ATkhLWitQmVbXbfYp4ZY` e Production `dpl_HMe8QrEt4YDPnTTztNFjiP9JZXtf` `READY`; alias oficial atualizado.
+- `/api/x/analytics/snapshots` sem sessão retornou `401` nos dois ambientes; nenhum endpoint de provedor foi chamado.
+- Pós-deploy: snapshots 0, eventos de transferência 0, filas/holds 0 e wallet 11.725.000/0. Todos os flags X seguem off; VPS não foi alterada.
+- Rollback Vercel: `dpl_A1ByNkEstDGPsLejpaXXgHj3q5tu`.
+
 ## Checkpoint de segurança anterior ao preview
 
 - Migration 240 aplicada de forma aditiva e alinhada no remoto.
