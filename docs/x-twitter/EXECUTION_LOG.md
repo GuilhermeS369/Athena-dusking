@@ -904,3 +904,15 @@ Registros são append-only.
 - Build: 41 páginas; warnings metadata e cinco avisos npm preexistentes. Regressão local anterior 197/197, TypeScript/build/diff check.
 - Rollback: Vercel `dpl_A1ByNkEstDGPsLejpaXXgHj3q5tu`; Supabase/VPS não requerem rollback.
 - Próxima ação segura: auditar Agenda e Perfis X, hoje mais simples que a fila; manter tudo local e sem analytics.
+
+## X-0074 — Agenda X funcional concluída localmente
+
+- UTC: 2026-08-23T00:33:23Z; São Paulo: 2026-08-22T21:33:23-03:00.
+- Gap: Agenda exibia somente data/texto/status/custo, sem perfil, filtros, tentativa, retry ou ação segura.
+- Entrega: filtros por perfil/status/janela 7–90 dias; programa, horário São Paulo, custo, tentativa e próxima tentativa; até 500 itens ativos locais.
+- Cancelamento: item individual chama o mesmo endpoint transacional da Fila, com motivo e idempotency key. Resultado incerto avisa que o hold só pode ser resolvido em Logs; nenhuma chamada é repetida.
+- Isolamento: consultas somente `twitter_publication_items` e `twitter_profiles`; teste proíbe Instagram, `/v1/*` e Zernio.
+- Verificação: 198/198 testes, TypeScript, build e diff check; warnings metadata preexistentes.
+- Ambientes: nenhuma migration, deploy, saldo, fila ou chamada externa; Production off e workers stopped.
+- Rollback: reverter página, client e teste; sem dados/infraestrutura a desfazer.
+- Próxima ação segura: checkpoint Git; criar detalhe local de Perfis X com épocas, conexão, grupos, itens e snapshots já existentes.

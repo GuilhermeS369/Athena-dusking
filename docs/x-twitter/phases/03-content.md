@@ -27,3 +27,7 @@ Início: 2026-08-22T17:41:53Z. A implementação seguirá atrás da feature flag
 - RPC de membership: somente service role.
 - Lint sem erros X; dois erros legados permanecem fora do escopo.
 - Gate aprovado. Upload real permanece parte do smoke/canário, sem bloquear a implementação local da fase seguinte.
+
+## Auditoria final da Agenda
+
+Em 23/08/2026 UTC, a lista simples foi substituída por filtros locais de perfil, status e janela, com programa, custo, tentativas, retry e horário `America/Sao_Paulo`. Cancelamento individual reutiliza `/api/x/queue/cancel`, exige motivo e mantém `outcome_unknown` em hold até Logs/reconciliação. Limite visual de 500 itens; somente `twitter_publication_items`/`twitter_profiles`; zero endpoint externo. Gate local: 198/198 testes, TypeScript, build e diff check; nenhuma mutação remota.
