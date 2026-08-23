@@ -93,6 +93,8 @@ Gate parcial: estrutura e responsividade local aprovadas. Próxima ação segura
 
 Checkpoint `07be9b1` publicado somente em Preview: `dpl_62c6NFsmkGL5JQ9HTHsHkwLd8nV8`, `READY`. O smoke sem sessão retornou `307 /login`. Como não havia sessão Athena no navegador de inspeção, Production não foi promovida e o gate permanece parcial.
 
+Uma sessão Athena autorizada permitiu a matriz real local contra a organização Pomodoro, sem persistir credenciais. O domínio Preview permaneceu protegido pela Vercel; a proteção não foi reduzida. Foram executados 50 casos autenticados (10 rotas × 5 larguras), que revelaram e permitiram corrigir a grade da Galeria, a seleção de conjuntos de mídia, o overflow interno dos Logs e o cabeçalho de perfil em 320 px. Reexecução: 50/50 sem overflow, zero alvo abaixo de 44 px e foco visível. Analytics/Inbox/workers permaneceram off. Novo Preview do checkpoint corrigido ainda é o próximo gate.
+
 ## Fallback Vercel exclusivo — implementação desligada
 
 - Rota exclusiva: `/api/internal/twitter-fallback-dispatch`.

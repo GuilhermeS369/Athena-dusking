@@ -601,6 +601,7 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 .twitter-module-shell .summary-grid > div { display: grid; align-content: start; gap: 7px; min-width: 0; min-height: 92px; padding: 14px; border: 1px solid #393344; border-radius: 13px; background: #111019; }
 .twitter-module-shell .summary-grid span { color: var(--text-subtle); font-size: 10px; font-weight: 850; line-height: 1.35; letter-spacing: .05em; text-transform: uppercase; }
 .twitter-module-shell .summary-grid strong { min-width: 0; color: #fff; font-size: clamp(1rem, 2vw, 1.35rem); line-height: 1.2; overflow-wrap: anywhere; }
+.twitter-module-shell .media-grid { width: 100%; max-width: 100%; min-width: 0; grid-template-columns: repeat(auto-fit, minmax(min(255px, 100%), 1fr)); }
 .twitter-module-shell .actions-row, .twitter-module-shell .action-row, .twitter-module-shell .button-row { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; min-width: 0; }
 .twitter-module-shell .page-heading .actions-row { width: 100%; }
 .twitter-module-shell .standalone-header { align-items: flex-start; width: 100%; max-width: none; min-width: 0; margin: 0; }
@@ -614,6 +615,8 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 .twitter-module-shell input:not([type='checkbox']):not([type='radio']):not([type='file']):focus-visible, .twitter-module-shell select:focus-visible, .twitter-module-shell textarea:focus-visible { border-color: var(--purple-bright); box-shadow: 0 0 0 3px #9f4cff33; }
 .twitter-module-shell input[type='checkbox'], .twitter-module-shell input[type='radio'] { flex: 0 0 auto; width: 17px; height: 17px; accent-color: var(--purple-bright); }
 .twitter-module-shell .auth-form label:has(> input[type='checkbox']), .twitter-module-shell .auth-form label:has(> input[type='radio']) { display: flex; align-items: flex-start; gap: 9px; padding: 10px 11px; border: 1px solid #332e3f; border-radius: 10px; background: #111019; cursor: pointer; }
+.twitter-module-shell .panel > label:has(> input[type='checkbox']), .twitter-module-shell .panel > label:has(> input[type='radio']) { display: flex; align-items: flex-start; gap: 10px; width: 100%; margin-top: 10px; padding: 11px 12px; border: 1px solid #332e3f; border-radius: 10px; background: #111019; cursor: pointer; overflow-wrap: anywhere; }
+.twitter-module-shell .panel > label:has(> input[type='checkbox']) + .button, .twitter-module-shell .panel > label:has(> input[type='radio']) + .button { margin-top: 12px; }
 .twitter-module-shell input[type='file'] { width: 100%; max-width: 100%; padding: 12px; border: 1px dashed #665276; border-radius: 12px; background: #111019; color: var(--text-muted); }
 .twitter-module-shell button:not(.button) { min-height: 44px; padding: 0 13px; border: 1px solid #51465f; border-radius: 10px; background: #211a2c; color: #e8daf8; cursor: pointer; font: inherit; font-size: 12px; font-weight: 800; }
 .twitter-module-shell button:not(.button):hover:not(:disabled) { border-color: #a36cdf; background: #30213f; color: #fff; }
@@ -621,6 +624,7 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 .twitter-module-shell .media-card-body { min-width: 0; }
 .twitter-module-shell .media-card-body strong, .twitter-module-shell .media-card-body span { overflow-wrap: anywhere; }
 .twitter-module-shell .media-card-body .button-danger { min-height: 44px; padding: 0 12px; }
+.twitter-module-shell pre { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
 .twitter-module-shell .empty-state { width: 100%; margin: 28px auto; }
 
 @media (max-width: 1100px) {
@@ -629,7 +633,7 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 
 @media (max-width: 700px) {
   .twitter-module-shell .page-stack { gap: 18px; padding-bottom: 32px; }
-  .twitter-module-shell .panel-heading, .twitter-module-shell .standalone-header { display: grid; gap: 14px; }
+  .twitter-module-shell .page-heading, .twitter-module-shell .panel-heading, .twitter-module-shell .standalone-header { display: grid; gap: 14px; }
   .twitter-module-shell .actions-row, .twitter-module-shell .action-row, .twitter-module-shell .button-row, .twitter-module-shell .detail-actions { align-items: stretch; }
   .twitter-module-shell .actions-row .button, .twitter-module-shell .action-row .button, .twitter-module-shell .button-row .button, .twitter-module-shell .detail-actions .button { flex: 1 1 150px; }
   .twitter-module-shell .summary-grid > div { min-height: 84px; padding: 12px; }
@@ -638,6 +642,7 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 @media (max-width: 430px) {
   .twitter-module-shell .page-stack { gap: 14px; }
   .twitter-module-shell .page-heading { padding-top: 28px; }
+  .twitter-module-shell .page-heading h1 { overflow-wrap: anywhere; }
   .twitter-module-shell .summary-grid { grid-template-columns: 1fr; }
   .twitter-module-shell .summary-grid > div { min-height: 0; }
   .twitter-module-shell .panel { min-width: 0; padding: 16px; border-radius: 15px; }

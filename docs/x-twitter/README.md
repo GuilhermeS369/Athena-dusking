@@ -2,8 +2,8 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T02:05:29Z / 2026-08-22T23:05:29-03:00
-- Fase atual: 8 — gate visual/CSS (`in_progress`), com inspeção estrutural local aprovada e smoke autenticado ainda pendente; sem liberação geral
+- Atualizado em: 2026-08-23T02:17:58Z / 2026-08-22T23:17:58-03:00
+- Fase atual: 8 — gate visual/CSS (`in_progress`), com matriz autenticada local 50/50 aprovada e novo Preview ainda pendente; sem liberação geral
 - Status: controle auditado das capabilities aprovado em canário mínimo; Analytics/Inbox estão off. Gate HTTP 200 e proteção contra fan-out de reads permanecem pendentes.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
@@ -34,7 +34,7 @@
 
 ## Próxima ação segura
 
-Versionar o gate CSS local e executar um smoke visual autenticado das páginas `/x/*` em Preview, ainda com todas as flags mutáveis off. Não repetir os três recursos 202; antes de novo teste pago, o quote/confirm precisa cobrir fan-out do provedor.
+Versionar as correções encontradas no smoke autenticado e criar novo Preview com todas as flags mutáveis off. Não repetir os três recursos 202; antes de novo teste pago, o quote/confirm precisa cobrir fan-out do provedor.
 
 ## Proibições imediatas
 

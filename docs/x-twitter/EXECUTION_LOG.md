@@ -1062,3 +1062,16 @@ Registros são append-only.
 - Checkpoint executável: `07be9b1`. Preview `dpl_62c6NFsmkGL5JQ9HTHsHkwLd8nV8`, URL `https://pomodoro-a3mqrgn09-shoows-projects-2caaf9e9.vercel.app`, status `READY`; build Vercel de 41 páginas aprovado com os mesmos warnings metadata preexistentes.
 - Smoke sem sessão em `/x/postagem`: `307 /login`. O navegador de inspeção não possuía sessão Athena, portanto nenhuma página autenticada, dado, reserva ou chamada externa foi acessada. Production não foi promovida.
 - Atualização do registro: UTC 2026-08-23T02:05:29Z; São Paulo 2026-08-22T23:05:29-03:00.
+
+## X-0087 — matriz visual autenticada aprovada após correções reais
+
+- UTC: 2026-08-23T02:17:58Z; São Paulo: 2026-08-22T23:17:58-03:00.
+- Origem: branch `codex/x-twitter-module`, checkpoint inicial `c8b6668`; usuário autorizou uma sessão Athena. Credenciais, senha e token-espelho não foram persistidos, impressos na documentação ou adicionados ao Git.
+- Método seguro: a proteção Vercel impediu a sessão no domínio Preview. Em vez de desligá-la ou promover Production, a mesma revisão foi executada contra o código local autenticado, banco remoto e organização Pomodoro, com somente `TWITTER_MODULE_ENABLED=true` no processo local. Analytics, capability, Inbox, todos os workers e fallback permaneceram off.
+- Cobertura: 10 rotas reais (`Análises`, `Postagem`, `Fila`, `Galeria`, `Perfis`, detalhe de perfil, `Grupos`, `Agenda`, `Zernio`, `Logs`) × 5 larguras (1440/1024/768/390/320), total de 50 casos autenticados.
+- Problemas encontrados: Galeria expandia a grade para 1086 px; conjuntos de mídia apareciam comprimidos numa linha; JSON dos Logs não declarava overflow interno; o cabeçalho do detalhe do perfil excedia 4 px em 320 px.
+- Correções: grade X com `auto-fit/minmax`, labels de seleção em cartões verticais, `pre` com scroll interno e cabeçalho X em grid no mobile com quebra segura do `h1`. Todas as regras permanecem sob `.twitter-module-shell`.
+- Resultado final: 50/50 casos sem overflow do documento ou shell; zero botões abaixo de 44 px; foco autenticado com outline visível de 3 px. A Zernio exibiu saldo US$ 11,59, Analytics/Inbox desligados e botão `Analytics aguardando gate`, sem disparar leitura.
+- Regressão: 210/210 testes, TypeScript, build de 41 páginas e `git diff --check` aprovados. Apenas warnings metadata preexistentes.
+- Dados/ambientes: navegação e APIs de leitura locais; nenhuma reserva, débito, publicação, Analytics, alteração de capability, migration, Storage, Vercel Production, VPS ou PM2 foi mutado.
+- Rollback: reverter as regras adicionais em `app/globals.css` e as asserções de `lib/twitter/css-gate.test.ts`. Próxima ação segura: checkpoint Git e novo Preview; Production somente após smoke protegido sem sessão e confirmação do build.
