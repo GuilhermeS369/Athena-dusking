@@ -21,10 +21,12 @@ type RefreshJobStatus = { status: string; total_count: number; processed_count: 
 export default function DashboardClient({
   activeOrganization,
   data,
+  twitterEnabled,
 }: {
   organizations: Organization[];
   activeOrganization: Organization;
   data: DashboardData;
+  twitterEnabled: boolean;
 }) {
   const router = useRouter();
   const [selectedPlatform, setSelectedPlatform] = useState('instagram');
@@ -39,17 +41,19 @@ export default function DashboardClient({
   const [v2TopPosts, setV2TopPosts] = useState<DashboardV2TopPost[]>([]);
   const [v2Loading, setV2Loading] = useState(data.version === 'v2');
   const [v2Error, setV2Error] = useState('');
-  const [twitterLocal, setTwitterLocal] = useState<{ snapshots: Array<{ captured_at: string }>; jobs: Array<{ status: string }> } | null>(null);
+  const [twitterLocal, setTwitterLocal] = useState<{ snapshots: Array<{ captured_at: string;resource_type:string }>; jobs: Array<{ status: string }> } | null>(null);
+  const [twitterLocalError,setTwitterLocalError]=useState('');
 
   useEffect(() => {
-    if (selectedPlatform !== 'twitter') return;
+    if (selectedPlatform !== 'twitter' || !twitterEnabled) return;
     const controller = new AbortController();
+    setTwitterLocalError('');
     void fetch('/api/x/analytics/snapshots', { cache: 'no-store', signal: controller.signal })
-      .then((response) => response.ok ? response.json() : null)
-      .then((payload) => { if (payload) setTwitterLocal(payload); })
-      .catch(() => undefined);
+      .then(async(response) => {const payload=await response.json().catch(()=>({})) as {snapshots?:Array<{captured_at:string;resource_type:string}>;jobs?:Array<{status:string}>;error?:string};if(!response.ok)throw new Error(payload.error??'Snapshots X indisponíveis.');return{snapshots:payload.snapshots??[],jobs:payload.jobs??[]};})
+      .then((payload) => setTwitterLocal(payload))
+      .catch((error:unknown) => {if(!controller.signal.aborted)setTwitterLocalError(error instanceof Error?error.message:'Snapshots X indisponíveis.');});
     return () => controller.abort();
-  }, [selectedPlatform]);
+  }, [selectedPlatform,twitterEnabled]);
 
   async function requestMetricsRefresh(trigger: 'page_view' | 'manual') {
     try {
@@ -126,7 +130,7 @@ export default function DashboardClient({
   }, [activeRefreshJobId, router]);
 
   useEffect(() => {
-    if (data.version !== 'v2') return;
+    if (data.version !== 'v2' || selectedPlatform !== 'instagram') { setV2Loading(false); return; }
     const controller = new AbortController();
     const params = new URLSearchParams({
       start: dashboardPeriodRange(selectedPeriod).startDate,
@@ -158,7 +162,7 @@ export default function DashboardClient({
         if (!controller.signal.aborted) setV2Loading(false);
       });
     return () => controller.abort();
-  }, [data.version, selectedGroupId, selectedMetric, selectedPeriod, selectedProfileId, selectedSource]);
+  }, [data.version, selectedGroupId, selectedMetric, selectedPeriod, selectedPlatform, selectedProfileId, selectedSource]);
 
   const filteredProfiles = useMemo(() => data.analytics.profiles.filter((profile) => {
     if (selectedProfileId !== 'all' && profile.id !== selectedProfileId) return false;
@@ -291,18 +295,18 @@ export default function DashboardClient({
       </header>
 
       {refreshMessage && <div className="analytics-refresh-status" role="status">{refreshMessage}</div>}
-      {data.version === 'v2' && v2Loading && <div className="analytics-refresh-status" role="status">Carregando agregados do filtro…</div>}
-      {data.version === 'v2' && v2Error && <div className="analytics-refresh-status" role="alert">{v2Error} O resumo operacional continua disponível.</div>}
+      {selectedPlatform === 'instagram' && data.version === 'v2' && v2Loading && <div className="analytics-refresh-status" role="status">Carregando agregados do filtro…</div>}
+      {selectedPlatform === 'instagram' && data.version === 'v2' && v2Error && <div className="analytics-refresh-status" role="alert">{v2Error} O resumo operacional continua disponível.</div>}
 
       <section className="analytics-filter-panel analytics-filter-panel-compact panel" aria-label="Filtros de analytics">
-        <label>Plataforma<select value={selectedPlatform} onChange={(event) => setSelectedPlatform(event.target.value)}><option value="instagram">Instagram</option><option value="twitter">X / Twitter</option></select></label>
-        <label>Perfil<select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}><option value="all">Todos os perfis</option>{data.analytics.profiles.map((profile) => <option key={profile.id} value={profile.id}>@{profile.username}</option>)}</select></label>
+        <label>Plataforma<select value={selectedPlatform} onChange={(event) => setSelectedPlatform(event.target.value)}><option value="instagram">Instagram</option>{twitterEnabled?<option value="twitter">X / Twitter</option>:null}</select></label>
+        {selectedPlatform==='instagram'?<><label>Perfil<select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}><option value="all">Todos os perfis</option>{data.analytics.profiles.map((profile) => <option key={profile.id} value={profile.id}>@{profile.username}</option>)}</select></label>
         <label>Fonte<select value={selectedSource} onChange={(event) => setSelectedSource(event.target.value)}><option value="all">Todas as fontes</option><option value="meta_official">API oficial</option><option value="zernio">Integração externa</option></select></label>
         <label>Grupo<select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)}><option value="all">Todos os grupos</option>{data.analytics.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-        <label>Período<select value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}><option value="1">Hoje</option><option value="2">Ontem</option><option value="3">Anteontem</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="180">Últimos 6 meses</option><option value="365">Último ano</option></select></label>
+        <label>Período<select value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}><option value="1">Hoje</option><option value="2">Ontem</option><option value="3">Anteontem</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="180">Últimos 6 meses</option><option value="365">Último ano</option></select></label></>:<p className="muted">O X mostra somente snapshots já comprados manualmente.</p>}
       </section>
 
-      {selectedPlatform === 'twitter' ? <section className="panel"><h2>Snapshots locais do X</h2><p>O Dashboard não consulta a Zernio nem o X automaticamente. Para selecionar recursos, revisar o custo e gerar novos snapshots locais, abra Análises X.</p><div className="summary-grid"><div><span>Snapshots armazenados</span><strong>{twitterLocal?.snapshots.length ?? 0}</strong></div><div><span>Jobs recentes</span><strong>{twitterLocal?.jobs.length ?? 0}</strong></div><div><span>Última coleta</span><strong>{twitterLocal?.snapshots[0]?.captured_at ? new Date(twitterLocal.snapshots[0].captured_at).toLocaleString('pt-BR') : '—'}</strong></div></div><button className="button button-primary" type="button" onClick={() => window.location.assign('/x/analises')}>Abrir Análises X</button></section> : <><section className="analytics-kpi-strip" aria-label="Indicadores de análise de postagens">
+      {selectedPlatform === 'twitter' ? <section className="panel"><h2>Snapshots locais do X</h2><p>O Dashboard não consulta a Zernio nem o X automaticamente. Para selecionar recursos, revisar o custo e gerar novos snapshots locais, abra Análises X.</p>{twitterLocalError?<p className="field-error-message" role="alert">{twitterLocalError}</p>:null}<div className="summary-grid"><div><span>Snapshots de posts</span><strong>{twitterLocal?.snapshots.filter((snapshot)=>snapshot.resource_type==='post').length??0}</strong></div><div><span>Snapshots de perfis</span><strong>{twitterLocal?.snapshots.filter((snapshot)=>snapshot.resource_type==='profile').length??0}</strong></div><div><span>Jobs recentes</span><strong>{twitterLocal?.jobs.length ?? 0}</strong></div><div><span>Última coleta</span><strong>{twitterLocal?.snapshots[0]?.captured_at ? new Date(twitterLocal.snapshots[0].captured_at).toLocaleString('pt-BR') : '—'}</strong></div></div><button className="button button-primary" type="button" onClick={() => window.location.assign('/x/analises')}>Abrir Análises X</button></section> : <><section className="analytics-kpi-strip" aria-label="Indicadores de análise de postagens">
         <KpiCard label="Taxa de engajamento" value={`${effectiveEngagementRate.toFixed(1)}%`} />
         <KpiCard label="Alcance total" value={formatCompact(effectiveDailyTotals.reach)} icon="◉" />
         <KpiCard label="Seguidores totais" value={formatCompact(effectiveFollowersTotal)} icon="♙" caption={`${effectiveFollowersDelta >= 0 ? '+' : ''}${formatCompact(effectiveFollowersDelta)} no período`} />

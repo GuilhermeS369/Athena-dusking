@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "updatedAtUtc": "2026-08-23T00:24:48Z",
-  "updatedAtSaoPaulo": "2026-08-22T21:24:48-03:00",
+  "updatedAtUtc": "2026-08-23T00:27:58Z",
+  "updatedAtSaoPaulo": "2026-08-22T21:27:58-03:00",
   "phase": { "id": "08", "name": "rollout-preparation", "status": "in_progress", "gate": "provider_analytics_gate_pending" },
-  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "a09bbc1", "worktreeExpectedDirty": false, "phase05PendingCheckpointCommit": false },
+  "git": { "branch": "codex/x-twitter-module", "startingCommit": "1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb", "checkpointCommit": "8098edb", "worktreeExpectedDirty": true, "phase05PendingCheckpointCommit": false },
   "environments": {
     "supabase": { "linkedProjectRef": "hqwhumdumfmixxbvneae", "lastVerifiedMigration": "243", "pendingMigration": null, "xMigrationsApplied": true, "testDataResidual": false },
     "vercel": { "project": "pomodoro", "projectId": "prj_odT78sPKaY3qHUPNpRyd0wl1Tp1l", "previewDeploymentId": "dpl_C2KQoYkdeMGbRtw1evfTFHsU3ZK4", "productionDeploymentId": "dpl_A1ByNkEstDGPsLejpaXXgHj3q5tu", "rollbackDeploymentId": "dpl_BYjrGwDcg9WtPy4nV1CWwvZ9kKGv", "xDeploymentCreated": true, "canaryOrganization": "Pomodoro", "lastLiveCanaryDeploymentId": "dpl_8pkhNuc5hcPhcGQ7EsaWSMAHLuC5", "fallbackShadowDeploymentId": "dpl_EWZqz2kPtsBnqBiXNqRYV3Qvy3d2", "fallbackShadowDeploymentUrl": "https://pomodoro-mh4mbhh3y-shoows-projects-2caaf9e9.vercel.app", "fallbackSafePreviewUrl": "https://pomodoro-62ahm3lcx-shoows-projects-2caaf9e9.vercel.app", "rolloutHealthStatus": "ok", "roleSecretsConfigured": true, "roleKillSwitchesValidated": true, "legacyWorkerSecretRemoved": true, "generationEnvironmentRemoved": true },
     "vps": { "hostname": "srv1881733", "release": "e732fed77971-20260823T000341Z", "sha256": "c0834c2fda517056cb1e31a9a0e9d44c2c8b382b57d673df7c489b396014a4a8", "rollbackRelease": "a5edc6c049e1-20260822T235210Z", "twitterProcessesInstalled": true, "twitterProcessCount": 4, "twitterProcessesStatus": "stopped", "generationProcessRemoved": true, "instagramProcessesWereOnlineAtBaseline": true, "instagramProcessesRemainOnline": true, "legacyWorkerSecretRemoved": true }
   },
   "featureFlags": { "twitterModuleEnabled": false, "twitterAnalyticsEnabled": false, "twitterPublicationWorkerEnabled": false, "twitterReconcileWorkerEnabled": false },
-  "lastCheckpoint": "phase-08-queue-transfer-ui-deployed-off",
-  "nextSafeAction": "Audit the general Dashboard platform selector and X labels. Ensure it reads only local twitter_analytics_snapshots and links to /x/analises; do not trigger analytics or execute a real transfer.",
+  "lastCheckpoint": "phase-07-dashboard-local-snapshots-in-progress",
+  "nextSafeAction": "Commit and deploy the validated Dashboard X hardening to Preview and Production with all X flags off. Smoke only unauthenticated access to the local snapshots route; do not trigger analytics.",
   "doNotRepeat": ["Do not apply migrations 210 through 243; they are already remote.", "Do not restart Instagram PM2 processes.", "Do not expose, print, document or commit the Zernio API key supplied in chat.", "Do not create a second Zernio profile: the existing Twitter-only profile is adopted and synchronized.", "Do not rerun provisioning merely to inspect state; the grant and connection already exist.", "Do not repeat the paid analytics read for item 7ce8553c-ceb9-4a25-a00f-c51b0ec249c5.", "Do not reclassify its outcome_unknown without provider or billing evidence and an audited justification.", "Do not blindly retry after external_started_at.", "Do not use program cancellation for one item.", "Do not execute a real identity transfer merely to inspect the flow."],
   "blockers": ["Phase 7 provider gate: three manual operations, including a later operation on the same already-synced post, returned HTTP 202 and were proven unmetered/reconciled. A successful analytics snapshot cannot be proven until Zernio returns 200.", "Phase 8 general rollout and live fallback activation remain prohibited until the Phase 7 provider gate succeeds."]
 }

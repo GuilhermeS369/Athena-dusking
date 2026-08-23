@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T00:24:48Z / 2026-08-22T21:24:48-03:00
+- Atualizado em: 2026-08-23T00:27:58Z / 2026-08-22T21:27:58-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
@@ -24,7 +24,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 243.
-- Testes atuais: 196/196 aprovados.
+- Testes atuais: 197/197 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Auditar o Dashboard geral e a seleção de plataforma, garantindo rótulos/snapshots X locais e link para Análises sem leitura automática. Não ativar sync live, cron, fallback live ou rollout.
+Implantar o endurecimento do Dashboard X em Preview/Production com flags off; smoke somente proteção da rota local. Depois continuar a auditoria final das páginas/contratos restantes. Não ativar analytics, sync, cron, fallback live ou rollout.
 
 ## Proibições imediatas
 

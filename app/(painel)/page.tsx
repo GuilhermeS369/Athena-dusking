@@ -5,6 +5,7 @@ import DashboardClient from '@/app/dashboard-client';
 import PageLoadingSkeleton from '@/app/components/page-loading-skeleton';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { getDashboardData } from '@/lib/dashboard/server';
+import { isTwitterModuleEnabled } from '@/lib/twitter/feature';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,6 @@ async function DashboardPageContent() {
   const dashboardData = await getDashboardData(activeOrganization.id);
 
   return (
-    <DashboardClient organizations={context.organizations} activeOrganization={activeOrganization} data={dashboardData} />
+    <DashboardClient organizations={context.organizations} activeOrganization={activeOrganization} data={dashboardData} twitterEnabled={isTwitterModuleEnabled(activeOrganization.id)} />
   );
 }

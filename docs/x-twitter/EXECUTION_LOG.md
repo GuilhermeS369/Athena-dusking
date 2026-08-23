@@ -882,3 +882,14 @@ Registros são append-only.
 - VPS read-only: release `e732fed77971-20260823T000341Z`; quatro X stopped; seis processos existentes online com PIDs 99980, 27468, 136197, 127605, 122939 e 103209.
 - Rollback: Vercel `dpl_BYjrGwDcg9WtPy4nV1CWwvZ9kKGv`; banco 243 permanece forward-only e seguro sem consumidores antigos; VPS não requer rollback.
 - Próxima ação segura: auditar Dashboard geral/seleção de plataforma e garantir snapshots X exclusivamente locais; não repetir analytics bloqueada.
+
+## X-0072 — Dashboard X local endurecido
+
+- UTC: 2026-08-23T00:27:58Z; São Paulo: 2026-08-22T21:27:58-03:00.
+- Auditoria: a base já lia snapshots locais e ligava para `/x/analises`, mas oferecia X fora do rollout, mantinha filtros Instagram visíveis e silenciava erro de banco como zero.
+- Correção local: `twitterEnabled` vem do gate organizacional server-side; opção X só aparece no escopo autorizado. Perfil/fonte/grupo/período Instagram desaparecem no modo X. Fetch V2 Instagram encerra ao trocar para X.
+- Dados X: rota consulta somente `twitter_analytics_snapshots` e `twitter_analytics_jobs`; resumo separa posts/perfis, jobs e última coleta; erro local é visível. Não há `/v1/analytics`, domínio Zernio ou variável de provedor.
+- Verificação: 197/197 testes, TypeScript, build e diff check; warnings metadata preexistentes. Teste estrutural fixa rollout, tabelas locais e ausência de chamadas externas.
+- Ambientes: nenhuma migration/deploy/chamada Zernio neste registro; flags X off, quatro workers stopped, banco e Instagram intocados.
+- Rollback: reverter page, client, rota snapshot e teste; não há dado/infraestrutura a desfazer.
+- Próxima ação segura: checkpoint Git e deploy Vercel off; smoke 401 da rota local, sem ativar analytics.
