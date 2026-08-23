@@ -835,3 +835,15 @@ Registros são append-only.
 - Limpeza: removido somente `/tmp/athena-twitter-e732fed77971-20260823T000341Z.tar.gz`, previamente resolvido e validado. Artefato local, release novo e releases anteriores foram preservados.
 - Rollback: Vercel `dpl_9rAv31d1QTHQzbhwMkcpJZV5CsEe`; VPS `a5edc6c049e1-20260822T235210Z`; restaurar o backup remoto somente se também reintroduzir o release histórico, sempre com flags off.
 - Próxima ação segura: auditar ações granulares da fila e transferência administrativa de identidade; analytics HTTP 200 permanece bloqueio externo e não deve ser repetido por suposição.
+
+## X-0068 — cancelamento granular da fila concluído localmente
+
+- UTC: 2026-08-23T00:15:11Z; São Paulo: 2026-08-22T21:15:11-03:00.
+- Gap fechado: o RPC já aceitava item, programa, perfil e conjunto de perfis, mas `/x/fila` expunha somente programa inteiro. A UI agora combina programa+perfil e programa+grupo para não atingir outras programações implicitamente.
+- Segurança financeira: modal exige motivo; resposta separa itens cancelados, micros liberados e itens iniciados pendentes de reconciliação. `outcome_unknown` informa que cancelar não libera hold; nenhuma ação repete chamada Zernio.
+- Escala: programas/shortfalls são locais; itens carregam até 500 por programa sob demanda via `/api/x/queue?programId=`, evitando distribuir um limite global entre 200 programas. Cancelamentos de programa/perfil/grupo continuam completos no RPC independentemente do limite visual.
+- API: UUIDs, motivo, idempotency key, deduplicação e limite de 500 perfis por grupo validados antes do RPC; papel mínimo operador; organização aplicada no banco.
+- Verificação: 195/195 testes, TypeScript, build e `git diff --check`; warnings metadata preexistentes apenas. Teste estrutural proíbe tabelas operacionais Instagram.
+- Ambientes: nenhuma migration, deploy, fila, hold, débito ou chamada Zernio; Production e quatro workers X permanecem off/stopped; Instagram intocado.
+- Rollback: reverter página, cliente, duas rotas e teste. Não existe dado ou infraestrutura a desfazer.
+- Próxima ação segura: checkpoint Git; depois implementar transferência administrativa idempotente da identidade, exigindo admin na origem e destino.
