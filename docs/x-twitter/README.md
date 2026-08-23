@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T00:36:24Z / 2026-08-22T21:36:24-03:00
+- Atualizado em: 2026-08-23T00:40:31Z / 2026-08-22T21:40:31-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
 - Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint de aplicação implantado: `a09bbc1`; fila granular, transferência v2, fila dedicada de sync e topologia de quatro workers incluídas, todos os flags/processos X off.
+- Checkpoint de aplicação implantado: `5cc8c75`; Agenda funcional e detalhe local de Perfis incluídos sobre fila granular, transferência v2, sync dedicado e topologia de quatro workers, todos os flags/processos X off.
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–243
 
@@ -33,7 +33,7 @@
 
 ## Próxima ação segura
 
-Implantar Agenda e detalhe de Perfis X em Preview/Production com flags off; smoke apenas proteção das páginas/rotas, sem analytics ou Zernio. Depois continuar a auditoria final de paridade.
+Continuar a auditoria final de paridade das páginas X restantes, começando por Galeria, Grupos e Postagem. Preservar flags off e não executar analytics/Zernio enquanto o gate HTTP 200 estiver pendente.
 
 ## Proibições imediatas
 
@@ -47,6 +47,6 @@ Implantar Agenda e detalhe de Perfis X em Preview/Production com flags off; smok
 
 ## Ambientes preparados
 
-- Vercel: segredos por função configurados separadamente; Production `dpl_HMe8QrEt4YDPnTTztNFjiP9JZXtf` `READY`, alias oficial, todos os flags mutáveis off e nomes genérico/`generation` removidos. Preview `dpl_8LaGXgY5ATkhLWitQmVbXbfYp4ZY` `READY`.
+- Vercel: segredos por função configurados separadamente; Production `dpl_44NHJUgWMrcW1kA9mwhedcBYyd7W` (`https://pomodoro-izxrdi9iz-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial, todos os flags mutáveis off e nomes genérico/`generation` removidos. Preview `dpl_8cECc3Eqr7cPMCKuu6TRzbteEfMa` (`https://pomodoro-ie9rz726k-shoows-projects-2caaf9e9.vercel.app`) `READY`.
 - VPS: release `e732fed77971-20260823T000341Z`, hash `c0834c2fda517056cb1e31a9a0e9d44c2c8b382b57d673df7c489b396014a4a8`; quatro processos X apontam para ele e estão `stopped`; nomes genérico/`generation` removidos; seis processos existentes continuam `online` com os PIDs preservados.
 - Supabase: migrations 223–243 alinhadas; teste 243 13/13 com rollback; zero evento de transferência real ou job residual; três HTTP 202 reconciliados sem cobrança; wallet 11.725.000/0 versão 21, zero snapshot, zero débito analytics e zero holds abertos.

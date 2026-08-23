@@ -148,3 +148,15 @@ Próximo gate: commit desta unidade, Production explicitamente off e release VPS
 - Rollback: flags permanecem off; retornar symlink/PM2 ao release `46e09cc-20260822T213610Z` e restaurar o backup apenas se realmente reverter código anterior. Vercel anterior imediato: `dpl_7tjP62du6hnNXC84YkSbjbRiJqhy`.
 
 Próxima ação segura: auditoria final requisito por requisito. Rollout geral/fallback live seguem proibidos pelo gate externo de analytics HTTP 200.
+
+## Agenda e detalhe de Perfis implantados com o módulo off
+
+- Código implantado: `5cc8c75`.
+- Preview: `dpl_8cECc3Eqr7cPMCKuu6TRzbteEfMa`, URL `https://pomodoro-ie9rz726k-shoows-projects-2caaf9e9.vercel.app`, `READY`.
+- Production: `dpl_44NHJUgWMrcW1kA9mwhedcBYyd7W`, URL `https://pomodoro-izxrdi9iz-shoows-projects-2caaf9e9.vercel.app`, `READY`, alias oficial preservado.
+- Smokes sem sessão em `/x/agenda` e `/x/perfis/<uuid>` retornaram `307` para `/login` nos dois ambientes, confirmando proteção das páginas sem chamar Zernio.
+- Supabase permaneceu alinhado até 243: publicação/analytics não terminais 0, holds 0, snapshots 0, transferências 0 e wallet 11.725.000/0 versão 21.
+- VPS read-only: quatro processos X continuam `stopped`; os seis processos existentes continuam `online` com PIDs 99980, 27468, 136197, 127605, 122939 e 103209.
+- Rollback de aplicação: promover `dpl_HMe8QrEt4YDPnTTztNFjiP9JZXtf`; Supabase e VPS não exigem rollback.
+
+Próxima ação segura: auditar Galeria, Grupos e Postagem em massa X. Todas as flags permanecem off; gate de rollout geral continua bloqueado pelo analytics HTTP 200.

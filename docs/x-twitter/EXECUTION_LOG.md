@@ -928,3 +928,16 @@ Registros são append-only.
 - Ambientes: nenhuma migration, deploy, saldo, fila ou chamada externa neste registro; flags off/workers stopped.
 - Rollback: reverter lista, detalhe e teste; nenhum dado/infraestrutura a desfazer.
 - Próxima ação segura: checkpoint Git; deploy Vercel de Agenda+Perfis com flags off e smoke sem sessão, sem analytics.
+
+## X-0076 — Agenda e Perfis implantados com flags off
+
+- UTC: 2026-08-23T00:40:31Z; São Paulo: 2026-08-22T21:40:31-03:00.
+- Código de origem: `5cc8c75`; worktree estava limpo antes do deploy.
+- Preview `dpl_8cECc3Eqr7cPMCKuu6TRzbteEfMa`, URL `https://pomodoro-ie9rz726k-shoows-projects-2caaf9e9.vercel.app`, `READY`.
+- Production `dpl_44NHJUgWMrcW1kA9mwhedcBYyd7W`, URL `https://pomodoro-izxrdi9iz-shoows-projects-2caaf9e9.vercel.app`, `READY`, alias `https://pomodoro-theta-one-82.vercel.app` atualizado.
+- Smoke: `/x/agenda` e `/x/perfis/00000000-0000-0000-0000-000000000000` retornaram `307 Location: /login` em Preview e Production. Nenhuma sessão, mutação, analytics ou chamada Zernio foi usada.
+- Supabase: projeto `hqwhumdumfmixxbvneae`; migrations local/remoto 1–243 alinhadas; publicação não terminal 0, analytics não terminal 0, holds 0, snapshots 0, eventos de transferência 0; wallet 11.725.000/0 versão 21.
+- VPS read-only: release X `e732fed77971-20260823T000341Z`; quatro processos X `stopped`; seis processos existentes `online` com PIDs 99980, 27468, 136197, 127605, 122939 e 103209. Nenhum processo foi reiniciado.
+- Testes do código implantado: 199/199, TypeScript, build e `git diff --check` aprovados no checkpoint anterior; warnings de metadata permanecem preexistentes.
+- Rollback: promover o deployment anterior `dpl_HMe8QrEt4YDPnTTztNFjiP9JZXtf`; banco e VPS não foram alterados e não precisam de rollback.
+- Próxima ação segura: auditar Galeria, Grupos e Postagem em massa X mantendo flags off. Não repetir analytics nem executar Zernio enquanto o gate HTTP 200 estiver pendente.
