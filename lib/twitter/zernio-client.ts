@@ -159,10 +159,10 @@ export function createTwitterZernioClient(apiKey: string, options: ClientOptions
         query: { profileId, platform: 'twitter' },
       }) as Promise<{ accounts?: TwitterZernioHealth[] }>;
     },
-    async setAccountCapabilities(accountId: string) {
+    async setAccountCapabilities(accountId: string, capabilities: { analytics: boolean }) {
       return request(`/v1/accounts/${encodeURIComponent(accountId)}`, {
         method: 'PUT',
-        body: { xCapabilities: { analytics: false, inbox: false } },
+        body: { xCapabilities: { analytics: capabilities.analytics, inbox: false } },
       });
     },
     async validatePost(body: unknown) {

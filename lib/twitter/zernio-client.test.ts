@@ -8,7 +8,7 @@ import {
   stableZernioAccountId,
 } from './zernio-client.ts';
 
-test('cliente X usa apenas endpoints Twitter e força capabilities sem billing automático', async () => {
+test('cliente X usa apenas endpoints Twitter e mantém Inbox desligado ao configurar capabilities', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl: typeof fetch = async (input, init) => {
     requests.push({ url: String(input), init });
@@ -27,14 +27,14 @@ test('cliente X usa apenas endpoints Twitter e força capabilities sem billing a
   await client.listAccounts('profile-1');
   await client.listTwitterAccounts('profile-1');
   await client.getTwitterAccountHealth('profile-1');
-  await client.setAccountCapabilities('account-1');
+  await client.setAccountCapabilities('account-1', { analytics: true });
 
   assert.equal(requests[0]?.url, 'https://example.test/api/v1/auth/verify');
   assert.doesNotMatch(requests[1]?.url ?? '', /platform=twitter/);
   assert.match(requests[2]?.url ?? '', /platform=twitter/);
   assert.match(requests[3]?.url ?? '', /accounts%2Fhealth|accounts\/health/);
   assert.deepEqual(JSON.parse(String(requests[4]?.init?.body)), {
-    xCapabilities: { analytics: false, inbox: false },
+    xCapabilities: { analytics: true, inbox: false },
   });
   assert.equal(requests.some((item) => item.url.includes('billing')), false);
 });

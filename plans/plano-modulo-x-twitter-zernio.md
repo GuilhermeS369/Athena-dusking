@@ -173,6 +173,7 @@ Entra depois da publicação estável. `/x/analises` filtra perfis, grupos, per�
 - Dashboard lê snapshots locais;
 - `analytics=false` e `inbox=false` por padrão;
 - `TWITTER_ANALYTICS_ENABLED` só é ativado após canário sem cobrança autônoma.
+- `TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED` controla separadamente a capability opt-in da Zernio; permanece `false` até um canário financeiro explícito.
 
 ```text
 capacidade_analytics = saldo_disponível - reservas_publicação - US$ 5,00

@@ -53,6 +53,15 @@ Auditoria de UI em 2026-08-22T23:39:42Z: `/x/analises` passou a carregar grupos/
 ## Rollback
 
 - Manter `TWITTER_ANALYTICS_ENABLED=false` e `TWITTER_ANALYTICS_WORKER_ENABLED=false`.
+- Manter também `TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED=false`; esse gate é independente porque habilitar a capability autoriza leituras periódicas cobradas pela Zernio.
+
+### Controle das capabilities Zernio — 22/08/2026
+
+- Migration 244 remove somente a restrição que fixava `analytics_enabled=false`; a restrição de Inbox desligado permanece.
+- Nova RPC service-role registra estado desejado, autor, justificativa e idempotency key em evento imutável.
+- Nova rota Admin propaga a configuração às contas locais da conexão; ativação parcial falha fechado e tenta compensar todas para `false`.
+- O worker de sync replica `analytics_enabled` do claim e força `inbox=false`, evitando configuração manual no painel Zernio.
+- Estado implantado no banco: Analytics/Inbox da conexão existente continuam desligados; nenhum endpoint de Analytics ou recurso X foi chamado.
 - Parar apenas `athena-twitter-analytics-worker` quando instalado.
 - Banco recebe somente correção forward-only; código pode ser revertido pelo commit da fase.
 

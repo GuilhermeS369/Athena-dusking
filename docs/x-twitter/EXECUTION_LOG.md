@@ -986,3 +986,15 @@ Registros são append-only.
 - `REQUIREMENTS_MATRIX.md` criado com estado requisito por requisito. Fases 0–6 e implementação da 7 concluídas; gate externo da 7 e rollout geral da 8 permanecem abertos.
 - Rollback: promover `dpl_5P8V7o1iyS9ckkkXkfDUHqSXzQhe`; banco/VPS sem alteração.
 - Próxima ação segura: obter confirmação da Zernio e executar apenas um canário analytics novo/distinto após evidência de disponibilidade. Não repetir recursos 202 anteriores.
+
+## X-0081 — controle Athena das capabilities Zernio
+
+- UTC: 2026-08-23T01:08:10Z; São Paulo: 2026-08-22T22:08:10-03:00.
+- Origem: branch `codex/x-twitter-module`, commit inicial `1e4cfd2`, worktree limpo antes desta unidade.
+- Decisão: o usuário não ativou Analytics/Inbox manualmente. A conexão existente foi preservada; nenhum OAuth, desconexão, leitura Analytics ou publicação foi repetido.
+- Implementação: migration 244, RPC service-role idempotente, evento `capabilities_changed`, rota Admin `/api/x/integrations/zernio/connections/[connectionId]/capabilities`, interface no menu Zernio X e claim do worker carregando o estado auditado. Inbox permanece bloqueado em banco, API, cliente Zernio e worker.
+- Gate: ativação exige `TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED=true` além dos gates de módulo/Analytics. O novo gate não foi configurado em ambiente algum; a conexão continua com Analytics/Inbox desligados.
+- Banco: alinhamento prévio 1–243; dry-run listou somente 244; migration 244 aplicada. O primeiro runner pgTAP falhou antes do plano por namespace (`plan(integer)` fora de `extensions`) e não fez mutação; o arquivo foi corrigido para `extensions.*` e executou 10 verificações dentro de `BEGIN/ROLLBACK`, última linha `ok 10`.
+- Verificação local: 204/204 testes, TypeScript, build de 41 páginas e `git diff --check` aprovados. Warnings de metadata em login/onboarding/not-found permanecem preexistentes.
+- Rollback: manter gates off; correção de banco somente por migration forward que restaure `analytics_enabled=false` após confirmar todas as conexões desligadas; aplicação pode voltar ao deployment Production `dpl_Cvbbi7kWV7w32ct71frjGR3SfRSj`. Não apagar a migration 244 remota.
+- Próxima ação segura: reconferir invariantes remotos, criar checkpoint Git, implantar Preview/Production com todos os gates off e atualizar o release do worker X sem iniciar processos. Depois planejar um canário capability estritamente controlado antes de tentar Analytics novamente.

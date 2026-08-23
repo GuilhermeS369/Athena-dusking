@@ -2,14 +2,14 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T00:54:05Z / 2026-08-22T21:54:05-03:00
+- Atualizado em: 2026-08-23T01:08:10Z / 2026-08-22T22:08:10-03:00
 - Fase atual: 8 — preparação de rollout (`in_progress`), sem liberação geral
-- Status: analytics bloqueada no HTTP 202 da Zernio; fallback shadow e observabilidade read-only aprovados, todas as flags mutáveis off
+- Status: controle auditado das capabilities Zernio implementado; Analytics/Inbox continuam off e o gate HTTP 200 permanece pendente
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint de aplicação implantado: `4cb7502`; navegação/papéis e contrato financeiro/conteúdo endurecidos, todos os flags/processos X off.
 - Feature flag X: criada e desligada
-- Mutação remota feita pelo módulo X: migrations aditivas 223–243
+- Mutação remota feita pelo módulo X: migrations aditivas 223–244
 
 ## Leitura obrigatória para continuar
 
@@ -24,8 +24,8 @@
 ## Baseline conhecido
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
-- Migrações local/remoto alinhadas até 243.
-- Testes atuais: 199/199 aprovados.
+- Migrações local/remoto alinhadas até 244.
+- Testes atuais: 204/204 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -34,7 +34,7 @@
 
 ## Próxima ação segura
 
-Obter confirmação/evidência da Zernio de que analytics X conclui com sucesso; só então preparar um canário novo e distinto conforme a Fase 7. Não repetir recursos anteriores, não habilitar rollout/fallback e não resolver resultados por suposição.
+Criar o checkpoint Git da unidade 244 e implantar aplicação/worker com todos os gates e processos X desligados. Só depois preparar um canário controlado da capability; não repetir recursos 202 anteriores nem habilitar rollout/fallback.
 
 ## Proibições imediatas
 

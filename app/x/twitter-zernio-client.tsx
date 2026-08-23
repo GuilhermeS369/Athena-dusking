@@ -7,6 +7,8 @@ type Connection = {
   id: string;
   label: string;
   status: string;
+  analytics_enabled: boolean;
+  inbox_enabled: boolean;
   last_sync_at: string | null;
   last_error_message: string | null;
   wallet: { posted_balance_micros: number; reserved_micros: number; version: number } | null;
@@ -28,12 +30,13 @@ async function responseJson(response: Response) {
     jobId?: string;
     status?: string;
     error_message?: string | null;
+    analyticsEnabled?: boolean;
   };
   if (!response.ok) throw new Error(body.error ?? 'A operação não pôde ser concluída.');
   return body;
 }
 
-export default function TwitterZernioClient({ connections, transferIdentities, destinations, transferEvents, canManage }: { connections: Connection[];transferIdentities:TransferIdentity[];destinations:Destination[];transferEvents:TransferEvent[];canManage: boolean }) {
+export default function TwitterZernioClient({ connections, transferIdentities, destinations, transferEvents, canManage, analyticsGateEnabled }: { connections: Connection[];transferIdentities:TransferIdentity[];destinations:Destination[];transferEvents:TransferEvent[];canManage: boolean;analyticsGateEnabled:boolean }) {
   const router = useRouter();
   const [label, setLabel] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -106,6 +109,23 @@ export default function TwitterZernioClient({ connections, transferIdentities, d
     finally { setBusy(null); }
   }
 
+  async function setAnalyticsCapability(connection: Connection) {
+    const enabling = !connection.analytics_enabled;
+    if (enabling && !window.confirm('Ativar Analytics sync permite leituras cobradas em segundo plano pela Zernio. Inbox continuará desligado. Deseja continuar?')) return;
+    const justification = window.prompt(enabling ? 'Justifique a ativação controlada do Analytics sync:' : 'Justifique a desativação do Analytics sync:');
+    if (!justification) return;
+    setBusy(`capabilities:${connection.id}`); setMessage(null);
+    try {
+      const body = await responseJson(await fetch(`/api/x/integrations/zernio/connections/${connection.id}/capabilities`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analyticsEnabled: enabling, justification, idempotencyKey: crypto.randomUUID() }),
+      }));
+      setMessage(body.analyticsEnabled ? 'Analytics sync ativado pela Athena. Inbox permanece desligado.' : 'Analytics sync e Inbox desligados pela Athena.');
+      router.refresh();
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Falha ao alterar o Analytics sync.'); }
+    finally { setBusy(null); }
+  }
+
   async function transferIdentity(event:React.FormEvent){
     event.preventDefault();setBusy('transfer');setMessage(null);
     try{
@@ -147,10 +167,13 @@ export default function TwitterZernioClient({ connections, transferIdentities, d
             <div><span>Reservado</span><strong>{usd(reserved)}</strong></div>
             <div><span>Disponível</span><strong>{usd(posted - reserved)}</strong></div>
           </div>
+          <p className="muted">Analytics sync: {connection.analytics_enabled ? 'ativo' : 'desligado'} · Inbox sync: desligado</p>
+          {canManage ? <div className="notice-banner"><strong>Controle pelo Athena</strong><p>O Inbox nunca é ativado. Analytics é opt-in, auditado e só pode ser ligado quando o gate financeiro da organização estiver habilitado.</p></div> : null}
           {connection.last_error_message ? <p className="field-error-message">{connection.last_error_message}</p> : null}
           <div className="actions-row">
             {canManage ? <button type="button" className="button button-primary" onClick={() => connect(connection.id)} disabled={busy !== null}>Conectar contas X</button> : null}
             <button type="button" className="button button-ghost" onClick={() => sync(connection.id)} disabled={busy !== null}>Sincronizar</button>
+            {canManage ? <button type="button" className="button button-ghost" onClick={() => setAnalyticsCapability(connection)} disabled={busy !== null || (!connection.analytics_enabled && !analyticsGateEnabled)}>{connection.analytics_enabled ? 'Desligar Analytics sync' : analyticsGateEnabled ? 'Ativar Analytics sync' : 'Analytics aguardando gate'}</button> : null}
             {canManage ? <button type="button" className="button button-danger" onClick={() => remove(connection.id)} disabled={busy !== null}>Remover</button> : null}
           </div>
         </article>;

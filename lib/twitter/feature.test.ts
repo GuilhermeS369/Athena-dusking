@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { isTwitterAnalyticsEnabled, isTwitterModuleEnabled } from './feature.ts';
+import { isTwitterAnalyticsEnabled, isTwitterModuleEnabled, isTwitterZernioAnalyticsSyncEnabled } from './feature.ts';
 
 test('módulo fica desligado por padrão e aceita canário explícito', () => {
   assert.equal(isTwitterModuleEnabled('org-a', {}), false);
@@ -28,6 +28,17 @@ test('analytics exige flag e organização canário ao mesmo tempo', () => {
     TWITTER_ANALYTICS_ENABLED: 'true',
     TWITTER_CANARY_ORGANIZATION_IDS: 'org-a',
   }), true);
+});
+
+test('Analytics sync da Zernio exige gate exclusivo além do gate de Analytics manual', () => {
+  const environment = {
+    TWITTER_CANARY_ORGANIZATION_IDS: 'org-1',
+    TWITTER_ANALYTICS_ENABLED: 'true',
+    TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED: 'true',
+  };
+  assert.equal(isTwitterZernioAnalyticsSyncEnabled('org-1', environment), true);
+  assert.equal(isTwitterZernioAnalyticsSyncEnabled('org-2', environment), false);
+  assert.equal(isTwitterZernioAnalyticsSyncEnabled('org-1', { ...environment, TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED: 'false' }), false);
 });
 
 async function routeFiles(directory: string): Promise<string[]> {

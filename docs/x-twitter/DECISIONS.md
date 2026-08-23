@@ -111,3 +111,11 @@ Decisões são append-only. Mudanças exigem nova ADR que substitua explicitamen
 - Decisão: transferir uma identidade global somente quando o mesmo usuário for admin nas organizações de origem e destino, ambas estiverem habilitadas para o módulo X, não houver conexão ativa nem reserva aberta e a chamada trouxer idempotency key inédita. A RPC antiga sem idempotência perde execução para `service_role`.
 - Motivo: um admin de tenant não deve escolher uma organização que não administra; repetição de request não pode duplicar evento nem incrementar versão da carteira novamente.
 - Consequência: saldo restante e carteira migram sem nova concessão; ledger, posts e histórico permanecem imutáveis; filas, grupos e conexões nunca são recriados no destino. Cada transferência produz um evento imutável visível a admins relacionados.
+
+## ADR-X-019 — capabilities da Zernio são controladas pelo Athena e possuem gate exclusivo
+
+- Data: 22/08/2026 (America/Sao_Paulo).
+- Substitui parcialmente: ADR-X-008 e ADR-X-016 apenas quanto a Analytics ser sempre forçado para `false` durante toda sincronização.
+- Decisão: Inbox permanece invariavelmente `false`. Analytics continua `false` por padrão, mas um Admin pode alterar a capability das contas X pelo Athena, com justificativa, idempotência, evento imutável e propagação para todas as épocas ativas da conexão. Ativar exige simultaneamente o escopo do módulo, `TWITTER_ANALYTICS_ENABLED=true` e o gate exclusivo `TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED=true`; desativar permanece possível para falhar fechado.
+- Motivo: a documentação oficial da Zernio define `xCapabilities.analytics` e `xCapabilities.inbox` como opt-in, ambos `false` por padrão. Analytics ligado autoriza sincronização periódica cobrada, portanto ele não pode acompanhar automaticamente o gate das leituras manuais nem depender de acesso humano ao painel Zernio.
+- Consequência: um fluxo novo `Usuário → Athena → Zernio → X` nasce com ambos desligados. Quando o gate exclusivo for aprovado, o Athena poderá ligar Analytics sem o usuário abrir a Zernio; o worker de sync reaplica o estado auditado e sempre força Inbox desligado. Falha parcial ao ligar executa compensação para `false`. A migration 244 não ativa a conexão existente e não gera leitura X.

@@ -53,7 +53,7 @@ export async function syncTwitterProfiles(organizationId: string, connectionId: 
 
   for (const account of accounts) {
     const accountId = stableZernioAccountId(account);
-    if (accountId) await client.setAccountCapabilities(accountId).catch(() => null);
+    if (accountId) await client.setAccountCapabilities(accountId, { analytics: connection.analytics_enabled === true }).catch(() => null);
   }
 
   return applyTwitterProfileInventory(organizationId, connectionId, accounts, health);

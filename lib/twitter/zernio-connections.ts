@@ -94,7 +94,7 @@ export async function loadTwitterZernioConnection(organizationId: string, connec
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin
     .from('twitter_connections')
-    .select('id, organization_id, identity_id, label, zernio_profile_id, status, twitter_connection_secrets!inner(encrypted_api_key)')
+    .select('id, organization_id, identity_id, label, zernio_profile_id, status, analytics_enabled, inbox_enabled, twitter_connection_secrets!inner(encrypted_api_key)')
     .eq('id', connectionId)
     .eq('organization_id', organizationId)
     .is('deleted_at', null)

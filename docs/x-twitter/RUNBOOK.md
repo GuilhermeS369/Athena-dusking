@@ -101,6 +101,7 @@ Não instalar `athena-twitter-generation-worker`: a ADR-X-017 mantém a material
 
 - Flags: `TWITTER_PUBLICATION_WORKER_ENABLED`, `TWITTER_SYNC_WORKER_ENABLED`, `TWITTER_ANALYTICS_WORKER_ENABLED` e `TWITTER_RECONCILE_WORKER_ENABLED`.
 - Analytics também exige `TWITTER_ANALYTICS_ENABLED=true`; publicação live exige os gates de modo/canário já documentados.
+- A capability de sincronização periódica da Zernio exige adicionalmente `TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED=true`. Não confundir esse gate com as análises manuais; por padrão ele fica `false` e Inbox nunca é habilitado.
 - O heartbeat é a autorização operacional do ciclo: modo `stopped` deve encerrar o executável antes de claim, recovery, mutação financeira ou chamada Zernio. Claims, reconcile e fallback reaplicam o gate global/canário mesmo quando chamados diretamente.
 - Em deploy off/one-shot, exigir `stopped` para os quatro papéis e conferir zero mudança em fila, holds, attempts e ledger.
 
