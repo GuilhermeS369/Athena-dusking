@@ -88,6 +88,27 @@ Não instalar `athena-twitter-generation-worker`: a ADR-X-017 mantém a material
 - Antes de cada promoção, exigir: flags esperadas, zero unknowns, zero breaker aberto e estado dos processos PM2 conferido separadamente.
 - Validador seguro: `scripts/twitter/validate-preview-rollout-health.ps1`; ele rotaciona segredo efêmero de Preview, força todas as flags mutáveis para false, cria Preview e faz somente leitura.
 
+### Gate do primeiro envio por conexão
+
+- A supervisão contínua permanece em `GET /api/internal/twitter-rollout-health`; ela deve estar `ok` antes de confirmar o primeiro programa de uma conexão nova.
+- A auditoria pontual é `scripts/twitter/audit-first-send-readiness.ts`. Ela consulta somente tabelas `twitter_*`, não cria programa, não altera saldo e não chama a Zernio.
+- Para todas as conexões ativas, executar com as variáveis server-side locais já configuradas:
+
+```powershell
+npx tsx --env-file=.env.local scripts/twitter/audit-first-send-readiness.ts
+```
+
+- Para uma organização ou conexão específica, definir temporariamente `TWITTER_FIRST_SEND_ORGANIZATION_ID` e/ou `TWITTER_FIRST_SEND_CONNECTION_ID`; nunca documentar identificadores junto com credenciais.
+- Estados retornados:
+  - `awaiting_profile`: conexão existe, mas o sync ainda não entregou perfil ativo;
+  - `ready_for_first_program`: perfil, carteira e workers prontos, sem primeiro programa;
+  - `monitoring_first_send`: primeiro item criado ou em trânsito, ainda sem publicação confirmada;
+  - `first_send_approved`: existe publicação confirmada, sem resultado financeiro incerto;
+  - `blocked`: agir sobre os códigos em `blockers` antes de novo envio.
+- Bloqueios mínimos: conexão inativa, carteira ausente/insuficiente, nenhum perfil publicável, `outcome_unknown`, heartbeat stale ou circuit breaker aberto.
+- Executar uma vez após conectar/sincronizar, novamente após confirmar o primeiro programa e por fim após o item chegar a estado terminal. Não repetir envio cego para sair de `monitoring_first_send` ou `blocked`.
+- Aprovação exige `first_send_approved`, health global `ok`, reserva da conexão sem `outcome_unknown` e saldo `reservedMicros` coerente com a fila restante.
+
 ### Segredos por papel
 
 - Cada processo usa exclusivamente seu segredo: `TWITTER_PUBLICATION_WORKER_SECRET`, `TWITTER_SYNC_WORKER_SECRET`, `TWITTER_ANALYTICS_WORKER_SECRET` ou `TWITTER_RECONCILE_WORKER_SECRET`.
