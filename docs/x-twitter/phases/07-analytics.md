@@ -1,6 +1,6 @@
 # Fase 07 — análises manuais
 
-Status: `in_progress` — contrato fan-out e migration 246 aprovados; deploy off e canário controlado pendentes
+Status: `in_progress` — contrato fan-out implantado com gates off; canário controlado pendente
 
 ## Entregas
 
@@ -76,7 +76,7 @@ Auditoria de UI em 2026-08-22T23:39:42Z: `/x/analises` passou a carregar grupos/
 
 ## Próxima ação segura
 
-Versionar a correção fan-out, aplicar somente a migration 246 com todos os gates off e executar o pgTAP em transação/rollback. Um canário pago só pode ocorrer depois de confirmar reserva de 45.000 micros, baseline de billing e bloqueio por conexão.
+Criar e validar o executor guardado do novo canário. Um canário pago só pode ocorrer depois de confirmar recurso inédito, reserva de 45.000 micros, baseline de billing, bloqueio por conexão e desligamento obrigatório do worker/capability.
 
 ### Contrato fan-out aprovado — 23/08/2026
 
@@ -88,6 +88,16 @@ Versionar a correção fan-out, aplicar somente a migration 246 com todos os gat
 - Gate local: 213/213 testes, TypeScript, build de 41 páginas, sintaxe do worker, `git diff --check` e dry-run Supabase aprovados. Nenhuma flag, dado, saldo, Zernio, Vercel, VPS ou PM2 foi alterado.
 - Gate de banco: migration 246 aplicada com Analytics/Inbox/workers off. O teste legado foi tornado tenant-scoped após o primeiro runner encontrar jobs históricos reais; ambas as execuções ocorreram em `BEGIN/ROLLBACK`. Repetição final passou 29 verificações, sem organização/reserva/item residual.
 - Quote somente leitura sobre um post publicado confirmou preço unitário 5.000, nove unidades, reserva máxima 45.000, projeção 11.545.000 e piso 5.000.000. Carteira permaneceu 11.590.000/0 versão 24.
+
+### Deploy desligado do contrato fan-out — 23/08/2026
+
+- Preview `dpl_7nHd2NqnixMUCHq51d2czH3Fkiqc` e Production `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch` ficaram `READY`; alias oficial preservado.
+- Smoke público: `/x/analises` e `/x/logs` redirecionam visitante sem sessão; a rota interna de resultado recusa chamada sem segredo com `401`.
+- Smoke autenticado de Production: Análises mostra o gate desligado; Logs carregou três rótulos de “Categoria / reserva máxima”, sem erro de navegador e sem ação de reconciliação pendente.
+- O segredo de bypass da proteção Vercel apareceu em saída operacional de uma ferramenta; ele foi revogado e substituído imediatamente. Nenhum valor foi persistido na documentação ou no Git.
+- Release VPS `d67a2ec-20260823T113709Z`, SHA-256 `be77ef65f7369cd6da5def3d844e23f0cfa4ebcbfbceb7ab6b3ee3ae3008a24e`; quatro one-shots pararam antes de claim e os quatro processos X permanecem `stopped`.
+- Os seis processos existentes permaneceram `online` com os PIDs 99980, 27468, 136197, 127605, 122939 e 103209. O arquivo temporário remoto foi removido após validação do hash.
+- Rollback: Vercel `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D`; VPS `7c83ece-20260823T011500Z`; banco somente por migration corretiva forward.
 
 ### Correção financeira por metering tardio — 22/08/2026
 

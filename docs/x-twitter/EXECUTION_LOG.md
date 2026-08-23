@@ -1107,3 +1107,17 @@ Registros são append-only.
 - Quote real somente leitura: um post, unidade 5.000, nove unidades, máximo 45.000, projeção 11.545.000, piso 5.000.000 e `canConfirm=true`. Segredo de assinatura usado foi efêmero e local, sem persistência.
 - Pós-teste: wallet 11.590.000/0 versão 24; zero publicação/Analytics não terminal, reserva aberta ou hold ativo/incerto; organização sintética residual zero. Nenhuma chamada Zernio/X, alteração de capability, Vercel ou PM2.
 - Rollback: não apagar migration 246; qualquer correção de banco será migration forward. Manter Analytics/Inbox/workers/fallback off. Próxima ação segura: commit documental/teste, deploy Preview/Production off e release VPS parado.
+
+## X-0090 — contrato fan-out implantado com gates off
+
+- UTC: 2026-08-23T11:39:58Z; São Paulo: 2026-08-23T08:39:58-03:00.
+- Origem: branch `codex/x-twitter-module`, código executável `d67a2ec`; worktree limpo antes desta unidade. Testes da unidade anterior: 213/213, TypeScript, build de 41 páginas, sintaxe do worker e `git diff --check` aprovados.
+- Vercel Preview: `dpl_7nHd2NqnixMUCHq51d2czH3Fkiqc`, URL `https://pomodoro-jrsivz8sl-shoows-projects-2caaf9e9.vercel.app`, `READY`.
+- Vercel Production: `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch`, URL `https://pomodoro-9tf7p5e5o-shoows-projects-2caaf9e9.vercel.app`, `READY`, alias oficial preservado. Rollback imediato: `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D`.
+- Smokes sem sessão: `/x/analises` e `/x/logs` retornaram `307 /login`; resultado interno sem segredo retornou `401`. Smoke autenticado: Análises exibiu o gate off; Logs carregou, mostrou três rótulos de reserva máxima e zero erro de navegador.
+- Incidente contido: um comando operacional mostrou o bypass da proteção Vercel em sua própria saída. O valor anterior foi revogado e um novo foi gerado imediatamente; nenhum valor foi persistido ou documentado. Não repetir o comando de debug que causou a exposição.
+- VPS: artefato local ignorado `artifacts/x-twitter/20260823T113709Z/athena-twitter-worker.tar.gz`, hash local/remoto `be77ef65f7369cd6da5def3d844e23f0cfa4ebcbfbceb7ab6b3ee3ae3008a24e`, release `/opt/athena-twitter/releases/d67a2ec-20260823T113709Z`.
+- Quatro one-shots retornaram `stopped-ok`; somente as quatro entradas PM2 X foram atualizadas e ficaram `stopped`. Seis processos existentes permaneceram `online` com PIDs 99980, 27468, 136197, 127605, 122939 e 103209. O tar remoto exato em `/tmp` foi removido após validação; o release e o artefato local foram preservados.
+- Supabase: migrations 1–246 alinhadas. Baseline final reconfirmado após o deploy: wallet 11.590.000/0 versão 24; publicação e Analytics não terminais, reservas abertas e holds ativos/incertos todos zero; conexão ativa com Analytics/Inbox false. Nenhum recurso X/Zernio foi chamado nesta unidade.
+- Rollback: manter flags off; promover Vercel `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D`; trocar somente o symlink/processos X para `7c83ece-20260823T011500Z`; banco somente por migration corretiva forward.
+- Próxima ação segura: criar executor de canário que recuse os três recursos históricos, confirme reserva de 45.000 micros, obtenha baseline de uso e garanta desligamento. Só depois executar uma janela paga mínima.

@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T11:30:08Z / 2026-08-23T08:30:08-03:00
+- Atualizado em: 2026-08-23T11:39:58Z / 2026-08-23T08:39:58-03:00
 - Fase atual: 8 — preparação do rollout progressivo (`in_progress`); gate visual/CSS e gate transacional do contrato fan-out concluídos; sem liberação geral
-- Status: migration 246 aplicada e pgTAP 29/29 com rollback aprovado. Analytics/Inbox e workers continuam off; aplicação/worker atualizados e canário controlado ainda não foram implantados/executados.
+- Status: migration 246, aplicação e release VPS do contrato fan-out implantados com tudo desligado. Analytics/Inbox e os quatro workers X continuam off; o canário controlado ainda não foi executado.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint Git executável mais recente: `9200b4e`; Preview `dpl_8aB1TheK2kW1noy9HJfAAGB7jozx` e Production `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D`, ambos `READY`. O escopo global e todos os workers/fallback continuam off; somente Pomodoro permanece canário.
+- Checkpoint Git executável mais recente: `d67a2ec`; Preview `dpl_7nHd2NqnixMUCHq51d2czH3Fkiqc` e Production `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch`, ambos `READY`. O escopo global e todos os workers/fallback continuam off; somente Pomodoro permanece canário.
 - Feature flag X: criada e desligada
 - Mutação remota feita pelo módulo X: migrations aditivas 223–246
 
@@ -34,7 +34,7 @@
 
 ## Próxima ação segura
 
-Versionar o ajuste tenant-scoped do teste, criar Preview com flags off e depois Production off. Atualizar somente o release dos quatro workers X, mantendo-os parados; nenhum canário pago antes do checkpoint pós-deploy.
+Criar um executor de canário Analytics específico para o contrato de nove reads, que recuse recursos históricos e confira baseline de uso, reserva de 45.000 micros, desligamento obrigatório e reconciliação exata. Antes da chamada paga, reconfirmar flags, carteira e filas zeradas.
 
 ## Proibições imediatas
 
@@ -48,6 +48,6 @@ Versionar o ajuste tenant-scoped do teste, criar Preview com flags off e depois 
 
 ## Ambientes preparados
 
-- Vercel: Production `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D` (`https://pomodoro-k1s5wb6rs-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial; Preview `dpl_8aB1TheK2kW1noy9HJfAAGB7jozx` (`https://pomodoro-9i1lwi0se-shoows-projects-2caaf9e9.vercel.app`) `READY`. Flags globais, workers, Analytics e fallback permanecem off.
-- VPS: release `7c83ece-20260823T011500Z`, hash `e71415e4f39d4056e5eacc7fd3a9bae6f501d3e8a31168616e4141ee9b7bf10a`; quatro processos X apontam para ele e estão `stopped`; seis processos existentes continuam `online` com os PIDs preservados.
-- Supabase: migrations 223–245 alinhadas; conexão Analytics/Inbox off, filas/holds/snapshots zerados e wallet 11.590.000/0 versão 24. As 27 reads tardias foram reconciliadas por evento imutável; o canário reservou/liberou 6.590.000 sem débito.
+- Vercel: Production `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch` (`https://pomodoro-9tf7p5e5o-shoows-projects-2caaf9e9.vercel.app`) `READY`, alias oficial; Preview `dpl_7nHd2NqnixMUCHq51d2czH3Fkiqc` (`https://pomodoro-jrsivz8sl-shoows-projects-2caaf9e9.vercel.app`) `READY`. Flags globais, workers, Analytics e fallback permanecem off. O segredo de bypass da proteção foi rotacionado durante o smoke e nenhum valor foi documentado.
+- VPS: release `d67a2ec-20260823T113709Z`, hash `be77ef65f7369cd6da5def3d844e23f0cfa4ebcbfbceb7ab6b3ee3ae3008a24e`; quatro processos X apontam para ele e estão `stopped`; seis processos existentes continuam `online` com os PIDs preservados. Rollback: `7c83ece-20260823T011500Z`.
+- Supabase: migrations 223–246 alinhadas; conexão Analytics/Inbox off, publicação/Analytics não terminais, reservas abertas e holds ativos/incertos zerados; wallet 11.590.000/0 versão 24. As 27 reads tardias foram reconciliadas por evento imutável; o canário de capability reservou/liberou 6.590.000 sem débito.

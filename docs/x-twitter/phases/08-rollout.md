@@ -1,6 +1,6 @@
 # Fase 08 — rollout e handoff
 
-Status: `in_progress` — preparação reversível; rollout geral/live bloqueado pelo gate da Fase 7
+Status: `in_progress` — aplicação/release fan-out implantados de forma reversível e desligada; rollout geral/live bloqueado pelo canário da Fase 7
 
 Entregas: ativação progressiva, fallback validado, monitoramento, comparação Instagram e handoff final. Gate: módulo independente, observável e reversível.
 
@@ -203,3 +203,14 @@ Próxima ação segura: auditoria estrutural final requisito por requisito. Roll
 Em 23/08/2026 UTC, os dois menus expansíveis foram reconferidos com todas as rotas Instagram/X, Dashboard geral e importação geral. O rótulo compartilhado foi alinhado para “Importação em massa”. Viewer agora recebe explicitamente uma página somente leitura em `/x/postagem`, sem composer; Review e Confirm continuam exigindo Operator/Admin no servidor. Gate local: 203/203 testes, TypeScript, build e diff check; nenhuma mutação remota.
 
 Deploy final off: código `4cb7502`; Preview `dpl_2stTwHisyFgd6GfNFvCMihRJqZYs` e Production `dpl_Cvbbi7kWV7w32ct71frjGR3SfRSj`, ambos `READY`. `/x/postagem` retornou `307 /login` nos dois ambientes. Pós-deploy: filas/holds/snapshots/transferências 0 e wallet 11.725.000/0. Rollback Vercel: `dpl_5P8V7o1iyS9ckkkXkfDUHqSXzQhe`; banco/VPS não mudaram.
+
+## Contrato fan-out implantado com todos os gates desligados
+
+- Código executável `d67a2ec`; migration 246 alinhada local/remoto e pgTAP tenant-scoped 29/29 em transação com rollback.
+- Preview `dpl_7nHd2NqnixMUCHq51d2czH3Fkiqc` e Production `dpl_sZ28EuSUeQXRy8f3sJdyrmFbooch`, ambos `READY`; rollback imediato `dpl_oQRbJB2QkTw33G2s69VTucJpgK5D`.
+- Release VPS `/opt/athena-twitter/releases/d67a2ec-20260823T113709Z`, hash `be77ef65f7369cd6da5def3d844e23f0cfa4ebcbfbceb7ab6b3ee3ae3008a24e`; rollback `7c83ece-20260823T011500Z`.
+- Quatro one-shots X encerraram no modo desligado; PM2 mantém os quatro processos X parados. Os seis processos existentes continuaram online, sem reinício e com PIDs preservados.
+- Smokes público e autenticado aprovaram proteção, gate Analytics desligado e apresentação da reserva máxima nos Logs. Nenhuma chamada de recurso X/Zernio, reserva, débito ou reconciliação foi criada.
+- O arquivo temporário remoto foi removido somente após confirmar o release e o hash. O bypass de proteção Vercel foi rotacionado preventivamente após exposição em saída operacional; nenhum segredo consta deste registro.
+
+Gate de deploy desligado concluído. Próxima unidade: executor guardado e canário de uma seleção inédita, com limite de 45.000 micros. Rollout geral e fallback live continuam proibidos.
