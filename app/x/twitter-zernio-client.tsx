@@ -23,7 +23,7 @@ type TransferEvent={id:string;identity_id:string;reason:string;actor_email:strin
 // Auditoria imutável: eventos de transferência continuam visíveis e não editáveis.
 
 function usd(micros:number){return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'USD'}).format(micros/1_000_000);}
-function date(value:string|null){return value?new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short'}).format(new Date(value)):'Nunca';}
+function date(value:string|null){return value?new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short',timeZone:'America/Sao_Paulo'}).format(new Date(value)):'Nunca';}
 async function json(response:Response){const body=await response.json().catch(()=>({})) as Record<string,unknown>;if(!response.ok)throw new Error(typeof body.error==='string'?body.error:'A operação não pôde ser concluída.');return body;}
 function usedSlots(connection:Connection){return Math.max(connection.remote_twitter_account_count??0,connection.twitter_profile_count+connection.active_slot_reservation_count);}
 
