@@ -16,9 +16,7 @@ test('transferência X usa RPC v2 idempotente e autorização admin bilateral',a
   assert.match(route,/getTwitterRequestContext\('admin'\)/);
   assert.match(route,/twitter_transfer_identity_organization_v2/);
   assert.match(route,/destination\.id===source\.id/);
-  assert.match(page,/twitter_wallet_reservations/);
-  assert.match(page,/twitter_identity_transfer_events/);
-  assert.match(client,/TRANSFERIR/);
-  assert.match(client,/Auditoria imutável/);
+  assert.doesNotMatch(page,/twitter_wallet_reservations|twitter_identity_transfer_events/);
+  assert.doesNotMatch(client,/Transferir identidade|TRANSFERIR|Auditoria imutável/);
   assert.doesNotMatch(`${migration}\n${route}\n${page}\n${client}`,/instagram_profiles|public\.publication_items/);
 });

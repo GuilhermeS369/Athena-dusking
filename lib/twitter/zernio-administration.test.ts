@@ -9,11 +9,13 @@ test('administração Zernio X tem importação pareada, saldo configurável e l
     readFile(new URL('../../app/api/x/integrations/zernio/import-batches/route.ts', import.meta.url), 'utf8'),
     readFile(new URL('./zernio-connections.ts', import.meta.url), 'utf8'),
   ]);
-  assert.match(client, /Nomes das conexões/);
-  assert.match(client, /API keys Zernio/);
-  assert.match(client, /Saldo inicial por identidade/);
+  assert.match(client, /Nomes das contas/);
+  assert.match(client, /API keys/);
+  assert.match(client, /Saldo inicial \(USD\)/);
   assert.match(client, /Limite de contas X por Zernio/);
-  assert.match(client, /Contas X/);
+  assert.match(client, /X \/ Twitter/);
+  assert.match(client, /twitter-zernio-connection-grid/);
+  assert.doesNotMatch(client, /zernio-metrics-four|Transferir identidade|twitter-zernio-transfer/);
   assert.match(client, /zernio-connection-card/);
   assert.match(route, /twitter_create_connection_import_batch/);
   assert.match(migration, /p_initial_grant_micros/);
