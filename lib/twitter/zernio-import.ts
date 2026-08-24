@@ -23,6 +23,14 @@ export function formatTwitterGrantInput(micros: number) {
   return fraction ? `${whole},${fraction}` : `${whole},00`;
 }
 
+export function formatTwitterCurrencyInput(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 15);
+  if (!digits) return '';
+  const padded = digits.padStart(3, '0');
+  const whole = padded.slice(0, -2).replace(/^0+(?=\d)/, '') || '0';
+  return `${whole},${padded.slice(-2)}`;
+}
+
 export function parseTwitterZernioImport(
   namesText: string,
   apiKeysText: string,

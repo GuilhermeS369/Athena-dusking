@@ -32,3 +32,21 @@ test('concessão configurável continua única por identidade e usa micros intei
   assert.match(migration, /delta_micros[\s\S]*p_initial_grant_micros/);
   assert.doesNotMatch(migration, /double precision|real|numeric\s*\(/i);
 });
+
+test('reservas OAuth X expiram, podem ser liberadas e não escondem a ocupação local', async () => {
+  const [client, cancelRoute, page, api] = await Promise.all([
+    readFile(new URL('../../app/x/twitter-zernio-client.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/api/x/integrations/zernio/connections/[connectionId]/oauth-reservations/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/(painel)/x/zernio/page.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/api/x/integrations/zernio/connections/route.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(client, /ocupação confirmada/);
+  assert.match(client, /Depois disso ela é liberada automaticamente/);
+  assert.match(client, /Liberar agora/);
+  assert.match(client, /Math\.max\(connection\.remote_twitter_account_count\?\?0,connection\.twitter_profile_count\)/);
+  assert.match(cancelRoute, /getTwitterRequestContext\('admin'\)/);
+  assert.match(cancelRoute, /oauth_cancelled_by_user/);
+  assert.match(cancelRoute, /\.eq\('status', 'pending'\)[\s\S]*\.gt\('expires_at'/);
+  assert.match(`${page}\n${api}`, /select\('id,connection_id,expires_at'\)/);
+  assert.doesNotMatch(`${client}\n${cancelRoute}`, /instagram_profiles|publication_items/);
+});

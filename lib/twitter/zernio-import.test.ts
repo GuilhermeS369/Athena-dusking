@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  formatTwitterCurrencyInput,
   formatTwitterGrantInput,
   parseTwitterInitialGrantUsd,
   parseTwitterZernioImport,
@@ -14,6 +15,11 @@ test('saldo inicial X converte decimal para micros sem ponto flutuante', () => {
   assert.equal(parseTwitterInitialGrantUsd('17.123456'), 17_123_456);
   assert.equal(parseTwitterInitialGrantUsd('17.1234567'), null);
   assert.equal(formatTwitterGrantInput(17_250_000), '17,25');
+  assert.equal(formatTwitterCurrencyInput('1'), '0,01');
+  assert.equal(formatTwitterCurrencyInput('0,017'), '0,17');
+  assert.equal(formatTwitterCurrencyInput('17,50'), '17,50');
+  assert.equal(formatTwitterCurrencyInput('R$ 1.234,56'), '1234,56');
+  assert.equal(formatTwitterCurrencyInput(''), '');
 });
 
 test('lote X preserva pareamento, bloqueia repetidos e congela opções do lote', () => {

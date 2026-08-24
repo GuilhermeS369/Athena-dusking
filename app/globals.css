@@ -1455,6 +1455,11 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 .zernio-create-form label { display: grid; gap: 7px; color: var(--text-muted); font-size: 12px; font-weight: 800; }
 .zernio-create-form .button { min-width: 190px; }
 .twitter-zernio-default-form { grid-template-columns: minmax(250px, 1fr) minmax(150px, .38fr) minmax(150px, .38fr) auto; }
+.twitter-module-shell .zernio-hero { margin-bottom: 26px; }
+.twitter-module-shell .zernio-metrics .metric-card { min-height: 116px; padding: 17px 20px; }
+.twitter-module-shell .zernio-metrics .metric-card strong { margin-top: 10px; }
+.twitter-module-shell .zernio-metrics .metric-caption { margin-top: 4px; }
+.twitter-zernio-default-form > label:first-child { align-self: center; }
 .twitter-zernio-default-field { gap: 5px !important; }
 .twitter-zernio-default-field > span { font-size: 10px !important; font-weight: 850 !important; letter-spacing: .04em; text-transform: uppercase; }
 .zernio-import-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
@@ -1484,6 +1489,9 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 .twitter-zernio-connection-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); }
 .twitter-module-shell .zernio-page > .content-stack > * { width: 100%; max-width: 100%; min-width: 0; }
 .twitter-zernio-capabilities { margin: -5px 0 0; font-size: 10px; line-height: 1.45; }
+.twitter-zernio-oauth-reservation { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid #e7b74e66; border-radius: 11px; background: #2b220f; color: #f0d59d; font-size: 10px; line-height: 1.45; }
+.twitter-zernio-oauth-reservation strong { color: #fff1c9; }
+.twitter-zernio-oauth-reservation .button { min-height: 34px; flex: 0 0 auto; padding: 5px 10px; font-size: 10px; }
 .zernio-connection-card { display: grid; min-width: 0; align-content: start; gap: 18px; padding: 22px; overflow: hidden; border-color: #40384d; background: linear-gradient(150deg, rgba(22,20,31,.96), rgba(14,13,19,.96)); box-shadow: 0 16px 34px #0004; }
 .zernio-connection-card > *, .zernio-card-details > div, .zernio-platform-strip > span { min-width: 0; }
 .zernio-card-topline { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
@@ -1585,6 +1593,8 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
   .zernio-metrics { grid-template-columns: 1fr; }
   .twitter-zernio-default-form { grid-template-columns: 1fr; }
   .twitter-zernio-default-form > label:first-child { grid-column: auto; }
+  .twitter-zernio-oauth-reservation { align-items: stretch; flex-direction: column; }
+  .twitter-zernio-oauth-reservation .button { width: 100%; }
   .zernio-connection-card { gap: 14px; padding: 17px; }
   .zernio-card-topline { align-items: stretch; flex-direction: column; }
   .zernio-card-topline .profile-status, .zernio-balance-pill { align-self: flex-start; max-width: 100%; }

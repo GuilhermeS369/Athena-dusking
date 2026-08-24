@@ -17,7 +17,7 @@ export default async function TwitterZernioPage() {
   const [connectionsResult, profilesResult, attemptsResult, settingsResult] = await Promise.all([
     admin.from('twitter_connections').select('id,identity_id,label,zernio_profile_id,status,analytics_enabled,inbox_enabled,last_verified_at,last_sync_at,last_error_message,created_at,twitter_slot_limit,remote_twitter_account_count,remote_inventory_checked_at').eq('organization_id', organizationId).is('deleted_at', null).order('created_at', { ascending: false }),
     admin.from('twitter_profiles').select('current_connection_id').eq('organization_id', organizationId).is('deleted_at', null).not('current_connection_id', 'is', null),
-    admin.from('twitter_connection_oauth_attempts').select('connection_id').eq('organization_id', organizationId).eq('status', 'pending').gt('expires_at', new Date().toISOString()),
+    admin.from('twitter_connection_oauth_attempts').select('id,connection_id,expires_at').eq('organization_id', organizationId).eq('status', 'pending').gt('expires_at', new Date().toISOString()).order('expires_at', { ascending: true }),
     admin.from('twitter_organization_settings').select('default_initial_grant_micros,default_twitter_slot_limit').eq('organization_id', organizationId).maybeSingle(),
   ]);
   if (connectionsResult.error || profilesResult.error || attemptsResult.error || settingsResult.error) throw new Error('Não foi possível carregar a administração Zernio do X.');
@@ -33,11 +33,13 @@ export default async function TwitterZernioPage() {
   for (const profile of profilesResult.data ?? []) if (profile.current_connection_id) profileCounts.set(profile.current_connection_id, (profileCounts.get(profile.current_connection_id) ?? 0) + 1);
   const pendingCounts = new Map<string, number>();
   for (const attempt of attemptsResult.data ?? []) pendingCounts.set(attempt.connection_id, (pendingCounts.get(attempt.connection_id) ?? 0) + 1);
+  const reservationsByConnection = new Map<string, Array<{ id: string; expires_at: string }>>();
+  for (const attempt of attemptsResult.data ?? []) reservationsByConnection.set(attempt.connection_id, [...(reservationsByConnection.get(attempt.connection_id) ?? []), { id: attempt.id, expires_at: attempt.expires_at }]);
   const settings = settingsResult.data ?? { default_initial_grant_micros: 12_000_000, default_twitter_slot_limit: 2 };
 
   return <main className="standalone-page zernio-page"><header className="standalone-header zernio-hero"><div><span className="section-kicker">{context.activeOrganization.name} · X / Twitter</span><h1>Zernio</h1><p>Chaves, capacidade de contas X e carteira sintética em uma administração isolada.</p></div></header><TwitterZernioClient
     activeOrganization={{ id: organizationId, name: context.activeOrganization.name, role: context.activeOrganization.role }}
-    initialConnections={(connectionsResult.data ?? []).map((connection) => ({ ...connection, wallet: walletsById.get(connection.identity_id) ?? null, grant: grantsById.get(connection.identity_id) ?? null, twitter_profile_count: profileCounts.get(connection.id) ?? 0, active_slot_reservation_count: pendingCounts.get(connection.id) ?? 0 }))}
+    initialConnections={(connectionsResult.data ?? []).map((connection) => ({ ...connection, wallet: walletsById.get(connection.identity_id) ?? null, grant: grantsById.get(connection.identity_id) ?? null, twitter_profile_count: profileCounts.get(connection.id) ?? 0, active_slot_reservation_count: pendingCounts.get(connection.id) ?? 0, oauth_reservations: reservationsByConnection.get(connection.id) ?? [] }))}
     initialDefaultGrantMicros={Number(settings.default_initial_grant_micros)} initialDefaultTwitterSlotLimit={settings.default_twitter_slot_limit}
     analyticsGateEnabled={isTwitterZernioAnalyticsSyncEnabled(organizationId)} />
   </main>;
