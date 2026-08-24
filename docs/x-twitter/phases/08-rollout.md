@@ -295,3 +295,11 @@ Nenhuma organização foi adicionada, nenhum worker foi iniciado e fallback cont
 - Migration 254 alinhada local/remoto. Código final `b1daa6e`; Preview `dpl_Eagu2NV2XeXaQU7E1v1BNM5Z7Fq3`; Production `dpl_2gbJBD4x4jwS5pJVPEtD6VjW7ikQ`, todos aprovados.
 - QA autenticado validou layout, contagens, carteira, lista US$ 17, limite, duplicidade, configuração e isolamento sem executar mutações. Console X final vazio e zero overflow.
 - Health read-only permaneceu `first_send_approved`, wallet 11.590.000/0, workers sem stale e zero breaker. Instagram permaneceu íntegro. Status: `completed`.
+### Paridade compacta da administração Zernio X — X-0106
+
+- Código `076f2b9`, Preview `dpl_2xXVxKY9XVVuJNUrZnjGYykTdHDF` e Production `dpl_81WuidWazEQ8cLgES1fdhHqJh1SH` concluídos.
+- `/x/zernio` agora segue a hierarquia de `/zernio`: três métricas, painel de importação, defaults, editor pareado e cards compactos. Um único card não ocupa toda a tela; `auto-fill` mantém colunas para inventários grandes.
+- Transferência entre organizações está oculta e não gera consultas na página. O backend auditável não foi removido.
+- QA desktop/mobile e Production: zero overflow, números de resumo 34 px, um strip por conexão, saldo real US$ 16,20 preservado e Instagram intacto.
+- Gate: 250/250 testes, TypeScript, build, diff check, Preview e Production `READY`. Nenhuma alteração de Supabase, VPS ou PM2.
+- Rollback da aplicação: `dpl_B9M6HahZE5ESeaiJMsHmSqSiv1ov`; nenhum rollback de dados necessário.

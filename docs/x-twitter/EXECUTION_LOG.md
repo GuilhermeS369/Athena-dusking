@@ -1294,3 +1294,15 @@ Registros são append-only.
 - A concessão original permaneceu 12.000.000 micros. Nenhum grant, preço, reserva, fila, publicação, conexão, worker, deployment ou dado Instagram foi alterado.
 - Rollback, somente se solicitado: executar nova operação auditável com saldo anterior esperado 16.200.000 e alvo definido; nunca atualizar manualmente a wallet nem apagar o ledger.
 - Status: `completed`. Próxima ação segura: nenhuma para este pedido.
+## X-0106 — reconstrução compacta da interface `/x/zernio`
+
+- UTC: 2026-08-24T12:30:31Z; São Paulo: 2026-08-24T09:30:31-03:00. Executor: Codex GPT-5. Entrada: branch `codex/x-twitter-module`, commit `07b3b22`, worktree limpo; checkpoint executável `076f2b9`.
+- Objetivo: corrigir a falsa paridade visual, reduzir a altura/largura dos cards para dezenas ou centenas de conexões e ocultar a transferência entre organizações. Fora do escopo: saldo, grants, ledger, Supabase, workers, PM2, filas e comportamento Instagram.
+- Diagnóstico: quatro métricas reduziam os números; dois strips de três colunas duplicavam informação; `auto-fit` esticava um card; o grid filho forçava overflow da área útil; a página ainda carregava identidades, reservas e eventos somente para a transferência.
+- Alterações: três métricas idênticas à composição Instagram; saldo/limite do lote em um único formulário que também salva o padrão; um strip por conexão; detalhes financeiros em 2×2; grid X `auto-fill`; contenção explícita dos filhos da tela; interface e queries de transferência removidas. Backend imutável de transferência preservado.
+- Verificação local: TypeScript aprovado; 250/250 testes; build de 47 páginas; `git diff --check`; browser autenticado desktop 1440×1000 e mobile 390×844 sem overflow. Métricas 34 px, três cards de resumo, um strip por conexão e texto de transferência ausente.
+- Deploy: Preview `dpl_2xXVxKY9XVVuJNUrZnjGYykTdHDF` (`READY`), URL `https://pomodoro-by1zc264m-shoows-projects-2caaf9e9.vercel.app`; Production `dpl_81WuidWazEQ8cLgES1fdhHqJh1SH` (`READY`), URL `https://pomodoro-g6h2acdy5-shoows-projects-2caaf9e9.vercel.app`; alias oficial confirmado. Rollback imediato: `dpl_B9M6HahZE5ESeaiJMsHmSqSiv1ov`.
+- QA Production: `/x/zernio` autenticado apresentou 1 API, 1 perfil, conexão compacta e US$ 16,20 disponível; largura 1265/1265, três métricas, um strip e zero texto de transferência. `/zernio` Instagram carregou três métricas e suas conexões normalmente.
+- Dados/infra: nenhuma migration, RPC executada, chamada Zernio, ajuste financeiro, fila, reserva, ledger, flag, release VPS ou processo PM2 mudou. Wallet permanece 16.200.000/0, versão 27; grant original 12.000.000.
+- Warnings: metadata `viewport/themeColor` preexistente continuou aparecendo no build; permanece fora do escopo. Rollback: promover o deployment acima; banco e VPS não exigem rollback.
+- Status: `completed`. Próxima ação segura: cadastrar novas chaves em `/x/zernio` e aplicar o gate de primeiro envio por conexão. Não repetir o crédito de X-0105.

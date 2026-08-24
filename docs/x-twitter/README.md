@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-24T11:56:41Z / 2026-08-24T08:56:41-03:00
+- Atualizado em: 2026-08-24T12:30:31Z / 2026-08-24T09:30:31-03:00
 - Fase atual: 8 — rollout global (`completed`)
-- Status: módulo X e Agenda V2 disponíveis para todas as organizações. A nova administração `/x/zernio` está implantada em Production: cadastro em massa, saldo inicial e limite configuráveis, proteção contra duplicidade, ocupação e layout em paridade com Instagram sem compartilhar suas estruturas.
+- Status: módulo X e Agenda V2 disponíveis para todas as organizações. `/x/zernio` usa a composição compacta de `/zernio`: três métricas, cadastro em massa pareado, saldo/limite por lote, cards escaláveis e interface de transferência oculta.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint Git executável mais recente: `b1daa6e`; Preview `dpl_Eagu2NV2XeXaQU7E1v1BNM5Z7Fq3` e Production `dpl_2gbJBD4x4jwS5pJVPEtD6VjW7ikQ`, ambos `READY`. Alias oficial aponta para Production.
+- Checkpoint Git executável mais recente: `076f2b9`; Preview `dpl_2xXVxKY9XVVuJNUrZnjGYykTdHDF` e Production `dpl_81WuidWazEQ8cLgES1fdhHqJh1SH`, ambos `READY`. Alias oficial aponta para Production.
 - Feature flags X: módulo global e Agenda V2 ativas; fallback e `TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED` desligados
 - Mutação remota feita pelo módulo X: migrations aditivas 223–253
 
@@ -25,7 +25,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 255.
-- Testes atuais: 249/249 aprovados; testes administrativos focados posteriores também aprovados.
+- Testes atuais: 250/250 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -35,6 +35,15 @@
 ## Próxima ação segura
 
 Usuários podem cadastrar listas de chaves em `/x/zernio`, escolhendo saldo inicial e limite antes do envio. Antes de qualquer mudança futura, consultar o health X. Em cada conexão nova, executar `audit-first-send-readiness.ts` após o sync, após confirmar o primeiro programa e após o primeiro estado terminal.
+
+## X-0106 — paridade compacta do Zernio X
+
+- Código `076f2b9`; Preview `dpl_2xXVxKY9XVVuJNUrZnjGYykTdHDF`; Production `dpl_81WuidWazEQ8cLgES1fdhHqJh1SH`, todos aprovados e `READY`.
+- A tela agora replica a composição real do Instagram: três métricas com números de 34 px, um único formulário compacto de saldo/limite, editor pareado e um único strip por conexão.
+- O grid X usa `auto-fill`: uma conexão não se estica pela tela e muitas conexões ocupam colunas compactas. QA em 1440 px e 390 px confirmou ausência de overflow horizontal.
+- “Transferir identidade e saldo” foi removido da interface e as consultas exclusivas dessa função deixaram de rodar na página. RPC/rota/auditoria permanecem preservadas para eventual uso futuro.
+- Produção autenticada confirmou 1 API, 1 perfil e US$ 16,20 disponível. O saldo, grant, ledger, filas, workers, Supabase e PM2 não foram alterados.
+- Regressão `/zernio` Instagram aprovada em Production. Validação: 250/250 testes, TypeScript, build e `git diff --check`.
 
 ## Proibições imediatas
 
