@@ -1266,3 +1266,14 @@ Registros são append-only.
 - Ambientes: Supabase remoto permanece 253; Vercel permanece Production `dpl_4ujKYUfURyvwrc2K92g2SY9JYDXW`; VPS/PM2 não foram consultados nem alterados nesta unidade; nenhum segredo, saldo, grant, conexão, fila ou dado remoto mudou.
 - Rollback: antes da aplicação remota, reverter somente a unidade local. Depois de 254, banco somente por migration corretiva forward-only; aplicação pode voltar à Production acima. Tabelas aditivas 254 podem permanecer sem consumidores.
 - Status: `in_progress`. Próxima ação segura: commit do checkpoint local, aplicar 254, confirmar migrações, Preview, QA autenticado sem cadastrar chave real e promoção Production. Não repetir provisioning existente nem expor API keys.
+
+### X-0104 — conclusão em Production
+
+- Código: `dba388d`, correção de hidratação `ef8ee50` e polling ocioso removido em `b1daa6e`. Migration 254 aplicada e confirmada local/remoto 254/254; smoke do schema confirmou settings, batches e novas colunas.
+- Preview final `dpl_Eagu2NV2XeXaQU7E1v1BNM5Z7Fq3` (`READY`). Production final `dpl_2gbJBD4x4jwS5pJVPEtD6VjW7ikQ` (`READY`), URL `https://pomodoro-b8yg7zns9-shoows-projects-2caaf9e9.vercel.app`, alias oficial preservado. Rollback imediato da aplicação: `dpl_4ujKYUfURyvwrc2K92g2SY9JYDXW`; banco permanece 254 e qualquer correção é forward-only.
+- QA autenticado, sem mutação: dados reais mostraram 1 API, 1 perfil X, US$ 11,59 disponível, concessão original US$ 12 e ocupação 1/2. Lista fictícia 2×2 exibiu US$ 17 e limite 3; duplicidade desabilitou o envio; nenhum botão de cadastro/sync/configuração/exclusão foi confirmado.
+- CSS: quatro métricas, editor em duas colunas, defaults, cards financeiros/ocupação, ações e modais renderizados sem overflow. Tela Instagram `/zernio` permaneceu renderizada e sem overflow; nenhuma estrutura operacional Instagram mudou.
+- Correção pós-QA: datas agora fixam `America/Sao_Paulo`, eliminando React 418 na tela X; aba Production nova terminou com console vazio. Polling de importação ocorre somente com lote ativo, evitando requisições a cada cinco segundos em repouso.
+- Saúde read-only: `first_send_approved`; quatro workers esperados, zero stale, zero breaker, seis publicações X publicadas, zero pendente/unknown, wallet 11.590.000/0 versão 26. VPS/PM2 não exigiram alteração ou reinício.
+- Validação: 249/249 testes, TypeScript, build local/Preview/Production e `git diff --check` aprovados. Warnings metadata preexistentes em login/onboarding/not-found permanecem fora do escopo.
+- Status: `completed`. Próxima ação segura: importar chaves reais por lote e executar o gate de primeiro envio após conectar/sincronizar cada nova conta.

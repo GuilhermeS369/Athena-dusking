@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-24T11:43:53Z / 2026-08-24T08:43:53-03:00
+- Atualizado em: 2026-08-24T11:56:41Z / 2026-08-24T08:56:41-03:00
 - Fase atual: 8 — rollout global (`completed`)
-- Status: módulo X e Agenda V2 disponíveis para todas as organizações. A administração `/x/zernio` está em reconstrução validada localmente, ainda não implantada: cadastro em massa, saldo inicial e limite de contas configuráveis, proteção contra duplicidade, ocupação e layout em paridade com Instagram sem compartilhar suas estruturas.
+- Status: módulo X e Agenda V2 disponíveis para todas as organizações. A nova administração `/x/zernio` está implantada em Production: cadastro em massa, saldo inicial e limite configuráveis, proteção contra duplicidade, ocupação e layout em paridade com Instagram sem compartilhar suas estruturas.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint Git executável mais recente: `c38f246`; Preview `dpl_9gfsDZ5TqGB2aRQyVS3i3JHi1t3T` e Production `dpl_4ujKYUfURyvwrc2K92g2SY9JYDXW`, ambos `READY`. Alias oficial aponta para Production.
+- Checkpoint Git executável mais recente: `b1daa6e`; Preview `dpl_Eagu2NV2XeXaQU7E1v1BNM5Z7Fq3` e Production `dpl_2gbJBD4x4jwS5pJVPEtD6VjW7ikQ`, ambos `READY`. Alias oficial aponta para Production.
 - Feature flags X: módulo global e Agenda V2 ativas; fallback e `TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED` desligados
 - Mutação remota feita pelo módulo X: migrations aditivas 223–253
 
@@ -24,8 +24,8 @@
 ## Baseline conhecido
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
-- Migrações remotas alinhadas até 253; migration 254 é a única pendente e passou no dry-run.
-- Testes atuais: 247/247 aprovados antes dos dois testes administrativos adicionais; testes focados posteriores 5/5.
+- Migrações local/remoto alinhadas até 254.
+- Testes atuais: 249/249 aprovados; testes administrativos focados posteriores também aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -34,7 +34,7 @@
 
 ## Próxima ação segura
 
-Antes de qualquer mudança futura, consultar o health X. Em cada conexão nova, executar `audit-first-send-readiness.ts` após o sync, após confirmar o primeiro programa e após o primeiro estado terminal. A conexão existente foi aprovada. Não repetir o canário Analytics encerrado; qualquer aumento posterior de `posts_read` deve passar somente por `reconcile-provider-usage-delta.ts`.
+Usuários podem cadastrar listas de chaves em `/x/zernio`, escolhendo saldo inicial e limite antes do envio. Antes de qualquer mudança futura, consultar o health X. Em cada conexão nova, executar `audit-first-send-readiness.ts` após o sync, após confirmar o primeiro programa e após o primeiro estado terminal.
 
 ## Proibições imediatas
 
