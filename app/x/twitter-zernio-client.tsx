@@ -42,7 +42,9 @@ export default function TwitterZernioClient({activeOrganization,initialConnectio
   function notify(text:string,nextTone:'neutral'|'success'|'error'='neutral'){setMessage(text);setTone(nextTone);}
   async function refresh(){const body=await json(await fetch('/api/x/integrations/zernio/connections',{cache:'no-store'}));setConnections((body.connections as Connection[])??[]);router.refresh();}
   async function refreshBatches(){const body=await json(await fetch('/api/x/integrations/zernio/import-batches',{cache:'no-store'}));setBatches((body.batches as ImportBatch[])??[]);}
-  useEffect(()=>{void refreshBatches().catch(()=>undefined);const timer=window.setInterval(()=>void refreshBatches().catch(()=>undefined),5000);return()=>window.clearInterval(timer);},[]);
+  useEffect(()=>{void refreshBatches().catch(()=>undefined);},[]);
+  const importInProgress=batches.some(batch=>batch.status==='queued'||batch.status==='processing');
+  useEffect(()=>{if(!importInProgress)return;const timer=window.setInterval(()=>void refreshBatches().catch(()=>undefined),5000);return()=>window.clearInterval(timer);},[importInProgress]);
 
   async function importConnections(event:FormEvent){event.preventDefault();if(!canAdmin||!draft.valid)return notify('Revise as duas listas, o saldo e o limite antes de continuar.','error');if(!window.confirm(`Cadastrar ${draft.rows.length} chave(s), pareadas pela mesma linha, com saldo inicial de ${usd(draft.initialGrantMicros??0)} e limite ${slotLimit}?`))return;
     setBusy('import');try{const body=await json(await fetch('/api/x/integrations/zernio/import-batches',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({namesText,apiKeysText,initialGrantUsd:grantInput,twitterSlotLimit:slotLimit})}));setNamesText('');setApiKeysText('');await Promise.all([refreshBatches(),refresh()]);notify((body.outcome as {status?:string})?.status==='waiting'?'Lote enfileirado atrás de outra importação.':'Lote processado. Confira o resumo e os cards.','success');}catch(error){notify(error instanceof Error?error.message:'Falha na importação.','error');}finally{setBusy(null);}}
