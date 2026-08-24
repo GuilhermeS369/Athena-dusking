@@ -1285,3 +1285,12 @@ Registros são append-only.
 - Preflight read-only: saldo 11.590.000 micros, reservado 0, versão 26; delta necessário 4.610.000 micros.
 - Migration 255 adiciona RPC service-role com lock, saldo anterior esperado, saldo-alvo, ledger imutável, versão e idempotência. Teste focado e dry-run aprovados; nenhuma mutação remota até este checkpoint.
 - Próxima ação segura: checkpoint Git, aplicar somente 255, chamar a RPC uma vez e verificar wallet, ledger e replay idempotente. Rollback financeiro, se solicitado, deverá ser outro adjustment auditável; nunca apagar ledger.
+
+### X-0105 — execução concluída
+
+- UTC final: 2026-08-24T12:05:32Z; São Paulo: 2026-08-24T09:05:32-03:00. Código/RPC `0147fa7`; migration 255 alinhada local/remoto.
+- Mutação única: crédito administrativo de 4.610.000 micros, levando o saldo contábil de 11.590.000 para 16.200.000 micros. Reservado permaneceu 0; disponível 16.200.000; wallet versão 26→27.
+- Ledger: exatamente uma entrada `credit`, origem `administration`, delta 4.610.000 e idempotency key exclusiva. Replay retornou `idempotentReplay=true`, sem segundo crédito.
+- A concessão original permaneceu 12.000.000 micros. Nenhum grant, preço, reserva, fila, publicação, conexão, worker, deployment ou dado Instagram foi alterado.
+- Rollback, somente se solicitado: executar nova operação auditável com saldo anterior esperado 16.200.000 e alvo definido; nunca atualizar manualmente a wallet nem apagar o ledger.
+- Status: `completed`. Próxima ação segura: nenhuma para este pedido.

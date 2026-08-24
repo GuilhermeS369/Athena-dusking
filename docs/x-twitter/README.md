@@ -24,7 +24,7 @@
 ## Baseline conhecido
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
-- Migrações local/remoto alinhadas até 254.
+- Migrações local/remoto alinhadas até 255.
 - Testes atuais: 249/249 aprovados; testes administrativos focados posteriores também aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
