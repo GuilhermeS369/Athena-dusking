@@ -303,3 +303,12 @@ Nenhuma organização foi adicionada, nenhum worker foi iniciado e fallback cont
 - QA desktop/mobile e Production: zero overflow, números de resumo 34 px, um strip por conexão, saldo real US$ 16,20 preservado e Instagram intacto.
 - Gate: 250/250 testes, TypeScript, build, diff check, Preview e Production `READY`. Nenhuma alteração de Supabase, VPS ou PM2.
 - Rollback da aplicação: `dpl_B9M6HahZE5ESeaiJMsHmSqSiv1ov`; nenhum rollback de dados necessário.
+
+### Capacidade confirmada e reservas OAuth — X-0107
+
+- Código `ae8263e`, Preview `dpl_1bdFDYr9xTYKSkJPFAzHDacnp9xo` e Production `dpl_GrJgg9gdno45YFQFKUioYfNhZ1yH` concluídos e `READY`.
+- O card usa ocupação confirmada local/remota, não exibe mais `—/2` quando existe perfil Athena e não há snapshot remoto, e separa reservas OAuth válidas da ocupação persistente.
+- Reservas OAuth expiram automaticamente em 15 minutos, têm horário explícito e podem ser liberadas imediatamente por admin sem chamar a Zernio. O attempt real expirou às 09:48:46 e a UI passou de 2/2 com uma reserva para 1/2 com zero reservas, reabilitando a conexão sem ação manual.
+- Máscara monetária, alturas e espaçamentos foram aprovados em Production; a exclusão explica soft-delete de perfis Athena, cancelamento futuro, preservação de histórico e ausência de desconexão remota.
+- Gate: 251/251 testes, TypeScript, build, diff check, QA autenticado sem overflow e smoke Instagram. Nenhuma alteração de Supabase, VPS, PM2, saldo ou provedor.
+- Rollback da aplicação: promover `dpl_81WuidWazEQ8cLgES1fdhHqJh1SH`; banco e VPS não exigem rollback.

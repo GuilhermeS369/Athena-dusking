@@ -2,12 +2,12 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-24T12:30:31Z / 2026-08-24T09:30:31-03:00
+- Atualizado em: 2026-08-24T12:49:00Z / 2026-08-24T09:49:00-03:00
 - Fase atual: 8 — rollout global (`completed`)
-- Status: módulo X e Agenda V2 disponíveis para todas as organizações. `/x/zernio` usa a composição compacta de `/zernio`: três métricas, cadastro em massa pareado, saldo/limite por lote, cards escaláveis e interface de transferência oculta.
+- Status: módulo X e Agenda V2 disponíveis para todas as organizações. `/x/zernio` usa a composição compacta de `/zernio`, máscara monetária em centavos, ocupação confirmada local/remota e reservas OAuth com expiração visível e liberação manual.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
-- Checkpoint Git executável mais recente: `076f2b9`; Preview `dpl_2xXVxKY9XVVuJNUrZnjGYykTdHDF` e Production `dpl_81WuidWazEQ8cLgES1fdhHqJh1SH`, ambos `READY`. Alias oficial aponta para Production.
+- Checkpoint Git executável mais recente: `ae8263e`; Preview `dpl_1bdFDYr9xTYKSkJPFAzHDacnp9xo` e Production `dpl_GrJgg9gdno45YFQFKUioYfNhZ1yH`, ambos `READY`. Alias oficial aponta para Production.
 - Feature flags X: módulo global e Agenda V2 ativas; fallback e `TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED` desligados
 - Mutação remota feita pelo módulo X: migrations aditivas 223–253
 
@@ -25,7 +25,7 @@
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
 - Migrações local/remoto alinhadas até 255.
-- Testes atuais: 250/250 aprovados.
+- Testes atuais: 251/251 aprovados.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.
@@ -44,6 +44,16 @@ Usuários podem cadastrar listas de chaves em `/x/zernio`, escolhendo saldo inic
 - “Transferir identidade e saldo” foi removido da interface e as consultas exclusivas dessa função deixaram de rodar na página. RPC/rota/auditoria permanecem preservadas para eventual uso futuro.
 - Produção autenticada confirmou 1 API, 1 perfil e US$ 16,20 disponível. O saldo, grant, ledger, filas, workers, Supabase e PM2 não foram alterados.
 - Regressão `/zernio` Instagram aprovada em Production. Validação: 250/250 testes, TypeScript, build e `git diff --check`.
+
+## X-0107 — capacidade, expiração OAuth e máscara monetária
+
+- Código `ae8263e`; Preview `dpl_1bdFDYr9xTYKSkJPFAzHDacnp9xo`; Production `dpl_GrJgg9gdno45YFQFKUioYfNhZ1yH`, todos `READY`.
+- A ocupação deixa de exibir `—/2` quando o snapshot remoto ainda não existe: usa o maior valor confirmado entre inventário remoto e perfis locais, somando apenas reservas OAuth ainda válidas.
+- Reservas OAuth duram 15 minutos. A interface mostra o horário de expiração, remove a contagem automaticamente e oferece `Liberar agora`; a liberação manual é administrativa, tenant-scoped e auditável no próprio attempt.
+- `Excluir API e perfis` faz soft-delete dos perfis X no Athena, cancela fila futura e libera reservas elegíveis. Posts, logs, ledger e histórico permanecem; nenhuma conta é desconectada remotamente no painel Zernio.
+- O saldo inicial aplica máscara de centavos durante a digitação (`1750` → `17,50`). Métricas, cabeçalho e defaults receberam espaçamento/altura X-específicos; Instagram não foi alterado.
+- QA Production autenticado: US$ 16,20 preservado, ocupação confirmada 1/2, máscara aprovada, zero overflow, modal destrutivo desabilitado sem confirmação e `/zernio` Instagram íntegro. Após 09:48:46, a reserva caiu de 1 para 0, o card mudou de 2/2 para 1/2 e `Conectar conta X` foi reabilitado sem mutação manual. Validação: 251/251 testes, TypeScript, build e `git diff --check`.
+- Nenhuma migration, chamada Zernio, sincronização, exclusão, reserva financeira, ledger, flag, VPS ou PM2 mudou. Rollback: promover `dpl_81WuidWazEQ8cLgES1fdhHqJh1SH`.
 
 ## Proibições imediatas
 
