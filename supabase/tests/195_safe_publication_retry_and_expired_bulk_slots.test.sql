@@ -17,12 +17,12 @@ begin
   if claim_definition is null then
     raise exception 'claim_publication_items não encontrado.';
   end if;
-  if claim_definition not ilike '%item_row.next_attempt_at is not null%'
-    or claim_definition not ilike '%item_row.attempt_count < 5%'
+  if claim_definition not ilike '%next_attempt_at is not null%'
+    or claim_definition not ilike '%attempt_count < 5%'
   then
     raise exception 'Falha terminal sem retry agendado ainda pode voltar ao claim.';
   end if;
-  if claim_definition not ilike '%item_row.creation_id is null%'
+  if claim_definition not ilike '%creation_id is null%'
     or claim_definition not ilike '%zernio_recovery_count%'
   then
     raise exception 'Claim não contém a barreira para segunda criação Zernio.';
@@ -39,13 +39,13 @@ begin
     raise exception 'recover_missed_publication_slots não encontrado.';
   end if;
   if recovery_definition not ilike '%missed_bulk_slot_expired%'
-    or recovery_definition not ilike '%item_source.execute_at <= recovered_at - make_interval%'
-    or recovery_definition not ilike '%item_source.creation_id is null%'
+    or recovery_definition not ilike '%pipeline_version = 1%'
+    or recovery_definition not ilike '%creation_id is null%'
   then
     raise exception 'Expiração bulk não preserva o corte temporal e a criação externa.';
   end if;
-  if recovery_definition ilike '%bulk_slot_at_risk%'
-    or recovery_definition ilike '%awaiting_safe_recovery%'
+  if recovery_definition ilike '%outcome := ''bulk_slot_at_risk''%'
+    or recovery_definition ilike '%outcome := ''awaiting_safe_recovery''%'
   then
     raise exception 'Slot vencido ainda está sendo encaminhado para recuperação tardia.';
   end if;

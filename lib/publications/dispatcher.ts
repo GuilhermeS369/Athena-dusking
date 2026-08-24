@@ -20,6 +20,8 @@ type ClaimedItem = {
   reel_cover_media_asset_id: string | null;
 };
 
+type PreparationClaim = Omit<ClaimedItem, 'creation_id' | 'reel_cover_media_asset_id'>;
+
 type MediaRow = {
   position: number;
   media_assets: {
@@ -76,7 +78,7 @@ async function loadWorkItem(item: ClaimedItem): Promise<PublicationWorkItem | In
   const [profileResult, mediaResult, coverResult] = await Promise.all([
     supabase
       .from('instagram_profiles')
-      .select('id, organization_id, provider, instagram_user_id, encrypted_access_token, zernio_account_id, zernio_connection_id')
+      .select('id, organization_id, provider, instagram_user_id, encrypted_access_token, zernio_account_id, zernio_connection_id, status')
       .eq('id', item.profile_id)
       .eq('organization_id', item.organization_id)
       .is('deleted_at', null)
@@ -98,6 +100,7 @@ async function loadWorkItem(item: ClaimedItem): Promise<PublicationWorkItem | In
   ]);
 
   if (profileResult.error || !profileResult.data) return invalidWorkItem('O perfil do Instagram não está mais disponível.');
+  if (profileResult.data.status !== 'online') return invalidWorkItem('O perfil está offline e não pode ser preparado.');
   if (mediaResult.error) return invalidWorkItem('Não foi possível carregar as mídias do item.');
   if (coverResult.error) return invalidWorkItem('Não foi possível carregar a capa do Reel.');
 
@@ -132,6 +135,79 @@ async function loadWorkItem(item: ClaimedItem): Promise<PublicationWorkItem | In
     media,
     cover: coverAsset ? { id: coverAsset.id, storage_path: coverAsset.storage_path, kind: 'image' } : null,
   };
+}
+
+function validatePreparedWorkItem(item: PublicationWorkItem | InvalidLoadedWorkItem) {
+  if ('state' in item) throw Object.assign(new Error(item.errorMessage), { code: item.errorCode });
+  if (!item.profile.organization_id) throw Object.assign(new Error('Organização do perfil ausente.'), { code: 'preparation_profile_organization_missing' });
+  if (item.profile.provider === 'zernio' && !item.profile.zernio_account_id) {
+    throw Object.assign(new Error('Perfil sem social account da Zernio.'), { code: 'preparation_zernio_account_missing' });
+  }
+  if (item.profile.provider === 'meta_official' && (!item.profile.instagram_user_id || !item.profile.encrypted_access_token)) {
+    throw Object.assign(new Error('Perfil Meta sem identidade ou token local.'), { code: 'preparation_meta_credentials_missing' });
+  }
+  if (item.format === 'carousel' && (item.media.length < 2 || item.media.length > 10)) {
+    throw Object.assign(new Error('Carrossel requer entre 2 e 10 mídias.'), { code: 'preparation_carousel_media_count_invalid' });
+  }
+  if (item.format !== 'carousel' && item.media.length !== 1) {
+    throw Object.assign(new Error('O formato requer exatamente uma mídia.'), { code: 'preparation_media_count_invalid' });
+  }
+  if (item.format === 'image' && item.media[0]?.kind !== 'image') {
+    throw Object.assign(new Error('Publicação de imagem requer uma imagem.'), { code: 'preparation_image_media_invalid' });
+  }
+  if (item.format === 'reel' && item.media[0]?.kind !== 'video') {
+    throw Object.assign(new Error('Reel requer um vídeo.'), { code: 'preparation_reel_media_invalid' });
+  }
+}
+
+async function preparePublicationQueue(workerId: string, limit: number) {
+  const supabase = createSupabaseAdminClient();
+  const preparationWorkerId = `${workerId}:prepare`.slice(0, 120);
+  const { data, error } = await supabase.rpc('claim_publication_preparation_items', {
+    p_worker_id: preparationWorkerId,
+    p_limit: Math.min(500, Math.max(1, limit)),
+    p_lease_seconds: 180,
+    p_window_hours: 24,
+  });
+  if (error) throw error;
+  const claims = (data ?? []) as PreparationClaim[];
+  const settled = await Promise.allSettled(claims.map(async (claim) => {
+    try {
+      const item = await loadWorkItem({ ...claim, creation_id: null, reel_cover_media_asset_id: null });
+      validatePreparedWorkItem(item);
+      const { error: completionError } = await supabase.rpc('complete_publication_preparation', {
+        p_item_id: claim.id, p_worker_id: preparationWorkerId, p_ready: true,
+        p_error_code: null, p_error_message: null, p_retry_seconds: 900,
+      });
+      if (completionError) throw completionError;
+      return 'ready';
+    } catch (preparationError) {
+      const failure = errorInfo(preparationError);
+      const { error: completionError } = await supabase.rpc('complete_publication_preparation', {
+        p_item_id: claim.id, p_worker_id: preparationWorkerId, p_ready: false,
+        p_error_code: failure.code ?? 'preparation_failed',
+        p_error_message: failure.message ?? 'Falha na preparação local.', p_retry_seconds: 900,
+      });
+      if (completionError) throw completionError;
+      return 'blocked';
+    }
+  }));
+  return {
+    claimed: claims.length,
+    ready: settled.filter((entry) => entry.status === 'fulfilled' && entry.value === 'ready').length,
+    blocked: settled.filter((entry) => entry.status === 'fulfilled' && entry.value === 'blocked').length,
+    errors: settled.filter((entry) => entry.status === 'rejected').length,
+  };
+}
+
+function isZernioTerminalAccountDisconnection(result: { errorCode?: string; errorMessage?: string }) {
+  const value = `${result.errorCode ?? ''} ${result.errorMessage ?? ''}`.toLowerCase();
+  return /(^|[^a-z0-9])(account[_\s-]*disconnected|auth[_\s-]*expired)(?=$|[^a-z0-9])/.test(value);
+}
+
+function isMetaTerminalProfileDisconnection(result: { errorCode?: string; errorMessage?: string }) {
+  if (String(result.errorCode ?? '').trim() !== '190') return false;
+  return /error validating access token|invalid(?:ated)? access token|session has been invalidated|log in to www\.instagram\.com|login to www\.instagram\.com|follow the instructions given|checkpoint/i.test(result.errorMessage ?? '');
 }
 
 export type DispatchOptions = {
@@ -287,6 +363,30 @@ async function processClaimedItem(item: ClaimedItem, workerId: string) {
     // sobrescrever esse estado nem liberar outra tentativa nesta execução.
     if (result.state === 'deferred') return { itemId: item.id, state: result.reason };
 
+    if (!('state' in workItem) && result.state === 'failed' && workItem.profile.provider === 'zernio'
+      && isZernioTerminalAccountDisconnection(result)) {
+      const signal = /auth[_\s-]*expired/i.test(`${result.errorCode} ${result.errorMessage}`)
+        ? 'auth_expired' : 'account_disconnected';
+      const { error } = await supabase.rpc('schedule_zernio_profile_disconnection', {
+        p_item_id: item.id, p_worker_id: workerId, p_signal: signal,
+        p_error_code: result.errorCode, p_error_message: result.errorMessage,
+        p_revert_claim_attempt: true,
+      });
+      if (error) throw error;
+      return { itemId: item.id, state: 'zernio_profile_recycling_scheduled' };
+    }
+
+    if (!('state' in workItem) && result.state === 'failed' && workItem.profile.provider === 'meta_official'
+      && isMetaTerminalProfileDisconnection(result)) {
+      const { error } = await supabase.rpc('finalize_meta_profile_disconnection', {
+        p_item_id: item.id, p_worker_id: workerId,
+        p_error_code: result.errorCode, p_error_message: result.errorMessage,
+        p_error_subcode: null,
+      });
+      if (error) throw error;
+      return { itemId: item.id, state: 'meta_profile_removed' };
+    }
+
     const { error } = await supabase.rpc('complete_publication_item', {
       p_item_id: item.id,
       p_worker_id: workerId,
@@ -330,6 +430,8 @@ export async function dispatchPublicationQueue(options: DispatchOptions = {}) {
     : 180;
   const supabase = createSupabaseAdminClient();
 
+  const preparation = await preparePublicationQueue(workerId, Math.max(100, limit * 4));
+
   // Um item que perdeu o horário não pode ser publicado atrasado. Antes de
   // qualquer claim, a rotina transacional o move uma única vez para a próxima
   // data livre na mesma faixa diária; uma segunda perda exige ação humana.
@@ -359,5 +461,5 @@ export async function dispatchPublicationQueue(options: DispatchOptions = {}) {
       return counts;
     }, {}),
   });
-  return { workerId, recovery, claimed: items.length, processed };
+  return { workerId, preparation, recovery, claimed: items.length, processed };
 }

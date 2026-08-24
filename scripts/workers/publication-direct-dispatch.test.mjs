@@ -8,6 +8,7 @@ import {
   isMetaTerminalProfileDisconnection,
   isZernioTerminalAccountDisconnection,
   loadWorkItem,
+  nextAdaptiveDispatchLimit,
   preserveAcceptedProviderCreation,
   preserveConfirmedPublication,
   preserveReconciledZernioPublication,
@@ -21,8 +22,34 @@ import {
   zernioExistingPostId,
   zernioPollingDelaySeconds,
   zernioWorkItemRequiresManualReconciliation,
+  validatePreparedPublicationWorkItem,
   flushZernioRequestTelemetry,
 } from './publication-direct-dispatch.mjs';
+
+test('preparação Athena valida payload sem depender de URL ou chamada ao provedor', () => {
+  const prepared = validatePreparedPublicationWorkItem({
+    format: 'reel',
+    profile: {
+      provider: 'zernio',
+      organization_id: 'org-1',
+      zernio_account_id: 'account-1',
+    },
+    media: [{ id: 'media-1', kind: 'video', storage_path: 'org/video.mp4' }],
+  });
+  assert.deepEqual(prepared, { ready: true, provider: 'zernio', mediaCount: 1 });
+
+  assert.throws(() => validatePreparedPublicationWorkItem({
+    format: 'reel',
+    profile: { provider: 'zernio', organization_id: 'org-1', zernio_account_id: 'account-1' },
+    media: [{ id: 'media-1', kind: 'image', storage_path: 'org/image.jpg' }],
+  }), /vídeo/i);
+});
+
+test('concorrência adaptativa reduz sob pressão e cresce quando a capacidade foi consumida', () => {
+  assert.equal(nextAdaptiveDispatchLimit(20, 100, [{ state: 'failed', errorCode: 'http_429' }], 20), 10);
+  assert.equal(nextAdaptiveDispatchLimit(10, 100, Array.from({ length: 10 }, () => ({ state: 'published' })), 10), 12);
+  assert.equal(nextAdaptiveDispatchLimit(100, 100, [], 100), 100);
+});
 
 test('classifica somente os sinais terminais aprovados da Zernio', () => {
   assert.equal(isZernioTerminalAccountDisconnection({ errorCode: 'ACCOUNT_DISCONNECTED' }), true);

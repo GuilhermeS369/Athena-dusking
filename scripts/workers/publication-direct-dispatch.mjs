@@ -756,6 +756,9 @@ export function zernioFailureResult(error) {
     retryable: error?.retryable ?? true,
     errorCode: error?.code ?? 'zernio_request_failed',
     errorMessage: zernioErrorMessage(error),
+    providerPressure: error?.httpStatus === 429
+      || error?.httpStatus >= 500
+      || ['timeout', 'network_error'].includes(zernioOutcome(error)),
   };
 }
 
@@ -874,9 +877,14 @@ function validateZernioMedia(item) {
   throw publicationDataError('Formato não suportado pela Zernio.', 'zernio_format_not_supported');
 }
 
-function platformSpecificData(format) {
+async function platformSpecificData(format, item) {
   if (format === 'story') return { contentType: 'story' };
-  if (format === 'reel') return { shareToFeed: true };
+  if (format === 'reel') return {
+    shareToFeed: true,
+    ...(item.cover
+      ? { instagramThumbnail: (await buildVerifiedMediaUrls({ ...item, media: [item.cover] }))[0] }
+      : {}),
+  };
   return undefined;
 }
 
@@ -893,7 +901,7 @@ async function createZernioPost(item) {
     : await createZernioClientForOrganization(item.profile.organization_id, {
       operation: 'create_post', itemId: item.id, batchId: item.batch_id, correlationId: item.correlation_id, attemptCount: item.attempt_count,
     });
-  const specificData = platformSpecificData(item.format);
+  const specificData = await platformSpecificData(item.format, item);
   const response = await client.createPost({
     content: item.caption ?? '',
     mediaItems: await buildZernioMediaItems(item),
@@ -983,7 +991,7 @@ export async function loadWorkItem(item, options = {}) {
       .order('position'),
     supabase
       .from('publication_items')
-      .select('container_poll_count, provider_creation_started_at, zernio_recovery_count, zernio_recovery_poll_at')
+      .select('container_poll_count, provider_creation_started_at, zernio_recovery_count, zernio_recovery_poll_at, reel_cover_media_asset_id')
       .eq('id', item.id)
       .eq('organization_id', item.organization_id)
       .maybeSingle(),
@@ -1011,6 +1019,24 @@ export async function loadWorkItem(item, options = {}) {
 
   if (media.length !== mediaRows.length) return invalidWorkItem('Uma ou mais mídias não estão prontas para publicação.');
 
+  let cover = null;
+  if (stateResult.data.reel_cover_media_asset_id) {
+    const coverResult = await supabase
+      .from('media_assets')
+      .select('id, storage_path, kind, status, deleted_at, organization_id')
+      .eq('id', stateResult.data.reel_cover_media_asset_id)
+      .eq('organization_id', item.organization_id)
+      .maybeSingle();
+    if (coverResult.error || !coverResult.data || coverResult.data.deleted_at || coverResult.data.status === 'deleted') {
+      return removedWorkItem('A capa personalizada foi apagada.');
+    }
+    if (coverResult.data.status !== 'ready' || coverResult.data.kind !== 'image') {
+      return invalidWorkItem('A capa personalizada não está pronta para publicação.');
+    }
+    if (item.format !== 'reel') return invalidWorkItem('Capa personalizada só pode ser usada em Reel.');
+    cover = { id: coverResult.data.id, storage_path: coverResult.data.storage_path, kind: 'image' };
+  }
+
   return {
     id: item.id,
     batch_id: item.batch_id,
@@ -1026,6 +1052,112 @@ export async function loadWorkItem(item, options = {}) {
     execute_at: item.execute_at ?? null,
     profile: profileResult.data,
     media,
+    cover,
+  };
+}
+
+// A preparação v2 é estritamente local: valida dados e mídia, mas não gera URL
+// assinada, não chama a Meta/Zernio e não cria agendamento remoto.
+export function validatePreparedPublicationWorkItem(workItem) {
+  if (!workItem || typeof workItem !== 'object') {
+    throw publicationDataError('Item ausente durante a preparação local.', 'preparation_item_missing');
+  }
+  if ('state' in workItem) {
+    throw publicationDataError(
+      workItem.errorMessage ?? 'Item bloqueado durante a preparação local.',
+      workItem.errorCode ?? 'preparation_blocked',
+    );
+  }
+  if (!workItem.profile?.organization_id) {
+    throw publicationDataError('Organização do perfil ausente.', 'preparation_profile_organization_missing');
+  }
+  if (workItem.profile.provider === 'zernio') {
+    if (!workItem.profile.zernio_account_id) {
+      throw publicationDataError('Perfil sem social account da Zernio.', 'preparation_zernio_account_missing');
+    }
+    validateZernioMedia(workItem);
+    return { ready: true, provider: 'zernio', mediaCount: workItem.media.length };
+  }
+  if (workItem.profile.provider === 'meta_official') {
+    if (!workItem.profile.instagram_user_id || !workItem.profile.encrypted_access_token) {
+      throw publicationDataError('Perfil Meta sem identidade ou token local.', 'preparation_meta_credentials_missing');
+    }
+    if (workItem.format === 'carousel') {
+      if (workItem.media.length < 2 || workItem.media.length > 10) {
+        throw publicationDataError('Carrossel requer entre 2 e 10 mídias.', 'preparation_carousel_media_count_invalid');
+      }
+    } else if (workItem.media.length !== 1) {
+      throw publicationDataError('O formato requer exatamente uma mídia.', 'preparation_media_count_invalid');
+    }
+    if (workItem.format === 'image' && workItem.media[0]?.kind !== 'image') {
+      throw publicationDataError('Publicação de imagem requer uma imagem.', 'preparation_image_media_invalid');
+    }
+    if (workItem.format === 'reel' && workItem.media[0]?.kind !== 'video') {
+      throw publicationDataError('Reel requer um vídeo.', 'preparation_reel_media_invalid');
+    }
+    return { ready: true, provider: 'meta_official', mediaCount: workItem.media.length };
+  }
+  throw publicationDataError('Provedor do perfil não suportado.', 'preparation_provider_unsupported');
+}
+
+export async function preparePublicationQueueDirect(options = {}) {
+  const workerId = options.workerId?.trim().slice(0, 120) || `prepare-${randomUUID()}`;
+  const limit = Number.isInteger(options.limit) ? Math.min(Math.max(options.limit, 1), 500) : 100;
+  const leaseSeconds = Number.isInteger(options.leaseSeconds) ? Math.min(Math.max(options.leaseSeconds, 30), 900) : 180;
+  const windowHours = Number.isInteger(options.windowHours) ? Math.min(Math.max(options.windowHours, 1), 24) : 24;
+  const supabase = (options.createSupabase ?? createSupabase)();
+  const { data, error } = await supabase.rpc('claim_publication_preparation_items', {
+    p_worker_id: workerId,
+    p_limit: limit,
+    p_lease_seconds: leaseSeconds,
+    p_window_hours: windowHours,
+  });
+  if (error) throw error;
+
+  const claimed = data ?? [];
+  const settled = await Promise.allSettled(claimed.map(async (item) => {
+    try {
+      const workItem = await loadWorkItem({
+        ...item,
+        attempt_count: 0,
+        creation_id: null,
+        correlation_id: options.correlationId ?? null,
+      }, options);
+      validatePreparedPublicationWorkItem(workItem);
+      const { error: completionError } = await supabase.rpc('complete_publication_preparation', {
+        p_item_id: item.id,
+        p_worker_id: workerId,
+        p_ready: true,
+        p_error_code: null,
+        p_error_message: null,
+        p_retry_seconds: 900,
+      });
+      if (completionError) throw completionError;
+      return { itemId: item.id, state: 'ready' };
+    } catch (preparationError) {
+      const failure = errorInfo(preparationError);
+      const { error: completionError } = await supabase.rpc('complete_publication_preparation', {
+        p_item_id: item.id,
+        p_worker_id: workerId,
+        p_ready: false,
+        p_error_code: failure.code ?? 'preparation_failed',
+        p_error_message: failure.message ?? 'Falha na preparação local.',
+        p_retry_seconds: 900,
+      });
+      if (completionError) throw completionError;
+      return { itemId: item.id, state: 'blocked', errorCode: failure.code ?? 'preparation_failed' };
+    }
+  }));
+
+  const results = settled.map((entry, index) => entry.status === 'fulfilled'
+    ? entry.value
+    : { itemId: claimed[index].id, state: 'error', error: errorInfo(entry.reason).message });
+  return {
+    claimed: claimed.length,
+    ready: results.filter((item) => item.state === 'ready').length,
+    blocked: results.filter((item) => item.state === 'blocked').length,
+    errors: results.filter((item) => item.state === 'error').length,
+    results,
   };
 }
 
@@ -1044,6 +1176,7 @@ async function recoverMissedPublicationSchedules(options = {}) {
     rescheduled: recovered.filter((item) => item.outcome === 'rescheduled_once').length,
     requiresAttention: recovered.filter((item) => item.outcome === 'requires_attention').length,
     bulkSlotsAtRisk: recovered.filter((item) => item.outcome === 'bulk_slot_at_risk').length,
+    overdueAlerts: recovered.filter((item) => item.outcome === 'overdue_sla_alerted').length,
   };
 }
 
@@ -1514,7 +1647,14 @@ export async function processClaimedItem(item, workerId) {
     }
     if (capacityReserved) await releasePublicationDispatchCapacity(item.id);
 
-    return { itemId: item.id, state: result.state, recovered: result.state === 'published' && result.recovered === true };
+    return {
+      itemId: item.id,
+      state: result.state,
+      recovered: result.state === 'published' && result.recovered === true,
+      ...(result.state === 'failed' || result.state === 'removed'
+        ? { errorCode: result.errorCode ?? null, providerPressure: result.providerPressure === true }
+        : {}),
+    };
   } catch (error) {
     if (capacityReserved) await releasePublicationDispatchCapacity(item.id);
     const message = await recoverUnexpectedDispatcherFailure(item.id, workerId, error);
@@ -1523,12 +1663,37 @@ export async function processClaimedItem(item, workerId) {
   }
 }
 
+export function nextAdaptiveDispatchLimit(currentLimit, configuredMaximum, processed = [], claimed = 0) {
+  const maximum = Math.min(Math.max(Number(configuredMaximum) || 1, 1), 100);
+  const current = Math.min(Math.max(Number(currentLimit) || 1, 1), maximum);
+  const pressureCount = processed.filter((item) => {
+    if (item?.providerPressure === true) return true;
+    const signal = `${item?.state ?? ''} ${item?.errorCode ?? ''} ${item?.error ?? ''}`.toLowerCase();
+    return /rate.?limit|too.?many|429|retry.?after|timeout|network/.test(signal);
+  }).length;
+  if (pressureCount > 0) return Math.max(1, Math.floor(current / 2));
+  if (claimed >= current) return Math.min(maximum, current + Math.max(1, Math.ceil(current * 0.2)));
+  return current;
+}
+
+const adaptiveDispatchLimits = new Map();
+
 export async function dispatchPublicationQueueDirect(options = {}) {
   const workerId = options.workerId?.trim().slice(0, 120) || `direct-${randomUUID()}`;
-  const limit = Number.isInteger(options.limit) ? Math.min(Math.max(options.limit, 1), 100) : 5;
+  const configuredLimit = Number.isInteger(options.limit) ? Math.min(Math.max(options.limit, 1), 100) : 5;
+  const limit = adaptiveDispatchLimits.get(workerId) ?? Math.min(configuredLimit, 10);
   const leaseSeconds = Number.isInteger(options.leaseSeconds) ? Math.min(Math.max(options.leaseSeconds, 30), 900) : 180;
   const recoveryLimit = Number.isInteger(options.recoveryLimit) ? Math.min(Math.max(options.recoveryLimit, 0), limit) : 0;
   const supabase = createSupabase();
+  const preparation = await preparePublicationQueueDirect({
+    workerId: `${workerId}:prepare`.slice(0, 120),
+    limit: Number.isInteger(options.preparationLimit)
+      ? options.preparationLimit
+      : Math.min(500, Math.max(100, limit * 4)),
+    leaseSeconds,
+    windowHours: 24,
+    correlationId: options.correlationId,
+  });
   const recovery = await recoverMissedPublicationSchedules({ workerId, correlationId: options.correlationId });
   const recoveryItems = await claimCoordinatedBulkSlotRecoveryItems(
     workerId,
@@ -1551,16 +1716,20 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   const processed = settled.map((entry, index) => entry.status === 'fulfilled'
     ? entry.value
     : { itemId: items[index].id, state: 'error', error: errorInfo(entry.reason).message ?? 'Falha desconhecida no processamento paralelo.' });
+  const nextLimit = nextAdaptiveDispatchLimit(limit, configuredLimit, processed, items.length);
+  adaptiveDispatchLimits.set(workerId, nextLimit);
   // A reciclagem vem após o dispatch: lentidão da Zernio não adia claims/publicações desta rodada.
   const finalizedSlotRecoveries = await finalizeCoordinatedBulkSlotRecoveryItems(workerId);
   const recycling = await processZernioProfileRecyclingJobs(workerId, Math.min(limit, 20));
 
   console.info('Dispatcher direto de publicação concluído.', {
     workerId,
+    preparation: { claimed: preparation.claimed, ready: preparation.ready, blocked: preparation.blocked, errors: preparation.errors },
     recovery,
     coordinatedRecovery: { claimed: recoveryItems.length, finalized: finalizedSlotRecoveries },
     recycling: recycling.length,
     claimed: items.length,
+    adaptiveConcurrency: { used: limit, next: nextLimit, maximum: configuredLimit },
     states: processed.reduce((counts, item) => {
       counts[item.state] = (counts[item.state] ?? 0) + 1;
       return counts;
@@ -1568,10 +1737,12 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   });
   return {
     workerId,
+    preparation,
     recovery,
     coordinatedRecovery: { claimed: recoveryItems.length, finalized: finalizedSlotRecoveries },
     recycling,
     claimed: items.length,
+    adaptiveConcurrency: { used: limit, next: nextLimit, maximum: configuredLimit },
     processed,
   };
 }

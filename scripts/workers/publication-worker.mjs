@@ -18,6 +18,7 @@ const dryRun = process.env.PUBLICATION_WORKER_DRY_RUN !== 'false';
 const pollIntervalMs = integerEnv('PUBLICATION_WORKER_POLL_INTERVAL_MS', 5000, 500, 60000);
 const heartbeatIntervalMs = integerEnv('PUBLICATION_WORKER_HEARTBEAT_INTERVAL_MS', 30000, 5000, 300000);
 const dispatchLimit = integerEnv('PUBLICATION_WORKER_LIMIT', 5, 1, 100);
+const preparationLimit = integerEnv('PUBLICATION_WORKER_PREPARATION_LIMIT', 100, 1, 500);
 const leaseSeconds = integerEnv('PUBLICATION_WORKER_LEASE_SECONDS', 180, 30, 900);
 const coordinatedRecoveryLimit = integerEnv('PUBLICATION_WORKER_COORDINATED_RECOVERY_LIMIT', 0, 0, 100);
 
@@ -118,6 +119,7 @@ async function heartbeat(supabase, status, metadata = {}, lastErrorMessage = nul
       pollIntervalMs,
       heartbeatIntervalMs,
       dispatchLimit,
+      preparationLimit,
       leaseSeconds,
       ...metadata,
     },
@@ -188,8 +190,18 @@ function summarizeDispatch(dispatch) {
         rescheduled: Number(dispatch.recovery.rescheduled || 0),
         requiresAttention: Number(dispatch.recovery.requiresAttention || 0),
         bulkSlotsAtRisk: Number(dispatch.recovery.bulkSlotsAtRisk || 0),
+        overdueAlerts: Number(dispatch.recovery.overdueAlerts || 0),
       }
       : null,
+    preparation: dispatch.preparation && typeof dispatch.preparation === 'object'
+      ? {
+        claimed: Number(dispatch.preparation.claimed || 0),
+        ready: Number(dispatch.preparation.ready || 0),
+        blocked: Number(dispatch.preparation.blocked || 0),
+        errors: Number(dispatch.preparation.errors || 0),
+      }
+      : null,
+    adaptiveConcurrency: dispatch.adaptiveConcurrency ?? null,
     coordinatedRecovery: dispatch.coordinatedRecovery && typeof dispatch.coordinatedRecovery === 'object'
       ? {
         claimed: Number(dispatch.coordinatedRecovery.claimed || 0),
@@ -220,6 +232,7 @@ async function tick(supabase, correlationId) {
       workerId,
       limit: dispatchLimit,
       leaseSeconds,
+      preparationLimit,
       correlationId,
       recoveryLimit: coordinatedRecoveryLimit,
     });
