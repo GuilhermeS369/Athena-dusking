@@ -1277,3 +1277,11 @@ Registros são append-only.
 - Saúde read-only: `first_send_approved`; quatro workers esperados, zero stale, zero breaker, seis publicações X publicadas, zero pendente/unknown, wallet 11.590.000/0 versão 26. VPS/PM2 não exigiram alteração ou reinício.
 - Validação: 249/249 testes, TypeScript, build local/Preview/Production e `git diff --check` aprovados. Warnings metadata preexistentes em login/onboarding/not-found permanecem fora do escopo.
 - Status: `completed`. Próxima ação segura: importar chaves reais por lote e executar o gate de primeiro envio após conectar/sincronizar cada nova conta.
+
+## X-0105 — ajuste solicitado da carteira X existente (preflight)
+
+- UTC: 2026-08-24T12:04:39Z; São Paulo: 2026-08-24T09:04:39-03:00. Entrada: commit `5ff332e`, worktree limpo.
+- Escopo autorizado: somente a carteira da conexão X `RobbieFatigate5434`, levando o saldo contábil atual para US$ 16,20. Nenhuma alteração de concessão original, reserva, preço, fila, worker ou Instagram.
+- Preflight read-only: saldo 11.590.000 micros, reservado 0, versão 26; delta necessário 4.610.000 micros.
+- Migration 255 adiciona RPC service-role com lock, saldo anterior esperado, saldo-alvo, ledger imutável, versão e idempotência. Teste focado e dry-run aprovados; nenhuma mutação remota até este checkpoint.
+- Próxima ação segura: checkpoint Git, aplicar somente 255, chamar a RPC uma vez e verificar wallet, ledger e replay idempotente. Rollback financeiro, se solicitado, deverá ser outro adjustment auditável; nunca apagar ledger.
