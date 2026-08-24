@@ -113,6 +113,8 @@ export async function applyTwitterProfileInventory(
 
   await admin.from('twitter_connections').update({
     last_sync_at: new Date().toISOString(),
+    remote_twitter_account_count: seenIds.length,
+    remote_inventory_checked_at: new Date().toISOString(),
     last_error_code: null,
     last_error_message: null,
   }).eq('id', connectionId).eq('organization_id', organizationId);

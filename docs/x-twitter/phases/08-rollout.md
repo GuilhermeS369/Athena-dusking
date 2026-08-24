@@ -279,3 +279,13 @@ Nenhuma organização foi adicionada, nenhum worker foi iniciado e fallback cont
 - O campo `Ordem da rotação` e o algoritmo determinístico v2 foram reaproveitados do Instagram: modo diversificado usa offset por perfil e passo coprimo; modo mesma ordem preserva a sequência canônica. O ciclo texto × mídia utiliza todas as combinações antes de repetir.
 - Preview `dpl_9gfsDZ5TqGB2aRQyVS3i3JHi1t3T` e Production `dpl_4ujKYUfURyvwrc2K92g2SY9JYDXW`, ambos `READY`. QA autenticado comprovou as contagens 2→1 ao criar um conjunto de duas imagens e revisão financeira read-only em `same_order`.
 - Pós-QA: wallet 11.590.000/0, zero fila/unknown, quatro workers saudáveis e zero breaker. Supabase 253/253; banco e VPS não mudaram. Rollback Vercel: `dpl_XFakKdYn6RmFWYPoMJ2VvK9ny3EU`.
+
+### Reconstrução administrativa `/x/zernio` — preflight local — 24/08/2026
+
+- Entrada: branch `codex/x-twitter-module`, commit `33f7da7`, worktree limpo antes desta unidade.
+- Auditoria visual/código comparou `/zernio` e `/x/zernio`: o X possuía somente cadastro unitário, saldo fixo de US$ 12, nenhum limite persistido, nenhuma contagem completa de perfis e cards sem a estrutura visual do Instagram.
+- Implementado localmente: importação pareada de até 100 nomes/chaves; saldo inicial em micros e limite por lote; padrões editáveis da organização; concessão única global preservada; registro global de fingerprint; reutilização após soft-delete; limite OAuth transacional; inventário remoto/local; cards e modais com as classes `zernio-*` existentes.
+- Isolamento: migration/tabelas/rotas usam somente `twitter_*`; nenhuma rotina Instagram foi modificada. O CSS compartilhado recebeu apenas extensões neutras/X-específicas.
+- Gate local: TypeScript aprovado, build aprovado com warnings metadata preexistentes, 247/247 testes completos e 5/5 testes focados posteriores, `git diff --check` aprovado. Supabase local/remoto 253/253 e dry-run aponta somente a migration 254.
+- Nenhuma mutação remota, chave, conexão, saldo, fila, worker, PM2 ou deployment ocorreu até este checkpoint.
+- Próxima ação segura: revisar/confirmar a migration 254, criar commit do checkpoint, aplicar 254, implantar Preview com QA autenticado e somente depois promover Production. Rollback de banco será forward-only; rollback da aplicação será para `dpl_4ujKYUfURyvwrc2K92g2SY9JYDXW`.

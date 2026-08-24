@@ -1254,3 +1254,15 @@ Registros são append-only.
 - Auditoria pós-QA confirmou wallet 11.590.000/0 versão 26, zero publicação pendente/unknown, zero reserva unknown, quatro workers esperados sem heartbeat stale e zero breaker. Logs do novo deployment não apresentaram erro.
 - Supabase local/remoto permaneceu 253/253; nenhuma migration ou dado foi criado. VPS/PM2 não mudaram porque a rotação é congelada nos itens pela API antes do claim.
 - Status: `completed`. `git diff --check`, 244/244 testes, TypeScript e build aprovados. Não repetir a revisão QA como confirmação; ela foi fechada sem criar programa.
+
+## X-0104 — reconstrução administrativa Zernio X (preflight local)
+
+- UTC: 2026-08-24T11:43:53Z; São Paulo: 2026-08-24T08:43:53-03:00. Executor: Codex GPT-5. Entrada: branch `codex/x-twitter-module`, commit `33f7da7`, worktree inicialmente limpo.
+- Objetivo: refazer `/x/zernio` em paridade funcional/visual com a administração Instagram, preservando carteira, Analytics/Inbox e isolamento X. Fora do escopo: alterar qualquer worker, fila, tabela, RPC ou comportamento Instagram.
+- Código local: migration 254; importação em massa pareada; saldo inicial e limite por lote/padrão; fingerprints globais; grants variáveis/únicos; reserva OAuth atômica; inventário remoto/local; APIs de settings/configuração; UI responsiva usando as classes existentes do Instagram.
+- Invariantes verificadas: valores financeiros inteiros em micros; alterar padrão não altera grants existentes; mesmo `userId` nunca ganha segunda concessão; chave ativa/reservada não duplica; remoção torna fingerprint reutilizável; limite não pode ficar abaixo da ocupação; sync persiste contagem remota.
+- Comandos sem secrets: `npx tsc --noEmit`, `npm test`, `npm run build`, testes Node focados, `supabase migration list`, `supabase db push --dry-run`, `git diff --check`.
+- Resultados: TypeScript aprovado; 247/247 testes completos aprovados; 5/5 testes administrativos focados aprovados; build de 47 páginas aprovado; apenas warnings metadata preexistentes. Dry-run: somente 254 pendente.
+- Ambientes: Supabase remoto permanece 253; Vercel permanece Production `dpl_4ujKYUfURyvwrc2K92g2SY9JYDXW`; VPS/PM2 não foram consultados nem alterados nesta unidade; nenhum segredo, saldo, grant, conexão, fila ou dado remoto mudou.
+- Rollback: antes da aplicação remota, reverter somente a unidade local. Depois de 254, banco somente por migration corretiva forward-only; aplicação pode voltar à Production acima. Tabelas aditivas 254 podem permanecer sem consumidores.
+- Status: `in_progress`. Próxima ação segura: commit do checkpoint local, aplicar 254, confirmar migrações, Preview, QA autenticado sem cadastrar chave real e promoção Production. Não repetir provisioning existente nem expor API keys.

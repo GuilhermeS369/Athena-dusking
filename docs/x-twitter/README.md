@@ -2,9 +2,9 @@
 
 ## Estado atual
 
-- Atualizado em: 2026-08-23T17:36:19Z / 2026-08-23T14:36:19-03:00
+- Atualizado em: 2026-08-24T11:43:53Z / 2026-08-24T08:43:53-03:00
 - Fase atual: 8 — rollout global (`completed`)
-- Status: módulo X e Agenda V2 disponíveis para todas as organizações. Postagem X usa imagens da origem individualmente quando não há conjuntos manuais e oferece a mesma rotação v2 do Instagram (`diversified`/`same_order`). Publicação, sync, Analytics manual e reconciliação seguem ativos; fallback e polling periódico de Analytics permanecem desligados.
+- Status: módulo X e Agenda V2 disponíveis para todas as organizações. A administração `/x/zernio` está em reconstrução validada localmente, ainda não implantada: cadastro em massa, saldo inicial e limite de contas configuráveis, proteção contra duplicidade, ocupação e layout em paridade com Instagram sem compartilhar suas estruturas.
 - Branch: `codex/x-twitter-module`
 - Commit inicial: `1caa0f2e5cb0773982f41cfcddb9bcdf9a45d9cb`
 - Checkpoint Git executável mais recente: `c38f246`; Preview `dpl_9gfsDZ5TqGB2aRQyVS3i3JHi1t3T` e Production `dpl_4ujKYUfURyvwrc2K92g2SY9JYDXW`, ambos `READY`. Alias oficial aponta para Production.
@@ -24,8 +24,8 @@
 ## Baseline conhecido
 
 - Worktree Analytics preexistente foi consolidado no checkpoint `41fd0c2`.
-- Migrações local/remoto alinhadas até 253.
-- Testes atuais: 244/244 aprovados.
+- Migrações remotas alinhadas até 253; migration 254 é a única pendente e passou no dry-run.
+- Testes atuais: 247/247 aprovados antes dos dois testes administrativos adicionais; testes focados posteriores 5/5.
 - `npx tsc --noEmit`: aprovado.
 - `npm run build`: aprovado com warnings preexistentes de metadata.
 - Supabase CLI, Vercel CLI e SSH da VPS: autenticados e operacionais.

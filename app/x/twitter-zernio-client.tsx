@@ -1,186 +1,75 @@
 'use client';
 
-import { useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+import { formatTwitterGrantInput, parseTwitterZernioImport } from '@/lib/twitter/zernio-import';
+
+type Organization = { id:string;name:string;role:'admin'|'operator'|'viewer' };
+type Wallet = { posted_balance_micros:number;reserved_micros:number;version:number };
 type Connection = {
-  id: string;
-  label: string;
-  status: string;
-  analytics_enabled: boolean;
-  inbox_enabled: boolean;
-  last_sync_at: string | null;
-  last_error_message: string | null;
-  wallet: { posted_balance_micros: number; reserved_micros: number; version: number } | null;
+  id:string;identity_id:string;label:string;zernio_profile_id:string|null;status:string;
+  analytics_enabled:boolean;inbox_enabled:boolean;last_verified_at:string|null;last_sync_at:string|null;
+  last_error_message:string|null;created_at:string;twitter_slot_limit:number;
+  remote_twitter_account_count:number|null;remote_inventory_checked_at:string|null;
+  twitter_profile_count:number;active_slot_reservation_count:number;wallet:Wallet|null;
+  grant:{amount_micros:number;created_at:string}|null;
 };
+type ImportItem={status:'queued'|'processing'|'succeeded'|'failed';last_error_message:string|null;line_number:number;label:string};
+type ImportBatch={id:string;status:'queued'|'processing'|'completed'|'completed_with_errors';total_count:number;created_at:string;twitter_connection_import_items:ImportItem[]};
+type TransferIdentity={id:string;wallet:Wallet|null;connectionActive:boolean;openReservation:boolean};
+type Destination={id:string;name:string};
+type TransferEvent={id:string;identity_id:string;reason:string;actor_email:string;created_at:string;fromOrganizationName:string;toOrganizationName:string};
+// Auditoria imutável: eventos de transferência continuam visíveis e não editáveis.
 
-type TransferIdentity = { id:string;wallet:{posted_balance_micros:number;reserved_micros:number;version:number}|null;connectionActive:boolean;openReservation:boolean };
-type Destination = { id:string;name:string };
-type TransferEvent = { id:string;identity_id:string;reason:string;actor_email:string;created_at:string;fromOrganizationName:string;toOrganizationName:string };
+function usd(micros:number){return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'USD'}).format(micros/1_000_000);}
+function date(value:string|null){return value?new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short'}).format(new Date(value)):'Nunca';}
+async function json(response:Response){const body=await response.json().catch(()=>({})) as Record<string,unknown>;if(!response.ok)throw new Error(typeof body.error==='string'?body.error:'A operação não pôde ser concluída.');return body;}
+function usedSlots(connection:Connection){return Math.max(connection.remote_twitter_account_count??0,connection.twitter_profile_count+connection.active_slot_reservation_count);}
 
-function usd(micros: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD' }).format(micros / 1_000_000);
-}
+export default function TwitterZernioClient({activeOrganization,initialConnections,initialDefaultGrantMicros,initialDefaultTwitterSlotLimit,transferIdentities,destinations,transferEvents,analyticsGateEnabled}:{activeOrganization:Organization;initialConnections:Connection[];initialDefaultGrantMicros:number;initialDefaultTwitterSlotLimit:number;transferIdentities:TransferIdentity[];destinations:Destination[];transferEvents:TransferEvent[];analyticsGateEnabled:boolean}){
+  const router=useRouter();const canAdmin=activeOrganization.role==='admin';const canManage=canAdmin||activeOrganization.role==='operator';
+  const[connections,setConnections]=useState(initialConnections);const[namesText,setNamesText]=useState('');const[apiKeysText,setApiKeysText]=useState('');
+  const[grantInput,setGrantInput]=useState(formatTwitterGrantInput(initialDefaultGrantMicros));const[slotLimit,setSlotLimit]=useState(initialDefaultTwitterSlotLimit);
+  const[defaultGrantInput,setDefaultGrantInput]=useState(formatTwitterGrantInput(initialDefaultGrantMicros));const[defaultSlotLimit,setDefaultSlotLimit]=useState(initialDefaultTwitterSlotLimit);
+  const[batches,setBatches]=useState<ImportBatch[]>([]);const[busy,setBusy]=useState<string|null>(null);const[message,setMessage]=useState('');const[tone,setTone]=useState<'neutral'|'success'|'error'>('neutral');
+  const[editing,setEditing]=useState<Connection|null>(null);const[editLabel,setEditLabel]=useState('');const[editLimit,setEditLimit]=useState(2);
+  const[deleting,setDeleting]=useState<Connection|null>(null);const[deleteReason,setDeleteReason]=useState('');const[deleteConfirmation,setDeleteConfirmation]=useState('');
+  const[transferIdentityId,setTransferIdentityId]=useState('');const[destinationId,setDestinationId]=useState('');const[transferReason,setTransferReason]=useState('');const[transferConfirmation,setTransferConfirmation]=useState('');
+  const draft=useMemo(()=>parseTwitterZernioImport(namesText,apiKeysText,grantInput,slotLimit),[namesText,apiKeysText,grantInput,slotLimit]);
+  const totals=useMemo(()=>connections.reduce((sum,c)=>({apis:sum.apis+1,profiles:sum.profiles+c.twitter_profile_count,online:sum.online+(c.status==='active'||c.status==='online'?1:0),available:sum.available+Number(c.wallet?.posted_balance_micros??0)-Number(c.wallet?.reserved_micros??0)}),{apis:0,profiles:0,online:0,available:0}),[connections]);
+  const latest=batches[0]??null;
+  function notify(text:string,nextTone:'neutral'|'success'|'error'='neutral'){setMessage(text);setTone(nextTone);}
+  async function refresh(){const body=await json(await fetch('/api/x/integrations/zernio/connections',{cache:'no-store'}));setConnections((body.connections as Connection[])??[]);router.refresh();}
+  async function refreshBatches(){const body=await json(await fetch('/api/x/integrations/zernio/import-batches',{cache:'no-store'}));setBatches((body.batches as ImportBatch[])??[]);}
+  useEffect(()=>{void refreshBatches().catch(()=>undefined);const timer=window.setInterval(()=>void refreshBatches().catch(()=>undefined),5000);return()=>window.clearInterval(timer);},[]);
 
-async function responseJson(response: Response) {
-  const body = await response.json().catch(() => ({})) as {
-    error?: string;
-    authUrl?: string;
-    adoptedExistingProfile?: boolean;
-    jobId?: string;
-    status?: string;
-    error_message?: string | null;
-    analyticsEnabled?: boolean;
-  };
-  if (!response.ok) throw new Error(body.error ?? 'A operação não pôde ser concluída.');
-  return body;
-}
+  async function importConnections(event:FormEvent){event.preventDefault();if(!canAdmin||!draft.valid)return notify('Revise as duas listas, o saldo e o limite antes de continuar.','error');if(!window.confirm(`Cadastrar ${draft.rows.length} chave(s), pareadas pela mesma linha, com saldo inicial de ${usd(draft.initialGrantMicros??0)} e limite ${slotLimit}?`))return;
+    setBusy('import');try{const body=await json(await fetch('/api/x/integrations/zernio/import-batches',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({namesText,apiKeysText,initialGrantUsd:grantInput,twitterSlotLimit:slotLimit})}));setNamesText('');setApiKeysText('');await Promise.all([refreshBatches(),refresh()]);notify((body.outcome as {status?:string})?.status==='waiting'?'Lote enfileirado atrás de outra importação.':'Lote processado. Confira o resumo e os cards.','success');}catch(error){notify(error instanceof Error?error.message:'Falha na importação.','error');}finally{setBusy(null);}}
+  async function retry(batchId:string){setBusy('retry');try{await json(await fetch('/api/x/integrations/zernio/import-batches',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({retryBatchId:batchId})}));await Promise.all([refreshBatches(),refresh()]);notify('Linhas com falha reprocessadas.','success');}catch(error){notify(error instanceof Error?error.message:'Falha ao retomar.','error');}finally{setBusy(null);}}
+  async function saveDefaults(event:FormEvent){event.preventDefault();setBusy('defaults');try{const body=await json(await fetch('/api/x/integrations/zernio/settings',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({defaultInitialGrantUsd:defaultGrantInput,defaultTwitterSlotLimit:defaultSlotLimit})}));const settings=body.settings as {default_initial_grant_micros:number;default_twitter_slot_limit:number};setGrantInput(formatTwitterGrantInput(Number(settings.default_initial_grant_micros)));setSlotLimit(settings.default_twitter_slot_limit);notify('Padrões salvos para os próximos lotes. Saldos já concedidos não foram alterados.','success');}catch(error){notify(error instanceof Error?error.message:'Falha ao salvar padrões.','error');}finally{setBusy(null);}}
+  async function connect(id:string){setBusy(`connect:${id}`);try{const body=await json(await fetch(`/api/x/integrations/zernio/connections/${id}/connect`,{method:'POST'}));if(!body.authUrl)throw new Error('A Zernio não retornou a autorização.');window.location.assign(String(body.authUrl));}catch(error){notify(error instanceof Error?error.message:'Falha ao conectar.','error');setBusy(null);}}
+  async function sync(id:string){setBusy(`sync:${id}`);try{const body=await json(await fetch(`/api/x/integrations/zernio/connections/${id}/sync`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({idempotencyKey:crypto.randomUUID()})}));notify(`Sincronização enfileirada${body.jobId?' no worker dedicado':''}.`,'success');await refresh();}catch(error){notify(error instanceof Error?error.message:'Falha ao sincronizar.','error');}finally{setBusy(null);}}
+  async function syncAll(){setBusy('sync-all');let failures=0;for(const connection of connections){try{await json(await fetch(`/api/x/integrations/zernio/connections/${connection.id}/sync`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({idempotencyKey:crypto.randomUUID()})}));}catch{failures++;}}notify(failures?`${connections.length-failures} sincronização(ões) enfileirada(s); ${failures} falharam.`:`${connections.length} sincronização(ões) enfileirada(s).`,failures?'neutral':'success');setBusy(null);}
+  async function configure(event:FormEvent){event.preventDefault();if(!editing)return;setBusy(`edit:${editing.id}`);try{await json(await fetch(`/api/x/integrations/zernio/connections/${editing.id}`,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({label:editLabel,twitterSlotLimit:editLimit})}));setEditing(null);await refresh();notify('Nome e capacidade atualizados.','success');}catch(error){notify(error instanceof Error?error.message:'Falha ao configurar.','error');}finally{setBusy(null);}}
+  async function remove(){if(!deleting)return;setBusy(`delete:${deleting.id}`);try{await json(await fetch(`/api/x/integrations/zernio/connections/${deleting.id}`,{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({reason:deleteReason})}));setDeleting(null);await refresh();notify('Conexão removida. Histórico financeiro preservado.','success');}catch(error){notify(error instanceof Error?error.message:'Falha ao remover.','error');}finally{setBusy(null);}}
+  async function capabilities(connection:Connection){const enabling=!connection.analytics_enabled;if(enabling&&!window.confirm('Analytics pode gerar leituras cobradas pela Zernio. Continuar?'))return;const justification=window.prompt('Informe a justificativa auditável:');if(!justification)return;setBusy(`cap:${connection.id}`);try{await json(await fetch(`/api/x/integrations/zernio/connections/${connection.id}/capabilities`,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({analyticsEnabled:enabling,justification,idempotencyKey:crypto.randomUUID()})}));await refresh();notify(enabling?'Analytics ativado; Inbox permanece desligado.':'Analytics e Inbox desligados.','success');}catch(error){notify(error instanceof Error?error.message:'Falha ao alterar Analytics.','error');}finally{setBusy(null);}}
+  async function transfer(event:FormEvent){event.preventDefault();setBusy('transfer');try{await json(await fetch('/api/x/integrations/zernio/identities/transfer',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({identityId:transferIdentityId,destinationOrganizationId:destinationId,reason:transferReason,idempotencyKey:crypto.randomUUID()})}));notify('Identidade e saldo transferidos sem recriar concessão.','success');router.refresh();}catch(error){notify(error instanceof Error?error.message:'Falha na transferência.','error');}finally{setBusy(null);}}
 
-export default function TwitterZernioClient({ connections, transferIdentities, destinations, transferEvents, canManage, analyticsGateEnabled }: { connections: Connection[];transferIdentities:TransferIdentity[];destinations:Destination[];transferEvents:TransferEvent[];canManage: boolean;analyticsGateEnabled:boolean }) {
-  const router = useRouter();
-  const [label, setLabel] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [transferIdentityId,setTransferIdentityId]=useState('');
-  const [destinationId,setDestinationId]=useState('');
-  const [transferReason,setTransferReason]=useState('');
-  const [transferConfirmation,setTransferConfirmation]=useState('');
-
-  async function create(event: React.FormEvent) {
-    event.preventDefault();
-    setBusy('create'); setMessage(null);
-    try {
-      const body = await responseJson(await fetch('/api/x/integrations/zernio/connections', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label, apiKey }),
-      }));
-      setApiKey(''); setLabel(''); setMessage(body.adoptedExistingProfile ? 'Conexão cadastrada e profile X existente reconhecido. Agora sincronize.' : 'Conexão cadastrada. Agora conecte as contas X.'); router.refresh();
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Falha no cadastro.'); }
-    finally { setBusy(null); }
-  }
-
-  async function connect(connectionId: string) {
-    setBusy(`connect:${connectionId}`); setMessage(null);
-    try {
-      const body = await responseJson(await fetch(`/api/x/integrations/zernio/connections/${connectionId}/connect`, { method: 'POST' }));
-      if (!body.authUrl) throw new Error('A Zernio não retornou a autorização.');
-      window.location.assign(body.authUrl);
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Falha ao conectar.'); setBusy(null); }
-  }
-
-  async function sync(connectionId: string) {
-    setBusy(`sync:${connectionId}`); setMessage(null);
-    try {
-      const started = await responseJson(await fetch(`/api/x/integrations/zernio/connections/${connectionId}/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idempotencyKey: crypto.randomUUID() }),
-      }));
-      if (!started.jobId) throw new Error('A fila não retornou o job de sincronização.');
-      setMessage('Sincronização X enfileirada no worker dedicado.');
-      for (let attempt = 0; attempt < 40; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 1500));
-        const current = await responseJson(await fetch(
-          `/api/x/integrations/zernio/connections/${connectionId}/sync?jobId=${encodeURIComponent(started.jobId)}`,
-          { cache: 'no-store' },
-        ));
-        if (current.status === 'succeeded') {
-          setMessage('Perfis X sincronizados.'); router.refresh(); return;
-        }
-        if (current.status === 'failed' || current.status === 'cancelled') {
-          throw new Error(current.error_message ?? 'A sincronização X falhou.');
-        }
-      }
-      setMessage('A sincronização continua na fila. Você pode atualizar a página depois.');
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Falha ao sincronizar.'); }
-    finally { setBusy(null); }
-  }
-
-  async function remove(connectionId: string) {
-    const reason = window.prompt('Informe o motivo da remoção. A fila futura será cancelada e reservas utilizáveis serão liberadas:');
-    if (!reason) return;
-    setBusy(`delete:${connectionId}`); setMessage(null);
-    try {
-      await responseJson(await fetch(`/api/x/integrations/zernio/connections/${connectionId}`, {
-        method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
-      }));
-      setMessage('Conexão removida sem apagar o histórico financeiro.'); router.refresh();
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Falha ao remover.'); }
-    finally { setBusy(null); }
-  }
-
-  async function setAnalyticsCapability(connection: Connection) {
-    const enabling = !connection.analytics_enabled;
-    if (enabling && !window.confirm('Ativar Analytics sync permite leituras cobradas em segundo plano pela Zernio. Inbox continuará desligado. Deseja continuar?')) return;
-    const justification = window.prompt(enabling ? 'Justifique a ativação controlada do Analytics sync:' : 'Justifique a desativação do Analytics sync:');
-    if (!justification) return;
-    setBusy(`capabilities:${connection.id}`); setMessage(null);
-    try {
-      const body = await responseJson(await fetch(`/api/x/integrations/zernio/connections/${connection.id}/capabilities`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ analyticsEnabled: enabling, justification, idempotencyKey: crypto.randomUUID() }),
-      }));
-      setMessage(body.analyticsEnabled ? 'Analytics sync ativado pela Athena. Inbox permanece desligado.' : 'Analytics sync e Inbox desligados pela Athena.');
-      router.refresh();
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Falha ao alterar o Analytics sync.'); }
-    finally { setBusy(null); }
-  }
-
-  async function transferIdentity(event:React.FormEvent){
-    event.preventDefault();setBusy('transfer');setMessage(null);
-    try{
-      await responseJson(await fetch('/api/x/integrations/zernio/identities/transfer',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({identityId:transferIdentityId,destinationOrganizationId:destinationId,reason:transferReason,idempotencyKey:crypto.randomUUID()})}));
-      setMessage('Identidade e saldo transferidos. O histórico financeiro foi preservado e nenhuma conexão ou fila foi recriada.');setTransferIdentityId('');setDestinationId('');setTransferReason('');setTransferConfirmation('');router.refresh();
-    }catch(error){setMessage(error instanceof Error?error.message:'Falha na transferência.');}
-    finally{setBusy(null);}
-  }
-
-  const onlineConnections=connections.filter(connection=>connection.status==='active'||connection.status==='online').length;
-  const availableTotal=connections.reduce((sum,connection)=>sum+Number(connection.wallet?.posted_balance_micros??0)-Number(connection.wallet?.reserved_micros??0),0);
   return <div className="content-stack">
-    {message ? <div className="notice-banner">{message}</div> : null}
-    <section className="zernio-metrics"><article className="metric-card"><span className="metric-label">Conexões</span><strong>{onlineConnections}/{connections.length}</strong><small className="metric-caption">Contas X operacionais</small></article><article className="metric-card"><span className="metric-label">Saldo disponível</span><strong>{usd(availableTotal)}</strong><small className="metric-caption">Após reservas abertas</small></article><article className="metric-card"><span className="metric-label">Analytics</span><strong>{connections.filter(connection=>connection.analytics_enabled).length}</strong><small className="metric-caption">Conexões opt-in</small></article></section>
-    {canManage ? <form className="panel auth-form zernio-create-panel" onSubmit={create}>
-      <h2>Cadastrar identidade Zernio para o X</h2>
-      <p className="muted">A identidade verificada recebe uma única concessão global de US$ 12,00. Trocar a chave não reinicia o saldo.</p>
-      <label>Nome da conexão<input value={label} onChange={(event) => setLabel(event.target.value)} maxLength={120} required /></label>
-      <label>API key Zernio<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" required /></label>
-      <button className="button button-primary" disabled={busy === 'create'}>{busy === 'create' ? 'Validando…' : 'Cadastrar conexão X'}</button>
-    </form> : null}
-    {canManage ? <form className="panel auth-form" onSubmit={transferIdentity}>
-      <h2>Transferir identidade para outra organização</h2>
-      <p className="muted">A transferência preserva o saldo restante e a auditoria. Ela nunca cria nova concessão, não move filas e exige que você seja admin nas duas organizações.</p>
-      {destinations.length===0?<p className="field-error-message">Nenhuma outra organização habilitada para o X está disponível com seu papel de admin.</p>:<>
-        <label>Identidade<select value={transferIdentityId} onChange={(event)=>setTransferIdentityId(event.target.value)} required><option value="">Selecione</option>{transferIdentities.map((identity)=>{const blocked=identity.connectionActive||identity.openReservation;return <option key={identity.id} value={identity.id} disabled={blocked}>{identity.id.slice(0,8)} · {usd(Number(identity.wallet?.posted_balance_micros??0))}{identity.connectionActive?' · remova a conexão':identity.openReservation?' · resolva reservas':''}</option>;})}</select></label>
-        <label>Organização de destino<select value={destinationId} onChange={(event)=>setDestinationId(event.target.value)} required><option value="">Selecione</option>{destinations.map((destination)=><option key={destination.id} value={destination.id}>{destination.name}</option>)}</select></label>
-        <label>Justificativa<textarea value={transferReason} onChange={(event)=>setTransferReason(event.target.value)} minLength={5} maxLength={1000} rows={3} required /></label>
-        <label>Digite TRANSFERIR para confirmar<input value={transferConfirmation} onChange={(event)=>setTransferConfirmation(event.target.value)} autoComplete="off" required /></label>
-        <button className="button button-danger" disabled={busy!==null||!transferIdentityId||!destinationId||transferReason.trim().length<5||transferConfirmation!=='TRANSFERIR'}>{busy==='transfer'?'Transferindo…':'Transferir identidade e saldo'}</button>
-      </>}
-    </form>:null}
-    {canManage&&transferEvents.length?<section className="panel"><div className="panel-heading"><div><span className="section-kicker">Auditoria imutável</span><h2>Transferências recentes</h2><p>Eventos de origem ou destino desta organização. Eles não podem ser editados ou apagados.</p></div></div><div className="content-stack">{transferEvents.map((event)=><article key={event.id}><strong>{event.fromOrganizationName} → {event.toOrganizationName}</strong><p className="muted">Identidade {event.identity_id.slice(0,8)} · {new Date(event.created_at).toLocaleString('pt-BR')} · {event.actor_email}</p><p>{event.reason}</p></article>)}</div></section>:null}
-    <section className="zernio-connection-grid">
-      {connections.length === 0 ? <div className="empty-state"><h2>Nenhuma conexão X</h2><p>Cadastre uma API key Zernio exclusiva para iniciar.</p></div> : connections.map((connection) => {
-        const posted = Number(connection.wallet?.posted_balance_micros ?? 0);
-        const reserved = Number(connection.wallet?.reserved_micros ?? 0);
-        return <article className="panel zernio-connection-card" key={connection.id}>
-          <div className="standalone-header"><div><h2>{connection.label}</h2><p className="muted">Status: {connection.status} · Última sincronização: {connection.last_sync_at ? new Date(connection.last_sync_at).toLocaleString('pt-BR') : 'nunca'}</p></div></div>
-          <div className="summary-grid">
-            <div><span>Saldo contábil</span><strong>{usd(posted)}</strong></div>
-            <div><span>Reservado</span><strong>{usd(reserved)}</strong></div>
-            <div><span>Disponível</span><strong>{usd(posted - reserved)}</strong></div>
-          </div>
-          <p className="muted">Analytics sync: {connection.analytics_enabled ? 'ativo' : 'desligado'} · Inbox sync: desligado</p>
-          {canManage ? <div className="notice-banner"><strong>Controle pelo Athena</strong><p>O Inbox nunca é ativado. Analytics é opt-in, auditado e só pode ser ligado quando o gate financeiro da organização estiver habilitado.</p></div> : null}
-          {connection.last_error_message ? <p className="field-error-message">{connection.last_error_message}</p> : null}
-          <div className="actions-row">
-            {canManage ? <button type="button" className="button button-primary" onClick={() => connect(connection.id)} disabled={busy !== null}>Conectar contas X</button> : null}
-            <button type="button" className="button button-ghost" onClick={() => sync(connection.id)} disabled={busy !== null}>Sincronizar</button>
-            {canManage ? <button type="button" className="button button-ghost" onClick={() => setAnalyticsCapability(connection)} disabled={busy !== null || (!connection.analytics_enabled && !analyticsGateEnabled)}>{connection.analytics_enabled ? 'Desligar Analytics sync' : analyticsGateEnabled ? 'Ativar Analytics sync' : 'Analytics aguardando gate'}</button> : null}
-            {canManage ? <button type="button" className="button button-danger" onClick={() => remove(connection.id)} disabled={busy !== null}>Remover</button> : null}
-          </div>
-        </article>;
-      })}
-    </section>
+    {message?<div className={`notice-banner ${tone==='error'?'field-error-message':''}`}>{message}</div>:null}
+    <section className="zernio-metrics zernio-metrics-four"><article className="metric-card"><span className="metric-label">APIs salvas</span><strong>{totals.apis}</strong><small className="metric-caption">Identidades Zernio X</small></article><article className="metric-card"><span className="metric-label">Contas X</span><strong>{totals.profiles}</strong><small className="metric-caption">Perfis vinculados localmente</small></article><article className="metric-card"><span className="metric-label">Online</span><strong>{totals.online}/{totals.apis}</strong><small className="metric-caption">Conexões operacionais</small></article><article className="metric-card"><span className="metric-label">Saldo disponível</span><strong>{usd(totals.available)}</strong><small className="metric-caption">Contábil menos reservado</small></article></section>
+    {canAdmin?<section className="panel zernio-create-panel"><div className="panel-heading"><div><span className="section-kicker">Cadastro em massa</span><h2>Adicionar contas Zernio para o X</h2><p>Um nome por linha e uma API key por linha. A linha 1 da esquerda usa a chave da linha 1 da direita. Nomes e chaves duplicados são bloqueados antes do cadastro.</p></div><button className="button button-secondary" type="button" disabled={busy!==null||connections.length===0} onClick={()=>void syncAll()}>{busy==='sync-all'?'Enfileirando…':'Sincronizar todas'}</button></div>
+      <form className="zernio-create-form" onSubmit={importConnections}><div className="zernio-import-editor-grid"><label className="panel zernio-import-textarea-panel"><span><strong>Nomes das conexões</strong><small>{namesText.split(/\r?\n/).filter(Boolean).length} linha(s)</small></span><em>Ex.: Operação A, Operação B…</em><textarea value={namesText} onChange={event=>setNamesText(event.target.value)} rows={8} disabled={busy==='import'} /></label><label className="panel zernio-import-textarea-panel"><span><strong>API keys Zernio</strong><small>{apiKeysText.split(/\r?\n/).filter(Boolean).length} linha(s)</small></span><em>As chaves nunca voltam para o navegador após salvar.</em><textarea value={apiKeysText} onChange={event=>setApiKeysText(event.target.value)} rows={8} spellCheck={false} disabled={busy==='import'} /></label></div>
+        <div className="twitter-zernio-batch-defaults"><label>Saldo inicial por identidade (USD)<input inputMode="decimal" value={grantInput} onChange={event=>setGrantInput(event.target.value)} /></label><label>Limite de contas X por Zernio<input type="number" min="1" max="100" value={slotLimit} onChange={event=>setSlotLimit(Number(event.target.value))} /></label></div>
+        <div className="zernio-import-alert-stack">{draft.issues.map((issue,index)=><p className="zernio-import-error-alert" key={`${issue.lineNumber}-${index}`}>{issue.lineNumber?`Linha ${issue.lineNumber}: `:''}{issue.message}</p>)}{draft.valid?<p className="zernio-import-ready-alert">{draft.rows.length} chave(s) pronta(s), em ordem, com {usd(draft.initialGrantMicros??0)} e limite {slotLimit} por conexão.</p>:null}</div><button className="button button-primary zernio-import-submit" disabled={busy!==null||!draft.valid}>{busy==='import'?'Cadastrando…':`Cadastrar ${draft.rows.length||0} chave(s)`}</button>
+      </form>
+      <form className="twitter-zernio-default-settings" onSubmit={saveDefaults}><div><strong>Padrões para novos lotes</strong><small>Alterar estes valores não muda carteiras nem limites já cadastrados.</small></div><label>Saldo padrão (USD)<input value={defaultGrantInput} onChange={event=>setDefaultGrantInput(event.target.value)} /></label><label>Limite padrão<input type="number" min="1" max="100" value={defaultSlotLimit} onChange={event=>setDefaultSlotLimit(Number(event.target.value))} /></label><button className="button button-ghost" disabled={busy!==null}>Salvar padrões</button></form>
+    </section>:null}
+    {latest?<section className="panel zernio-import-progress"><div><span className="section-kicker">Último lote</span><h2>{latest.total_count} chave(s) · {latest.status}</h2><p>{latest.twitter_connection_import_items.filter(item=>item.status==='succeeded').length} concluída(s), {latest.twitter_connection_import_items.filter(item=>item.status==='failed').length} falha(s).</p></div>{latest.twitter_connection_import_items.some(item=>item.status==='failed')?<button className="button button-secondary" disabled={busy!==null} onClick={()=>void retry(latest.id)}>Reprocessar falhas</button>:null}{latest.twitter_connection_import_items.filter(item=>item.status==='failed').map(item=><p className="zernio-import-item-error" key={item.line_number}>Linha {item.line_number} · {item.label}: {item.last_error_message}</p>)}</section>:null}
+    <section className="zernio-connection-grid">{connections.length===0?<div className="empty-state zernio-empty-state"><h2>Nenhuma conexão X</h2><p>Cadastre uma ou várias API keys acima.</p></div>:connections.map(connection=>{const posted=Number(connection.wallet?.posted_balance_micros??0);const reserved=Number(connection.wallet?.reserved_micros??0);const used=usedSlots(connection);return <article className="panel zernio-connection-card" key={connection.id}><div className="zernio-card-topline"><span className={`profile-status ${connection.status==='active'||connection.status==='online'?'profile-status-online':'profile-status-warning'}`}>{connection.status}</span><span className="zernio-balance-pill">{usd(posted-reserved)} disponível</span></div><div className="zernio-card-title"><h2>{connection.label} <small>({used}/{connection.twitter_slot_limit})</small></h2><p>Profile Zernio: {connection.zernio_profile_id??'aguardando criação'}</p></div><dl className="zernio-card-details"><div><dt>Adicionada</dt><dd>{date(connection.created_at)}</dd></div><div><dt>Verificada</dt><dd>{date(connection.last_verified_at)}</dd></div><div><dt>Inventário X</dt><dd>{date(connection.remote_inventory_checked_at)}</dd></div><div><dt>Concessão original</dt><dd>{connection.grant?usd(Number(connection.grant.amount_micros)):'não localizada'}</dd></div></dl><div className="zernio-platform-strip"><span><strong>{usd(posted)}</strong>Saldo contábil</span><span><strong>{usd(reserved)}</strong>Reservado</span><span><strong>{usd(posted-reserved)}</strong>Disponível</span></div><div className="zernio-platform-strip"><span><strong>{connection.remote_twitter_account_count??'—'}</strong>Contas vistas na Zernio</span><span><strong>{connection.twitter_profile_count}</strong>Perfis X no Athena</span><span><strong>{connection.active_slot_reservation_count}</strong>Vagas OAuth reservadas</span></div><p className="muted">Analytics: {connection.analytics_enabled?'ativo':'desligado'} · Inbox: desligado · Limite: {connection.twitter_slot_limit}</p>{connection.last_error_message?<p className="field-error-message">{connection.last_error_message}</p>:null}<div className="zernio-card-actions">{canAdmin?<button className="button button-primary" onClick={()=>void connect(connection.id)} disabled={busy!==null||used>=connection.twitter_slot_limit}>Conectar conta X</button>:null}{canManage?<button className="button button-secondary" onClick={()=>void sync(connection.id)} disabled={busy!==null}>Sincronizar</button>:null}{canAdmin?<button className="button button-secondary" onClick={()=>{setEditing(connection);setEditLabel(connection.label);setEditLimit(connection.twitter_slot_limit);}} disabled={busy!==null}>Configurar</button>:null}{canAdmin?<button className="button button-ghost" onClick={()=>void capabilities(connection)} disabled={busy!==null||(!connection.analytics_enabled&&!analyticsGateEnabled)}>{connection.analytics_enabled?'Desligar Analytics':'Ativar Analytics'}</button>:null}{canAdmin?<button className="button button-danger" onClick={()=>{setDeleting(connection);setDeleteReason('');setDeleteConfirmation('');}} disabled={busy!==null}>Excluir API</button>:null}</div></article>;})}</section>
+    {canAdmin?<details className="panel twitter-zernio-transfer"><summary>Transferir identidade e saldo para outra organização</summary><form className="auth-form" onSubmit={transfer}><p className="muted">Preserva saldo e auditoria; não recria concessão nem move filas.</p><label>Identidade<select value={transferIdentityId} onChange={event=>setTransferIdentityId(event.target.value)} required><option value="">Selecione</option>{transferIdentities.map(identity=><option key={identity.id} value={identity.id} disabled={identity.connectionActive||identity.openReservation}>{identity.id.slice(0,8)} · {usd(Number(identity.wallet?.posted_balance_micros??0))}</option>)}</select></label><label>Destino<select value={destinationId} onChange={event=>setDestinationId(event.target.value)} required><option value="">Selecione</option>{destinations.map(destination=><option key={destination.id} value={destination.id}>{destination.name}</option>)}</select></label><label>Justificativa<textarea value={transferReason} onChange={event=>setTransferReason(event.target.value)} minLength={5} required /></label><label>Digite TRANSFERIR<input value={transferConfirmation} onChange={event=>setTransferConfirmation(event.target.value)} /></label><button className="button button-danger" disabled={busy!==null||transferConfirmation!=='TRANSFERIR'}>Transferir</button></form>{transferEvents.map(event=><p className="muted" key={event.id}>{event.fromOrganizationName} → {event.toOrganizationName} · {date(event.created_at)} · {event.reason}</p>)}</details>:null}
+    {editing?<div className="modal-backdrop" onMouseDown={()=>setEditing(null)}><form className="panel bulk-modal zernio-confirm-modal" onMouseDown={event=>event.stopPropagation()} onSubmit={configure}><span className="section-kicker">Configuração</span><h2>Configurar “{editing.label}”</h2><label>Novo nome<input value={editLabel} onChange={event=>setEditLabel(event.target.value)} /></label><label>Limite de contas X<input type="number" min={usedSlots(editing)} max="100" value={editLimit} onChange={event=>setEditLimit(Number(event.target.value))} /></label><p className="muted">O limite não pode ficar abaixo da ocupação atual ({usedSlots(editing)}).</p><button className="button button-primary" disabled={busy!==null}>Salvar</button><button className="button button-ghost" type="button" onClick={()=>setEditing(null)}>Cancelar</button></form></div>:null}
+    {deleting?<div className="modal-backdrop" onMouseDown={()=>setDeleting(null)}><section className="panel bulk-modal zernio-confirm-modal" onMouseDown={event=>event.stopPropagation()}><span className="section-kicker">Zona de risco</span><h2>Excluir “{deleting.label}”?</h2><p className="muted">A fila futura será cancelada, reservas utilizáveis serão liberadas e o histórico financeiro será preservado.</p><label>Motivo<textarea value={deleteReason} onChange={event=>setDeleteReason(event.target.value)} minLength={3} /></label><label>Digite EXCLUIR<input value={deleteConfirmation} onChange={event=>setDeleteConfirmation(event.target.value)} /></label><button className="button button-danger" disabled={busy!==null||deleteConfirmation!=='EXCLUIR'||deleteReason.trim().length<3} onClick={()=>void remove()}>Excluir conexão X</button><button className="button button-ghost" onClick={()=>setDeleting(null)}>Cancelar</button></section></div>:null}
   </div>;
 }
