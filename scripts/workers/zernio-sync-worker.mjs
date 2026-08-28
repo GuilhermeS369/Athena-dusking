@@ -37,9 +37,20 @@ const postCallbackRecoverySeconds = Math.min(7200, Math.max(300, Number.parseInt
 // lotes e o heartbeat.
 const additionDrainLimit = Math.min(500, Math.max(1, Number.parseInt(process.env.ZERNIO_SYNC_WORKER_ADDITION_DRAIN_LIMIT || '120', 10) || 120));
 const additionDrainBudgetMs = Math.min(600_000, Math.max(5_000, Number.parseInt(process.env.ZERNIO_SYNC_WORKER_ADDITION_DRAIN_BUDGET_MS || '120000', 10) || 120_000));
+// Tentativas que abrem o OAuth e nunca recebem callback ficam em 'redirected'
+// para sempre, segurando o profile isolado. Em 2.848 plugs bem-sucedidos o
+// callback nunca demorou mais de 5,3 minutos, então o limiar padrão de 60
+// minutos é cerca de onze vezes o pior caso já observado. A varredura só
+// encerra a tentativa depois de provar que o profile isolado dela está vazio.
+const abandonedSweepEnabled = String(process.env.ZERNIO_ABANDONED_SWEEP_ENABLED ?? 'true').toLowerCase() !== 'false';
+const abandonedSweepApply = String(process.env.ZERNIO_ABANDONED_SWEEP_MODE ?? 'apply').toLowerCase() !== 'report';
+const abandonedSweepMinutes = Math.min(1440, Math.max(15, Number.parseInt(process.env.ZERNIO_ABANDONED_SWEEP_MINUTES || '60', 10) || 60));
+const abandonedSweepIntervalMs = Math.min(3_600_000, Math.max(60_000, Number.parseInt(process.env.ZERNIO_ABANDONED_SWEEP_INTERVAL_MS || '600000', 10) || 600_000));
+const abandonedSweepBatch = Math.min(50, Math.max(1, Number.parseInt(process.env.ZERNIO_ABANDONED_SWEEP_BATCH || '8', 10) || 8));
 
 let stopping = false;
 let lastHeartbeatAt = 0;
+let lastAbandonedSweepAt = 0;
 let lastPressureCheckAt = 0;
 let cachedPublicationPressure = { criticalDelay: false, oldestDueAt: null, checkedAt: null };
 
@@ -790,8 +801,177 @@ async function drainConnectionAdditions() {
   return { results, rounds, stopReason, elapsedMs: Date.now() - startedAt };
 }
 
+// Encerra tentativas que abriram o OAuth e nunca voltaram. A regra é
+// deliberadamente conservadora: a tentativa só é encerrada depois de a Zernio
+// confirmar que o profile isolado dela continua vazio, e o UPDATE exige que o
+// estado ainda seja 'started'/'redirected', de modo que um callback que chegue
+// no mesmo instante sempre vence a varredura. Se houver conta no profile, nada
+// é tocado: a conta ocupa slot pago e o caso vira alerta para decisão humana.
+async function sweepAbandonedAttempts() {
+  if (!abandonedSweepEnabled) return null;
+  if (Date.now() - lastAbandonedSweepAt < abandonedSweepIntervalMs) return null;
+  lastAbandonedSweepAt = Date.now();
+
+  const cutoff = new Date(Date.now() - abandonedSweepMinutes * 60_000).toISOString();
+  const { data: candidates, error: candidatesError } = await supabase
+    .from('zernio_connection_attempts')
+    .select('id, organization_id, zernio_connection_id, zernio_profile_id, zernio_connection_intent_id, status, created_at, diagnostic')
+    .in('status', ['started', 'redirected'])
+    .lte('created_at', cutoff)
+    .order('created_at', { ascending: true })
+    .limit(abandonedSweepBatch);
+  if (candidatesError) throw candidatesError;
+
+  const summary = {
+    mode: abandonedSweepApply ? 'apply' : 'report',
+    thresholdMinutes: abandonedSweepMinutes,
+    candidates: (candidates ?? []).length,
+    expired: 0,
+    withRemoteAccount: 0,
+    skipped: 0,
+    // Tentativas anteriores à migration 161 não possuem linha em
+    // zernio_connection_remote_profiles; nesses casos não há profile isolado a
+    // liberar e o contador fica abaixo de `expired` legitimamente.
+    profilesReleased: 0,
+    withoutProfileRow: 0,
+    canonicalKept: 0,
+  };
+  if (!candidates?.length) return summary;
+
+  const connectionIds = [...new Set(candidates.map((candidate) => candidate.zernio_connection_id).filter(Boolean))];
+  const { data: connections, error: connectionsError } = await supabase
+    .from('zernio_connections')
+    .select('id, encrypted_api_key, deleted_at')
+    .in('id', connectionIds);
+  if (connectionsError) throw connectionsError;
+  const connectionById = new Map((connections ?? []).map((connection) => [connection.id, connection]));
+
+  // Uma leitura de inventário por chave, reaproveitada por todas as tentativas
+  // daquela conexão dentro da mesma varredura.
+  const inventoryByConnection = new Map();
+
+  for (const attempt of candidates) {
+    if (stopping) break;
+    const connection = connectionById.get(attempt.zernio_connection_id);
+    if (!attempt.zernio_profile_id || !connection || connection.deleted_at) {
+      summary.skipped += 1;
+      continue;
+    }
+
+    if (!inventoryByConnection.has(connection.id)) {
+      try {
+        const response = await fetch(`${zernioApiBaseUrl}/v1/accounts`, {
+          headers: { Authorization: `Bearer ${decryptToken(connection.encrypted_api_key)}` },
+          cache: 'no-store', signal: AbortSignal.timeout(25_000),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(`Zernio HTTP ${response.status}`);
+        inventoryByConnection.set(connection.id, Array.isArray(payload.accounts) ? payload.accounts : null);
+      } catch (caught) {
+        // Sem inventário confiável a tentativa fica como está. Nunca encerramos
+        // no escuro: a próxima varredura tenta de novo.
+        inventoryByConnection.set(connection.id, null);
+        console.error('[zernio-sync-worker] varredura sem inventário da chave', workerError(caught, 'abandoned_sweep_inventory'));
+      }
+    }
+
+    const accounts = inventoryByConnection.get(connection.id);
+    if (!accounts) { summary.skipped += 1; continue; }
+
+    const accountsInAttemptProfile = accountsForCanonicalProfile(accounts, attempt.zernio_profile_id);
+    if (accountsInAttemptProfile.length) {
+      summary.withRemoteAccount += 1;
+      console.error('[zernio-sync-worker] tentativa abandonada COM conta remota; nada foi alterado', {
+        attemptId: attempt.id,
+        organizationId: attempt.organization_id,
+        zernioConnectionId: attempt.zernio_connection_id,
+        zernioProfileId: attempt.zernio_profile_id,
+        remoteAccountIds: accountsInAttemptProfile.map((account) => accountId(account)).filter(Boolean),
+        ageMinutes: Math.round((Date.now() - Date.parse(attempt.created_at)) / 60_000),
+      });
+      continue;
+    }
+
+    if (!abandonedSweepApply) {
+      summary.expired += 1;
+      console.info('[zernio-sync-worker] varredura em modo relatório: encerraria tentativa abandonada', {
+        attemptId: attempt.id, ageMinutes: Math.round((Date.now() - Date.parse(attempt.created_at)) / 60_000),
+      });
+      continue;
+    }
+
+    const now = new Date().toISOString();
+    const { data: closed, error: closeError } = await supabase
+      .from('zernio_connection_attempts')
+      .update({
+        status: 'failed', worker_status: 'failed', worker_id: null, worker_lease_expires_at: null,
+        worker_completed_at: now, failed_at: now,
+        worker_error_code: 'abandoned_before_callback',
+        worker_error_stage: 'abandoned_before_callback',
+        last_error_message: 'A autorização foi aberta e nunca retornou da Zernio. O profile isolado desta solicitação estava vazio, nenhuma conta remota foi criada e nenhum slot ficou ocupado.',
+        diagnostic: { ...(attempt.diagnostic ?? {}), abandonedSweptAt: now, abandonedSweepThresholdMinutes: abandonedSweepMinutes, abandonedRemoteProfileWasEmpty: true },
+      })
+      .eq('id', attempt.id)
+      // Guarda de corrida: se o callback chegou entre a leitura e agora, o
+      // estado já mudou e a varredura não encosta na tentativa.
+      .in('status', ['started', 'redirected'])
+      .select('id')
+      .maybeSingle();
+    if (closeError) throw closeError;
+    if (!closed) { summary.skipped += 1; continue; }
+
+    // Só profiles DEDICADOS podem ser devolvidos por esta varredura. Desde a
+    // migration 164 a RPC de liberação manda tudo que não é 'oauth_start_failed'
+    // para 'cleanup_pending', inclusive canônicos — e um canônico em
+    // 'cleanup_pending' sai do pool de reaproveitamento do /start e deixa de
+    // satisfazer zernio_profile_belongs_to_connection. Uma tentativa
+    // abandonada que segurava o canônico é registrada e deixada para decisão
+    // humana, nunca aposentada automaticamente.
+    const { data: remoteProfile, error: remoteProfileError } = await supabase
+      .from('zernio_connection_remote_profiles')
+      .select('id, kind')
+      .eq('claimed_by_attempt_id', attempt.id)
+      .maybeSingle();
+    if (remoteProfileError) {
+      console.error('[zernio-sync-worker] falha ao ler profile isolado da tentativa abandonada', remoteProfileError);
+    } else if (!remoteProfile) {
+      // Tentativa anterior à migration 161: não há profile isolado registrado.
+      summary.withoutProfileRow += 1;
+    } else if (remoteProfile.kind !== 'dedicated') {
+      summary.canonicalKept += 1;
+      console.warn('[zernio-sync-worker] tentativa abandonada segurava profile canônico; mantido intacto', {
+        attemptId: attempt.id, remoteProfileId: remoteProfile.id, kind: remoteProfile.kind,
+      });
+    } else {
+      const { data: released, error: releaseError } = await supabase.rpc('release_zernio_attempt_remote_profile', {
+        p_attempt_id: attempt.id, p_reason: 'abandoned_before_callback',
+      });
+      if (releaseError) console.error('[zernio-sync-worker] falha ao liberar profile isolado abandonado', releaseError);
+      else if (released === true) summary.profilesReleased += 1;
+    }
+
+    if (attempt.zernio_connection_intent_id) {
+      const { error: intentError } = await supabase.from('zernio_connection_intents').update({
+        status: 'expired',
+        diagnostic: { abandonedSweptAt: now, reason: 'abandoned_before_callback' },
+      }).eq('id', attempt.zernio_connection_intent_id).in('status', ['started', 'reserved', 'redirected', 'callback_received']);
+      if (intentError) console.error('[zernio-sync-worker] falha ao expirar intenção abandonada', intentError);
+    }
+
+    summary.expired += 1;
+  }
+
+  console.info('[zernio-sync-worker] varredura de tentativas abandonadas', summary);
+  return summary;
+}
+
 async function tick() {
   const drain = await drainConnectionAdditions();
+  // A varredura é higiene: uma falha nela nunca pode derrubar o ciclo de
+  // finalização nem o sync de lotes.
+  let abandonedSweep = null;
+  try { abandonedSweep = await sweepAbandonedAttempts(); }
+  catch (caught) { console.error('[zernio-sync-worker] varredura de abandonadas falhou', workerError(caught, 'abandoned_sweep')); }
   const additionResults = drain.results;
 
   if (drain.stopReason !== 'empty' && drain.stopReason !== 'stopping') {
@@ -817,6 +997,7 @@ async function tick() {
       additions: additionResults.length,
       additionResults,
       additionDrain: { rounds: drain.rounds, stopReason: drain.stopReason, elapsedMs: drain.elapsedMs },
+      abandonedSweep,
       claimed: 0,
       results: [],
       waitingForPublicationCapacity: true,
@@ -840,6 +1021,7 @@ async function tick() {
       additions: additionResults.length,
       additionResults,
       additionDrain: { rounds: drain.rounds, stopReason: drain.stopReason, elapsedMs: drain.elapsedMs },
+      abandonedSweep,
       claimed: 0,
       results: [],
       waitingForCapacity: true,
@@ -921,6 +1103,7 @@ async function tick() {
     additions: additionResults.length,
     additionResults,
     additionDrain: { rounds: drain.rounds, stopReason: drain.stopReason, elapsedMs: drain.elapsedMs },
+    abandonedSweep,
     claimed: (claimed ?? []).length,
     results,
   };
@@ -948,6 +1131,7 @@ function compactSummary(summary) {
     additions: summary.additions ?? 0,
     additionStatuses: countByStatus(summary.additionResults),
     additionDrain: summary.additionDrain ?? null,
+    abandonedSweep: summary.abandonedSweep ?? null,
     claimed: summary.claimed ?? 0,
     itemStatuses: countByStatus(summary.results),
     waitingForCapacity: summary.waitingForCapacity ?? false,

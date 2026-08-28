@@ -261,6 +261,42 @@ Consequência prática: **o valor do poll agora afeta apenas o primeiro aparelho
 
 **Nota:** a alteração no worker está no working tree, ainda não commitada.
 
+## Execução da Fase 2 — 28/08/2026
+
+Varredura de tentativas abandonadas implementada em `sweepAbandonedAttempts()` e ativa em produção.
+
+**Limiar escolhido com dado, não por chute.** Em 2.848 plugs bem-sucedidos, o tempo entre abrir o link e o callback chegar teve p50 de 1,1min, p99 de 4,3min e **máximo de 5,3min**; nenhum passou de 15 minutos. O padrão de 60 minutos é cerca de onze vezes o pior caso já observado.
+
+**Regras da varredura:**
+
+- só considera tentativas em `started`/`redirected` mais velhas que o limiar;
+- só encerra depois de a Zernio confirmar, por leitura do inventário, que o profile isolado daquela tentativa está **vazio**;
+- se houver conta no profile, **não toca em nada** e emite alerta — a conta ocupa slot pago e o caso é de decisão humana;
+- se o inventário não puder ser lido, pula e tenta na próxima passada; nunca encerra no escuro;
+- o `UPDATE` exige que o estado ainda seja `started`/`redirected`, de modo que um callback que chegue no mesmo instante sempre vence a varredura;
+- uma leitura de inventário por chave, reaproveitada por todas as tentativas daquela conexão.
+
+Ajustáveis por ambiente: `ZERNIO_ABANDONED_SWEEP_ENABLED`, `ZERNIO_ABANDONED_SWEEP_MODE` (`apply`/`report`), `ZERNIO_ABANDONED_SWEEP_MINUTES` (60), `ZERNIO_ABANDONED_SWEEP_INTERVAL_MS` (600000), `ZERNIO_ABANDONED_SWEEP_BATCH` (8). Uma falha na varredura nunca derruba o ciclo de finalização nem o sync de lotes.
+
+**Validação:** nove cenários simulados (profile vazio, tentativa recente abaixo do limiar, profile com conta remota, inventário indisponível, corrida com o callback, modo relatório, intervalo e reaproveitamento de inventário, conexão apagada, teto de lote). Em produção, subiu primeiro em modo `report`: 8 candidatas, 8 encerráveis, 0 com conta remota — batendo exatamente com a análise independente feita pela API antes da implementação.
+
+### Incidente durante a ativação, e a guarda que ele gerou
+
+Na primeira passada em modo `apply`, a liberação do profile isolado atingiu o **profile canônico** de uma conexão viva (`SingGerl0587`), marcando-o como `cleanup_pending`.
+
+Causa: a migration **164** redefiniu `release_zernio_attempt_remote_profile` e removeu o caso especial que a 162 tinha para canônicos (`when kind = 'canonical' then 'available'`). Desde então, qualquer motivo diferente de `oauth_start_failed` manda a linha para `cleanup_pending`, inclusive canônicos. Eu havia lido a versão da 162 e assumido esse comportamento.
+
+Consequência potencial: um canônico em `cleanup_pending` sai do pool de reaproveitamento do `/start` e deixa de satisfazer `zernio_profile_belongs_to_connection`, que exige `claimed` ou `connected`. Naquele profile não havia nenhuma conta, então não houve quebra real.
+
+Correções aplicadas:
+
+1. A varredura passou a ler o `kind` do profile antes de liberar e **só libera `dedicated`**. Tentativa abandonada segurando canônico é registrada em `canonicalKept` com alerta, e deixada intacta.
+2. A linha afetada foi restaurada para `available` — o estado do qual `claim_zernio_attempt_remote_profile` reaproveita canônicos sem conta —, com `release_reason` marcando a correção. Restauração condicionada a a linha ainda estar canônica, sem dono e sem conta dentro.
+
+O resumo da varredura passou a expor `profilesReleased`, `withoutProfileRow` e `canonicalKept`, justamente porque a ausência desses contadores foi o que atrasou o diagnóstico.
+
+**Estado após a ativação:** 24 tentativas encerradas, 146 de backlog restante, drenando a 8 por varredura a cada 10 minutos (cerca de 3 horas para zerar). Tentativas de 13 a 15/08 são anteriores à migration 161 e não possuem linha de profile isolado — para elas não há nada a liberar, e o contador `withoutProfileRow` explica a diferença. Nenhuma tentativa com conta remota apareceu até agora, confirmando a medição original.
+
 ## Ordem de execução recomendada
 
 1. **Agora, sem código:** devolver `ZERNIO_SYNC_WORKER_POLL_INTERVAL_MS` para 5000 na VPS e reiniciar o worker. Restaura a cadência de ontem (~6,2s) e corta a espera pela metade. Verificar em seguida a linha `[zernio-sync-worker] iniciando` no log, que imprime a configuração efetiva.
