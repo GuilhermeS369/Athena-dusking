@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createR2UploadUrl } from '@/lib/storage/r2-client';
 
-const mediaStorageBackend = (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
+function mediaStorageBackend() {
+  return (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
+}
 
 export async function POST(request: Request) {
   const context = await getOrganizationContext();
@@ -17,7 +19,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Caminho de armazenamento inválido.' }, { status: 400 });
   }
 
-  if (mediaStorageBackend !== 'r2') {
+  if (mediaStorageBackend() !== 'r2') {
     return NextResponse.json({ backend: 'supabase' as const });
   }
 

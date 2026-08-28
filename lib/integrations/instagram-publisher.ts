@@ -6,7 +6,9 @@ import { createR2SignedUrl } from '@/lib/storage/r2-client';
 // 'supabase' (padrão) usa o Storage do Supabase, que cobra egress por byte
 // transferido. 'r2' usa Cloudflare R2 (egress $0), mantendo o mesmo
 // comportamento de gerar uma signed URL nova por despacho.
-const mediaStorageBackend = (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
+function mediaStorageBackend() {
+  return (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
+}
 
 export type PublicationFormat = 'image' | 'reel' | 'story' | 'carousel';
 
@@ -102,7 +104,7 @@ function storageSignedUrlError(error: unknown) {
 }
 
 export async function createTemporaryUrl(storagePath: string) {
-  if (mediaStorageBackend === 'r2') {
+  if (mediaStorageBackend() === 'r2') {
     try {
       const bucket = process.env.R2_BUCKET_INSTAGRAM_MEDIA || 'instagram-media';
       // Vídeos podem continuar em processamento após esta execução curta do worker.

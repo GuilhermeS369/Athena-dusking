@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { removeMediaObjectsEverywhere } from '@/lib/storage/media-storage';
 
 type ClaimedDeletionJob = {
   job_id: string;
@@ -123,9 +124,7 @@ async function processDeletionChunk(job: ClaimedDeletionJob, chunkSize: number) 
     ...(asset.thumbnail_storage_path ? [asset.thumbnail_storage_path] : []),
   ]))];
 
-  const storageResult = storagePaths.length
-    ? await supabase.storage.from('instagram-media').remove(storagePaths)
-    : { error: null };
+  const storageResult = await removeMediaObjectsEverywhere(supabase, storagePaths);
   const storageWarning = storageResult.error
     ? 'Mídia apagada da galeria, mas o arquivo físico pode ter permanecido no Storage.'
     : null;

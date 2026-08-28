@@ -5,6 +5,7 @@ import PageLoadingSkeleton from '@/app/components/page-loading-skeleton';
 import GalleryClient from '@/app/galeria/gallery-client';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { signMediaPreviewUrl } from '@/lib/storage/media-storage';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,9 +88,9 @@ async function GalleryPageContent() {
   const signedAssets = await Promise.all(initialAssets.map(async (asset) => {
     const [signed, thumbnail] = await Promise.all([
       asset.kind === 'image' || asset.kind === 'video'
-        ? supabase.storage.from('instagram-media').createSignedUrl(asset.storage_path, 60 * 30, asset.kind === 'image' ? { transform: { width: 240, height: 240, resize: 'contain', quality: 60, format: 'origin' } } : undefined)
+        ? signMediaPreviewUrl(supabase, asset.storage_path, 60 * 30, asset.kind === 'image' ? { width: 240, height: 240, resize: 'contain', quality: 60, format: 'origin' } : undefined)
         : Promise.resolve({ data: null }),
-      asset.thumbnail_storage_path ? supabase.storage.from('instagram-media').createSignedUrl(asset.thumbnail_storage_path, 60 * 10) : Promise.resolve({ data: null }),
+      asset.thumbnail_storage_path ? signMediaPreviewUrl(supabase, asset.thumbnail_storage_path, 60 * 10) : Promise.resolve({ data: null }),
     ]);
     return {
       ...asset,

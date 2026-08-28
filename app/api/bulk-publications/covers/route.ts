@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { decodeBulkMediaCursor, encodeBulkMediaCursor } from '@/lib/publications/bulk-api';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { signMediaPreviewUrl } from '@/lib/storage/media-storage';
 
 export const dynamic = 'force-dynamic';
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -44,9 +45,7 @@ export async function GET(request: Request) {
   const byId = new Map((candidates ?? []).map((asset) => [asset.id, asset]));
   const eligible = ids.flatMap((id) => byId.get(id) ? [byId.get(id)!] : []);
   const assets = await Promise.all(eligible.map(async (asset) => {
-    const signed = await supabase.storage.from('instagram-media').createSignedUrl(asset.storage_path, 60 * 10, {
-      transform: { width: 270, height: 480, resize: 'contain', quality: 70, format: 'origin' },
-    });
+    const signed = await signMediaPreviewUrl(supabase, asset.storage_path, 60 * 10, { width: 270, height: 480, resize: 'contain', quality: 70, format: 'origin' });
     return { id: asset.id, originalName: asset.original_name, kind: 'image' as const, thumbnailUrl: signed.data?.signedUrl ?? null };
   }));
   const hasMore = (rows?.length ?? 0) > limit;

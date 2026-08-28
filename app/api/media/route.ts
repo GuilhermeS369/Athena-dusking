@@ -3,6 +3,13 @@ import { createHash } from 'node:crypto';
 
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { removeMediaObjects, signMediaPreviewUrl, uploadMediaObject } from '@/lib/storage/media-storage';
+import { objectExistsInR2 } from '@/lib/storage/r2-client';
+
+function mediaStorageBackend() {
+  return (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
+}
+const r2Bucket = process.env.R2_BUCKET_INSTAGRAM_MEDIA || 'instagram-media';
 
 // O limite da API precisa ficar abaixo do limite efetivo das funções/serverless
 // (Vercel/Next normalmente rejeitam o body antes de executar este handler).
@@ -183,9 +190,9 @@ export async function GET(request: Request) {
     }).map(async (asset) => {
       const [signed, thumbnail] = await Promise.all([
         asset.kind === 'image'
-          ? supabase.storage.from('instagram-media').createSignedUrl(asset.storage_path, 60 * 30, { transform: { width: 320, height: 320, resize: 'contain', quality: 65, format: 'origin' } })
+          ? signMediaPreviewUrl(supabase, asset.storage_path, 60 * 30, { width: 320, height: 320, resize: 'contain', quality: 65, format: 'origin' })
           : Promise.resolve({ data: null }),
-        asset.thumbnail_storage_path ? supabase.storage.from('instagram-media').createSignedUrl(asset.thumbnail_storage_path, 60 * 10) : Promise.resolve({ data: null }),
+        asset.thumbnail_storage_path ? signMediaPreviewUrl(supabase, asset.thumbnail_storage_path, 60 * 10) : Promise.resolve({ data: null }),
       ]);
       return {
         ...asset,
@@ -290,9 +297,9 @@ export async function GET(request: Request) {
       // de miniatura: se o objeto da miniatura foi removido ou corrompido, o
       // cliente ainda consegue recriá-la a partir do vídeo sem alterar o filtro.
       asset.kind === 'image' || asset.kind === 'video'
-        ? supabase.storage.from('instagram-media').createSignedUrl(asset.storage_path, 60 * 30, asset.kind === 'image' ? { transform: { width: 240, height: 240, resize: 'contain', quality: 60, format: 'origin' } } : undefined)
+        ? signMediaPreviewUrl(supabase, asset.storage_path, 60 * 30, asset.kind === 'image' ? { width: 240, height: 240, resize: 'contain', quality: 60, format: 'origin' } : undefined)
         : Promise.resolve({ data: null }),
-      asset.thumbnail_storage_path ? supabase.storage.from('instagram-media').createSignedUrl(asset.thumbnail_storage_path, 60 * 10) : Promise.resolve({ data: null }),
+      asset.thumbnail_storage_path ? signMediaPreviewUrl(supabase, asset.thumbnail_storage_path, 60 * 10) : Promise.resolve({ data: null }),
     ]);
 
     return { ...asset, signed_url: signed.data?.signedUrl ?? null, thumbnail_url: thumbnail.data?.signedUrl ?? null, group_ids: groupIdsByAsset.get(asset.id) ?? [], publication_state: publicationStates.get(asset.id) ?? null };
@@ -361,9 +368,7 @@ export async function POST(request: Request) {
     const supabase = await createSupabaseServerClient();
 
     async function uploadCurrentFileToStorage() {
-      const { error: uploadError } = await supabase.storage
-        .from('instagram-media')
-        .upload(storagePath, bytes, { contentType: uploadFile.type, upsert: false });
+      const { error: uploadError } = await uploadMediaObject(supabase, storagePath, bytes, uploadFile.type, false);
 
       if (uploadError) {
         console.error('[media] Falha ao armazenar arquivo', {
@@ -371,17 +376,14 @@ export async function POST(request: Request) {
           type: uploadFile.type,
           size: uploadFile.size,
           message: uploadError.message,
-          code: uploadError.name,
         });
         throw new Error(`Não foi possível armazenar o arquivo no storage: ${uploadError.message}`);
       }
 
       if (thumbnail instanceof File && thumbnailStoragePath) {
-        const { error: thumbnailUploadError } = await supabase.storage
-          .from('instagram-media')
-          .upload(thumbnailStoragePath, Buffer.from(await thumbnail.arrayBuffer()), { contentType: 'image/jpeg', upsert: false });
+        const { error: thumbnailUploadError } = await uploadMediaObject(supabase, thumbnailStoragePath, Buffer.from(await thumbnail.arrayBuffer()), 'image/jpeg', false);
         if (thumbnailUploadError) {
-          await supabase.storage.from('instagram-media').remove([storagePath]);
+          await removeMediaObjects(supabase, [storagePath]);
           throw new Error(`Não foi possível armazenar a miniatura: ${thumbnailUploadError.message}`);
         }
       }
@@ -422,7 +424,9 @@ export async function POST(request: Request) {
 
       const storageExists = existing.deleted_at || existing.deletion_requested_at
         ? { data: false, error: null }
-        : await supabase.rpc('media_asset_has_storage_object', { p_storage_path: existing.storage_path });
+        : mediaStorageBackend() === 'r2'
+          ? { data: await objectExistsInR2(r2Bucket, existing.storage_path), error: null as { message: string } | null }
+          : await supabase.rpc('media_asset_has_storage_object', { p_storage_path: existing.storage_path });
 
       if (storageExists.error) {
         return NextResponse.json({ error: `Não foi possível verificar se o arquivo já existente ainda está no storage: ${storageExists.error.message}` }, { status: 500 });
@@ -441,8 +445,8 @@ export async function POST(request: Request) {
           .single();
         if (renameExistingError || !renamedExisting) return NextResponse.json({ error: `O arquivo já existia, mas não pôde ser atualizado para aparecer com o nome reenviado: ${renameExistingError?.message ?? 'erro no banco'}.` }, { status: 400 });
         const [signed, thumbnailSigned] = await Promise.all([
-          supabase.storage.from('instagram-media').createSignedUrl(renamedExisting.storage_path, 60 * 10),
-          renamedExisting.thumbnail_storage_path ? supabase.storage.from('instagram-media').createSignedUrl(renamedExisting.thumbnail_storage_path, 60 * 10) : Promise.resolve({ data: null }),
+          signMediaPreviewUrl(supabase, renamedExisting.storage_path, 60 * 10),
+          renamedExisting.thumbnail_storage_path ? signMediaPreviewUrl(supabase, renamedExisting.thumbnail_storage_path, 60 * 10) : Promise.resolve({ data: null }),
         ]);
         const groupIds = await assignAssetToUploadGroup(supabase, organizationId, renamedExisting.id, uploadGroupId);
         return NextResponse.json({ asset: { ...renamedExisting, signed_url: signed.data?.signedUrl ?? null, thumbnail_url: thumbnailSigned.data?.signedUrl ?? null, group_ids: groupIds }, duplicated: true }, { status: 200 });
@@ -469,7 +473,7 @@ export async function POST(request: Request) {
       .single();
 
     if (insertError || !asset) {
-      await supabase.storage.from('instagram-media').remove([storagePath, ...(thumbnailStoragePath ? [thumbnailStoragePath] : [])]);
+      await removeMediaObjects(supabase, [storagePath, ...(thumbnailStoragePath ? [thumbnailStoragePath] : [])]);
       console.error('[media] Falha ao registrar metadados', {
         name: uploadFile.name,
         message: insertError?.message,
@@ -480,8 +484,8 @@ export async function POST(request: Request) {
     }
 
     const [signed, thumbnailSigned] = await Promise.all([
-      supabase.storage.from('instagram-media').createSignedUrl(storagePath, 60 * 10),
-      thumbnailStoragePath ? supabase.storage.from('instagram-media').createSignedUrl(thumbnailStoragePath, 60 * 10) : Promise.resolve({ data: null }),
+      signMediaPreviewUrl(supabase, storagePath, 60 * 10),
+      thumbnailStoragePath ? signMediaPreviewUrl(supabase, thumbnailStoragePath, 60 * 10) : Promise.resolve({ data: null }),
     ]);
     const groupIds = await assignAssetToUploadGroup(supabase, organizationId, asset.id, uploadGroupId);
 

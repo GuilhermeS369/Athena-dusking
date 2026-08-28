@@ -10,6 +10,7 @@ import {
 import { bulkPublishingEnabled } from '@/lib/publications/bulk-feature';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { signMediaPreviewUrl } from '@/lib/storage/media-storage';
 
 export const dynamic = 'force-dynamic';
 const REVIEW_TTL_MS = 10 * 60 * 1000;
@@ -57,7 +58,7 @@ export async function POST(request: Request) {
     const originName = compactRequest.reelCover.origin.type === 'ungrouped'
       ? 'Sem grupo'
       : (await supabase.from('profile_groups').select('name').eq('organization_id', organizationId).eq('id', compactRequest.reelCover.origin.groupId).maybeSingle()).data?.name ?? 'Grupo de capas';
-    const signed = await supabase.storage.from('instagram-media').createSignedUrl(coverAsset.storage_path, 60 * 10, { transform: { width: 180, height: 320, resize: 'contain', quality: 70, format: 'origin' } });
+    const signed = await signMediaPreviewUrl(supabase, coverAsset.storage_path, 60 * 10, { width: 180, height: 320, resize: 'contain', quality: 70, format: 'origin' });
     cover = { id: coverAsset.id, originalName: coverAsset.original_name, originName, thumbnailUrl: signed.data?.signedUrl ?? null };
   }
   const mediaArgs = {

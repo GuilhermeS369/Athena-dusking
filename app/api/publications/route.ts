@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { isPostingTimeSlot, MAX_PUBLICATION_CAPTION_LENGTH, validateMediaForFormat } from '@/lib/publications/composer';
+import { signMediaPreviewUrl } from '@/lib/storage/media-storage';
 
 export const maxDuration = 60;
 
@@ -262,8 +263,8 @@ export async function GET(request: Request) {
         if (!asset) return { ...media, media_assets: null };
         if (asset.deleted_at || asset.status === 'deleted') return { ...media, media_assets: { ...asset, signed_url: null, thumbnail_url: null } };
         const [signed, thumbnail] = await Promise.all([
-          supabase.storage.from('instagram-media').createSignedUrl(asset.storage_path, 60 * 30, asset.kind === 'image' ? { transform: { width: 320, height: 320, resize: 'contain', quality: 65, format: 'origin' } } : undefined),
-          asset.thumbnail_storage_path ? supabase.storage.from('instagram-media').createSignedUrl(asset.thumbnail_storage_path, 60 * 10) : Promise.resolve({ data: null }),
+          signMediaPreviewUrl(supabase, asset.storage_path, 60 * 30, asset.kind === 'image' ? { width: 320, height: 320, resize: 'contain', quality: 65, format: 'origin' } : undefined),
+          asset.thumbnail_storage_path ? signMediaPreviewUrl(supabase, asset.thumbnail_storage_path, 60 * 10) : Promise.resolve({ data: null }),
         ]);
         return { ...media, media_assets: { ...asset, signed_url: signed.data?.signedUrl ?? null, thumbnail_url: thumbnail.data?.signedUrl ?? null } };
       })),
@@ -421,7 +422,7 @@ export async function POST(request: Request) {
   }
 
   const storageChecks = await Promise.all((mediaResult.data ?? []).map(async (asset) => {
-    const { data } = await supabase.storage.from('instagram-media').createSignedUrl(asset.storage_path, 60);
+    const { data } = await signMediaPreviewUrl(supabase, asset.storage_path, 60);
     return { asset, available: Boolean(data?.signedUrl) };
   }));
   const missingStorage = storageChecks.filter((check) => !check.available);

@@ -7,6 +7,7 @@ import PageLoadingSkeleton from '@/app/components/page-loading-skeleton';
 import PublishingClient from '@/app/postagem/publishing-client';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { signMediaPreviewUrl } from '@/lib/storage/media-storage';
 import {
   ComposerFormat,
   emptyScheduledCountsByFormat,
@@ -164,8 +165,8 @@ async function PublishingPageContent() {
 
   const assets = await Promise.all((assetsResult.data ?? []).map(async (asset) => {
     const [signed, thumbnail] = await Promise.all([
-      supabase.storage.from('instagram-media').createSignedUrl(asset.storage_path, 60 * 30, asset.kind === 'image' ? { transform: { width: 320, height: 320, resize: 'contain', quality: 65, format: 'origin' } } : undefined),
-      asset.thumbnail_storage_path ? supabase.storage.from('instagram-media').createSignedUrl(asset.thumbnail_storage_path, 60 * 10) : Promise.resolve({ data: null }),
+      signMediaPreviewUrl(supabase, asset.storage_path, 60 * 30, asset.kind === 'image' ? { width: 320, height: 320, resize: 'contain', quality: 65, format: 'origin' } : undefined),
+      asset.thumbnail_storage_path ? signMediaPreviewUrl(supabase, asset.thumbnail_storage_path, 60 * 10) : Promise.resolve({ data: null }),
     ]);
 
     return {

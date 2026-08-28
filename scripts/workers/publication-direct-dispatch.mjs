@@ -15,7 +15,15 @@ export const PUBLICATION_MAX_ATTEMPTS = 5;
 // worker, quebrando o processo inteiro se o pacote não estiver instalado —
 // mesmo com a flag desligada. Isso já causou um crash-loop em produção
 // (28/08/2026) quando o arquivo foi implantado antes do `npm install`.
-const mediaStorageBackend = (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
+// Função, não constante: este módulo é importado por publication-worker.mjs
+// ANTES de rodar loadEnvFile('.env.worker') (import estático roda primeiro que
+// qualquer statement do módulo que importa). Uma const calculada aqui no topo
+// travaria para sempre em 'supabase', porque process.env.MEDIA_STORAGE_BACKEND
+// ainda não existiria no momento em que o import é avaliado. Isso já causou a
+// flag nunca surtir efeito em produção mesmo com o .env.worker correto.
+function mediaStorageBackend() {
+  return (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
+}
 let r2ClientPromise = null;
 async function getR2Client() {
   if (!r2ClientPromise) {
@@ -292,8 +300,8 @@ function storageSignedUrlError(error) {
   return typed;
 }
 
-async function createTemporaryUrl(storagePath) {
-  if (mediaStorageBackend === 'r2') {
+export async function createTemporaryUrl(storagePath) {
+  if (mediaStorageBackend() === 'r2') {
     const bucket = process.env.R2_BUCKET_INSTAGRAM_MEDIA || 'instagram-media';
     try {
       const [{ GetObjectCommand }, { getSignedUrl }, client] = await Promise.all([

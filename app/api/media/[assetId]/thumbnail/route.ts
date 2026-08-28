@@ -5,7 +5,9 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { createR2SignedUrl, uploadToR2 } from '@/lib/storage/r2-client';
 
 const MAX_THUMBNAIL_SIZE = 2 * 1024 * 1024;
-const mediaStorageBackend = (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
+function mediaStorageBackend() {
+  return (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
+}
 const r2Bucket = process.env.R2_BUCKET_INSTAGRAM_MEDIA || 'instagram-media';
 
 export async function GET(_request: Request, { params }: { params: Promise<{ assetId: string }> }) {
@@ -21,7 +23,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ass
     .is('deleted_at', null)
     .maybeSingle();
   if (error || !asset || asset.kind !== 'video') return NextResponse.json({ error: 'Vídeo não encontrado.' }, { status: 404 });
-  if (mediaStorageBackend === 'r2') {
+  if (mediaStorageBackend() === 'r2') {
     const videoUrl = await createR2SignedUrl(r2Bucket, asset.storage_path, 60 * 10).catch(() => null);
     if (!videoUrl) return NextResponse.json({ error: 'Não foi possível acessar o arquivo do vídeo.' }, { status: 400 });
     return NextResponse.json({ video_url: videoUrl }, { headers: { 'Cache-Control': 'no-store' } });
@@ -57,7 +59,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ass
 
   const storagePath = `${context.activeOrganization.id}/thumbnails/${asset.id}.jpg`;
   const thumbnailBuffer = Buffer.from(await thumbnail.arrayBuffer());
-  if (mediaStorageBackend === 'r2') {
+  if (mediaStorageBackend() === 'r2') {
     try {
       await uploadToR2(r2Bucket, storagePath, thumbnailBuffer, 'image/jpeg');
     } catch (uploadError) {
@@ -78,7 +80,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ass
     return NextResponse.json({ error: 'A miniatura foi enviada, mas não pôde ser vinculada ao vídeo.' }, { status: 400 });
   }
 
-  const thumbnailUrl = mediaStorageBackend === 'r2'
+  const thumbnailUrl = mediaStorageBackend() === 'r2'
     ? await createR2SignedUrl(r2Bucket, storagePath, 60 * 10).catch(() => null)
     : (await supabase.storage.from('instagram-media').createSignedUrl(storagePath, 60 * 10)).data?.signedUrl ?? null;
   console.info('[media/thumbnail] Miniatura atualizada', { assetId, recoveryRequested, storagePath });

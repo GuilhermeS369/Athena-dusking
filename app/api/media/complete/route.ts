@@ -4,12 +4,14 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { createR2SignedUrl, deleteFromR2, objectExistsInR2 } from '@/lib/storage/r2-client';
 
 const TYPES = new Map([['image/jpeg', 'image'], ['image/png', 'image'], ['image/webp', 'image'], ['video/mp4', 'video'], ['video/quicktime', 'video']]);
-const mediaStorageBackend = (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
+function mediaStorageBackend() {
+  return (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
+}
 const r2Bucket = process.env.R2_BUCKET_INSTAGRAM_MEDIA || 'instagram-media';
 
 async function removeUploadedObjects(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, storagePaths: string[]) {
   if (!storagePaths.length) return;
-  if (mediaStorageBackend === 'r2') {
+  if (mediaStorageBackend() === 'r2') {
     await deleteFromR2(r2Bucket, storagePaths);
     return;
   }
@@ -17,12 +19,12 @@ async function removeUploadedObjects(supabase: Awaited<ReturnType<typeof createS
 }
 
 async function storageObjectExists(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, storagePath: string) {
-  if (mediaStorageBackend === 'r2') return { data: await objectExistsInR2(r2Bucket, storagePath), error: null as { message: string } | null };
+  if (mediaStorageBackend() === 'r2') return { data: await objectExistsInR2(r2Bucket, storagePath), error: null as { message: string } | null };
   return supabase.rpc('media_asset_has_storage_object', { p_storage_path: storagePath });
 }
 
 async function signPreviewUrl(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, storagePath: string) {
-  if (mediaStorageBackend === 'r2') return { signedUrl: await createR2SignedUrl(r2Bucket, storagePath, 600) };
+  if (mediaStorageBackend() === 'r2') return { signedUrl: await createR2SignedUrl(r2Bucket, storagePath, 600) };
   const { data } = await supabase.storage.from('instagram-media').createSignedUrl(storagePath, 600);
   return { signedUrl: data?.signedUrl ?? null };
 }

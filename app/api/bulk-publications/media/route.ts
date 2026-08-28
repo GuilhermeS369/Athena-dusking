@@ -4,6 +4,7 @@ import { decodeBulkMediaCursor, encodeBulkMediaCursor } from '@/lib/publications
 import type { BulkRotationFormat } from '@/lib/publications/bulk-rotation';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { signMediaPreviewUrl } from '@/lib/storage/media-storage';
 
 export const dynamic = 'force-dynamic';
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -39,7 +40,7 @@ export async function GET(request: Request) {
   const byId = new Map((assets ?? []).map((asset) => [asset.id, asset]));
   const preview = await Promise.all(ids.flatMap((id) => byId.get(id) ? [byId.get(id)!] : []).map(async (asset) => {
     const path = asset.thumbnail_storage_path ?? asset.storage_path;
-    const signed = await supabase.storage.from('instagram-media').createSignedUrl(path, 60 * 10, asset.kind === 'image' && !asset.thumbnail_storage_path ? { transform: { width: 240, height: 240, resize: 'contain', quality: 60, format: 'origin' } } : undefined);
+    const signed = await signMediaPreviewUrl(supabase, path, 60 * 10, asset.kind === 'image' && !asset.thumbnail_storage_path ? { width: 240, height: 240, resize: 'contain', quality: 60, format: 'origin' } : undefined);
     return { id: asset.id, originalName: asset.original_name, kind: asset.kind, thumbnailUrl: signed.data?.signedUrl ?? null };
   }));
   const last = pageRows.at(-1);
