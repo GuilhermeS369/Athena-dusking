@@ -69,6 +69,10 @@ type GallerySituationFilter =
   | "processing"
   | "ready"
   | "failed";
+type MediaUploadTarget =
+  | { backend: "supabase" }
+  | { backend: "r2"; uploadUrl: string };
+
 type UploadItem = {
   id: string;
   file: File;
@@ -767,6 +771,21 @@ export default function GalleryClient({
     }
   }
 
+  async function resolveMediaUploadTarget(
+    storagePath: string,
+  ): Promise<MediaUploadTarget> {
+    const response = await fetch("/api/media/upload-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ storagePath }),
+    });
+    if (!response.ok)
+      throw new Error(
+        `Não foi possível preparar o destino do upload (HTTP ${response.status}).`,
+      );
+    return response.json() as Promise<MediaUploadTarget>;
+  }
+
   function uploadFile(item: UploadItem) {
     if (isTwitter) return uploadTwitterFile(item);
     return new Promise<void>((resolve) => {
@@ -784,12 +803,15 @@ export default function GalleryClient({
       const thumbnailStoragePath = item.thumbnail
         ? `${activeOrganization.id}/thumbnails/${item.id}.jpg`
         : null;
-      const startUpload = () => {
+      const startUpload = (target: MediaUploadTarget) => {
+        const isR2 = target.backend === "r2";
         xhr.open(
-          "POST",
-          useDirectStorage
-            ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/${mediaBucket}/${storagePath}`
-            : mediaApi,
+          isR2 ? "PUT" : "POST",
+          isR2
+            ? target.uploadUrl
+            : useDirectStorage
+              ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/${mediaBucket}/${storagePath}`
+              : mediaApi,
         );
         xhr.upload.onprogress = (event) => {
           if (!event.lengthComputable) return;
@@ -934,7 +956,10 @@ export default function GalleryClient({
           }));
           resolve();
         };
-        if (useDirectStorage) {
+        if (isR2) {
+          xhr.setRequestHeader("Content-Type", item.file.type);
+          xhr.send(item.file);
+        } else if (useDirectStorage) {
           void createSupabaseBrowserClient()
             .auth.getSession()
             .then(({ data, error }) => {
@@ -981,46 +1006,67 @@ export default function GalleryClient({
           xhr.send(body);
         }
       };
-      if (useDirectStorage && item.thumbnail) {
-        void (async () => {
-          const client = createSupabaseBrowserClient();
-          const { data, error: sessionError } = await client.auth.getSession();
-          if (sessionError || !data.session)
-            throw new Error(
-              "Sessão expirada. Entre novamente para enviar a mídia.",
+      void (async () => {
+        const target = await resolveMediaUploadTarget(storagePath);
+        if (useDirectStorage && item.thumbnail) {
+          if (target.backend === "r2") {
+            const thumbTarget = await resolveMediaUploadTarget(
+              thumbnailStoragePath!,
             );
-          const { error } = await client.storage
-            .from(mediaBucket)
-            .upload(thumbnailStoragePath!, item.thumbnail!, {
-              contentType: "image/jpeg",
-              upsert: false,
+            if (thumbTarget.backend !== "r2")
+              throw new Error(
+                "Destino de upload inconsistente para a miniatura.",
+              );
+            const response = await fetch(thumbTarget.uploadUrl, {
+              method: "PUT",
+              headers: { "Content-Type": "image/jpeg" },
+              body: item.thumbnail,
             });
-          if (error)
-            throw new Error(
-              `Não foi possível armazenar a miniatura: ${error.message}`,
-            );
-          startUpload();
-        })().catch((error) => {
-          requestsRef.current.delete(item.id);
-          if (
-            isLikelyTemporaryUploadError(error) &&
-            item.attempts < MAX_UPLOAD_ATTEMPTS
-          ) {
-            void retryLater(
-              item,
-              "Não foi possível enviar a miniatura agora.",
-              item.attempts + 1,
-            ).finally(resolve);
-            return;
+            if (!response.ok)
+              throw new Error(
+                `Não foi possível armazenar a miniatura (HTTP ${response.status}).`,
+              );
+          } else {
+            const client = createSupabaseBrowserClient();
+            const { data, error: sessionError } =
+              await client.auth.getSession();
+            if (sessionError || !data.session)
+              throw new Error(
+                "Sessão expirada. Entre novamente para enviar a mídia.",
+              );
+            const { error } = await client.storage
+              .from(mediaBucket)
+              .upload(thumbnailStoragePath!, item.thumbnail!, {
+                contentType: "image/jpeg",
+                upsert: false,
+              });
+            if (error)
+              throw new Error(
+                `Não foi possível armazenar a miniatura: ${error.message}`,
+              );
           }
-          updateQueueItem(item.id, (current) => ({
-            ...current,
-            status: "failed",
-            error: `Motivo da falha: ${error instanceof Error ? error.message : "não foi possível preparar a miniatura."}`,
-          }));
-          resolve();
-        });
-      } else startUpload();
+        }
+        startUpload(target);
+      })().catch((error) => {
+        requestsRef.current.delete(item.id);
+        if (
+          isLikelyTemporaryUploadError(error) &&
+          item.attempts < MAX_UPLOAD_ATTEMPTS
+        ) {
+          void retryLater(
+            item,
+            "Não foi possível preparar o upload agora.",
+            item.attempts + 1,
+          ).finally(resolve);
+          return;
+        }
+        updateQueueItem(item.id, (current) => ({
+          ...current,
+          status: "failed",
+          error: `Motivo da falha: ${error instanceof Error ? error.message : "não foi possível preparar o upload."}`,
+        }));
+        resolve();
+      });
     });
   }
 

@@ -145,7 +145,7 @@ Dispatcher prioritário ── fairness por organização ── 180/min/org
 
 ### Fase 5 — Separar os dois loops dentro do runtime
 
-**Estado:** implementada e testada localmente; implantada na VPS às 08:51 UTC, causou crash-loop por conflito com edição concorrente de outra sessão no mesmo arquivo, revertida às 08:53 UTC. Produção estável de novo no código da Fase 4. Reimplantação da Fase 5 pausada até coordenação — ver diário abaixo.
+**Estado:** implantada e estável em produção (09:18 UTC), após um incidente intermediário e coordenação com outra sessão trabalhando no mesmo repositório — ver diário abaixo para a sequência completa (deploy → crash-loop → rollback → coordenação → deploy final).
 
 - [x] Extrair um loop de dispatch de alta prioridade, com polling próprio e mutex para impedir sobreposição — `dispatchLoop`/`createSingleFlightGuard` em [scripts/workers/publication-worker.mjs](scripts/workers/publication-worker.mjs).
 - [x] Executar staging em loop assíncrono independente, com concorrência quatro e cancelamento cooperativo — `stagingLoop`/`runStagingCycle`, `mapWithConcurrency` ganhou `shouldStop`.
@@ -314,3 +314,20 @@ Suíte focada (58 testes, incluindo os novos) + `node --check` nos 5 arquivos to
 **Lição para o próximo deploy:** `node --check` local não é suficiente para pegar dependências de módulo ausentes na VPS quando o arquivo é compartilhado com outro trabalho em andamento. Antes do próximo deploy da Fase 5, vale rodar `node --check` **e também tentar um `node --input-type=module -e "import('./publication-direct-dispatch.mjs')"` (ou equivalente) na própria VPS antes do restart**, ou confirmar com `git diff`/hash que o arquivo local não carrega mudanças de terceiros não relacionadas antes de fazer `scp`.
 
 **Código da Fase 5 permanece intacto localmente** (não commitado), testado (58/58), pronto para reimplantar assim que a dependência R2 estiver resolvida na VPS.
+
+### 28/08/2026 06:08–06:20 BRT / 09:08–09:20 UTC — coordenação entre sessões e conclusão do deploy da Fase 5
+
+**Coordenação:** a sessão `pomodoro-5f` (mesma máquina, mesmo repositório) estava trabalhando em paralelo numa migração de mídia para Cloudflare R2 no mesmo arquivo (`publication-direct-dispatch.mjs`) — foi a origem do import `@aws-sdk/client-s3` que causou o crash-loop registrado acima. Ela corrigiu a causa raiz do lado dela: trocou o import estático por um **import dinâmico** (`import('@aws-sdk/client-s3')` dentro de `getR2Client()`, só resolvido quando `MEDIA_STORAGE_BACKEND=r2` é realmente usado), então o worker nunca mais quebra por essa dependência estar ausente, independente de instalação.
+
+Sequência verificada (não só relatada pela outra sessão — cada passo foi confirmado nesta sessão via hash/log direto na VPS):
+1. `pomodoro-e0` criou um commit de checkpoint (`6d768f8`, 28/08 06:08 BRT) do working tree compartilhado, capturando meu código da Fase 5 (`publication-worker.mjs`, `adaptive-bulk-controller.mjs`, o `shouldStop` em `publication-direct-dispatch.mjs`) junto com o fix de import dinâmico da R2 — confirmado por `git diff HEAD` vazio nos três arquivos.
+2. `pomodoro-5f` implantou `publication-direct-dispatch.mjs` (import dinâmico + `shouldStop` preservado) — confirmado hash `78eeb136...` na VPS, log de erro parado desde `08:51:17 UTC` (sem crescer depois do restart dela), `unstable_restarts: 0`.
+3. Completei o deploy da Fase 5 implantando apenas os dois arquivos que faltavam — `publication-worker.mjs` e `adaptive-bulk-controller.mjs` (novo) — via `artifacts/deploy-publication-worker-fase5-b.sh`, deliberadamente sem tocar em `publication-direct-dispatch.mjs` (já correto e estável). O script novo inclui um passo que faltava no primeiro deploy da Fase 5: `node --input-type=module -e "await import(...)"` na própria VPS antes do restart, para pegar dependência de módulo ausente (o que `node --check` sozinho não detecta) — exatamente a lição do incidente anterior.
+
+**Resultado do deploy final:**
+- Backup: `.before-fase5b-20260828T091833Z`.
+- Novo PID `213674`, `status: online`, `unstable_restarts: 0`, sem erro novo (log de erro parado desde `08:51:17 UTC`, antes até do primeiro incidente).
+- Hashes finais na VPS batendo exatamente com o local: `publication-worker.mjs=4344ac27...`, `publication-direct-dispatch.mjs=78eeb136...`, `adaptive-bulk-controller.mjs=b015e034...`.
+- `operational-health`: `signals.critical=0`, `overdue=0`, `expiredLeases=0`, `dueRetries=0`, 6/6 workers ativos, `publishedLastHour=1587`.
+
+**Estado final:** Fase 5 implantada e estável em produção. A Fase 4 (guarda + lote 100) e a Fase 5 (loops independentes) estão ambas ativas no mesmo processo PM2, como o plano previa. Próximo passo natural: observar uma onda horária real (mesmo padrão recorrente já mapeado) para confirmar que o dispatch não é mais afetado nem no pior caso de um lote de staging demorado — ainda não observado sob carga real com o código novo.

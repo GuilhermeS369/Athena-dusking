@@ -1,8 +1,31 @@
 import { NextResponse } from 'next/server';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { createR2SignedUrl, deleteFromR2, objectExistsInR2 } from '@/lib/storage/r2-client';
 
 const TYPES = new Map([['image/jpeg', 'image'], ['image/png', 'image'], ['image/webp', 'image'], ['video/mp4', 'video'], ['video/quicktime', 'video']]);
+const mediaStorageBackend = (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
+const r2Bucket = process.env.R2_BUCKET_INSTAGRAM_MEDIA || 'instagram-media';
+
+async function removeUploadedObjects(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, storagePaths: string[]) {
+  if (!storagePaths.length) return;
+  if (mediaStorageBackend === 'r2') {
+    await deleteFromR2(r2Bucket, storagePaths);
+    return;
+  }
+  await supabase.storage.from('instagram-media').remove(storagePaths);
+}
+
+async function storageObjectExists(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, storagePath: string) {
+  if (mediaStorageBackend === 'r2') return { data: await objectExistsInR2(r2Bucket, storagePath), error: null as { message: string } | null };
+  return supabase.rpc('media_asset_has_storage_object', { p_storage_path: storagePath });
+}
+
+async function signPreviewUrl(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, storagePath: string) {
+  if (mediaStorageBackend === 'r2') return { signedUrl: await createR2SignedUrl(r2Bucket, storagePath, 600) };
+  const { data } = await supabase.storage.from('instagram-media').createSignedUrl(storagePath, 600);
+  return { signedUrl: data?.signedUrl ?? null };
+}
 
 async function assignAssetToUploadGroup(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
@@ -48,16 +71,16 @@ export async function POST(request: Request) {
     if (existing) {
       const uploadedStoragePaths = [body.storagePath, ...(body.thumbnailStoragePath ? [body.thumbnailStoragePath] : [])];
       if (existing.deletion_requested_at) {
-        await supabase.storage.from('instagram-media').remove(uploadedStoragePaths);
+        await removeUploadedObjects(supabase, uploadedStoragePaths);
         return NextResponse.json({ error: 'Esta mídia já está em uma fila de exclusão. Aguarde a exclusão terminar antes de reenviar o mesmo arquivo.' }, { status: 409 });
       }
 
       const storageExists = existing.deleted_at || existing.deletion_requested_at
         ? { data: false, error: null }
-        : await supabase.rpc('media_asset_has_storage_object', { p_storage_path: existing.storage_path });
+        : await storageObjectExists(supabase, existing.storage_path);
 
       if (storageExists.error) {
-        await supabase.storage.from('instagram-media').remove(uploadedStoragePaths);
+        await removeUploadedObjects(supabase, uploadedStoragePaths);
         return NextResponse.json({ error: `Não foi possível verificar se o arquivo já existente ainda está no storage: ${storageExists.error.message}` }, { status: 500 });
       }
 
@@ -77,13 +100,13 @@ export async function POST(request: Request) {
             .eq('organization_id', organizationId);
 
           if (quarantineError) {
-            await supabase.storage.from('instagram-media').remove(uploadedStoragePaths);
+            await removeUploadedObjects(supabase, uploadedStoragePaths);
             return NextResponse.json({ error: `Existe um registro antigo quebrado deste arquivo e ele não pôde liberar o checksum automaticamente: ${quarantineError.message}.` }, { status: 409 });
           }
         }
       } else {
         const disposableStoragePaths = uploadedStoragePaths.filter((path) => path !== existing.storage_path && path !== existing.thumbnail_storage_path);
-        if (disposableStoragePaths.length) await supabase.storage.from('instagram-media').remove(disposableStoragePaths);
+        if (disposableStoragePaths.length) await removeUploadedObjects(supabase, disposableStoragePaths);
         const { data: renamedExisting, error: renameExistingError } = await supabase
           .from('media_assets')
           .update({ original_name: body.originalName.slice(0, 255), mime_type: body.mimeType, kind, size_bytes: body.sizeBytes, status: 'ready', processing_error: null })
@@ -94,20 +117,20 @@ export async function POST(request: Request) {
           .single();
         if (renameExistingError || !renamedExisting) return NextResponse.json({ error: `O arquivo já existia, mas não pôde ser atualizado para aparecer com o nome reenviado: ${renameExistingError?.message ?? 'erro no banco'}.` }, { status: 400 });
         const [signed, thumbnailSigned] = await Promise.all([
-          supabase.storage.from('instagram-media').createSignedUrl(renamedExisting.storage_path, 600),
-          renamedExisting.thumbnail_storage_path ? supabase.storage.from('instagram-media').createSignedUrl(renamedExisting.thumbnail_storage_path, 600) : Promise.resolve({ data: null }),
+          signPreviewUrl(supabase, renamedExisting.storage_path),
+          renamedExisting.thumbnail_storage_path ? signPreviewUrl(supabase, renamedExisting.thumbnail_storage_path) : Promise.resolve({ signedUrl: null }),
         ]);
         const groupIds = await assignAssetToUploadGroup(supabase, organizationId, renamedExisting.id, uploadGroupId);
-        return NextResponse.json({ asset: { ...renamedExisting, signed_url: signed.data?.signedUrl ?? null, thumbnail_url: thumbnailSigned.data?.signedUrl ?? null, group_ids: groupIds }, duplicated: true });
+        return NextResponse.json({ asset: { ...renamedExisting, signed_url: signed.signedUrl, thumbnail_url: thumbnailSigned.signedUrl, group_ids: groupIds }, duplicated: true });
       }
     }
     const { data: asset, error } = await supabase.from('media_assets').insert({ organization_id: organizationId, uploaded_by: context.user.id, storage_path: body.storagePath, thumbnail_storage_path: body.thumbnailStoragePath ?? null, original_name: body.originalName.slice(0, 255), mime_type: body.mimeType, kind, size_bytes: body.sizeBytes, checksum_sha256: checksum, status: 'ready' }).select('id, original_name, mime_type, kind, size_bytes, width, height, duration_ms, status, processing_error, storage_path, thumbnail_storage_path, first_published_at, created_at, updated_at').single();
     if (error || !asset) return NextResponse.json({ error: `O arquivo subiu, mas falhou ao registrar na galeria: ${error?.message ?? 'erro no banco'}.` }, { status: 400 });
     const [signed, thumbnailSigned] = await Promise.all([
-      supabase.storage.from('instagram-media').createSignedUrl(body.storagePath, 600),
-      body.thumbnailStoragePath ? supabase.storage.from('instagram-media').createSignedUrl(body.thumbnailStoragePath, 600) : Promise.resolve({ data: null }),
+      signPreviewUrl(supabase, body.storagePath),
+      body.thumbnailStoragePath ? signPreviewUrl(supabase, body.thumbnailStoragePath) : Promise.resolve({ signedUrl: null }),
     ]);
     const groupIds = await assignAssetToUploadGroup(supabase, organizationId, asset.id, uploadGroupId);
-    return NextResponse.json({ asset: { ...asset, signed_url: signed.data?.signedUrl ?? null, thumbnail_url: thumbnailSigned.data?.signedUrl ?? null, group_ids: groupIds } }, { status: 201 });
+    return NextResponse.json({ asset: { ...asset, signed_url: signed.signedUrl, thumbnail_url: thumbnailSigned.signedUrl, group_ids: groupIds } }, { status: 201 });
   } catch (error) { return NextResponse.json({ error: `Não foi possível concluir o upload direto: ${error instanceof Error ? error.message : 'erro inesperado'}.` }, { status: 400 }); }
 }
