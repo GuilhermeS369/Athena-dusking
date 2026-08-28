@@ -30,6 +30,13 @@ const zernioApiBaseUrl = (process.env.ZERNIO_API_BASE_URL || 'https://zernio.com
 // aparelho oscila. A recuperação consulta somente o profile isolado já usado
 // pelo attempt; ela jamais abre outro OAuth ou cria um novo profile remoto.
 const postCallbackRecoverySeconds = Math.min(7200, Math.max(300, Number.parseInt(process.env.ZERNIO_POST_CALLBACK_RECOVERY_SECONDS || '1500', 10) || 1500));
+// A trava por organização é liberada ao fim de cada adição, então quem limitava
+// a vazão era o sleep entre ciclos: uma finalização por poll, mesmo com dezenas
+// de celulares esperando. O ciclo agora drena as adições enquanto houver fila.
+// Os tetos abaixo impedem que um backlog grande adie indefinidamente o sync de
+// lotes e o heartbeat.
+const additionDrainLimit = Math.min(500, Math.max(1, Number.parseInt(process.env.ZERNIO_SYNC_WORKER_ADDITION_DRAIN_LIMIT || '120', 10) || 120));
+const additionDrainBudgetMs = Math.min(600_000, Math.max(5_000, Number.parseInt(process.env.ZERNIO_SYNC_WORKER_ADDITION_DRAIN_BUDGET_MS || '120000', 10) || 120_000));
 
 let stopping = false;
 let lastHeartbeatAt = 0;
@@ -743,15 +750,54 @@ async function processConnectionAddition(item) {
   }
 }
 
+// Drena as adições enquanto o claim continuar devolvendo trabalho. Cada adição
+// permanece serial e usa exatamente as mesmas RPCs, na mesma ordem: a trava por
+// organização, a reserva de slot, a reconciliação e o vínculo de grupo seguem
+// intocados. A única mudança é não dormir entre uma finalização e a próxima.
+async function drainConnectionAdditions() {
+  const results = [];
+  const startedAt = Date.now();
+  let rounds = 0;
+  let stopReason = 'empty';
+
+  while (!stopping) {
+    if (results.length >= additionDrainLimit) { stopReason = 'drain_limit'; break; }
+    if (Date.now() - startedAt >= additionDrainBudgetMs) { stopReason = 'time_budget'; break; }
+
+    const { data: additions, error: additionsError } = await supabase.rpc('claim_zernio_connection_additions', {
+      p_worker_id: workerId, p_limit: limit, p_lease_seconds: leaseSeconds,
+    });
+    if (additionsError) throw additionsError;
+
+    const claimed = additions ?? [];
+    if (claimed.length === 0) break;
+    rounds += 1;
+
+    for (const addition of claimed) {
+      try { results.push(await processConnectionAddition(addition)); }
+      catch (error) { results.push({ attemptId: addition.attempt_id, status: 'failed', error: error?.summary ?? String(error) }); }
+    }
+
+    // Uma onda longa não pode fazer o worker parecer morto para a observabilidade.
+    if (Date.now() - lastHeartbeatAt >= heartbeatIntervalMs) {
+      await heartbeat('processing', { draining: true, rounds, drained: results.length }).catch((error) => {
+        console.error('[zernio-sync-worker] falha ao registrar heartbeat durante drenagem', error);
+      });
+    }
+  }
+
+  if (stopping && stopReason === 'empty') stopReason = 'stopping';
+  return { results, rounds, stopReason, elapsedMs: Date.now() - startedAt };
+}
+
 async function tick() {
-  const { data: additions, error: additionsError } = await supabase.rpc('claim_zernio_connection_additions', {
-    p_worker_id: workerId, p_limit: limit, p_lease_seconds: leaseSeconds,
-  });
-  if (additionsError) throw additionsError;
-  const additionResults = [];
-  for (const addition of additions ?? []) {
-    try { additionResults.push(await processConnectionAddition(addition)); }
-    catch (error) { additionResults.push({ attemptId: addition.attempt_id, status: 'failed', error: error?.summary ?? String(error) }); }
+  const drain = await drainConnectionAdditions();
+  const additionResults = drain.results;
+
+  if (drain.stopReason !== 'empty' && drain.stopReason !== 'stopping') {
+    console.warn('[zernio-sync-worker] drenagem interrompida por teto', {
+      stopReason: drain.stopReason, drained: additionResults.length, rounds: drain.rounds, elapsedMs: drain.elapsedMs,
+    });
   }
   if (Date.now() - lastPressureCheckAt >= 60_000) {
     const { data: pressure, error: pressureError } = await supabase.rpc(
@@ -768,8 +814,9 @@ async function tick() {
   }
   if (cachedPublicationPressure.criticalDelay) {
     const summary = {
-      additions: (additions ?? []).length,
+      additions: additionResults.length,
       additionResults,
+      additionDrain: { rounds: drain.rounds, stopReason: drain.stopReason, elapsedMs: drain.elapsedMs },
       claimed: 0,
       results: [],
       waitingForPublicationCapacity: true,
@@ -790,8 +837,9 @@ async function tick() {
   if (heavyLeaseError) throw heavyLeaseError;
   if (!heavyLeaseToken) {
     const summary = {
-      additions: (additions ?? []).length,
+      additions: additionResults.length,
       additionResults,
+      additionDrain: { rounds: drain.rounds, stopReason: drain.stopReason, elapsedMs: drain.elapsedMs },
       claimed: 0,
       results: [],
       waitingForCapacity: true,
@@ -870,8 +918,9 @@ async function tick() {
     }
   }));
   const summary = {
-    additions: (additions ?? []).length,
+    additions: additionResults.length,
     additionResults,
+    additionDrain: { rounds: drain.rounds, stopReason: drain.stopReason, elapsedMs: drain.elapsedMs },
     claimed: (claimed ?? []).length,
     results,
   };
@@ -885,6 +934,28 @@ async function tick() {
   }
 }
 
+function countByStatus(rows) {
+  const counts = {};
+  for (const row of rows ?? []) {
+    const key = String(row?.status ?? 'unknown');
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function compactSummary(summary) {
+  return {
+    additions: summary.additions ?? 0,
+    additionStatuses: countByStatus(summary.additionResults),
+    additionDrain: summary.additionDrain ?? null,
+    claimed: summary.claimed ?? 0,
+    itemStatuses: countByStatus(summary.results),
+    waitingForCapacity: summary.waitingForCapacity ?? false,
+    waitingForPublicationCapacity: summary.waitingForPublicationCapacity ?? false,
+    publicationPressure: summary.publicationPressure ?? null,
+  };
+}
+
 async function main() {
   console.info('[zernio-sync-worker] iniciando', { workerId, once, pollMs, heartbeatIntervalMs, limit, leaseSeconds });
   await heartbeat('starting');
@@ -893,7 +964,9 @@ async function main() {
     try {
       const summary = await tick();
       const status = summary.additions > 0 || summary.claimed > 0 ? 'processing' : 'idle';
-      if (Date.now() - lastHeartbeatAt >= heartbeatIntervalMs) await heartbeat(status, { summary });
+      // O log guarda o detalhe completo; o heartbeat guarda só o agregado, para
+      // que uma onda drenada não escreva dezenas de resultados no banco.
+      if (Date.now() - lastHeartbeatAt >= heartbeatIntervalMs) await heartbeat(status, { summary: compactSummary(summary) });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error('[zernio-sync-worker] falha no ciclo', error);
