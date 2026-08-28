@@ -237,7 +237,27 @@ O resumo gravado no heartbeat passou a ser agregado (`compactSummary`), já que 
 
 **Rollback:** `/opt/athena-worker/scripts/workers/zernio-sync-worker.mjs.bak-20260828` contém a versão anterior, idêntica ao HEAD do repositório no momento do deploy (diferença zero, conferida por diff).
 
-**Pendente de validação real:** a próxima onda de plug. O que observar no log: `additionDrain.rounds` maior que 1 e `elapsedMs` acompanhando o tamanho da onda; e, no banco, o gap entre conclusões consecutivas caindo de ~11s para a casa de 1-2s.
+### Validação em onda real — 28/08/2026, 20:07 UTC
+
+Onda de 7 celulares, organização Pomodoro, todos os callbacks dentro de 5 segundos (20:07:43 a 20:07:48). Resultado:
+
+| métrica | 28/08 manhã (poll 10s) | 27/08 (poll 5s) | **28/08 20:07 (drenagem)** |
+|---|---|---|---|
+| intervalo entre conclusões | 11,3s | 6,2s | **0,9s** |
+| espera mediana | 1,0min | 45,8s | **6,1s** |
+| espera máxima | 3,2min | 3,6min | **6,5s** |
+
+A onda inteira foi drenada em **6 segundos**, num único ciclo: o log registra `additionDrain: { rounds: 7, stopReason: 'empty', elapsedMs: 6975 }`. Cada finalização levou ~1,0s, confirmando a medição de trabalho real.
+
+Qualidade da onda: 7 de 7 concluídas, 7 de 7 com grupo atribuído, 0 recuperações, 0 falhas, 0 abandonadas.
+
+**A variância por posição na fila desapareceu.** Antes, o primeiro da fila esperava ~11s e o último esperava proporcionalmente ao tamanho da onda. Agora a espera vai de 5,4s a 6,5s independentemente da posição — os 7 celulares tiveram tratamento idêntico. Para efeito de comparação, essa mesma onda de 7 pela manhã teria deixado o último aparelho esperando cerca de 79 segundos.
+
+### O que passou a ser o piso, e a folga que isso abre
+
+Com a fila resolvida, o que sobra na espera é a latência de detecção: o callback chega e o worker só percebe no próximo poll. Daí o piso de ~6s = poll (até 5s) + trabalho (~1s).
+
+Consequência prática: **o valor do poll agora afeta apenas o primeiro aparelho, não a fila inteira.** Se for preciso reduzir carga no Supabase de novo, voltar o poll para 10000 hoje custaria ~5s a mais no piso — e não mais o efeito multiplicativo que causou a lentidão de hoje de manhã. Descer para 2000 traria o piso para ~3s, ao custo de 2,5x mais ciclos por dia; não recomendado sem necessidade, dado o histórico de pressão no Supabase.
 
 **Nota:** a alteração no worker está no working tree, ainda não commitada.
 
