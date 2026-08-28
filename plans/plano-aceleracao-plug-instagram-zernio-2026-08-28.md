@@ -297,6 +297,31 @@ O resumo da varredura passou a expor `profilesReleased`, `withoutProfileRow` e `
 
 **Estado após a ativação:** 24 tentativas encerradas, 146 de backlog restante, drenando a 8 por varredura a cada 10 minutos (cerca de 3 horas para zerar). Tentativas de 13 a 15/08 são anteriores à migration 161 e não possuem linha de profile isolado — para elas não há nada a liberar, e o contador `withoutProfileRow` explica a diferença. Nenhuma tentativa com conta remota apareceu até agora, confirmando a medição original.
 
+## Incidente 28/08 noite — carregamento infinito na etapa final
+
+Cinco celulares de uma mesma onda (callbacks entre 23:09:57 e 23:10:00 UTC) ficaram carregando indefinidamente na tela de conclusão.
+
+**Causa, e não era nada do que foi alterado nas fases 0 a 2.** A Zernio devolveu `error=oauth_denied` no callback — a autorização do Instagram foi negada ou cancelada e nenhuma conta foi criada. Mas `zernioTerminalCallbackFailure` só reconhecia códigos de **cobrança** (`payment_required`, `free_tier_exceeded`, `billing_required`, `plan_limit_exceeded`). Sem reconhecer `oauth_denied`, o callback era aceito, o attempt ia para `callback_received` e o worker entrava em recuperação procurando uma conta que nunca existiria, até o prazo de 25 minutos.
+
+Descartados com evidência: a API da Zernio respondeu em 290–858ms com HTTP 200; 4 das 5 chaves tinham **zero** contas Instagram; os profiles isolados estavam `dedicated/claimed`, intactos, não tocados pela varredura (que só age acima de 60 minutos); e a fila de adições estava vazia de trabalho concorrente.
+
+**Correção, escolhida por medição.** O impulso inicial — "qualquer `error` no callback é terminal" — teria quebrado plugs válidos. Nos 2.953 callbacks históricos:
+
+| código | em plugs sincronizados | em plugs sem conta |
+|---|---|---|
+| `oauth_denied` | 0 | 16 |
+| `payment_required` | 0 | 2 |
+| `free_tier_exceeded` (em `reason`) | 0 | 2 |
+| `connection_failed` | **5** | 1 |
+
+`connection_failed` aparece em plugs bem-sucedidos, então continua fora da lista terminal, com o motivo registrado no código. Só `oauth_denied` entrou.
+
+A mensagem exibida no celular passou a explicar o ocorrido, que nada ficou pendurado e o que fazer, em vez de `Falha terminal da Zernio: oauth_denied`.
+
+**Aplicado:** commit `1c0c27a`, 325 testes passando, `tsc --noEmit` limpo, deploy de produção na Vercel. As 5 tentativas travadas foram encerradas como `oauth_denied` e seus profiles isolados liberados; a fila voltou a zero.
+
+**Aprendizado para a Fase 2:** a varredura de abandonadas cobre o resíduo desse caminho — o ramo terminal do callback não libera o profile isolado, e é a varredura que o devolve depois de 60 minutos.
+
 ## Ordem de execução recomendada
 
 1. **Agora, sem código:** devolver `ZERNIO_SYNC_WORKER_POLL_INTERVAL_MS` para 5000 na VPS e reiniciar o worker. Restaura a cadência de ontem (~6,2s) e corta a espera pela metade. Verificar em seguida a linha `[zernio-sync-worker] iniciando` no log, que imprime a configuração efetiva.
