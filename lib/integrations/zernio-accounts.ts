@@ -142,7 +142,16 @@ export async function refreshZernioRemoteInventorySnapshot(organizationId: strin
   const { connection, client } = await createZernioConnectionContext(organizationId, connectionId);
   if (!connection.zernio_profile_id) throw new Error('A conexão Zernio não possui profile canônico para inventário.');
   const response = await client.listAccounts();
-  const count = instagramAccountsForProfiles(response.accounts ?? [], [connection.zernio_profile_id]).length;
+  // Ocupação e atribuição são perguntas diferentes e não podem usar o mesmo
+  // número. Para saber a QUEM uma conta pertence, o escopo continua estrito por
+  // profile. Para saber se ainda CABE outra conta nesta chave, o que vale é o
+  // total de contas Instagram que a API key enxerga — é exatamente isso que a
+  // Zernio mede ao recusar com "add a payment method".
+  //
+  // Contar só o profile canônico subestimava a ocupação: no modelo de profile
+  // isolado por tentativa quase nenhuma conta fica no canônico, então chaves
+  // lotadas apareciam como vazias e o Bulk continuava oferecendo vaga nelas.
+  const count = (response.accounts ?? []).filter((account) => account.platform === 'instagram').length;
   const checkedAt = new Date().toISOString();
   const { error } = await admin
     .from('zernio_connections')

@@ -273,9 +273,17 @@ async function syncClaimedItem(item) {
         zernio_account_metadata: account,
       }];
     });
-   // A API key pode listar contas de profiles externos. A ocupação desta
-   // conexão é exclusivamente a do seu profile remoto canônico.
-   const remoteInstagramAccountCount = accountsForCanonicalProfile(remoteAccounts, connection.zernio_profile_id).length;
+   // Ocupação e atribuição são perguntas diferentes e não podem usar o mesmo
+   // número. A atribuição (linhas abaixo) continua estrita por profile: uma
+   // conta só entra no Atena se o profile remoto pertencer a esta conexão.
+   //
+   // Já a ocupação responde "ainda cabe outra conta nesta chave?", e quem
+   // decide isso é a Zernio olhando a API key inteira. Contar só o profile
+   // canônico subestimava: no modelo de profile isolado por tentativa quase
+   // nenhuma conta fica no canônico, então chaves lotadas apareciam como
+   // vazias e o Bulk seguia oferecendo vaga nelas, queimando tempo de celular
+   // até a Zernio recusar com "add a payment method".
+   const remoteInstagramAccountCount = remoteAccounts.filter((account) => account?.platform === 'instagram').length;
   stage = 'reconcile_accounts';
   const { data: reconciliation, error: reconciliationError } = await supabase.rpc('reconcile_zernio_connection_accounts', {
     p_organization_id: item.organization_id,
