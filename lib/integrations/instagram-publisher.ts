@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { decryptToken } from '@/lib/security/token-crypto';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { createR2SignedUrl } from '@/lib/storage/r2-client';
+import { createR2SignedUrl, objectExistsInR2, uploadToR2 } from '@/lib/storage/r2-client';
 
 // 'supabase' (padrão) usa o Storage do Supabase, que cobra egress por byte
 // transferido. 'r2' usa Cloudflare R2 (egress $0), mantendo o mesmo

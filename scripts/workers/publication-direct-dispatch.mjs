@@ -292,10 +292,30 @@ function storageSignedUrlError(error) {
   return typed;
 }
 
+async function objectExistsInR2(bucket, key) {
+  const [{ HeadObjectCommand }, client] = await Promise.all([import('@aws-sdk/client-s3'), getR2Client()]);
+  try {
+    await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function createTemporaryUrl(storagePath) {
   if (mediaStorageBackend === 'r2') {
     const bucket = process.env.R2_BUCKET_INSTAGRAM_MEDIA || 'instagram-media';
     try {
+      // Sincronização tardia: mídia enviada depois da migração em lote ainda não
+      // existe no R2. Copia uma única vez do Supabase antes de assinar.
+      if (!(await objectExistsInR2(bucket, storagePath))) {
+        const supabase = createSupabase();
+        const { data, error } = await supabase.storage.from('instagram-media').download(storagePath);
+        if (error || !data) throw storageSignedUrlError(error);
+        const buffer = Buffer.from(await data.arrayBuffer());
+        const [{ PutObjectCommand }, client] = await Promise.all([import('@aws-sdk/client-s3'), getR2Client()]);
+        await client.send(new PutObjectCommand({ Bucket: bucket, Key: storagePath, Body: buffer, ContentType: data.type || 'application/octet-stream' }));
+      }
       const [{ GetObjectCommand }, { getSignedUrl }, client] = await Promise.all([
         import('@aws-sdk/client-s3'),
         import('@aws-sdk/s3-request-presigner'),

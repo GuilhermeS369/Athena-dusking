@@ -25,6 +25,12 @@ import {
   uniqueBatches,
 } from './publication-queue-utils';
 
+// O resumo agregado é a leitura mais cara do painel: `get_publication_queue_reference_page`
+// materializa todos os itens não arquivados da organização e roda catorze agregados,
+// três deles `count(distinct profile_id)`. Progresso de geração e alertas de pausa são
+// consultas leves e continuam no tick de 10 s; o resumo é consultado no máximo 1×/minuto.
+const SUMMARY_POLL_INTERVAL_MS = 60_000;
+
 export function usePublicationQueue({
   initialBatches,
   groups,
@@ -81,6 +87,9 @@ export function usePublicationQueue({
   const queueRequestSeqRef = useRef(0);
   const summaryRequestSeqRef = useRef<Record<QueueAggregateTab, number>>({ account: 0, batch: 0, group: 0 });
   const summaryPendingRef = useRef(0);
+  // Qualquer consulta ao resumo — automática ou disparada pelo usuário — reinicia a
+  // janela, para o tick não repetir logo em seguida o que acabou de ser carregado.
+  const lastSummaryPollAtRef = useRef(0);
   const cancellationStorageKey = `athena.queue.cancellation-operation.${organizationId}`;
 
   function appendQueueFilterParams(params: URLSearchParams) {
@@ -96,6 +105,7 @@ export function usePublicationQueue({
   async function refreshSummary(scope: QueueAggregateTab = aggregateTab, append = false) {
     const currentPage = summaryPages[scope];
     if (append && (!currentPage.hasMore || summaryLoading)) return;
+    lastSummaryPollAtRef.current = Date.now();
     const offset = append ? currentPage.offset + currentPage.limit : 0;
     const requestSeq = summaryRequestSeqRef.current[scope] + 1;
     summaryRequestSeqRef.current[scope] = requestSeq;
@@ -273,7 +283,14 @@ export function usePublicationQueue({
   useEffect(() => {
     if (!generationJobs.some((job) => activeGenerationJobStatuses.has(job.status))) return;
     const interval = window.setInterval(() => {
-      void refreshAll(true);
+      // Uma aba esquecida aberta durante uma geração longa não precisa pagar nada disso.
+      if (document.visibilityState !== 'visible') return;
+      // O progresso da geração continua ao vivo em 10 s.
+      void Promise.all([refreshGenerationJobs(), refreshPausedBatches()]);
+      const now = Date.now();
+      if (now - lastSummaryPollAtRef.current < SUMMARY_POLL_INTERVAL_MS) return;
+      lastSummaryPollAtRef.current = now;
+      void refreshSummary(aggregateTab);
     }, 10000);
     return () => window.clearInterval(interval);
   // O polling é ligado/desligado pelo conjunto atual de jobs ativos.
