@@ -175,6 +175,33 @@ export type QueueSummary = {
   groups: QueueSummaryRow[];
 };
 
+export type QueueSummaryPage = {
+  scope: QueueAggregateTab;
+  offset: number;
+  limit: number;
+  totalCount: number;
+  hasMore: boolean;
+};
+
+export type PausedPublicationBatch = {
+  batchId: string;
+  name: string | null;
+  consecutiveFailures: number;
+  pausedAt: string;
+  reason: string | null;
+  lastFailureItemId: string | null;
+  blockedItems: number;
+  blockedProfiles: number;
+  nextExecuteAt: string | null;
+};
+
+export type PausedPublicationBatchSummary = {
+  snapshotAt: string | null;
+  total: number;
+  blockedItems: number;
+  batches: PausedPublicationBatch[];
+};
+
 export type QueueCancellationOperation = {
   id: string;
   scope: 'account' | 'batch' | 'group';

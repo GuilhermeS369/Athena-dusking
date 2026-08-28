@@ -3,6 +3,34 @@ import { createClient } from '@supabase/supabase-js';
 
 export const PUBLICATION_MAX_ATTEMPTS = 5;
 
+// 'supabase' (padrão) usa o Storage do Supabase, que cobra egress por byte
+// transferido. 'r2' usa Cloudflare R2 (egress $0), mantendo o mesmo
+// comportamento de gerar uma signed URL nova por despacho — necessário porque
+// a Zernio rejeita como "duplicate content" quando a mesma URL física é
+// reenviada para a mesma conta em menos de 24h (ver
+// docs/athena-publication-pipeline-v2-2026-08-24.md).
+//
+// Import dinâmico e só dentro do ramo 'r2': um import estático de
+// '@aws-sdk/client-s3' no topo do módulo seria içado e avaliado no load do
+// worker, quebrando o processo inteiro se o pacote não estiver instalado —
+// mesmo com a flag desligada. Isso já causou um crash-loop em produção
+// (28/08/2026) quando o arquivo foi implantado antes do `npm install`.
+const mediaStorageBackend = (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
+let r2ClientPromise = null;
+async function getR2Client() {
+  if (!r2ClientPromise) {
+    r2ClientPromise = import('@aws-sdk/client-s3').then(({ S3Client }) => new S3Client({
+      region: 'auto',
+      endpoint: requiredEnv('R2_ENDPOINT'),
+      credentials: {
+        accessKeyId: requiredEnv('R2_ACCESS_KEY_ID'),
+        secretAccessKey: requiredEnv('R2_SECRET_ACCESS_KEY'),
+      },
+    }));
+  }
+  return r2ClientPromise;
+}
+
 const graphVersion = process.env.META_GRAPH_API_VERSION ?? 'v26.0';
 const metaRequestTimeoutMs = 25_000;
 const maxConcurrentMetaRequests = integerEnv('PUBLICATION_WORKER_META_CONCURRENCY', 5, 1, 20);
@@ -11,6 +39,7 @@ const zernioRequestTimeoutMs = integerEnv('ZERNIO_REQUEST_TIMEOUT_MS', 45_000, 2
 const zernioCreateMinimumSpacingMs = integerEnv('PUBLICATION_WORKER_ZERNIO_CREATE_SPACING_MS', 75, 0, 2_000);
 const zernioCreateBackpressureSpacingMs = integerEnv('PUBLICATION_WORKER_ZERNIO_BACKPRESSURE_SPACING_MS', 200, 25, 5_000);
 const mediaProbeTimeoutMs = integerEnv('PUBLICATION_MEDIA_URL_PROBE_TIMEOUT_MS', 12_000, 1_000, 30_000);
+const zernioMediaRetryWindowSeconds = integerEnv('PUBLICATION_ZERNIO_MEDIA_RETRY_WINDOW_SECONDS', 600, 180, 1_800);
 
 let activeMetaRequests = 0;
 const pendingMetaRequests = [];
@@ -239,6 +268,17 @@ function errorInfo(error) {
   return { message: sanitizedZernioDiagnostic(String(error), 1200) };
 }
 
+export function isPublicationInfrastructureError(error) {
+  const details = errorInfo(error);
+  const code = String(details.code ?? '').trim().toLowerCase();
+  const message = [details.message, details.details, details.hint].filter(Boolean).join(' ').toLowerCase();
+  return error instanceof TypeError || new Set([
+    '57014', '40001', '40p01', '53300', '57p01', '57p02', '57p03',
+    'publication_worker_cycle_failed',
+  ]).has(code)
+    || /statement timeout|canceling statement|deadlock detected|connection pool|database connection|supabase unavailable/.test(message);
+}
+
 function storageSignedUrlError(error) {
   const details = error && typeof error === 'object' ? error : {};
   const message = typeof details.message === 'string' ? details.message : '';
@@ -253,6 +293,19 @@ function storageSignedUrlError(error) {
 }
 
 async function createTemporaryUrl(storagePath) {
+  if (mediaStorageBackend === 'r2') {
+    const bucket = process.env.R2_BUCKET_INSTAGRAM_MEDIA || 'instagram-media';
+    try {
+      const [{ GetObjectCommand }, { getSignedUrl }, client] = await Promise.all([
+        import('@aws-sdk/client-s3'),
+        import('@aws-sdk/s3-request-presigner'),
+        getR2Client(),
+      ]);
+      return await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: storagePath }), { expiresIn: 60 * 60 * 24 });
+    } catch (error) {
+      throw storageSignedUrlError(error);
+    }
+  }
   const supabase = createSupabase();
   const { data, error } = await supabase.storage.from('instagram-media').createSignedUrl(storagePath, 60 * 60 * 24);
   if (error || !data?.signedUrl) throw storageSignedUrlError(error);
@@ -274,38 +327,86 @@ export function expectedMediaMime(kind, contentType) {
   return kind === 'video' ? /^video\//i.test(contentType) : /^image\//i.test(contentType);
 }
 
+function parsedContentRange(value) {
+  const match = String(value ?? '').match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
+  if (!match) return null;
+  return {
+    start: Number(match[1]),
+    end: Number(match[2]),
+    total: match[3] === '*' ? null : Number(match[3]),
+  };
+}
+
 export async function probeMediaUrl(url, kind, options = {}) {
   const fetchImpl = options.fetch ?? fetch;
-  const probe = async (method, range = false) => {
+  const startedAt = Date.now();
+  const probe = async (method, range = null) => {
     const response = await fetchImpl(url, {
       method,
-      headers: range ? { Range: 'bytes=0-1023' } : undefined,
+      headers: range ? { Range: range } : undefined,
       cache: 'no-store',
+      redirect: 'error',
       signal: AbortSignal.timeout(mediaProbeTimeoutMs),
     });
     const contentType = response.headers.get('content-type') ?? '';
+    const contentRange = parsedContentRange(response.headers.get('content-range'));
+    const contentLength = Number.parseInt(response.headers.get('content-length') ?? '', 10);
+    const cacheStatus = response.headers.get('cf-cache-status') ?? response.headers.get('x-cache') ?? null;
     await response.body?.cancel().catch(() => undefined);
-    return { response, contentType };
+    return {
+      response,
+      contentType,
+      contentRange,
+      contentLength: Number.isFinite(contentLength) ? contentLength : null,
+      cacheStatus,
+    };
   };
 
-  let result;
+  let head;
   try {
-    result = await probe('HEAD');
+    head = await probe('HEAD');
   } catch (error) {
     if (error?.name === 'TimeoutError') throw mediaDeliveryError('A verificação externa da URL da mídia expirou.', 'media_url_probe_timeout');
     throw mediaDeliveryError('Não foi possível verificar externamente a URL da mídia.', 'media_url_probe_network');
   }
-  if (!result.response.ok || !expectedMediaMime(kind, result.contentType)) {
+
+  let first;
+  try {
+    first = await probe('GET', 'bytes=0-1023');
+  } catch (error) {
+    if (error?.name === 'TimeoutError') throw mediaDeliveryError('A leitura parcial da URL da mídia expirou.', 'media_url_range_probe_timeout');
+    throw mediaDeliveryError('Não foi possível ler externamente a URL da mídia.', 'media_url_range_probe_network');
+  }
+
+  if (!first.response.ok) throw mediaDeliveryError(`A URL temporária da mídia retornou HTTP ${first.response.status}.`, `media_url_probe_http_${first.response.status}`, first.response.status >= 500);
+  if (!expectedMediaMime(kind, first.contentType || head.contentType)) throw mediaDeliveryError('A URL temporária retornou um tipo de conteúdo incompatível com a mídia.', 'media_url_probe_mime_invalid', false);
+  if (kind === 'video' && (first.response.status !== 206 || !first.contentRange || first.contentRange.start !== 0)) {
+    throw mediaDeliveryError('O host da mídia não confirmou leitura parcial do vídeo.', 'media_url_range_unsupported', false);
+  }
+
+  const totalBytes = first.contentRange?.total ?? (Number.isFinite(head.contentLength) ? head.contentLength : null);
+  let last = null;
+  if (kind === 'video' && totalBytes && totalBytes > 1024) {
     try {
-      result = await probe('GET', true);
+      last = await probe('GET', 'bytes=-1024');
     } catch (error) {
-      if (error?.name === 'TimeoutError') throw mediaDeliveryError('A leitura parcial da URL da mídia expirou.', 'media_url_range_probe_timeout');
-      throw mediaDeliveryError('Não foi possível ler externamente a URL da mídia.', 'media_url_range_probe_network');
+      if (error?.name === 'TimeoutError') throw mediaDeliveryError('A leitura final da URL da mídia expirou.', 'media_url_tail_probe_timeout');
+      throw mediaDeliveryError('Não foi possível ler o final da URL da mídia.', 'media_url_tail_probe_network');
+    }
+    if (last.response.status !== 206 || !last.contentRange || last.contentRange.total !== totalBytes || last.contentRange.end !== totalBytes - 1) {
+      throw mediaDeliveryError('O host não entregou corretamente o final do vídeo.', 'media_url_tail_range_invalid', false);
     }
   }
-  if (!result.response.ok) throw mediaDeliveryError(`A URL temporária da mídia retornou HTTP ${result.response.status}.`, `media_url_probe_http_${result.response.status}`, result.response.status >= 500);
-  if (!expectedMediaMime(kind, result.contentType)) throw mediaDeliveryError('A URL temporária retornou um tipo de conteúdo incompatível com a mídia.', 'media_url_probe_mime_invalid', false);
-  return { url, fingerprint: urlFingerprint(url), httpStatus: result.response.status, contentType: result.contentType };
+
+  return {
+    url,
+    fingerprint: urlFingerprint(url),
+    httpStatus: first.response.status,
+    contentType: first.contentType || head.contentType,
+    contentLength: totalBytes,
+    probeDurationMs: Date.now() - startedAt,
+    cacheStatus: last?.cacheStatus ?? first.cacheStatus ?? head.cacheStatus,
+  };
 }
 
 async function recordMediaDeliveryAttempt(item, media, phase, outcome, details = {}) {
@@ -563,6 +664,12 @@ function createZernioClient(apiKey, telemetryContext = null) {
     getPost(postId) {
       return request(`/v1/posts/${encodeURIComponent(postId)}`);
     },
+    updatePost(postId, body) {
+      return request(`/v1/posts/${encodeURIComponent(postId)}`, { method: 'PUT', body });
+    },
+    retryPost(postId) {
+      return request(`/v1/posts/${encodeURIComponent(postId)}/retry`, { method: 'POST' });
+    },
     listPosts(query = {}) {
       return request('/v1/posts', { query });
     },
@@ -657,9 +764,10 @@ function zernioPostMatchesWorkItem(post, item) {
   const mediaUrls = (post?.mediaItems ?? []).map((media) => String(media?.url ?? ''));
   return item.media.length > 0 && item.media.every((media) => mediaUrls.some((url) => {
     try {
-      return decodeURIComponent(new URL(url).pathname).endsWith(`/${media.storage_path}`);
+      const pathname = decodeURIComponent(new URL(url).pathname);
+      return pathname.endsWith(`/${media.storage_path}`) || pathname.includes(`athena-${media.id}.`);
     } catch {
-      return url.includes(media.storage_path);
+      return url.includes(media.storage_path) || url.includes(`athena-${media.id}.`);
     }
   }));
 }
@@ -848,8 +956,21 @@ function statusResult(post) {
   return { state: 'processing', creationId: id };
 }
 
-async function buildZernioMediaItems(item) {
-  const urls = await buildVerifiedMediaUrls(item);
+function zernioClientForWorkItem(item, operation) {
+  const context = {
+    operation,
+    itemId: item.id,
+    batchId: item.batch_id,
+    correlationId: item.correlation_id,
+    attemptCount: item.attempt_count,
+  };
+  return item.profile.zernio_connection_id
+    ? createZernioClientForConnection(item.profile.organization_id, item.profile.zernio_connection_id, context)
+    : createZernioClientForOrganization(item.profile.organization_id, context);
+}
+
+export async function buildZernioMediaItems(item, options = {}) {
+  const urls = await buildVerifiedMediaUrls(item, options);
   return item.media.map((media, index) => ({ type: media.kind, url: urls[index] }));
 }
 
@@ -881,7 +1002,7 @@ async function platformSpecificData(format, item) {
   if (format === 'story') return { contentType: 'story' };
   if (format === 'reel') return {
     shareToFeed: true,
-    ...(item.cover
+      ...(item.cover
       ? { instagramThumbnail: (await buildVerifiedMediaUrls({ ...item, media: [item.cover] }))[0] }
       : {}),
   };
@@ -901,10 +1022,11 @@ async function createZernioPost(item) {
     : await createZernioClientForOrganization(item.profile.organization_id, {
       operation: 'create_post', itemId: item.id, batchId: item.batch_id, correlationId: item.correlation_id, attemptCount: item.attempt_count,
     });
-  const specificData = await platformSpecificData(item.format, item);
+  const stagedPayload = item.staged_provider_payload;
+  const specificData = stagedPayload?.platformSpecificData ?? await platformSpecificData(item.format, item);
   const response = await client.createPost({
     content: item.caption ?? '',
-    mediaItems: await buildZernioMediaItems(item),
+    mediaItems: stagedPayload?.mediaItems ?? await buildZernioMediaItems(item),
     platforms: [{ platform: 'instagram', accountId, ...(specificData ? { platformSpecificData: specificData } : {}) }],
     publishNow: true,
   }, `athena-${item.id}${item.zernio_recovery_count > 0 ? '-recovery-1' : ''}`);
@@ -1056,8 +1178,40 @@ export async function loadWorkItem(item, options = {}) {
   };
 }
 
-// A preparação v2 é estritamente local: valida dados e mídia, mas não gera URL
-// assinada, não chama a Meta/Zernio e não cria agendamento remoto.
+// Cria o snapshot recuperável antes do horário. Nenhum token é persistido no
+// spool: itens Meta são reidratados no vencimento; para Zernio ficam somente
+// IDs não secretos e URLs temporárias já verificadas.
+export async function preparePublicationDispatchEnvelope(item, options = {}) {
+  const workItem = await loadWorkItem(item, options);
+  const base = {
+    itemId: item.id,
+    organizationId: item.organization_id,
+    profileId: item.profile_id,
+    executeAt: item.execute_at,
+  };
+  if ('state' in workItem) return { ...base, workItem };
+  if (workItem.profile.provider !== 'zernio') {
+    return { ...base, requiresReload: true, workItem: { id: item.id } };
+  }
+  validateZernioMedia(workItem);
+  const mediaItems = await buildZernioMediaItems(workItem, options);
+  const specificData = await platformSpecificData(workItem.format, workItem);
+  return {
+    ...base,
+    requiresReload: false,
+    workItem: {
+      ...workItem,
+      profile: { ...workItem.profile, encrypted_access_token: undefined },
+      staged_provider_payload: {
+        mediaItems,
+        ...(specificData ? { platformSpecificData: specificData } : {}),
+      },
+    },
+  };
+}
+
+// A preparação v2 valida somente dados locais. Ela não lê nem transfere os
+// bytes da mídia, não cria post e não chama Zernio ou Meta.
 export function validatePreparedPublicationWorkItem(workItem) {
   if (!workItem || typeof workItem !== 'object') {
     throw publicationDataError('Item ausente durante a preparação local.', 'preparation_item_missing');
@@ -1103,6 +1257,9 @@ export function validatePreparedPublicationWorkItem(workItem) {
 export async function preparePublicationQueueDirect(options = {}) {
   const workerId = options.workerId?.trim().slice(0, 120) || `prepare-${randomUUID()}`;
   const limit = Number.isInteger(options.limit) ? Math.min(Math.max(options.limit, 1), 500) : 100;
+  const concurrency = Number.isInteger(options.concurrency)
+    ? Math.min(Math.max(options.concurrency, 1), 20)
+    : 4;
   const leaseSeconds = Number.isInteger(options.leaseSeconds) ? Math.min(Math.max(options.leaseSeconds, 30), 900) : 180;
   const windowHours = Number.isInteger(options.windowHours) ? Math.min(Math.max(options.windowHours, 1), 24) : 24;
   const supabase = (options.createSupabase ?? createSupabase)();
@@ -1115,7 +1272,7 @@ export async function preparePublicationQueueDirect(options = {}) {
   if (error) throw error;
 
   const claimed = data ?? [];
-  const settled = await Promise.allSettled(claimed.map(async (item) => {
+  const settled = await mapWithConcurrency(claimed, concurrency, async (item) => {
     try {
       const workItem = await loadWorkItem({
         ...item,
@@ -1147,7 +1304,7 @@ export async function preparePublicationQueueDirect(options = {}) {
       if (completionError) throw completionError;
       return { itemId: item.id, state: 'blocked', errorCode: failure.code ?? 'preparation_failed' };
     }
-  }));
+  });
 
   const results = settled.map((entry, index) => entry.status === 'fulfilled'
     ? entry.value
@@ -1159,6 +1316,32 @@ export async function preparePublicationQueueDirect(options = {}) {
     errors: results.filter((item) => item.state === 'error').length,
     results,
   };
+}
+
+// shouldStop é checado antes de cada item novo ser retirado da fila (cancelamento
+// cooperativo): itens já em andamento sempre terminam, mas nenhum trabalhador pega
+// um item novo depois que shouldStop() vira true. Índices nunca tentados ficam
+// undefined no array de resultados, distinguíveis de 'fulfilled'/'rejected'.
+export async function mapWithConcurrency(items, concurrency, mapper, shouldStop = () => false) {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const workerCount = Math.min(Math.max(Number(concurrency) || 1, 1), items.length);
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      if (shouldStop()) return;
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = { status: 'fulfilled', value: await mapper(items[index], index) };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+    }
+  }));
+
+  return results;
 }
 
 async function recoverMissedPublicationSchedules(options = {}) {
@@ -1206,6 +1389,27 @@ async function recoverUnexpectedDispatcherFailure(itemId, workerId, error) {
   const original = errorInfo(error);
   const message = [original.message, original.details, original.hint].filter(Boolean).join(' — ').slice(0, 1200)
     || 'Falha inesperada ao processar o item.';
+
+  if (isPublicationInfrastructureError(error)) {
+    const { error: deferError } = await supabase.rpc('defer_publication_infrastructure_failure', {
+      p_item_id: itemId,
+      p_worker_id: workerId,
+      p_error_code: original.code || 'publication_worker_cycle_failed',
+      p_error_message: message,
+      p_delay_seconds: 30,
+    });
+    if (deferError) {
+      // Nunca convertemos uma indisponibilidade do banco em falha terminal. Se
+      // ate o defer falhar, o lease expira e o mesmo item volta para reconciliacao.
+      console.error('Não foi possível persistir o retry de infraestrutura; o lease será recuperado.', {
+        itemId,
+        original,
+        deferError: errorInfo(deferError),
+      });
+    }
+    return { message, state: 'infrastructure_retry' };
+  }
+
   const { error: completionError } = await supabase.rpc('complete_publication_item', {
     p_item_id: itemId,
     p_worker_id: workerId,
@@ -1237,7 +1441,14 @@ async function recoverUnexpectedDispatcherFailure(itemId, workerId, error) {
     });
   }
 
-  return message;
+  return { message, state: 'error' };
+}
+
+async function reconcilePublicationBatchRuntime(limit = 100) {
+  const supabase = createSupabase();
+  const { data, error } = await supabase.rpc('reconcile_publication_batch_runtime', { p_limit: limit });
+  if (error) throw error;
+  return data ?? { reconciledBatches: 0, newlyPausedBatches: 0, reconciledOutcomes: 0 };
 }
 
 async function suspendClaimedPublication(item, workerId, reason) {
@@ -1259,6 +1470,14 @@ export async function claimedProfileRemainsOnline(item, workerId, options = {}) 
   });
   if (error) throw error;
   return data === true;
+}
+
+export async function ensureClaimedProfileOnlineOrSuspend(item, workerId, options = {}) {
+  const remainsOnline = options.claimedProfileRemainsOnline ?? claimedProfileRemainsOnline;
+  const suspend = options.suspendClaimedPublication ?? suspendClaimedPublication;
+  if (await remainsOnline(item, workerId, options)) return true;
+  await suspend(item, workerId, 'Perfil offline; retomada manual necessária.');
+  return false;
 }
 
 export async function preserveConfirmedPublication(itemId, workerId, metaMediaId, options = {}) {
@@ -1312,6 +1531,44 @@ export async function scheduleZernioMediaDownloadRecovery(workItem, workerId, re
   return data?.scheduled === true;
 }
 
+export async function retryZernioMediaDownloadOnSamePost(workItem, workerId, failure, options = {}) {
+  const supabase = (options.createSupabase ?? createSupabase)();
+  const { data: reservation, error: reservationError } = await supabase.rpc('reserve_zernio_same_post_media_retry', {
+    p_item_id: workItem.id,
+    p_worker_id: workerId,
+    p_creation_id: workItem.creation_id,
+    p_error_code: failure.errorCode ?? 'zernio_media_download_failed',
+    p_error_message: failure.errorMessage ?? 'Instagram não conseguiu baixar a mídia entregue ao provedor.',
+    p_window_seconds: options.retryWindowSeconds ?? zernioMediaRetryWindowSeconds,
+  });
+  if (reservationError) throw reservationError;
+  if (reservation?.reserved !== true) return { started: false, reason: reservation?.reason ?? 'not_reserved' };
+
+  try {
+    const mediaItems = await buildZernioMediaItems(workItem, {
+      ...options,
+      forceRefresh: true,
+      workerId: `${workerId}:retry`.slice(0, 120),
+    });
+    const client = options.client ?? await zernioClientForWorkItem(workItem, 'retry_same_post');
+    await client.updatePost(workItem.creation_id, { mediaItems });
+    const response = await client.retryPost(workItem.creation_id);
+    const post = response?.post ?? response?.data?.post ?? null;
+    const result = post ? statusResult(post) : { state: 'processing', creationId: workItem.creation_id };
+    return { started: true, result: { ...result, creationId: workItem.creation_id } };
+  } catch (error) {
+    return {
+      started: true,
+      result: {
+        ...zernioFailureResult(error),
+        retryable: false,
+        errorCode: error.code ?? 'zernio_same_post_media_retry_failed',
+        errorMessage: `A recuperação no mesmo post da Zernio falhou: ${error.message ?? 'erro desconhecido'}`.slice(0, 1200),
+      },
+    };
+  }
+}
+
 export async function deferFirstZernioMediaDownloadFailure(workItem, workerId, options = {}) {
   const supabase = (options.createSupabase ?? createSupabase)();
   const { data, error } = await supabase.rpc('defer_publication_item', {
@@ -1355,7 +1612,7 @@ async function finalizeMetaProfileDisconnection(workItem, workerId, result) {
   return data;
 }
 
-async function processZernioProfileRecyclingJobs(workerId, limit = 10) {
+export async function processZernioProfileRecyclingJobs(workerId, limit = 10) {
   const supabase = createSupabase();
   const { data: claimed, error: claimError } = await supabase.rpc('claim_zernio_profile_recycling_jobs', {
     p_worker_id: workerId,
@@ -1459,12 +1716,12 @@ async function releasePublicationDispatchCapacity(itemId) {
   if (error) console.error('Não foi possível liberar reserva de capacidade de publicação.', { itemId, error: errorInfo(error) });
 }
 
-async function reservePublicationDispatchCapacity(item, workerId) {
+async function reservePublicationDispatchCapacity(item, workerId, reservationSeconds = 300) {
   const supabase = createSupabase();
   const { data, error } = await supabase.rpc('reserve_publication_dispatch_capacity', {
     p_item_id: item.id,
     p_worker_id: workerId,
-    p_reservation_seconds: 300,
+    p_reservation_seconds: reservationSeconds,
   });
   if (error) throw error;
   const result = data?.[0];
@@ -1499,13 +1756,32 @@ async function reserveDailyPublicationLimit(itemId, workerId) {
   return result.allowed;
 }
 
-export async function processClaimedItem(item, workerId) {
+export async function processClaimedItem(item, workerId, options = {}) {
   const supabase = createSupabase();
   let capacityReserved = false;
   try {
-    const workItem = await loadWorkItem(item);
+    const stagedWorkItem = options.workItem && options.requiresReload !== true
+      ? options.workItem
+      : null;
+    const workItem = stagedWorkItem
+      ? {
+        ...stagedWorkItem,
+        id: item.id,
+        batch_id: item.batch_id,
+        attempt_count: item.attempt_count,
+        correlation_id: item.correlation_id ?? stagedWorkItem.correlation_id ?? null,
+        creation_id: item.creation_id,
+        execute_at: item.execute_at ?? stagedWorkItem.execute_at ?? null,
+      }
+      : await loadWorkItem(item);
     if ('state' in workItem && workItem.state === 'suspended') {
       await suspendClaimedPublication(item, workerId, workItem.errorMessage);
+      return { itemId: item.id, state: 'suspended' };
+    }
+    // O snapshot antecipado não é autorização. Esta checagem transacional é
+    // repetida imediatamente antes do provedor para capturar quedas ocorridas
+    // entre o staging e o horário real da publicação.
+    if (!await ensureClaimedProfileOnlineOrSuspend(item, workerId)) {
       return { itemId: item.id, state: 'suspended' };
     }
     if (zernioWorkItemRequiresManualReconciliation(workItem)) {
@@ -1529,7 +1805,11 @@ export async function processClaimedItem(item, workerId) {
     }
     const reserveBeforeFinalPublish = async () => {
       if (!await claimedProfileRemainsOnline(item, workerId)) return false;
-      const fairnessAllowed = await reservePublicationDispatchCapacity(item, workerId);
+      const fairnessAllowed = await reservePublicationDispatchCapacity(
+        item,
+        workerId,
+        workItem.profile.provider === 'zernio' ? 60 : 300,
+      );
       if (!fairnessAllowed) return false;
       capacityReserved = true;
       if (workItem.profile.provider !== 'zernio') {
@@ -1610,7 +1890,6 @@ export async function processClaimedItem(item, workerId) {
     }
 
     if (workItem.profile.provider === 'zernio'
-      && workItem.format === 'reel'
       && result.state === 'failed'
       && item.creation_id
       && isProviderMediaDownloadFailure(result)
@@ -1620,13 +1899,22 @@ export async function processClaimedItem(item, workerId) {
         if (capacityReserved) await releasePublicationDispatchCapacity(item.id);
         return { itemId: item.id, state: 'zernio_media_download_second_poll_scheduled' };
       }
-      const recovered = await scheduleZernioMediaDownloadRecovery(workItem, workerId, result);
-      if (recovered) {
+      const recovery = await retryZernioMediaDownloadOnSamePost(workItem, workerId, result);
+      if (recovery.started && recovery.result?.state === 'processing') {
+        const { error: deferError } = await supabase.rpc('defer_publication_item', {
+          p_item_id: item.id,
+          p_worker_id: workerId,
+          p_creation_id: workItem.creation_id,
+          p_delay_seconds: 60,
+          p_is_poll: true,
+        });
+        if (deferError) throw deferError;
         if (capacityReserved) await releasePublicationDispatchCapacity(item.id);
-        return { itemId: item.id, state: 'zernio_media_recovery_scheduled' };
+        return { itemId: item.id, state: 'zernio_same_post_media_retry_requested' };
       }
-      // O RPC retorna false por política: preservamos a falha original como
-      // terminal e nunca geramos uma segunda criação externa.
+      if (recovery.started && recovery.result) result = recovery.result;
+      // Sem reserva (fora da janela ou já consumida), preserva a falha original.
+      // Nunca limpa creation_id e nunca cria uma segunda postagem externa.
     }
 
     if (result.state === 'deferred') return { itemId: item.id, state: result.reason };
@@ -1657,9 +1945,9 @@ export async function processClaimedItem(item, workerId) {
     };
   } catch (error) {
     if (capacityReserved) await releasePublicationDispatchCapacity(item.id);
-    const message = await recoverUnexpectedDispatcherFailure(item.id, workerId, error);
-    console.error('Falha isolada no dispatcher direto de publicação.', { itemId: item.id, error: errorInfo(error), message });
-    return { itemId: item.id, state: 'error', error: message };
+    const recovery = await recoverUnexpectedDispatcherFailure(item.id, workerId, error);
+    console.error('Falha isolada no dispatcher direto de publicação.', { itemId: item.id, error: errorInfo(error), recovery });
+    return { itemId: item.id, state: recovery.state, error: recovery.message };
   }
 }
 
@@ -1678,24 +1966,46 @@ export function nextAdaptiveDispatchLimit(currentLimit, configuredMaximum, proce
 
 const adaptiveDispatchLimits = new Map();
 
+export async function ignoreExpiredUnstartedPublications(supabase, options = {}) {
+  const cutoffDelayMs = Number.isFinite(options.cutoffDelayMs)
+    ? Math.max(60_000, Number(options.cutoffDelayMs))
+    : 60_000;
+  const cutoff = new Date((options.now ?? Date.now()) - cutoffDelayMs).toISOString();
+  return { ignored: 0, pages: 0, cutoff, failed: false, automaticDiscardDisabled: true };
+}
+
 export async function dispatchPublicationQueueDirect(options = {}) {
   const workerId = options.workerId?.trim().slice(0, 120) || `direct-${randomUUID()}`;
   const configuredLimit = Number.isInteger(options.limit) ? Math.min(Math.max(options.limit, 1), 100) : 5;
-  const limit = adaptiveDispatchLimits.get(workerId) ?? Math.min(configuredLimit, 10);
+  const reconciliationOnly = options.reconciliationOnly === true;
+  const effectiveMaximum = reconciliationOnly ? Math.min(configuredLimit, 4) : configuredLimit;
+  const limit = reconciliationOnly
+    ? effectiveMaximum
+    : adaptiveDispatchLimits.get(workerId) ?? Math.min(effectiveMaximum, 10);
   const leaseSeconds = Number.isInteger(options.leaseSeconds) ? Math.min(Math.max(options.leaseSeconds, 30), 900) : 180;
   const recoveryLimit = Number.isInteger(options.recoveryLimit) ? Math.min(Math.max(options.recoveryLimit, 0), limit) : 0;
   const supabase = createSupabase();
-  const preparation = await preparePublicationQueueDirect({
+  // Compatibilidade de telemetria: desde a 315, atraso causado pelo Athena
+  // nunca é transformado automaticamente em estado terminal.
+  const expired = reconciliationOnly
+    ? { ignored: 0, pages: 0, cutoff: null, failed: false }
+    : await ignoreExpiredUnstartedPublications(supabase);
+  const preparation = reconciliationOnly ? { claimed: 0, ready: 0, blocked: 0, errors: 0, results: [] } : await preparePublicationQueueDirect({
     workerId: `${workerId}:prepare`.slice(0, 120),
     limit: Number.isInteger(options.preparationLimit)
       ? options.preparationLimit
       : Math.min(500, Math.max(100, limit * 4)),
-    leaseSeconds,
+    concurrency: Number.isInteger(options.preparationConcurrency)
+      ? options.preparationConcurrency
+      : 4,
+    leaseSeconds: Math.max(300, leaseSeconds),
     windowHours: 24,
     correlationId: options.correlationId,
   });
-  const recovery = await recoverMissedPublicationSchedules({ workerId, correlationId: options.correlationId });
-  const recoveryItems = await claimCoordinatedBulkSlotRecoveryItems(
+  const recovery = reconciliationOnly
+    ? { scanned: 0, rescheduled: 0, requiresAttention: 0, bulkSlotsAtRisk: 0, overdueAlerts: 0 }
+    : await recoverMissedPublicationSchedules({ workerId, correlationId: options.correlationId });
+  const recoveryItems = reconciliationOnly ? [] : await claimCoordinatedBulkSlotRecoveryItems(
     workerId,
     recoveryLimit,
     leaseSeconds,
@@ -1703,7 +2013,10 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   const remainingRegularCapacity = Math.max(0, limit - recoveryItems.length);
   let regularItems = [];
   if (remainingRegularCapacity > 0) {
-    const { data: claimed, error: claimError } = await supabase.rpc('claim_publication_items', {
+    const claimFunction = reconciliationOnly
+      ? 'claim_provider_accepted_publication_items'
+      : 'claim_publication_items';
+    const { data: claimed, error: claimError } = await supabase.rpc(claimFunction, {
       p_worker_id: workerId,
       p_limit: remainingRegularCapacity,
       p_lease_seconds: leaseSeconds,
@@ -1716,20 +2029,28 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   const processed = settled.map((entry, index) => entry.status === 'fulfilled'
     ? entry.value
     : { itemId: items[index].id, state: 'error', error: errorInfo(entry.reason).message ?? 'Falha desconhecida no processamento paralelo.' });
-  const nextLimit = nextAdaptiveDispatchLimit(limit, configuredLimit, processed, items.length);
-  adaptiveDispatchLimits.set(workerId, nextLimit);
+  // Consolida cada lote uma vez, fora das transacoes individuais. Tambem drena
+  // resultados deixados por um ciclo anterior interrompido.
+  const batchRuntime = await reconcilePublicationBatchRuntime(Math.min(500, Math.max(100, items.length)));
+  const nextLimit = reconciliationOnly
+    ? effectiveMaximum
+    : nextAdaptiveDispatchLimit(limit, effectiveMaximum, processed, items.length);
+  if (!reconciliationOnly) adaptiveDispatchLimits.set(workerId, nextLimit);
   // A reciclagem vem após o dispatch: lentidão da Zernio não adia claims/publicações desta rodada.
-  const finalizedSlotRecoveries = await finalizeCoordinatedBulkSlotRecoveryItems(workerId);
-  const recycling = await processZernioProfileRecyclingJobs(workerId, Math.min(limit, 20));
+  const finalizedSlotRecoveries = reconciliationOnly ? 0 : await finalizeCoordinatedBulkSlotRecoveryItems(workerId);
+  const recycling = reconciliationOnly ? [] : await processZernioProfileRecyclingJobs(workerId, Math.min(limit, 20));
 
   console.info('Dispatcher direto de publicação concluído.', {
     workerId,
+    reconciliationOnly,
+    expired,
     preparation: { claimed: preparation.claimed, ready: preparation.ready, blocked: preparation.blocked, errors: preparation.errors },
     recovery,
     coordinatedRecovery: { claimed: recoveryItems.length, finalized: finalizedSlotRecoveries },
     recycling: recycling.length,
     claimed: items.length,
-    adaptiveConcurrency: { used: limit, next: nextLimit, maximum: configuredLimit },
+    batchRuntime,
+    adaptiveConcurrency: { used: limit, next: nextLimit, maximum: effectiveMaximum },
     states: processed.reduce((counts, item) => {
       counts[item.state] = (counts[item.state] ?? 0) + 1;
       return counts;
@@ -1737,12 +2058,15 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   });
   return {
     workerId,
+    reconciliationOnly,
+    expired,
     preparation,
     recovery,
     coordinatedRecovery: { claimed: recoveryItems.length, finalized: finalizedSlotRecoveries },
     recycling,
     claimed: items.length,
-    adaptiveConcurrency: { used: limit, next: nextLimit, maximum: configuredLimit },
+    adaptiveConcurrency: { used: limit, next: nextLimit, maximum: effectiveMaximum },
     processed,
+    batchRuntime,
   };
 }

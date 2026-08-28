@@ -61,7 +61,8 @@ test("organização nova recebe onboarding X sem chamada externa acidental", asy
   );
   assert.match(queue, /Fila X vazia/);
   assert.match(agenda, /Nenhuma publicação no filtro/);
-  assert.match(analytics, /Nenhum post publicado corresponde aos filtros/);
+  assert.match(analytics, /Nenhum perfil encontrado/);
+  assert.match(analytics, /Nenhum post publicado neste perfil/);
   assert.match(gallery, /Nenhuma mídia na galeria/);
   assert.match(gallery, /platform === ["']twitter["']/);
   assert.match(groups, /Nenhum grupo criado/);

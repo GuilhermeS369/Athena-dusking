@@ -63,7 +63,9 @@ export async function GET(request: Request) {
     const [
       publicationNonTerminal, publicationReady, publicationRetry, publicationClaimed, publicationProcessing, publicationUnknown,
       analyticsReserved, analyticsProcessing, analyticsUnknown, reservedHolds, activeHolds, unknownHolds, unknownReservations,
-      publicationRateLimits, analyticsRateLimits, heartbeatsResult, breakersResult, wallets,
+      publicationRateLimits, analyticsRateLimits, heartbeatsResult, breakersResult, wallets, connectHealthResult, connectErrorsResult,
+      preparationPending, preparationReady, preparationBlocked, publicationMissed, publicationOverdue, publicationDuePrepared,
+      throughputMinute, recoveredPublicationLeases, oldestDueResult, fenceResult, dispatchLimitsResult, latencyResult,
     ] = await Promise.all([
       exactCount(count('twitter_publication_items').in('status', ['ready', 'retry', 'claimed', 'processing', 'outcome_unknown'])),
       exactCount(count('twitter_publication_items').eq('status', 'ready')),
@@ -83,9 +85,23 @@ export async function GET(request: Request) {
       admin.from('twitter_worker_heartbeats').select('worker_name,mode,last_seen_at').in('worker_name', [...TWITTER_WORKER_NAMES]),
       admin.from('twitter_circuit_breakers').select('scope_key,state,failure_count,updated_at').like('scope_key', 'worker:athena-twitter-%'),
       readWallets(admin),
+      admin.from('twitter_connection_intent_health').select('*').single(),
+      admin.from('twitter_connection_intent_errors_by_connection').select('connection_id,error_code,error_count,last_error_at').order('error_count', { ascending: false }).limit(100),
+      exactCount(count('twitter_publication_items').eq('preparation_status', 'pending').in('status', ['ready','retry'])),
+      exactCount(count('twitter_publication_items').eq('preparation_status', 'ready').in('status', ['ready','retry'])),
+      exactCount(count('twitter_publication_items').eq('preparation_status', 'blocked').in('status', ['ready','retry'])),
+      exactCount(count('twitter_publication_items').eq('status', 'missed')),
+      exactCount(count('twitter_publication_items').in('status', ['ready','retry']).lt('dispatch_deadline_at', nowIso)),
+      exactCount(count('twitter_publication_items').in('status', ['ready','retry']).eq('preparation_status','ready').lte('execute_at',nowIso).gt('dispatch_deadline_at',nowIso)),
+      exactCount(count('twitter_publication_attempts').eq('status','published').gte('finished_at',new Date(now.getTime()-60_000).toISOString())),
+      exactCount(count('twitter_operation_logs').eq('phase','dispatcher_lease_recovered').gte('created_at',sinceIso)),
+      admin.from('twitter_publication_items').select('execute_at').in('status',['ready','retry']).lte('execute_at',nowIso).gt('dispatch_deadline_at',nowIso).order('execute_at').limit(1).maybeSingle(),
+      admin.from('twitter_dispatch_fences').select('owner_plane,fencing_token,lease_until,epoch,last_worker_id,updated_at').eq('stream','publication').maybeSingle(),
+      admin.from('twitter_connection_dispatch_health').select('connection_id,current_limit,active_count,success_streak,throttled_until,rate_limit_count,rate_limit_24h,updated_at').order('rate_limit_count',{ascending:false}).limit(100),
+      admin.from('twitter_publication_attempts').select('item_id,created_at,external_started_at,finished_at').not('external_started_at','is',null).gte('created_at',sinceIso).order('created_at',{ascending:false}).limit(10000),
     ]);
 
-    if (heartbeatsResult.error || breakersResult.error) throw new Error(heartbeatsResult.error?.message ?? breakersResult.error?.message ?? 'Telemetria X indisponível.');
+    if (heartbeatsResult.error || breakersResult.error || connectHealthResult.error || connectErrorsResult.error || oldestDueResult.error || fenceResult.error || dispatchLimitsResult.error || latencyResult.error) throw new Error(heartbeatsResult.error?.message ?? breakersResult.error?.message ?? connectHealthResult.error?.message ?? connectErrorsResult.error?.message ?? oldestDueResult.error?.message ?? fenceResult.error?.message ?? dispatchLimitsResult.error?.message ?? latencyResult.error?.message ?? 'Telemetria X indisponível.');
 
     const workers = summarizeTwitterWorkers((heartbeatsResult.data ?? []) as TwitterWorkerHeartbeat[], process.env, now.getTime(), staleAfterSeconds);
     const breakers = (breakersResult.data ?? []) as BreakerRow[];
@@ -107,6 +123,12 @@ export async function GET(request: Request) {
     const totalReserved = wallets.reduce((total, wallet) => total + micros(wallet.reserved_micros), BigInt(0));
     const protectedFloor = BigInt(5_000_000);
     const walletsAtOrBelowFloor = wallets.filter((wallet) => micros(wallet.posted_balance_micros) - micros(wallet.reserved_micros) <= protectedFloor).length;
+    const latencyItemIds=[...new Set((latencyResult.data??[]).map(row=>row.item_id))];
+    const latencyItems=latencyItemIds.length?await admin.from('twitter_publication_items').select('id,execute_at').in('id',latencyItemIds):{data:[],error:null};
+    if(latencyItems.error)throw new Error(latencyItems.error.message);
+    const executeAtByItem=new Map((latencyItems.data??[]).map(row=>[row.id,row.execute_at]));
+    const latencyValues=(latencyResult.data??[]).map((row)=>row.external_started_at&&executeAtByItem.get(row.item_id)?Math.max(0,Date.parse(row.external_started_at)-Date.parse(executeAtByItem.get(row.item_id)!)):null).filter((value):value is number=>value!==null&&Number.isFinite(value)).sort((a,b)=>a-b);
+    const percentile=(value:number)=>latencyValues.length?Math.round(latencyValues[Math.min(latencyValues.length-1,Math.floor((latencyValues.length-1)*value))]/1000):null;
 
     return NextResponse.json({
       ok: health.status !== 'unhealthy',
@@ -116,12 +138,25 @@ export async function GET(request: Request) {
         globalEnabled: rolloutScope.globalEnabled,
         canaryOrganizationCount: rolloutScope.canaryOrganizationCount,
         publicationWorkerEnabled: process.env.TWITTER_PUBLICATION_WORKER_ENABLED === 'true',
+        preparationWorkerEnabled: process.env.TWITTER_PREPARATION_WORKER_ENABLED === 'true',
         analyticsEnabled: process.env.TWITTER_ANALYTICS_ENABLED === 'true' && process.env.TWITTER_ANALYTICS_WORKER_ENABLED === 'true',
+        connectWorkerEnabled: process.env.TWITTER_CONNECT_WORKER_ENABLED === 'true',
         fallbackEnabled: process.env.TWITTER_FALLBACK_ENABLED === 'true',
         fallbackLiveEnabled: process.env.TWITTER_FALLBACK_LIVE_ENABLED === 'true',
       },
-      publicationQueue: { nonTerminal: publicationNonTerminal, ready: publicationReady, retry: publicationRetry, claimed: publicationClaimed, processing: publicationProcessing, outcomeUnknown: publicationUnknown },
+      publicationQueue: { nonTerminal: publicationNonTerminal, ready: publicationReady, retry: publicationRetry, claimed: publicationClaimed, processing: publicationProcessing, outcomeUnknown: publicationUnknown, missed:publicationMissed, overdue:publicationOverdue, duePrepared:publicationDuePrepared, oldestDueAt:oldestDueResult.data?.execute_at??null },
+      preparationQueue:{pending:preparationPending,ready:preparationReady,blocked:preparationBlocked,windowHours:24},
+      dispatch:{throughputLastMinute:throughputMinute,recoveredLeases24h:recoveredPublicationLeases,scheduleDelaySeconds:{p50:percentile(.5),p95:percentile(.95),p99:percentile(.99)},fence:fenceResult.data??null,connections:dispatchLimitsResult.data??[]},
       analyticsQueue: { reserved: analyticsReserved, processing: analyticsProcessing, outcomeUnknown: analyticsUnknown },
+      connectionQueue: {
+        depth: Number(connectHealthResult.data?.queue_depth ?? 0),
+        oldestQueuedAt: connectHealthResult.data?.oldest_queued_at ?? null,
+        expired24h: Number(connectHealthResult.data?.expired_24h ?? 0),
+        recoveredLeases: Number(connectHealthResult.data?.recovered_leases ?? 0),
+        averageSecondsToUrl: connectHealthResult.data?.avg_seconds_to_ready === null ? null : Number(connectHealthResult.data?.avg_seconds_to_ready),
+        averageSecondsCallbackToCompletion: connectHealthResult.data?.avg_seconds_callback_to_completion === null ? null : Number(connectHealthResult.data?.avg_seconds_callback_to_completion),
+        errorsByConnection24h: connectErrorsResult.data ?? [],
+      },
       holds: { reserved: reservedHolds, active: activeHolds, outcomeUnknown: unknownHolds, reservationOutcomeUnknown: unknownReservations },
       rateLimits24h: { publication: publicationRateLimits, analytics: analyticsRateLimits },
       wallets: {

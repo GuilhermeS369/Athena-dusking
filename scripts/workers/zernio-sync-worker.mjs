@@ -20,10 +20,10 @@ for (const filePath of ['.env.local', '.env.worker']) {
 const once = process.argv.includes('--once');
 const workerId = process.env.ZERNIO_SYNC_WORKER_ID || `athena-vps-zernio-sync-${os.hostname()}-${process.pid}`;
 const pollMs = Math.max(1000, Number.parseInt(process.env.ZERNIO_SYNC_WORKER_POLL_INTERVAL_MS || '5000', 10) || 5000);
-const heartbeatIntervalMs = Math.max(5000, Number.parseInt(process.env.ZERNIO_SYNC_WORKER_HEARTBEAT_INTERVAL_MS || '30000', 10) || 30000);
+const heartbeatIntervalMs = Math.max(5000, Number.parseInt(process.env.ZERNIO_SYNC_WORKER_HEARTBEAT_INTERVAL_MS || '60000', 10) || 60000);
 // Limita tanto o claim quanto a concorrência efetiva deste processo. Cada item
 // continua executando o fluxo completo de sincronização de forma isolada.
-const limit = Math.min(20, Math.max(1, Number.parseInt(process.env.ZERNIO_SYNC_WORKER_LIMIT || '10', 10) || 10));
+const limit = Math.min(5, Math.max(1, Number.parseInt(process.env.ZERNIO_SYNC_WORKER_LIMIT || '2', 10) || 2));
 const leaseSeconds = Math.min(900, Math.max(30, Number.parseInt(process.env.ZERNIO_SYNC_WORKER_LEASE_SECONDS || '180', 10) || 180));
 const zernioApiBaseUrl = (process.env.ZERNIO_API_BASE_URL || 'https://zernio.com/api').replace(/\/$/, '');
 // A propagação após o callback pode atrasar, principalmente quando a proxy do
@@ -33,6 +33,8 @@ const postCallbackRecoverySeconds = Math.min(7200, Math.max(300, Number.parseInt
 
 let stopping = false;
 let lastHeartbeatAt = 0;
+let lastPressureCheckAt = 0;
+let cachedPublicationPressure = { criticalDelay: false, oldestDueAt: null, checkedAt: null };
 
 process.on('SIGINT', () => { stopping = true; });
 process.on('SIGTERM', () => { stopping = true; });
@@ -751,6 +753,53 @@ async function tick() {
     try { additionResults.push(await processConnectionAddition(addition)); }
     catch (error) { additionResults.push({ attemptId: addition.attempt_id, status: 'failed', error: error?.summary ?? String(error) }); }
   }
+  if (Date.now() - lastPressureCheckAt >= 60_000) {
+    const { data: pressure, error: pressureError } = await supabase.rpc(
+      'get_publication_generation_pressure_signal',
+      { p_critical_delay_seconds: 60 },
+    );
+    if (pressureError) throw pressureError;
+    cachedPublicationPressure = {
+      criticalDelay: pressure?.criticalDelay === true,
+      oldestDueAt: pressure?.oldestDueAt ?? null,
+      checkedAt: pressure?.checkedAt ?? new Date().toISOString(),
+    };
+    lastPressureCheckAt = Date.now();
+  }
+  if (cachedPublicationPressure.criticalDelay) {
+    const summary = {
+      additions: (additions ?? []).length,
+      additionResults,
+      claimed: 0,
+      results: [],
+      waitingForPublicationCapacity: true,
+      publicationPressure: cachedPublicationPressure,
+    };
+    console.info('[zernio-sync-worker] sync adiado por publicação vencida', summary);
+    return summary;
+  }
+  const { data: heavyLeaseToken, error: heavyLeaseError } = await supabase.rpc(
+    'acquire_operational_heavy_workload_lease',
+    {
+      p_category: 'zernio_sync',
+      p_holder: workerId,
+      p_organization_id: null,
+      p_lease_seconds: 300,
+    },
+  );
+  if (heavyLeaseError) throw heavyLeaseError;
+  if (!heavyLeaseToken) {
+    const summary = {
+      additions: (additions ?? []).length,
+      additionResults,
+      claimed: 0,
+      results: [],
+      waitingForCapacity: true,
+    };
+    console.info('[zernio-sync-worker] ciclo adiado por capacidade', summary);
+    return summary;
+  }
+  try {
   const { data: claimed, error } = await supabase.rpc('claim_zernio_sync_batch_items', {
     p_worker_id: workerId, p_limit: limit, p_lease_seconds: leaseSeconds,
   });
@@ -828,6 +877,12 @@ async function tick() {
   };
   console.info('[zernio-sync-worker] ciclo', summary);
   return summary;
+  } finally {
+    const { error: releaseError } = await supabase.rpc('release_operational_heavy_workload_lease', {
+      p_lease_token: heavyLeaseToken,
+    });
+    if (releaseError) console.error('[zernio-sync-worker] falha ao liberar capacidade pesada', releaseError);
+  }
 }
 
 async function main() {

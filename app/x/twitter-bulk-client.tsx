@@ -140,13 +140,21 @@ export default function TwitterBulkClient({
   assets,
   profileGroups,
   mediaGroups,
+  initialMediaHasMore,
+  initialMediaCursor,
 }: {
   profiles: Profile[];
   assets: Asset[];
   profileGroups: ProfileGroup[];
   mediaGroups: MediaGroup[];
+  initialMediaHasMore:boolean;
+  initialMediaCursor:string|null;
 }) {
   const router = useRouter();
+  const [availableAssets,setAvailableAssets]=useState(assets);
+  const [mediaHasMore,setMediaHasMore]=useState(initialMediaHasMore);
+  const [mediaCursor,setMediaCursor]=useState(initialMediaCursor);
+  const [loadingMedia,setLoadingMedia]=useState(false);
   const [profileSelection, setProfileSelection] = useState({
     ids: [] as string[],
     anchorId: null as string | null,
@@ -210,12 +218,18 @@ export default function TwitterBulkClient({
               .includes(query)),
       )
       .sort((left, right) => {
-        const a = queueForFormat(left, format),
-          b = queueForFormat(right, format);
-        if ((a === 0) !== (b === 0)) return a === 0 ? -1 : 1;
+        const leftScheduled = queueForFormat(left, format),
+          rightScheduled = queueForFormat(right, format),
+          leftTotal = leftScheduled + publishedForFormat(left, format),
+          rightTotal = rightScheduled + publishedForFormat(right, format);
+        if ((leftTotal === 0) !== (rightTotal === 0))
+          return leftTotal === 0 ? -1 : 1;
         return (
-          a - b ||
-          left.username.localeCompare(right.username, "pt-BR") ||
+          leftScheduled - rightScheduled ||
+          leftTotal - rightTotal ||
+          left.username.localeCompare(right.username, "pt-BR", {
+            sensitivity: "base",
+          }) ||
           left.id.localeCompare(right.id)
         );
       });
@@ -237,7 +251,7 @@ export default function TwitterBulkClient({
   const originAssets = useMemo(() => {
     if (!originKey || format === "text") return [];
     const groupId = originKey.startsWith("group:") ? originKey.slice(6) : null;
-    return assets.filter((asset) => {
+    return availableAssets.filter((asset) => {
       const inOrigin = groupId
         ? asset.group_ids.includes(groupId)
         : asset.group_ids.length === 0;
@@ -247,7 +261,8 @@ export default function TwitterBulkClient({
           : asset.media_kind === format;
       return inOrigin && compatible;
     });
-  }, [assets, originKey, format]);
+  }, [availableAssets, originKey, format]);
+  async function loadMoreMedia(){if(!mediaCursor||loadingMedia||format==='text'||!originKey)return;setLoadingMedia(true);try{const group=originKey.startsWith('group:')?originKey.slice(6):'none';const type=format==='images'?'image':format;const response=await fetch(`/api/x/media?cursor=${encodeURIComponent(mediaCursor)}&limit=100&type=${type}&group=${encodeURIComponent(group)}&status=schedulable`,{cache:'no-store'});const body=await response.json()as{assets?:Array<{id:string;original_name:string;kind:Asset['media_kind'];size_bytes:number;signed_url:string|null;group_ids:string[]}>;hasMore?:boolean;nextCursor?:string|null;error?:string};if(!response.ok)throw new Error(body.error??'Falha ao carregar mídias X.');const mapped=(body.assets??[]).map(asset=>({id:asset.id,original_name:asset.original_name,media_kind:asset.kind,byte_size:asset.size_bytes,signed_url:asset.signed_url,group_ids:asset.group_ids}));setAvailableAssets(current=>{const byId=new Map(current.map(asset=>[asset.id,asset]));for(const asset of mapped)byId.set(asset.id,asset);return[...byId.values()];});setMediaHasMore(body.hasMore===true);setMediaCursor(body.nextCursor??null);}catch(error){setMessage(error instanceof Error?error.message:'Falha ao carregar mídias X.');}finally{setLoadingMedia(false);}}
   const effectiveMediaSets = useMemo<MediaSet[]>(() => {
     if (format === "text") return [];
     if (format === "images")
@@ -285,6 +300,50 @@ export default function TwitterBulkClient({
   const blockedVisible = orderedProfiles.filter(
     (profile) => !selectable(profile),
   ).length;
+  const reviewProfileRows = useMemo(() => {
+    if (!review) return [];
+    const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+    const walletByIdentity = new Map(
+      review.walletSnapshots.map((wallet, index) => [
+        wallet.identityId,
+        { ...wallet, number: index + 1 },
+      ]),
+    );
+    const reviewedProfilesByIdentity = new Map<string, number>();
+    for (const row of review.shortfalls) {
+      const identityId = profileById.get(row.profile_id)?.identity_id;
+      if (identityId)
+        reviewedProfilesByIdentity.set(
+          identityId,
+          (reviewedProfilesByIdentity.get(identityId) ?? 0) + 1,
+        );
+    }
+    return review.shortfalls
+      .map((shortfall) => {
+        const profile = profileById.get(shortfall.profile_id);
+        const wallet = profile
+          ? walletByIdentity.get(profile.identity_id)
+          : undefined;
+        return {
+          shortfall,
+          profile,
+          wallet,
+          walletProfileCount: profile
+            ? (reviewedProfilesByIdentity.get(profile.identity_id) ?? 1)
+            : 1,
+        };
+      })
+      .sort((left, right) => {
+        const leftUsername = left.profile?.username ?? left.shortfall.profile_id;
+        const rightUsername =
+          right.profile?.username ?? right.shortfall.profile_id;
+        return (
+          leftUsername.localeCompare(rightUsername, "pt-BR", {
+            sensitivity: "base",
+          }) || left.shortfall.profile_id.localeCompare(right.shortfall.profile_id)
+        );
+      });
+  }, [profiles, review]);
   const request = {
     scheduleVersion: 2 as const,
     name: name.trim(),
@@ -477,7 +536,7 @@ export default function TwitterBulkClient({
         </p>
       ) : null}
       <div className={base.workspace}>
-        <aside className={base.profilesPanel}>
+        <aside className={`${base.profilesPanel} ${styles.twitterProfilesPanel}`}>
           <div className={base.panelHeader}>
             <div>
               <strong>Perfis X</strong>
@@ -544,7 +603,7 @@ export default function TwitterBulkClient({
             <option value="blocked">Sem saldo ou bloqueados</option>
           </select>
           <div
-            className={base.profileList}
+            className={`${base.profileList} ${styles.twitterProfileList}`}
             onScroll={(event) => {
               if (
                 event.currentTarget.scrollTop +
@@ -924,9 +983,7 @@ export default function TwitterBulkClient({
                   Selecione uma origem para visualizar as mídias compatíveis.
                 </p>
               ) : !originAssets.length ? (
-                <p className={base.empty}>
-                  Nenhuma mídia compatível nesta origem.
-                </p>
+                <div className={base.empty}><p>Nenhuma mídia compatível carregada nesta origem.</p>{mediaHasMore?<button type="button" className="button button-ghost" disabled={loadingMedia} onClick={()=>void loadMoreMedia()}>{loadingMedia?'Carregando mídias…':'Buscar mais mídias'}</button>:null}</div>
               ) : (
                 <>
                   <div className={styles.mediaSummary}>
@@ -983,6 +1040,7 @@ export default function TwitterBulkClient({
                       );
                     })}
                   </div>
+                  {mediaHasMore?<button type="button" className="button button-ghost" disabled={loadingMedia} onClick={()=>void loadMoreMedia()}>{loadingMedia?'Carregando mídias…':'Carregar mais mídias'}</button>:null}
                   {format === "images" ? (
                     <>
                       <div className={styles.mediaBuilder}>
@@ -1162,38 +1220,86 @@ export default function TwitterBulkClient({
               ))}
             </dl>
             <section className={styles.reviewSection}>
-              <h4>Carteiras</h4>
-              {review.walletSnapshots.map((wallet, index) => (
-                <div className={styles.walletRow} key={wallet.identityId}>
-                  <span>Carteira {index + 1}</span>
-                  <span>
-                    Contábil <b>{usd(wallet.postedMicros)}</b>
-                  </span>
-                  <span>
-                    Reservado <b>{usd(wallet.reservedMicros)}</b>
-                  </span>
-                  <span>
-                    Este programa <b>{usd(wallet.programReservationMicros)}</b>
-                  </span>
-                  <span>
-                    Final <b>{usd(wallet.projectedAvailableMicros)}</b>
-                  </span>
+              <div className={styles.reviewSectionHeader}>
+                <div>
+                  <h4>Perfis e saldos</h4>
+                  <small>
+                    {reviewProfileRows.length} perfis · {review.walletSnapshots.length}{" "}
+                    {review.walletSnapshots.length === 1 ? "carteira" : "carteiras"}
+                  </small>
                 </div>
-              ))}
+                <small>Ordem alfabética</small>
+              </div>
+              <div
+                className={styles.profileFinanceList}
+                aria-label="Perfis, carteiras e saldos da programação"
+              >
+                {reviewProfileRows.map(
+                  ({ shortfall, profile, wallet, walletProfileCount }) => (
+                    <article
+                      className={styles.profileFinanceRow}
+                      key={shortfall.profile_id}
+                    >
+                      <header className={styles.profileFinanceIdentity}>
+                        {profile?.avatar_url ? (
+                          <img src={profile.avatar_url} alt="" />
+                        ) : (
+                          <span className={styles.financeAvatar} aria-hidden="true">
+                            {(profile?.username ?? shortfall.profile_id)
+                              .slice(0, 1)
+                              .toUpperCase()}
+                          </span>
+                        )}
+                        <div>
+                          <strong>
+                            @{profile?.username ?? shortfall.profile_id.slice(0, 8)}
+                          </strong>
+                          <small>{profile?.display_name || "Perfil X"}</small>
+                          <small>
+                            {wallet
+                              ? `Carteira ${wallet.number}${walletProfileCount > 1 ? ` · compartilhada por ${walletProfileCount} perfis` : ""}`
+                              : "Carteira não identificada"}
+                          </small>
+                        </div>
+                        <span className={styles.financeStatus}>
+                          <b>{shortfall.funded_count}</b> financiadas
+                          <small>{shortfall.unfunded_count} sem saldo</small>
+                        </span>
+                      </header>
+                      <dl className={styles.profileBalanceGrid}>
+                        <div>
+                          <dt>Contábil</dt>
+                          <dd>{wallet ? usd(wallet.postedMicros) : "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>Disponível agora</dt>
+                          <dd>{wallet ? usd(wallet.availableMicros) : "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>Já reservado</dt>
+                          <dd>{wallet ? usd(wallet.reservedMicros) : "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>Este programa</dt>
+                          <dd>
+                            {wallet ? usd(wallet.programReservationMicros) : "—"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Saldo final</dt>
+                          <dd>
+                            {wallet ? usd(wallet.projectedAvailableMicros) : "—"}
+                          </dd>
+                        </div>
+                      </dl>
+                    </article>
+                  ),
+                )}
+              </div>
             </section>
-            <section className={styles.reviewSection}>
-              <h4>Distribuição por perfil</h4>
-              {review.shortfalls.map((row) => (
-                <p key={row.profile_id}>
-                  <strong>
-                    @
-                    {profiles.find((profile) => profile.id === row.profile_id)
-                      ?.username ?? row.profile_id.slice(0, 8)}
-                  </strong>{" "}
-                  · {row.funded_count} financiadas · {row.unfunded_count} sem
-                  saldo
-                </p>
-              ))}
+            {review.warnings.length ? (
+              <section className={styles.reviewSection}>
+                <h4>Avisos</h4>
               {review.warnings.map((warning, index) => (
                 <p
                   className={styles.warning}
@@ -1202,7 +1308,8 @@ export default function TwitterBulkClient({
                   {warning.message}
                 </p>
               ))}
-            </section>
+              </section>
+            ) : null}
             <footer>
               <button
                 className={base.subtleButton}

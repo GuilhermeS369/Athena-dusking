@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getOrganizationContext } from '@/lib/organizations/server';
-import { dispatchPublicationQueue } from '@/lib/publications/dispatcher';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -13,10 +13,26 @@ function canManage(role: string | undefined) {
   return Boolean(role && managerRoles.has(role));
 }
 
-function integerBodyValue(value: unknown, fallback: number, minimum: number, maximum: number) {
-  const parsed = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
-  if (!Number.isInteger(parsed)) return fallback;
-  return Math.min(Math.max(parsed, minimum), maximum);
+async function publicationPressureResponse(action: string) {
+  const admin = createSupabaseAdminClient();
+  const { data: pressure, error } = await admin.rpc(
+    'get_publication_generation_pressure_signal',
+    { p_critical_delay_seconds: 60 },
+  );
+  if (error) {
+    console.error('Não foi possível consultar a pressão antes da limpeza.', error);
+    return NextResponse.json({ error: 'Não foi possível validar a capacidade para a limpeza.' }, { status: 503 });
+  }
+  if (pressure?.criticalDelay === true) {
+    return NextResponse.json({
+      action,
+      busy: true,
+      paused: true,
+      reason: 'critical_publication_delay',
+      retryAfterSeconds: 60,
+    }, { status: 202 });
+  }
+  return null;
 }
 
 export async function POST(request: Request) {
@@ -30,45 +46,60 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Ação não permitida.' }, { status: 403 });
   }
 
-  let body: { action?: unknown; limit?: unknown; leaseSeconds?: unknown; batchId?: unknown; itemIds?: unknown } = {};
+  let body: { action?: unknown; batchId?: unknown; itemIds?: unknown } = {};
   try {
     body = await request.json() as typeof body;
   } catch {
     return NextResponse.json({ error: 'Requisição inválida.' }, { status: 400 });
   }
 
-  if (body.action === 'process') {
-    const limit = integerBodyValue(body.limit, 5, 1, 5);
-    const leaseSeconds = integerBodyValue(body.leaseSeconds, 180, 30, 900);
-    const result = await dispatchPublicationQueue({
-      workerId: `manual-queue-${context.user.id.slice(0, 8)}`,
-      limit,
-      leaseSeconds,
-    });
-    return NextResponse.json({ action: 'process', ...result });
-  }
-
-  if (body.action === 'release_stuck') {
+  if (body.action === 'clean_finished') {
+    const pressureResponse = await publicationPressureResponse('clean_finished');
+    if (pressureResponse) return pressureResponse;
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase
-      .rpc('release_expired_publication_leases', {
+    const { data: leaseToken, error: leaseError } = await supabase.rpc(
+      'acquire_operational_heavy_workload_lease',
+      {
+        p_category: 'queue_cleanup',
+        p_holder: `queue-cleanup:${context.user.id}:${context.activeOrganization.id}`,
         p_organization_id: context.activeOrganization.id,
-      });
+        p_lease_seconds: 30,
+      },
+    );
+    if (leaseError) {
+      console.error('Não foi possível reservar capacidade para limpar a fila.', leaseError);
+      return NextResponse.json({ error: 'Não foi possível reservar capacidade para a limpeza.' }, { status: 500 });
+    }
+    if (!leaseToken) {
+      return NextResponse.json({ action: 'clean_finished', busy: true }, { status: 202 });
+    }
+
+    const { data, error } = await supabase.rpc('clean_publication_queue_finished', {
+      p_organization_id: context.activeOrganization.id,
+      p_limit: 250,
+    });
+    const { error: releaseError } = await supabase.rpc('release_operational_heavy_workload_lease', {
+      p_lease_token: leaseToken,
+    });
+    if (releaseError) console.error('Não foi possível liberar a capacidade da limpeza.', releaseError);
 
     if (error) {
-      console.error('Não foi possível liberar itens travados da fila.', error);
-      return NextResponse.json({ error: 'Não foi possível liberar itens travados.' }, { status: 500 });
+      console.error('Não foi possível limpar itens encerrados da fila.', error);
+      return NextResponse.json({ error: 'Não foi possível limpar as publicações encerradas.' }, { status: 500 });
     }
 
     const result = Array.isArray(data) ? data[0] : null;
     return NextResponse.json({
-      action: 'release_stuck',
-      released: Number(result?.released_count ?? 0),
-      releasedItemIds: result?.released_item_ids ?? [],
+      action: 'clean_finished',
+      archivedCompleted: Number(result?.archived_completed_count ?? 0),
+      archivedFailures: Number(result?.archived_failure_count ?? 0),
+      remaining: Number(result?.remaining_finished_count ?? 0),
     });
   }
 
   if (body.action === 'clear_completed') {
+    const pressureResponse = await publicationPressureResponse('clear_completed');
+    if (pressureResponse) return pressureResponse;
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc('archive_completed_publication_items', {
       p_organization_id: context.activeOrganization.id,

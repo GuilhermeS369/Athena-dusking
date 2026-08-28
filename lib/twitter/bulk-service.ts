@@ -61,5 +61,5 @@ export async function confirmTwitterBulkReview(input:{organizationId:string;acto
     if(error.code==='40001')wrapped.status=409;
     if(conflictCode)wrapped.code='TWITTER_CONFIRM_CONFLICT';
     throw wrapped;
-  } return data;
+  } return {...(data as Record<string,unknown>),dispatchPolicy:{version:1,windowMinutes:15},executeAt:review.schedule.first,dispatchDeadlineAt:review.schedule.firstDispatchDeadlineAt};
 }

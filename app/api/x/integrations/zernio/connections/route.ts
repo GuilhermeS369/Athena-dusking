@@ -6,25 +6,37 @@ import { provisionTwitterZernioConnection } from '@/lib/twitter/zernio-connectio
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+type Cursor = { createdAt: string; id: string };
+function decodeCursor(value: string | null): Cursor | null { if (!value) return null; try { const [createdAt,id]=Buffer.from(value,'base64url').toString('utf8').split('|'); return createdAt&&id&&!Number.isNaN(Date.parse(createdAt))?{createdAt,id}:null; } catch { return null; } }
+function encodeCursor(row:{created_at:string;id:string}) { return Buffer.from(`${row.created_at}|${row.id}`).toString('base64url'); }
+
+export async function GET(request: Request) {
   const auth = await getTwitterRequestContext();
   if ('response' in auth) return auth.response;
   const organizationId = auth.context.activeOrganization.id;
+  const url = new URL(request.url);
+  const limit = Math.min(100,Math.max(1,Number.parseInt(url.searchParams.get('limit')??'100',10)||100));
+  const cursor = decodeCursor(url.searchParams.get('cursor'));
+  if(url.searchParams.has('cursor')&&!cursor)return NextResponse.json({error:'Cursor de conexões X inválido.'},{status:400});
   const admin = createSupabaseAdminClient();
-  const { data, error } = await admin
+  let query = admin
     .from('twitter_connections')
     .select('id, identity_id, label, zernio_profile_id, status, analytics_enabled, inbox_enabled, last_verified_at, last_sync_at, last_error_code, last_error_message, created_at, updated_at, twitter_slot_limit, remote_twitter_account_count, remote_inventory_checked_at')
     .eq('organization_id', organizationId)
     .is('deleted_at', null)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false }).order('id',{ascending:false}).limit(limit+1);
+  if(cursor)query=query.or(`created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`);
+  const { data, error } = await query;
   if (error) return NextResponse.json({ error: 'Não foi possível carregar as conexões do X.' }, { status: 500 });
-  const identities = [...new Set((data ?? []).map((row) => row.identity_id))];
-  const connectionIds = (data ?? []).map((row) => row.id);
-  const [{ data: wallets }, { data: grants }, { data: profiles }, { data: attempts }] = await Promise.all([
+  const rows=(data??[]).slice(0,limit);
+  const identities = [...new Set(rows.map((row) => row.identity_id))];
+  const connectionIds = rows.map((row) => row.id);
+  const [{ data: wallets }, { data: grants }, { data: profiles }, { data: attempts }, { data: intents }] = await Promise.all([
     identities.length ? admin.from('twitter_wallets').select('identity_id, posted_balance_micros, reserved_micros, version').in('identity_id', identities) : Promise.resolve({ data: [] }),
     identities.length ? admin.from('twitter_wallet_grants').select('identity_id,amount_micros,created_at').in('identity_id', identities) : Promise.resolve({ data: [] }),
     connectionIds.length ? admin.from('twitter_profiles').select('current_connection_id').eq('organization_id', organizationId).in('current_connection_id', connectionIds).is('deleted_at', null) : Promise.resolve({ data: [] }),
     connectionIds.length ? admin.from('twitter_connection_oauth_attempts').select('id,connection_id,expires_at').eq('organization_id', organizationId).in('connection_id', connectionIds).eq('status', 'pending').gt('expires_at', new Date().toISOString()).order('expires_at', { ascending: true }) : Promise.resolve({ data: [] }),
+    connectionIds.length ? admin.from('twitter_connection_intents').select('id,connection_id,expires_at').eq('organization_id', organizationId).in('connection_id', connectionIds).in('status', ['queued','preparing','ready','callback_received','reconciling']).gt('expires_at', new Date().toISOString()).order('expires_at', { ascending: true }) : Promise.resolve({ data: [] }),
   ]);
   const walletByIdentity = new Map((wallets ?? []).map((wallet) => [wallet.identity_id, wallet]));
   const grantByIdentity = new Map((grants ?? []).map((grant) => [grant.identity_id, grant]));
@@ -34,15 +46,23 @@ export async function GET() {
   for (const attempt of attempts ?? []) pendingCounts.set(attempt.connection_id, (pendingCounts.get(attempt.connection_id) ?? 0) + 1);
   const reservationsByConnection = new Map<string, Array<{ id: string; expires_at: string }>>();
   for (const attempt of attempts ?? []) reservationsByConnection.set(attempt.connection_id, [...(reservationsByConnection.get(attempt.connection_id) ?? []), { id: attempt.id, expires_at: attempt.expires_at }]);
+  for (const intent of intents ?? []) {
+    pendingCounts.set(intent.connection_id, (pendingCounts.get(intent.connection_id) ?? 0) + 1);
+    reservationsByConnection.set(intent.connection_id, [...(reservationsByConnection.get(intent.connection_id) ?? []), { id: intent.id, expires_at: intent.expires_at }]);
+  }
   return NextResponse.json({
-    connections: (data ?? []).map((connection) => ({
+    connections: rows.map((connection) => ({
       ...connection,
       wallet: walletByIdentity.get(connection.identity_id) ?? null,
       grant: grantByIdentity.get(connection.identity_id) ?? null,
       twitter_profile_count: profileCounts.get(connection.id) ?? 0,
       active_slot_reservation_count: pendingCounts.get(connection.id) ?? 0,
       oauth_reservations: reservationsByConnection.get(connection.id) ?? [],
+      remote_inventory_error_code: connection.last_error_code ?? (connection.remote_inventory_checked_at ? null : 'inventory_unavailable'),
     })),
+    hasMore:(data??[]).length>limit,
+    nextCursor:(data??[]).length>limit&&rows.length?encodeCursor(rows.at(-1)!):null,
+    limit,
   });
 }
 

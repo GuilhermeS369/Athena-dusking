@@ -51,9 +51,12 @@ Antes de deploy, registrar `pm2 status`, disco, memória, release e hashes. Rele
 Processos planejados:
 
 - `athena-twitter-publication-worker`
+- `athena-twitter-preparation-worker`
 - `athena-twitter-zernio-sync-worker`
 - `athena-twitter-analytics-worker`
 - `athena-twitter-webhook-reconcile-worker`
+- `athena-twitter-connect-worker`
+- `athena-twitter-observability-worker`
 
 Não instalar `athena-twitter-generation-worker`: a ADR-X-017 mantém a materialização financiada dentro da confirmação transacional.
 
@@ -111,7 +114,7 @@ npx tsx --env-file=.env.local scripts/twitter/audit-first-send-readiness.ts
 
 ### Segredos por papel
 
-- Cada processo usa exclusivamente seu segredo: `TWITTER_PUBLICATION_WORKER_SECRET`, `TWITTER_SYNC_WORKER_SECRET`, `TWITTER_ANALYTICS_WORKER_SECRET` ou `TWITTER_RECONCILE_WORKER_SECRET`.
+- Cada processo usa exclusivamente seu segredo: `TWITTER_PUBLICATION_WORKER_SECRET`, `TWITTER_PREPARATION_WORKER_SECRET`, `TWITTER_SYNC_WORKER_SECRET`, `TWITTER_ANALYTICS_WORKER_SECRET`, `TWITTER_RECONCILE_WORKER_SECRET`, `TWITTER_CONNECT_WORKER_SECRET` ou `TWITTER_OBSERVABILITY_WORKER_SECRET`.
 - Heartbeat e circuit breaker autenticam o segredo contra o `workerName`; um papel não pode operar como outro.
 - Fallback e health usam `TWITTER_FALLBACK_WORKER_SECRET` e `TWITTER_ROLLOUT_HEALTH_SECRET`, sem reutilizar segredos dos workers.
 - `scripts/twitter/configure-role-secrets.ps1` configura Production/Preview e atualiza atomicamente a VPS sem imprimir valores.
@@ -120,19 +123,27 @@ npx tsx --env-file=.env.local scripts/twitter/audit-first-send-readiness.ts
 
 ### Kill switches por papel
 
-- Flags: `TWITTER_PUBLICATION_WORKER_ENABLED`, `TWITTER_SYNC_WORKER_ENABLED`, `TWITTER_ANALYTICS_WORKER_ENABLED` e `TWITTER_RECONCILE_WORKER_ENABLED`.
+- Flags: `TWITTER_PUBLICATION_WORKER_ENABLED`, `TWITTER_PREPARATION_WORKER_ENABLED`, `TWITTER_SYNC_WORKER_ENABLED`, `TWITTER_ANALYTICS_WORKER_ENABLED`, `TWITTER_RECONCILE_WORKER_ENABLED`, `TWITTER_CONNECT_WORKER_ENABLED` e `TWITTER_OBSERVABILITY_WORKER_ENABLED`.
 - A Agenda/Postagem em massa V2 possui gate próprio `TWITTER_BULK_SCHEDULE_V2_ENABLED`. Ele deve existir em Preview e Production antes do deploy que passa a exigir `scheduleVersion: 2`; ausência ou `false` produz HTTP 503 em Review/Confirm.
 - Antes de ativar a Agenda V2, exigir migrations 247–253, Preview aprovado, worker de publicação com suporte a mídia sem texto e health global `ok`. Depois do deploy, executar uma revisão autenticada somente leitura e confirmar que nenhum saldo foi reservado.
 - Analytics também exige `TWITTER_ANALYTICS_ENABLED=true`; publicação live exige os gates de modo/canário já documentados.
 - A capability de sincronização periódica da Zernio exige adicionalmente `TWITTER_ZERNIO_ANALYTICS_SYNC_ENABLED=true`. Não confundir esse gate com as análises manuais; por padrão ele fica `false` e Inbox nunca é habilitado.
 - O heartbeat é a autorização operacional do ciclo: modo `stopped` deve encerrar o executável antes de claim, recovery, mutação financeira ou chamada Zernio. Claims, reconcile e fallback reaplicam o gate global/canário mesmo quando chamados diretamente.
-- Em deploy off/one-shot, exigir `stopped` para os quatro papéis e conferir zero mudança em fila, holds, attempts e ledger.
+- Em deploy off/one-shot, exigir `stopped` para os sete papéis e conferir zero mudança em fila, holds, attempts e ledger.
+
+### Centro de observabilidade e retenção
+
+- `/x/logs` lê somente a camada local `twitter_observability_*`; cada lista usa cursor e no máximo 50 linhas por página.
+- `athena-twitter-observability-worker` chama `/api/internal/twitter-observability-maintenance`, mantém três meses futuros particionados e arquiva um dia/organização por ciclo quando houver dados acima de 90 dias.
+- O arquivo privado `twitter-log-archives/<organization>/<date>/*.ndjson.gz` só autoriza purge após manifesto, contagem e SHA-256 persistidos. Nunca remover manualmente eventos ou objetos do bucket.
+- `Limpar visualização` grava preferência por usuário; não apaga evento. Incidente aberto deve ser investigado ou resolvido, e uma nova ocorrência reabre automaticamente o grupo.
+- Resolução visual não substitui a reconciliação financeira de `outcome_unknown`, não liquida holds e não repete chamadas externas.
 
 ### Sync de perfis X
 
 - O botão Sincronizar apenas cria `twitter_sync_jobs`; não faz leitura Zernio no request público.
 - Claim/result exclusivos: `/api/internal/twitter-sync-claims` e `/api/internal/twitter-sync-results`, autenticados somente pelo segredo do papel sync.
-- O worker usa lease de 900 segundos, concorrência 1 por conexão e limite de 500 contas por inventário; reaplica `analytics_enabled` do estado auditado e sempre força `inbox=false`.
+- O worker usa lease de 900 segundos e concorrência controlada por conexão; o inventário é paginado sem teto funcional de 500 contas, reaplica `analytics_enabled` do estado auditado e sempre força `inbox=false`.
 - Antes de ativar `TWITTER_SYNC_WORKER_ENABLED`, exigir migrations até 242, release `a5edc6c049e1-20260822T235210Z` ou superior e fila inicialmente vazia.
 - Kill switch durante job impede novos claims; o claim atual deve concluir ou expirar. Nunca apagar jobs para recuperar lease.
 

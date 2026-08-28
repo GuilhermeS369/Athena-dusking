@@ -2,9 +2,12 @@ $ErrorActionPreference = 'Stop'
 
 $workerSecretNames = @(
   'TWITTER_PUBLICATION_WORKER_SECRET',
+  'TWITTER_PREPARATION_WORKER_SECRET',
   'TWITTER_SYNC_WORKER_SECRET',
   'TWITTER_ANALYTICS_WORKER_SECRET',
-  'TWITTER_RECONCILE_WORKER_SECRET'
+  'TWITTER_RECONCILE_WORKER_SECRET',
+  'TWITTER_CONNECT_WORKER_SECRET',
+  'TWITTER_OBSERVABILITY_WORKER_SECRET'
 )
 $vercelOnlySecretNames = @('TWITTER_FALLBACK_WORKER_SECRET', 'TWITTER_ROLLOUT_HEALTH_SECRET')
 $allSecretNames = $workerSecretNames + $vercelOnlySecretNames
@@ -62,8 +65,7 @@ fs.renameSync(temp,target);fs.chmodSync(target,0o600);
 process.stdout.write(JSON.stringify({updated:Object.keys(values).sort(),mode:(fs.statSync(target).mode&0o777).toString(8),backup}));
 '@
   $encodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($remoteScript))
-  $remoteCommand = "node -e `"eval(Buffer.from(process.argv[1],'base64').toString('utf8'))`" $encodedScript"
-  $remoteResult = $payload | ssh -i C:\Users\guilh\.ssh\athena_vps_worker_ed25519 -o BatchMode=yes -o ConnectTimeout=10 root@179.198.110.201 $remoteCommand
+  $remoteResult = $payload | ssh -i C:\Users\guilh\.ssh\athena_vps_worker_ed25519 -o BatchMode=yes -o ConnectTimeout=10 root@179.198.110.201 "node -e eval\(Buffer.from\(process.argv[1],\'base64\'\).toString\(\'utf8\'\)\) $encodedScript"
   if ($LASTEXITCODE -ne 0) { throw 'Falha ao atualizar segredos por papel na VPS.' }
   $remoteAudit = $remoteResult | ConvertFrom-Json
   if ($remoteAudit.mode -ne '600' -or $remoteAudit.updated.Count -ne $workerSecretNames.Count) { throw 'Auditoria remota dos segredos falhou.' }

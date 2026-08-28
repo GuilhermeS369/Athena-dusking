@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 
 import { dispatchMediaDeletionJobs } from '@/lib/media/deletion-worker';
 import { dispatchMediaGroupAssignmentJobs } from '@/lib/media/group-assignment-worker';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -34,6 +35,24 @@ function isAuthorized(request: Request) {
 
 export async function POST(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+
+  const admin = createSupabaseAdminClient();
+  const { data: pressure, error: pressureError } = await admin.rpc(
+    'get_publication_generation_pressure_signal',
+    { p_critical_delay_seconds: 60 },
+  );
+  if (pressureError) {
+    return NextResponse.json({ error: errorMessage(pressureError) }, { status: 503 });
+  }
+  if (pressure?.criticalDelay === true) {
+    return NextResponse.json({
+      paused: true,
+      reason: 'critical_publication_delay',
+      pressure,
+      deletion: { chunks: 0 },
+      groupAssignment: { chunks: 0 },
+    }, { status: 202 });
+  }
 
   let body: { workerId?: unknown; limit?: unknown; chunkSize?: unknown; leaseSeconds?: unknown; groupAssignmentLimit?: unknown; groupAssignmentChunkSize?: unknown } = {};
   try {

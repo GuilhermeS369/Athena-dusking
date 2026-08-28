@@ -12,6 +12,9 @@ export type BulkPlanProgress = {
   batchId: string;
   name: string;
   status: string;
+  operationalStatus: string;
+  eligibleChunks: number;
+  nextHorizonRefreshAt: string | null;
   format: 'image' | 'reel' | 'story';
   profileCount: string;
   mediaCount: string;
@@ -32,6 +35,16 @@ export type BulkPlanProgress = {
 };
 
 export const activeBulkPlanStatuses = new Set(['queued', 'generating', 'paused']);
+const operationalStatusLabels: Record<string, string> = {
+  queued: 'Aguardando geração',
+  generating: 'Gerando',
+  horizon_ready: 'Horizonte abastecido',
+  paused: 'Pausado',
+  completed: 'Concluído',
+  completed_with_errors: 'Concluído com avisos',
+  failed: 'Falhou',
+  cancelled: 'Cancelado',
+};
 
 export function BulkPlanProgressFeed({ location }: { location: 'postagem' | 'queue' }) {
   const [plans, setPlans] = useState<BulkPlanProgress[]>([]);
@@ -48,8 +61,10 @@ export function BulkPlanProgressFeed({ location }: { location: 'postagem' | 'que
         const nextPlans = payload.plans ?? [];
         setPlans(nextPlans);
         setLoaded(true);
-        if (nextPlans.some((plan) => activeBulkPlanStatuses.has(plan.status))) {
+        if (nextPlans.some((plan) => plan.operationalStatus !== 'horizon_ready' && activeBulkPlanStatuses.has(plan.status))) {
           timer = window.setTimeout(() => void refresh(), 4000);
+        } else if (nextPlans.some((plan) => plan.operationalStatus === 'horizon_ready')) {
+          timer = window.setTimeout(() => void refresh(), 60_000);
         }
       } catch {
         if (active) setLoaded(true);
@@ -101,8 +116,10 @@ export default function BulkPlanProgressList({ plans, location }: { plans: BulkP
         {plans.map((plan) => {
           const progress = percent(plan);
           const active = activeBulkPlanStatuses.has(plan.status);
+          const horizonReady = plan.operationalStatus === 'horizon_ready';
+          const statusLabel = operationalStatusLabels[plan.operationalStatus] ?? plan.operationalStatus.replaceAll('_', ' ');
           return <article className={styles.card} key={plan.planId}>
-            <header><div><span className={`${styles.status} ${active ? styles.active : ''}`}>{plan.status.replaceAll('_', ' ')}</span><h3>{plan.name}</h3><small>Por {plan.createdByEmail ?? 'membro da organização'} · atualizado {formatDate(plan.updatedAt)}</small></div><strong>{progress.toLocaleString('pt-BR')}%</strong></header>
+            <header><div><span className={`${styles.status} ${active ? styles.active : ''} ${horizonReady ? styles.horizonReady : ''}`}>{statusLabel}</span><h3>{plan.name}</h3><small>Por {plan.createdByEmail ?? 'membro da organização'} · atualizado {formatDate(plan.updatedAt)}</small></div><strong>{progress.toLocaleString('pt-BR')}%</strong></header>
             <div className={styles.track} aria-label={`Progresso de ${plan.name}: ${progress}%`}><span style={{ width: `${Math.min(100, progress)}%` }} /></div>
             <dl>
               <div><dt>Geradas</dt><dd>{integer(plan.generatedPublications)} / {integer(plan.expectedPublications)}</dd></div>
@@ -116,7 +133,9 @@ export default function BulkPlanProgressList({ plans, location }: { plans: BulkP
               <strong>{active ? 'Atenção na programação' : 'Programação incompleta'}</strong>
               <p>{describeBulkPlanAttention(plan.attention, plan.format, plan.generatedPublications, plan.status)}</p>
             </aside>}
-            <footer><span>{active ? 'Atualização automática enquanto a geração estiver ativa.' : 'Geração finalizada; os itens permanecem na fila operacional.'}</span>{location === 'queue' && <Link href="/postagem" prefetch={false}>Ver programação</Link>}</footer>
+            <footer><span>{horizonReady
+              ? `Próximas 48 horas prontas. Reposição automática${plan.nextHorizonRefreshAt ? ` a partir de ${formatDate(plan.nextHorizonRefreshAt)}` : ' conforme o horizonte avançar'}.`
+              : active ? 'Atualização automática enquanto a geração estiver ativa.' : 'Geração finalizada; os itens permanecem na fila operacional.'}</span>{location === 'queue' && <Link href="/postagem" prefetch={false}>Ver programação</Link>}</footer>
           </article>;
         })}
       </div>

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
+import { createAdaptiveBulkController } from './adaptive-bulk-controller.mjs';
 
 loadEnvFile('.env.local');
 loadEnvFile('.env.worker');
@@ -15,12 +16,21 @@ const workerId = process.env.PUBLICATION_GENERATION_WORKER_ID || `generation-${o
 const mode = process.env.PUBLICATION_GENERATION_WORKER_MODE || 'observe';
 const dryRun = process.env.PUBLICATION_GENERATION_WORKER_DRY_RUN !== 'false';
 const pollIntervalMs = integerEnv('PUBLICATION_GENERATION_WORKER_POLL_INTERVAL_MS', 10000, 1000, 60000);
-const heartbeatIntervalMs = integerEnv('PUBLICATION_GENERATION_WORKER_HEARTBEAT_INTERVAL_MS', 30000, 5000, 300000);
+const heartbeatIntervalMs = integerEnv('PUBLICATION_GENERATION_WORKER_HEARTBEAT_INTERVAL_MS', 60000, 5000, 300000);
 const claimLimit = integerEnv('PUBLICATION_GENERATION_WORKER_LIMIT', 1, 1, 20);
 const chunkClaimLimit = integerEnv('PUBLICATION_GENERATION_WORKER_CHUNK_LIMIT', 1, 1, 50);
 const leaseSeconds = integerEnv('PUBLICATION_GENERATION_WORKER_LEASE_SECONDS', 300, 60, 3600);
 const bulkChunkClaimLimit = integerEnv('PUBLICATION_GENERATION_WORKER_BULK_CHUNK_LIMIT', 1, 1, 50);
-const bulkStepSize = integerEnv('PUBLICATION_GENERATION_WORKER_BULK_STEP_SIZE', 500, 1, 1000);
+const bulkInitialStepSize = integerEnv('PUBLICATION_GENERATION_WORKER_BULK_STEP_SIZE', 50, 25, 100);
+const bulkMinStepSize = integerEnv('PUBLICATION_GENERATION_WORKER_BULK_MIN_STEP_SIZE', 25, 25, 50);
+const bulkMaxStepSize = integerEnv('PUBLICATION_GENERATION_WORKER_BULK_MAX_STEP_SIZE', 100, 50, 100);
+const bulkFastThresholdMs = integerEnv('PUBLICATION_GENERATION_WORKER_BULK_FAST_THRESHOLD_MS', 250, 50, 1000);
+const bulkSlowThresholdMs = integerEnv('PUBLICATION_GENERATION_WORKER_BULK_SLOW_THRESHOLD_MS', 750, 250, 5000);
+const bulkFastPerItemThresholdMs = integerEnv('PUBLICATION_GENERATION_WORKER_BULK_FAST_PER_ITEM_THRESHOLD_MS', 25, 5, 100);
+const bulkMaxStableDurationMs = integerEnv('PUBLICATION_GENERATION_WORKER_BULK_MAX_STABLE_DURATION_MS', 3000, 750, 10000);
+const bulkStableSlicesRequired = integerEnv('PUBLICATION_GENERATION_WORKER_BULK_STABLE_SLICES_REQUIRED', 5, 2, 20);
+const bulkTimeoutCooldownMs = integerEnv('PUBLICATION_GENERATION_WORKER_BULK_TIMEOUT_COOLDOWN_MS', 120000, 10000, 600000);
+const bulkIdleCooldownMs = integerEnv('PUBLICATION_GENERATION_WORKER_BULK_IDLE_COOLDOWN_MS', 30000, 5000, 300000);
 const bulkMaxFailures = integerEnv('PUBLICATION_GENERATION_WORKER_BULK_MAX_FAILURES', 3, 1, 20);
 export function bulkGenerationIsEnabled(value = process.env.PUBLICATION_GENERATION_WORKER_BULK_ENABLED) {
   return String(value ?? 'true').trim().toLowerCase() !== 'false';
@@ -29,6 +39,19 @@ const bulkGenerationEnabled = bulkGenerationIsEnabled();
 
 let stopping = false;
 let lastHeartbeatAt = 0;
+
+const adaptiveBulkController = createAdaptiveBulkController({
+  initialStep: bulkInitialStepSize,
+  minimumStep: bulkMinStepSize,
+  maximumStep: bulkMaxStepSize,
+  fastThresholdMs: bulkFastThresholdMs,
+  slowThresholdMs: bulkSlowThresholdMs,
+  fastPerItemThresholdMs: bulkFastPerItemThresholdMs,
+  maxStableDurationMs: bulkMaxStableDurationMs,
+  stableSlicesRequired: bulkStableSlicesRequired,
+  timeoutCooldownMs: bulkTimeoutCooldownMs,
+  idleCooldownMs: bulkIdleCooldownMs,
+});
 
 process.on('SIGINT', () => {
   stopping = true;
@@ -105,7 +128,14 @@ async function heartbeat(supabase, status, metadata = {}, lastErrorMessage = nul
       chunkClaimLimit,
       leaseSeconds,
       bulkChunkClaimLimit,
-      bulkStepSize,
+      bulkStepSize: adaptiveBulkController.snapshot().currentStep,
+      bulkInitialStepSize,
+      bulkMinStepSize,
+      bulkMaxStepSize,
+      bulkFastThresholdMs,
+      bulkSlowThresholdMs,
+      bulkTimeoutCooldownMs,
+      adaptiveBulk: adaptiveBulkController.snapshot(),
       bulkMaxFailures,
       bulkGenerationEnabled,
       ...metadata,
@@ -200,11 +230,11 @@ export async function claimBulkChunks(supabase) {
   return data || [];
 }
 
-export async function processBulkChunk(supabase, chunk) {
+export async function processBulkChunk(supabase, chunk, stepSize = adaptiveBulkController.snapshot().currentStep) {
   const { data, error } = await supabase.rpc('process_bulk_rotation_generation_chunk', {
     p_chunk_id: chunk.id,
     p_worker_id: workerId,
-    p_step_size: bulkStepSize,
+    p_step_size: stepSize,
   });
   if (error) throw error;
   return data;
@@ -229,10 +259,11 @@ function errorMessage(error) {
   return String(error);
 }
 
-export async function processClaimedBulkChunk(supabase, chunk) {
+export async function processClaimedBulkChunk(supabase, chunk, options = {}) {
+  const startedAt = Date.now();
   try {
-    const result = await processBulkChunk(supabase, chunk);
-    return { chunkId: chunk.id, ok: true, result };
+    const result = await processBulkChunk(supabase, chunk, options.stepSize);
+    return { chunkId: chunk.id, ok: true, durationMs: Date.now() - startedAt, result };
   } catch (error) {
     const message = errorMessage(error);
     console.error('[publication-generation-worker] falha em chunk compacto', {
@@ -244,7 +275,7 @@ export async function processClaimedBulkChunk(supabase, chunk) {
 
     try {
       const failure = await failBulkChunk(supabase, chunk, message);
-      return { chunkId: chunk.id, ok: false, message, failure };
+      return { chunkId: chunk.id, ok: false, durationMs: Date.now() - startedAt, message, failure };
     } catch (failureError) {
       const failureMessage = errorMessage(failureError);
       console.error('[publication-generation-worker] falha ao liberar chunk compacto', {
@@ -256,11 +287,22 @@ export async function processClaimedBulkChunk(supabase, chunk) {
       return {
         chunkId: chunk.id,
         ok: false,
+        durationMs: Date.now() - startedAt,
         message,
         failureRegistrationError: failureMessage,
       };
     }
   }
+}
+
+export async function loadCriticalPublicationPressure(supabase) {
+  const { data, error } = await supabase.rpc('get_publication_generation_pressure_signal', {
+    p_critical_delay_seconds: 60,
+  });
+  if (error) throw error;
+  return data && typeof data === 'object'
+    ? data
+    : { criticalDelay: false, oldestDueAt: null, overdueCurrent: 0 };
 }
 
 async function tick(supabase) {
@@ -298,11 +340,47 @@ async function tick(supabase) {
     processedChunks.push(await processChunk(supabase, chunk));
   }
 
-  const bulkChunks = bulkGenerationEnabled ? await claimBulkChunks(supabase) : [];
-  const processedBulkChunks = [];
-  for (const chunk of bulkChunks) {
-    processedBulkChunks.push(await processClaimedBulkChunk(supabase, chunk));
+  let heavyLeaseToken = null;
+  let pressureSignal = { criticalDelay: false, oldestDueAt: null, overdueCurrent: 0 };
+  const adaptiveBefore = adaptiveBulkController.snapshot();
+  if (bulkGenerationEnabled && adaptiveBulkController.canRun()) {
+    pressureSignal = await loadCriticalPublicationPressure(supabase);
+    if (pressureSignal.criticalDelay) adaptiveBulkController.markCriticalDelay();
   }
+  if (bulkGenerationEnabled && adaptiveBulkController.canRun() && !pressureSignal.criticalDelay) {
+    const { data, error } = await supabase.rpc('acquire_operational_heavy_workload_lease', {
+      p_category: 'bulk_generation',
+      p_holder: workerId,
+      p_organization_id: null,
+      p_lease_seconds: 120,
+    });
+    if (error) throw error;
+    heavyLeaseToken = data;
+  }
+  const bulkChunks = heavyLeaseToken ? await claimBulkChunks(supabase) : [];
+  const processedBulkChunks = [];
+  try {
+    for (const chunk of bulkChunks) {
+      const stepSize = adaptiveBulkController.snapshot().currentStep;
+      const processed = await processClaimedBulkChunk(supabase, chunk, { stepSize });
+      processedBulkChunks.push(processed);
+      adaptiveBulkController.observe({
+        durationMs: processed.durationMs,
+        ok: processed.ok,
+        message: processed.message,
+        processedItems: processed.result?.processedItems,
+        criticalDelay: pressureSignal.criticalDelay,
+      });
+    }
+  } finally {
+    if (heavyLeaseToken) {
+      const { error } = await supabase.rpc('release_operational_heavy_workload_lease', {
+        p_lease_token: heavyLeaseToken,
+      });
+      if (error) console.error('[publication-generation-worker] falha ao liberar capacidade pesada', errorMessage(error));
+    }
+  }
+  if (heavyLeaseToken && bulkChunks.length === 0) adaptiveBulkController.markIdle();
   summary.bulk = await loadBulkSummary(supabase);
 
   const compactActivity = {
@@ -310,6 +388,10 @@ async function tick(supabase) {
     claimedChunks: bulkChunks.length,
     successfulChunks: processedBulkChunks.filter((result) => result.ok).length,
     failedChunks: processedBulkChunks.filter((result) => !result.ok).length,
+    waitingForCapacity: bulkGenerationEnabled && !heavyLeaseToken,
+    pressureSignal,
+    adaptiveBefore,
+    adaptiveAfter: adaptiveBulkController.snapshot(),
     lastChunk: processedBulkChunks.at(-1) || null,
   };
 

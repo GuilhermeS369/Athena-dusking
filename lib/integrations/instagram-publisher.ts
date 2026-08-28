@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import { decryptToken } from '@/lib/security/token-crypto';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { createR2SignedUrl } from '@/lib/storage/r2-client';
+
+// 'supabase' (padrão) usa o Storage do Supabase, que cobra egress por byte
+// transferido. 'r2' usa Cloudflare R2 (egress $0), mantendo o mesmo
+// comportamento de gerar uma signed URL nova por despacho.
+const mediaStorageBackend = (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
 
 export type PublicationFormat = 'image' | 'reel' | 'story' | 'carousel';
 
@@ -96,11 +102,20 @@ function storageSignedUrlError(error: unknown) {
 }
 
 export async function createTemporaryUrl(storagePath: string) {
+  if (mediaStorageBackend === 'r2') {
+    try {
+      const bucket = process.env.R2_BUCKET_INSTAGRAM_MEDIA || 'instagram-media';
+      // Vídeos podem continuar em processamento após esta execução curta do worker.
+      // Mantemos a URL disponível por 24 horas para a Meta/Zernio finalizar o download.
+      return await createR2SignedUrl(bucket, storagePath, 60 * 60 * 24);
+    } catch (error) {
+      throw storageSignedUrlError(error);
+    }
+  }
+
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase.storage
     .from('instagram-media')
-    // Vídeos podem continuar em processamento após esta execução curta do worker.
-    // Mantemos a URL disponível por 24 horas para a Meta finalizar o download.
     .createSignedUrl(storagePath, 60 * 60 * 24);
 
   if (error || !data?.signedUrl) throw storageSignedUrlError(error);

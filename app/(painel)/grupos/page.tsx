@@ -19,7 +19,7 @@ export default async function GroupsPage() {
       .select('id, name, description, consumption_mode, default_caption, created_at, updated_at')
       .eq('organization_id', context.activeOrganization.id)
       .is('deleted_at', null)
-      .order('updated_at', { ascending: false }),
+      .order('name', { ascending: true }),
     supabase
       .from('instagram_profiles_safe')
       .select('id, username, display_name, profile_picture_url, status')

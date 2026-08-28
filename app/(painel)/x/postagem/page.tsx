@@ -46,12 +46,12 @@ export default async function TwitterPostPage() {
       .order("username"),
     admin
       .from("twitter_media_assets")
-      .select("id,original_name,media_kind,byte_size,storage_path")
+      .select("id,original_name,media_kind,byte_size,storage_path,created_at")
       .eq("organization_id", organizationId)
       .eq("status", "ready")
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
-      .limit(200),
+      .limit(31),
     admin
       .from("twitter_groups")
       .select("id,name")
@@ -142,8 +142,9 @@ export default async function TwitterPostPage() {
       ...(groupIdsByAsset.get(member.asset_id) ?? []),
       member.group_id,
     ]);
+  const assetRows=(assetsResult.data??[]).slice(0,30);
   const assets = await Promise.all(
-    (assetsResult.data ?? []).map(async (asset) => {
+    assetRows.map(async (asset) => {
       const { data: signed } = await admin.storage
         .from("twitter-media")
         .createSignedUrl(asset.storage_path, 900);
@@ -163,6 +164,8 @@ export default async function TwitterPostPage() {
         profileGroups={groupsResult.data ?? []}
         mediaGroups={groupsResult.data ?? []}
         assets={assets}
+        initialMediaHasMore={(assetsResult.data?.length??0)>30}
+        initialMediaCursor={(assetsResult.data?.length??0)>30&&assetRows.at(-1)?Buffer.from(JSON.stringify({createdAt:assetRows.at(-1)!.created_at,id:assetRows.at(-1)!.id})).toString('base64url'):null}
         profiles={profiles.map((profile) => {
           const identityId =
             identityByConnection.get(profile.current_connection_id ?? "") ?? "";

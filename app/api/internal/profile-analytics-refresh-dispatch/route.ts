@@ -57,6 +57,19 @@ export async function POST(request: Request) {
   };
 
   try {
+    const admin = createSupabaseAdminClient();
+    const { data: pressure, error: pressureError } = await admin.rpc(
+      'get_publication_generation_pressure_signal',
+      { p_critical_delay_seconds: 60 },
+    );
+    if (pressureError) throw pressureError;
+    if (pressure?.criticalDelay === true) {
+      return NextResponse.json({
+        paused: true,
+        reason: 'critical_publication_delay',
+        pressure,
+      }, { status: 202, headers: { 'Cache-Control': 'no-store' } });
+    }
     const excludedOrganizationIds = await activeDirectVpsOrganizations();
     const result = await dispatchProfileAnalyticsRefreshJobs({
       workerId: body.workerId,

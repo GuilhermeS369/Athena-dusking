@@ -1,0 +1,1 @@
+*/5 * * * * flock -n /run/lock/athena-instagram-observability-maintenance.lock /opt/athena-worker/bin/instagram-observability-maintenance.sh >> /var/log/athena-instagram-observability-maintenance.log 2>&1

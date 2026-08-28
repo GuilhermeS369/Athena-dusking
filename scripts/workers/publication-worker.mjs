@@ -3,9 +3,19 @@
 import os from 'node:os';
 import fs from 'node:fs';
 import process from 'node:process';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
-import { dispatchPublicationQueueDirect, flushZernioRequestTelemetry } from './publication-direct-dispatch.mjs';
+import {
+  dispatchPublicationQueueDirect,
+  flushZernioRequestTelemetry,
+  mapWithConcurrency,
+  preparePublicationDispatchEnvelope,
+  processClaimedItem,
+} from './publication-direct-dispatch.mjs';
+import { PublicationDispatchSpool } from './publication-dispatch-spool.mjs';
+import { createAdaptiveBulkController } from './adaptive-bulk-controller.mjs';
 
 loadEnvFile('.env.local');
 loadEnvFile('.env.worker');
@@ -16,14 +26,56 @@ const workerId = process.env.PUBLICATION_WORKER_ID || `publication-${os.hostname
 const mode = process.env.PUBLICATION_WORKER_MODE || 'observe';
 const dryRun = process.env.PUBLICATION_WORKER_DRY_RUN !== 'false';
 const pollIntervalMs = integerEnv('PUBLICATION_WORKER_POLL_INTERVAL_MS', 5000, 500, 60000);
-const heartbeatIntervalMs = integerEnv('PUBLICATION_WORKER_HEARTBEAT_INTERVAL_MS', 30000, 5000, 300000);
+const heartbeatIntervalMs = integerEnv('PUBLICATION_WORKER_HEARTBEAT_INTERVAL_MS', 60000, 5000, 300000);
 const dispatchLimit = integerEnv('PUBLICATION_WORKER_LIMIT', 5, 1, 100);
-const preparationLimit = integerEnv('PUBLICATION_WORKER_PREPARATION_LIMIT', 100, 1, 500);
+const preparationLimit = integerEnv('PUBLICATION_WORKER_PREPARATION_LIMIT', 4, 1, 500);
+const preparationConcurrency = integerEnv('PUBLICATION_WORKER_PREPARATION_CONCURRENCY', 4, 1, 20);
 const leaseSeconds = integerEnv('PUBLICATION_WORKER_LEASE_SECONDS', 180, 30, 900);
 const coordinatedRecoveryLimit = integerEnv('PUBLICATION_WORKER_COORDINATED_RECOVERY_LIMIT', 0, 0, 100);
+const reconciliationOnly = process.env.PUBLICATION_WORKER_RECONCILIATION_ONLY === 'true';
+const stagingEnabled = process.env.PUBLICATION_WORKER_STAGING_ENABLED === 'true';
+const stagingWindowSeconds = integerEnv('PUBLICATION_WORKER_STAGING_WINDOW_SECONDS', 600, 60, 3600);
+const stagingLimit = integerEnv('PUBLICATION_WORKER_STAGING_LIMIT', 100, 1, 500);
+const stagingConcurrency = integerEnv('PUBLICATION_WORKER_STAGING_CONCURRENCY', 4, 1, 20);
+const stagingLeaseSeconds = integerEnv('PUBLICATION_WORKER_STAGING_LEASE_SECONDS', 1200, 120, 7200);
+const stagingDueGuardMs = integerEnv('PUBLICATION_WORKER_STAGING_DUE_GUARD_MS', 60000, 5000, 300000);
+const stagedDispatchLimit = integerEnv('PUBLICATION_WORKER_STAGED_DISPATCH_LIMIT', 500, 1, 500);
+const stagedDispatchConcurrency = integerEnv('PUBLICATION_WORKER_STAGED_DISPATCH_CONCURRENCY', 32, 1, 64);
+const stagedDispatchLeaseSeconds = integerEnv('PUBLICATION_WORKER_STAGED_DISPATCH_LEASE_SECONDS', 900, 30, 900);
+const stagedMaxPerOrganizationPerMinute = integerEnv(
+  'PUBLICATION_WORKER_STAGED_MAX_PER_ORGANIZATION_PER_MINUTE',
+  180,
+  1,
+  200,
+);
+const spoolDirectory = process.env.PUBLICATION_WORKER_SPOOL_DIR
+  || (process.platform === 'win32'
+    ? path.resolve('.publication-dispatch-spool')
+    : '/var/lib/athena-publication-spool');
+const stagingPressureCheckIntervalMs = integerEnv('PUBLICATION_WORKER_STAGING_PRESSURE_CHECK_INTERVAL_MS', 10000, 2000, 60000);
+const stagingCooperativeCancelCheckIntervalMs = integerEnv('PUBLICATION_WORKER_STAGING_CANCEL_CHECK_INTERVAL_MS', 2000, 500, 30000);
 
 let stopping = false;
 let lastHeartbeatAt = 0;
+let lastCycleEventAt = 0;
+let lastTelemetryFlushAt = 0;
+const aggregateEventIntervalMs = 60000;
+const telemetryFlushIntervalMs = 30000;
+const stagedOrganizationDispatches = new Map();
+
+// Fase 5: staging e dispatch rodam em loops independentes (ver stagingLoop/dispatchLoop
+// em main()). lastStagingCycleResult é o único estado compartilhado entre os dois —
+// o loop de dispatch só o lê para telemetria, nunca aguarda o loop de staging.
+let lastStagingCycleResult = { claimed: 0, persisted: 0, failed: 0, skipped: null };
+let lastStagingPressureCheckAt = 0;
+let cachedStagingPressure = { criticalDelay: false, oldestDueAt: null, checkedAt: null };
+const stagingController = stagingEnabled ? createAdaptiveBulkController({
+  initialStep: stagingLimit,
+  minimumStep: Math.max(1, Math.min(25, Math.floor(stagingLimit / 4))),
+  maximumStep: stagingLimit,
+  timeoutCooldownMs: 120000,
+  idleCooldownMs: 3000,
+}) : null;
 
 process.on('SIGINT', () => {
   stopping = true;
@@ -120,7 +172,20 @@ async function heartbeat(supabase, status, metadata = {}, lastErrorMessage = nul
       heartbeatIntervalMs,
       dispatchLimit,
       preparationLimit,
+      preparationConcurrency,
       leaseSeconds,
+      reconciliationOnly,
+      stagingEnabled,
+      stagingWindowSeconds,
+      stagingLimit,
+      stagingConcurrency,
+      stagingDueGuardMs,
+      stagingPressureCheckIntervalMs,
+      stagingCooperativeCancelCheckIntervalMs,
+      stagedDispatchLimit,
+      stagedDispatchConcurrency,
+      stagedMaxPerOrganizationPerMinute,
+      spoolDirectory,
       ...metadata,
     },
   });
@@ -134,6 +199,41 @@ async function loadSummary(supabase) {
   });
   if (error) throw error;
   return data || [];
+}
+
+// Mesmo sinal global já consumido por zernio-sync-worker.mjs, profile-analytics-direct-worker.ts
+// e publication-generation-worker.mjs: existe algum item waiting/ready com execute_at mais
+// de p_critical_delay_seconds no passado, em qualquer organização.
+async function loadPublicationPressureSignal(supabase, criticalDelaySeconds) {
+  const { data, error } = await supabase.rpc('get_publication_generation_pressure_signal', {
+    p_critical_delay_seconds: criticalDelaySeconds,
+  });
+  if (error) throw error;
+  return {
+    criticalDelay: data?.criticalDelay === true,
+    oldestDueAt: typeof data?.oldestDueAt === 'string' ? data.oldestDueAt : null,
+    checkedAt: typeof data?.checkedAt === 'string' ? data.checkedAt : new Date().toISOString(),
+  };
+}
+
+// Garante que cada loop (dispatch/staging) nunca sobreponha seu próprio ciclo, mesmo se um
+// ciclo anterior ainda estiver em voo quando o polling tentar iniciar o próximo.
+export function createSingleFlightGuard() {
+  let busy = false;
+  return {
+    isBusy() {
+      return busy;
+    },
+    async run(fn) {
+      if (busy) return { skipped: true, value: undefined };
+      busy = true;
+      try {
+        return { skipped: false, value: await fn() };
+      } finally {
+        busy = false;
+      }
+    },
+  };
 }
 
 async function dispatchThroughEndpoint() {
@@ -202,6 +302,13 @@ function summarizeDispatch(dispatch) {
       }
       : null,
     adaptiveConcurrency: dispatch.adaptiveConcurrency ?? null,
+    batchRuntime: dispatch.batchRuntime && typeof dispatch.batchRuntime === 'object'
+      ? {
+        reconciledBatches: Number(dispatch.batchRuntime.reconciledBatches || 0),
+        newlyPausedBatches: Number(dispatch.batchRuntime.newlyPausedBatches || 0),
+        reconciledOutcomes: Number(dispatch.batchRuntime.reconciledOutcomes || 0),
+      }
+      : null,
     coordinatedRecovery: dispatch.coordinatedRecovery && typeof dispatch.coordinatedRecovery === 'object'
       ? {
         claimed: Number(dispatch.coordinatedRecovery.claimed || 0),
@@ -209,90 +316,367 @@ function summarizeDispatch(dispatch) {
       }
       : null,
     recyclingProcessed: Array.isArray(dispatch.recycling) ? dispatch.recycling.length : 0,
+    staging: dispatch.staging && typeof dispatch.staging === 'object'
+      ? {
+        claimed: Number(dispatch.staging.claimed || 0),
+        persisted: Number(dispatch.staging.persisted || 0),
+        failed: Number(dispatch.staging.failed || 0),
+        skipped: dispatch.staging.skipped ?? null,
+      }
+      : null,
+    stagedDispatch: dispatch.stagedDispatch && typeof dispatch.stagedDispatch === 'object'
+      ? {
+        due: Number(dispatch.stagedDispatch.due || 0),
+        selected: Number(dispatch.stagedDispatch.selected || 0),
+        activated: Number(dispatch.stagedDispatch.activated || 0),
+      }
+      : null,
   };
 }
 
-async function tick(supabase, correlationId) {
-  const rows = await loadSummary(supabase);
-  const totals = queueTotals(rows);
+export function fairDispatchOrder(envelopes) {
+  const queues = new Map();
+  for (const envelope of [...envelopes].sort((left, right) => (
+    Date.parse(left.executeAt) - Date.parse(right.executeAt)
+      || String(left.profileId ?? '').localeCompare(String(right.profileId ?? ''))
+      || String(left.itemId).localeCompare(String(right.itemId))
+  ))) {
+    const key = String(envelope.organizationId ?? 'unknown');
+    if (!queues.has(key)) queues.set(key, []);
+    queues.get(key).push(envelope);
+  }
+  const ordered = [];
+  while ([...queues.values()].some((queue) => queue.length > 0)) {
+    for (const key of [...queues.keys()].sort()) {
+      const next = queues.get(key).shift();
+      if (next) ordered.push(next);
+    }
+  }
+  return ordered;
+}
 
+export function selectWithinOrganizationDispatchWindow(envelopes, history, now, limit, perOrganizationLimit) {
+  const cutoff = now - 60_000;
+  const selected = [];
+  const working = new Map();
+  for (const [organizationId, timestamps] of history.entries()) {
+    working.set(organizationId, timestamps.filter((timestamp) => timestamp > cutoff));
+  }
+  for (const envelope of fairDispatchOrder(envelopes)) {
+    if (selected.length >= limit) break;
+    const organizationId = String(envelope.organizationId ?? 'unknown');
+    const timestamps = working.get(organizationId) ?? [];
+    if (timestamps.length >= perOrganizationLimit) continue;
+    timestamps.push(now);
+    working.set(organizationId, timestamps);
+    selected.push(envelope);
+  }
+  return { selected, nextHistory: working };
+}
+
+async function stageUpcomingPublications(supabase, spool, correlationId, options = {}) {
+  const limit = Number.isInteger(options.limit) ? Math.min(Math.max(options.limit, 1), stagingLimit) : stagingLimit;
+  const shouldStop = options.shouldStop ?? (() => false);
+  const stageWorkerId = workerId;
+  const { data, error } = await supabase.rpc('claim_publication_dispatch_staging_items', {
+    p_worker_id: stageWorkerId,
+    p_limit: limit,
+    p_stage_lease_seconds: stagingLeaseSeconds,
+    p_window_seconds: stagingWindowSeconds,
+  });
+  if (error) throw error;
+  const claimed = data ?? [];
+  const settled = await mapWithConcurrency(claimed, stagingConcurrency, async (item) => {
+    const envelope = await preparePublicationDispatchEnvelope({ ...item, correlation_id: correlationId });
+    await spool.put(envelope);
+    return envelope.itemId;
+  }, shouldStop);
+  // Entradas nunca tentadas (cancelamento cooperativo interrompeu o lote antes de chegar
+  // nelas) ficam undefined em settled — precisam ser liberadas junto das rejeitadas, senão
+  // ficam presas sob o lease deste worker até expirar.
+  const releaseIds = settled.flatMap((entry, index) => (!entry || entry.status === 'rejected') ? [claimed[index].id] : []);
+  const cancelledCount = settled.filter((entry) => !entry).length;
+  if (releaseIds.length > 0) {
+    const { error: releaseError } = await supabase.rpc('release_publication_dispatch_staging', {
+      p_worker_id: stageWorkerId,
+      p_item_ids: releaseIds,
+    });
+    if (releaseError) console.error('[publication-worker] falha ao liberar staging incompleto', errorMessage(releaseError));
+  }
+  return {
+    claimed: claimed.length,
+    persisted: settled.filter((entry) => entry && entry.status === 'fulfilled').length,
+    failed: releaseIds.length - cancelledCount,
+    cancelled: cancelledCount,
+  };
+}
+
+export async function stagingHasSafeWindow(spool, now = Date.now(), dueGuardMs = stagingDueGuardMs) {
+  const nearDue = await spool.listDue(now + dueGuardMs, 1);
+  return nearDue.length === 0;
+}
+
+async function dispatchDueStagedPublications(supabase, spool, correlationId) {
+  const now = Date.now();
+  const allDue = await spool.listDue(now, 5000);
+  const windowed = selectWithinOrganizationDispatchWindow(
+    allDue,
+    stagedOrganizationDispatches,
+    now,
+    stagedDispatchLimit,
+    stagedMaxPerOrganizationPerMinute,
+  );
+  const due = windowed.selected;
+  stagedOrganizationDispatches.clear();
+  for (const [organizationId, timestamps] of windowed.nextHistory.entries()) {
+    stagedOrganizationDispatches.set(organizationId, timestamps);
+  }
+  if (due.length === 0) return { due: allDue.length, selected: 0, activated: 0, processed: [] };
+  const { data, error } = await supabase.rpc('activate_staged_publication_items', {
+    p_worker_id: workerId,
+    p_item_ids: due.map((entry) => entry.itemId),
+    p_lease_seconds: stagedDispatchLeaseSeconds,
+  });
+  if (error) throw error;
+  const claimedById = new Map((data ?? []).map((item) => [item.id, item]));
+  const activated = due.filter((entry) => claimedById.has(entry.itemId));
+  const settled = await mapWithConcurrency(activated, stagedDispatchConcurrency, async (envelope) => {
+    const item = { ...claimedById.get(envelope.itemId), correlation_id: correlationId };
+    const result = await processClaimedItem(item, workerId, envelope);
+    await spool.remove(envelope.itemId);
+    return result;
+  });
+  const processed = settled.map((entry, index) => entry.status === 'fulfilled'
+    ? entry.value
+    : { itemId: activated[index].itemId, state: 'error', error: errorMessage(entry.reason) });
+  return { due: allDue.length, selected: due.length, activated: activated.length, processed };
+}
+
+export function dispatchHasOperationalActivity(dispatch) {
+  const summary = summarizeDispatch(dispatch);
+  if (!summary) return false;
+  return summary.claimed > 0
+    || Object.values(summary.outcomes).some((count) => count > 0)
+    || Number(summary.preparation?.claimed || 0) > 0
+    || Number(summary.recovery?.rescheduled || 0) > 0
+    || Number(summary.coordinatedRecovery?.claimed || 0) > 0
+    || summary.recyclingProcessed > 0;
+}
+
+// Ciclo de despacho: prioridade alta, roda no próprio loop e nunca aguarda staging.
+// dispatch.staging carrega o último resultado conhecido do loop de staging (produtor
+// independente) só para telemetria — o despacho não bloqueia nem depende dele.
+async function runDispatchCycle(supabase, correlationId, spool = null) {
   if (mode === 'observe' || dryRun) {
+    const rows = await loadSummary(supabase);
+    const totals = queueTotals(rows);
     console.info('[publication-worker] observação', { workerId, dryRun, totals });
-    return { status: 'observing', totals };
+    return { status: 'observing', totals, dispatch: null };
   }
 
   if (mode === 'dispatch-endpoint') {
     const dispatch = await dispatchThroughEndpoint();
-    console.info('[publication-worker] dispatch remoto concluído', { workerId, dispatch, totals });
-    return { status: 'dispatching', totals, dispatch };
+    console.info('[publication-worker] dispatch remoto concluído', { workerId, dispatch });
+    return { status: 'dispatching', totals: null, dispatch };
   }
 
   if (mode === 'direct' || mode === 'direct-dispatch') {
+    const stagedDispatch = stagingEnabled && spool
+      ? await dispatchDueStagedPublications(supabase, spool, correlationId)
+      : { due: 0, selected: 0, activated: 0, processed: [] };
     const dispatch = await dispatchPublicationQueueDirect({
       workerId,
       limit: dispatchLimit,
       leaseSeconds,
       preparationLimit,
+      preparationConcurrency,
       correlationId,
       recoveryLimit: coordinatedRecoveryLimit,
+      reconciliationOnly,
     });
-    console.info('[publication-worker] dispatch direto concluído', { workerId, dispatch, totals });
-    return { status: 'dispatching', totals, dispatch };
+    dispatch.stagedDispatch = stagedDispatch;
+    dispatch.staging = lastStagingCycleResult;
+    dispatch.claimed += stagedDispatch.activated;
+    dispatch.processed = [...stagedDispatch.processed, ...dispatch.processed];
+    console.info('[publication-worker] dispatch direto concluído', { workerId, dispatch: summarizeDispatch(dispatch) });
+    return { status: 'dispatching', totals: null, dispatch };
   }
 
   throw new Error(`Modo de worker não suportado nesta etapa: ${mode}`);
 }
 
-async function main() {
-  const supabase = createSupabase();
-  console.info('[publication-worker] iniciando', { workerId, mode, dryRun, runOnce });
-  await heartbeat(supabase, 'starting');
+// Ciclo de staging: segundo plano, independente do dispatch. Cede (guarda local +
+// controlador adaptativo + pressão crítica global) antes de reivindicar qualquer item, e
+// cancela cooperativamente um lote em andamento assim que algo entra na janela de guarda.
+async function runStagingCycle(supabase, spool) {
+  const now = Date.now();
 
+  if (!(await stagingHasSafeWindow(spool, now))) {
+    return { claimed: 0, persisted: 0, failed: 0, skipped: 'publication_due_within_guard' };
+  }
+  if (!stagingController.canRun(now)) {
+    return { claimed: 0, persisted: 0, failed: 0, skipped: 'adaptive_cooldown' };
+  }
+
+  if (now - lastStagingPressureCheckAt >= stagingPressureCheckIntervalMs) {
+    lastStagingPressureCheckAt = now;
+    try {
+      cachedStagingPressure = await loadPublicationPressureSignal(supabase, 60);
+    } catch (pressureError) {
+      console.error('[publication-worker] falha ao consultar pressão crítica de publicação', errorMessage(pressureError));
+    }
+  }
+  if (cachedStagingPressure.criticalDelay) {
+    stagingController.markCriticalDelay(now);
+    return { claimed: 0, persisted: 0, failed: 0, skipped: 'critical_publication_delay' };
+  }
+
+  const limit = stagingController.snapshot(now).currentStep;
+  const correlationId = randomUUID();
+
+  let cancelled = false;
+  let checkingCancel = false;
+  const cancelWatcher = setInterval(() => {
+    if (checkingCancel) return;
+    checkingCancel = true;
+    stagingHasSafeWindow(spool, Date.now())
+      .then((safe) => {
+        if (!safe) cancelled = true;
+      })
+      .catch(() => {})
+      .finally(() => {
+        checkingCancel = false;
+      });
+  }, stagingCooperativeCancelCheckIntervalMs);
+
+  const startedAt = Date.now();
+  let result;
+  let cycleError = null;
+  try {
+    result = await stageUpcomingPublications(supabase, spool, correlationId, { limit, shouldStop: () => cancelled });
+  } catch (error) {
+    cycleError = error;
+    result = { claimed: 0, persisted: 0, failed: 0, cancelled: 0 };
+  } finally {
+    clearInterval(cancelWatcher);
+  }
+  const durationMs = Date.now() - startedAt;
+
+  stagingController.observe({
+    durationMs,
+    ok: !cycleError,
+    message: cycleError ? errorMessage(cycleError) : '',
+    processedItems: result.persisted,
+    now: Date.now(),
+  });
+
+  if (cycleError) throw cycleError;
+
+  return {
+    claimed: result.claimed,
+    persisted: result.persisted,
+    failed: result.failed,
+    skipped: cancelled && result.cancelled > 0 ? 'publication_due_within_guard' : null,
+  };
+}
+
+async function reportCycle(supabase, correlationId, startedAt, result) {
+  // Telemetria é auxiliar: não aguardamos e nunca deixamos falha dela interromper a fila.
+  if (Date.now() - lastTelemetryFlushAt >= telemetryFlushIntervalMs) {
+    lastTelemetryFlushAt = Date.now();
+    void flushZernioRequestTelemetry().catch((telemetryError) => {
+      console.error('[publication-worker] falha não bloqueante na telemetria Zernio', telemetryError);
+    });
+  }
+  if (dispatchHasOperationalActivity(result.dispatch) || Date.now() - lastCycleEventAt >= aggregateEventIntervalMs) {
+    await recordCycleEvent(supabase, {
+      correlationId,
+      phase: 'completed',
+      startedAt,
+      completedAt: new Date().toISOString(),
+      metadata: { totals: result.totals, dispatch: summarizeDispatch(result.dispatch) },
+    });
+    lastCycleEventAt = Date.now();
+  }
+  if (Date.now() - lastHeartbeatAt >= heartbeatIntervalMs) {
+    await heartbeat(supabase, result.status, {
+      totals: result.totals,
+      dispatch: summarizeDispatch(result.dispatch),
+    });
+  }
+}
+
+async function reportCycleFailure(supabase, correlationId, startedAt, error) {
+  const message = errorMessage(error);
+  console.error('[publication-worker] falha no ciclo', { workerId, message, error });
+  await recordCycleEvent(supabase, {
+    correlationId,
+    phase: 'failed',
+    startedAt,
+    completedAt: new Date().toISOString(),
+    metadata: { mode, dryRun, pollIntervalMs, dispatchLimit, leaseSeconds },
+    errorCode: typeof error?.code === 'string' ? error.code : 'publication_worker_cycle_failed',
+    errorMessage: message,
+  }).catch((eventError) => console.error('[publication-worker] falha ao registrar evento de ciclo', eventError));
+  await heartbeat(supabase, 'error', {}, message).catch((heartbeatError) => {
+    console.error('[publication-worker] falha ao registrar heartbeat de erro', heartbeatError);
+  });
+}
+
+const dispatchGuard = createSingleFlightGuard();
+const stagingGuard = createSingleFlightGuard();
+
+async function dispatchLoop(supabase, spool) {
   while (!stopping) {
     const correlationId = randomUUID();
     const startedAt = new Date().toISOString();
-    try {
-      await recordCycleEvent(supabase, {
-        correlationId,
-        phase: 'started',
-        startedAt,
-        metadata: { mode, dryRun, pollIntervalMs, dispatchLimit, leaseSeconds },
-      });
-      const result = await tick(supabase, correlationId);
-      // Telemetria é auxiliar: não aguardamos e nunca deixamos falha dela interromper a fila.
-      void flushZernioRequestTelemetry().catch((telemetryError) => {
-        console.error('[publication-worker] falha não bloqueante na telemetria Zernio', telemetryError);
-      });
-      await recordCycleEvent(supabase, {
-        correlationId,
-        phase: 'completed',
-        startedAt,
-        completedAt: new Date().toISOString(),
-        metadata: { totals: result.totals, dispatch: summarizeDispatch(result.dispatch) },
-      });
-      if (Date.now() - lastHeartbeatAt >= heartbeatIntervalMs) {
-        await heartbeat(supabase, result.status, { totals: result.totals });
+    await dispatchGuard.run(async () => {
+      try {
+        const result = await runDispatchCycle(supabase, correlationId, spool);
+        await reportCycle(supabase, correlationId, startedAt, result);
+      } catch (error) {
+        await reportCycleFailure(supabase, correlationId, startedAt, error);
       }
-    } catch (error) {
-      const message = errorMessage(error);
-      console.error('[publication-worker] falha no ciclo', { workerId, message, error });
-      await recordCycleEvent(supabase, {
-        correlationId,
-        phase: 'failed',
-        startedAt,
-        completedAt: new Date().toISOString(),
-        metadata: { mode, dryRun, pollIntervalMs, dispatchLimit, leaseSeconds },
-        errorCode: typeof error?.code === 'string' ? error.code : 'publication_worker_cycle_failed',
-        errorMessage: message,
-      }).catch((eventError) => console.error('[publication-worker] falha ao registrar evento de ciclo', eventError));
-      await heartbeat(supabase, 'error', {}, message).catch((heartbeatError) => {
-        console.error('[publication-worker] falha ao registrar heartbeat de erro', heartbeatError);
-      });
-    }
+    });
 
     if (runOnce) break;
     await sleep(pollIntervalMs);
   }
+}
+
+async function stagingLoop(supabase, spool) {
+  // Mesma condição que hoje decide se o worker sequer tenta staging: modo direto, staging
+  // ligado, fora de reconciliação e fora de dry-run/observe.
+  if (!stagingEnabled || !spool || dryRun || reconciliationOnly || (mode !== 'direct' && mode !== 'direct-dispatch')) {
+    return;
+  }
+
+  while (!stopping) {
+    await stagingGuard.run(async () => {
+      try {
+        lastStagingCycleResult = await runStagingCycle(supabase, spool);
+      } catch (error) {
+        console.error('[publication-worker] falha no ciclo de staging', { workerId, message: errorMessage(error) });
+      }
+    });
+
+    if (runOnce) break;
+    await sleep(pollIntervalMs);
+  }
+}
+
+async function main() {
+  const supabase = createSupabase();
+  const spool = stagingEnabled ? await new PublicationDispatchSpool(spoolDirectory).initialize() : null;
+  console.info('[publication-worker] iniciando', { workerId, mode, dryRun, runOnce, reconciliationOnly });
+  await heartbeat(supabase, 'starting');
+
+  // Os dois loops compartilham a mesma flag `stopping`: em SIGTERM/SIGINT, cada um termina
+  // seu ciclo em voo (chamadas já aceitas ao provedor) e não inicia um novo.
+  await Promise.all([
+    dispatchLoop(supabase, spool),
+    stagingLoop(supabase, spool),
+  ]);
 
   await heartbeat(supabase, 'stopped').catch((error) => {
     console.error('[publication-worker] falha ao registrar parada', error);
@@ -300,7 +684,13 @@ async function main() {
   console.info('[publication-worker] finalizado', { workerId });
 }
 
-main().catch((error) => {
-  console.error('[publication-worker] erro fatal', error);
-  process.exitCode = 1;
-});
+const executedDirectly = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
+
+if (executedDirectly) {
+  main().catch((error) => {
+    console.error('[publication-worker] erro fatal', error);
+    process.exitCode = 1;
+  });
+}

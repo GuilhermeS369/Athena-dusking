@@ -3,9 +3,12 @@ import { classifyFirstSendReadiness } from '../../lib/twitter/first-send-readine
 
 const EXPECTED_WORKERS = [
   'athena-twitter-publication-worker',
+  'athena-twitter-preparation-worker',
   'athena-twitter-zernio-sync-worker',
   'athena-twitter-analytics-worker',
   'athena-twitter-webhook-reconcile-worker',
+  'athena-twitter-connect-worker',
+  'athena-twitter-observability-worker',
 ];
 const STALE_MS = 120_000;
 

@@ -22,7 +22,7 @@ const workerId = process.env.PROFILE_ANALYTICS_DIRECT_WORKER_ID
 const enabled = booleanEnv('PROFILE_ANALYTICS_DIRECT_ENABLED', false);
 const organizationIds = csvEnv('PROFILE_ANALYTICS_DIRECT_ORGANIZATION_IDS');
 const pollMs = integerEnv('PROFILE_ANALYTICS_DIRECT_POLL_INTERVAL_MS', 10_000, 1_000, 300_000);
-const heartbeatIntervalMs = integerEnv('PROFILE_ANALYTICS_DIRECT_HEARTBEAT_INTERVAL_MS', 30_000, 5_000, 300_000);
+const heartbeatIntervalMs = integerEnv('PROFILE_ANALYTICS_DIRECT_HEARTBEAT_INTERVAL_MS', 60_000, 5_000, 300_000);
 const limit = integerEnv('PROFILE_ANALYTICS_DIRECT_LIMIT', 1, 1, 50);
 const concurrency = integerEnv('PROFILE_ANALYTICS_DIRECT_CONCURRENCY', 1, 1, 10);
 const leaseSeconds = integerEnv('PROFILE_ANALYTICS_DIRECT_LEASE_SECONDS', 300, 30, 1800);
@@ -49,6 +49,8 @@ const supabase = createClient(requiredEnv('NEXT_PUBLIC_SUPABASE_URL'), requiredE
 
 let stopping = false;
 let lastHeartbeatAt = 0;
+let lastPressureCheckAt = 0;
+let cachedPublicationPressure = { criticalDelay: false, oldestDueAt: null as string | null, checkedAt: null as string | null };
 process.on('SIGINT', () => { stopping = true; });
 process.on('SIGTERM', () => { stopping = true; });
 
@@ -112,6 +114,29 @@ async function heartbeat(status: string, metadata: Record<string, unknown> = {},
 
 async function tick() {
   if (!enabled) return { observed: true, chunks: 0, hasMore: false };
+
+  if (Date.now() - lastPressureCheckAt >= 60_000) {
+    const { data: pressure, error: pressureError } = await supabase.rpc(
+      'get_publication_generation_pressure_signal',
+      { p_critical_delay_seconds: 60 },
+    );
+    if (pressureError) throw pressureError;
+    cachedPublicationPressure = {
+      criticalDelay: pressure?.criticalDelay === true,
+      oldestDueAt: typeof pressure?.oldestDueAt === 'string' ? pressure.oldestDueAt : null,
+      checkedAt: typeof pressure?.checkedAt === 'string' ? pressure.checkedAt : new Date().toISOString(),
+    };
+    lastPressureCheckAt = Date.now();
+  }
+  if (cachedPublicationPressure.criticalDelay) {
+    return {
+      paused: true,
+      reason: 'critical_publication_delay',
+      publicationPressure: cachedPublicationPressure,
+      chunks: 0,
+      hasMore: false,
+    };
+  }
 
   // O import acontece somente no modo direto. Assim, o canário observe valida
   // ambiente e heartbeat sem carregar o executor nem tocar a fila.

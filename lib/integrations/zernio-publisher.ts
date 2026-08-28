@@ -1,4 +1,4 @@
-import { createTemporaryUrl, type PublicationResult, type PublicationWorkItem } from '@/lib/integrations/instagram-publisher';
+import { createVerifiedTemporaryMediaUrl, type PublicationResult, type PublicationWorkItem } from '@/lib/integrations/instagram-publisher';
 import { createZernioClientForConnection, createZernioClientForOrganization, type ZernioError, type ZernioPost } from '@/lib/integrations/zernio-client';
 
 function publicationDataError(message: string, code = 'invalid_zernio_publication_data') {
@@ -33,9 +33,10 @@ function matchesWorkItem(post: ZernioPost, item: PublicationWorkItem) {
   const urls = (post.mediaItems ?? []).map((media) => String(media.url ?? ''));
   return item.media.length > 0 && item.media.every((media) => urls.some((url) => {
     try {
-      return decodeURIComponent(new URL(url).pathname).endsWith(`/${media.storage_path}`);
+      const pathname = decodeURIComponent(new URL(url).pathname);
+      return pathname.endsWith(`/${media.storage_path}`) || pathname.includes(`athena-${media.id}.`);
     } catch {
-      return url.includes(media.storage_path);
+      return url.includes(media.storage_path) || url.includes(`athena-${media.id}.`);
     }
   }));
 }
@@ -94,11 +95,20 @@ function statusResult(post: ZernioPost): PublicationResult {
   return { state: 'processing', creationId: id };
 }
 
+async function preparedMediaUrls(item: PublicationWorkItem, media: PublicationWorkItem['media']) {
+  if (!item.profile.organization_id) throw publicationDataError('Organização do perfil Zernio ausente.');
+  // Gera uma signed URL nova por despacho (nunca reaproveita a mesma URL entre
+  // publicações): a Zernio rejeita como "duplicate content" quando a mesma URL
+  // física é enviada de novo para a mesma conta em menos de 24h (ver
+  // docs/athena-publication-pipeline-v2-2026-08-24.md, seção "Reversão da
+  // hospedagem antecipada — 27/08/2026").
+  const verified = await Promise.all(media.map((asset) => createVerifiedTemporaryMediaUrl(asset.storage_path, asset.kind)));
+  return verified.map((entry) => entry.url);
+}
+
 async function buildMediaItems(item: PublicationWorkItem) {
-  return Promise.all(item.media.map(async (media) => ({
-    type: media.kind,
-    url: await createTemporaryUrl(media.storage_path),
-  })));
+  const urls = await preparedMediaUrls(item, item.media);
+  return item.media.map((media, index) => ({ type: media.kind, url: urls[index] }));
 }
 
 function validateZernioMedia(item: PublicationWorkItem) {
@@ -134,7 +144,7 @@ async function platformSpecificData(item: PublicationWorkItem) {
   if (format === 'story') return { contentType: 'story' };
   if (format === 'reel') return {
     shareToFeed: true,
-    ...(item.cover ? { instagramThumbnail: await createTemporaryUrl(item.cover.storage_path) } : {}),
+    ...(item.cover ? { instagramThumbnail: (await preparedMediaUrls(item, [item.cover]))[0] } : {}),
   };
   return undefined;
 }

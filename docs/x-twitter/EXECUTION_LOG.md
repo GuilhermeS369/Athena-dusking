@@ -32,6 +32,7 @@ Registros são append-only.
 - Invariantes: nenhum arquivo operacional do X existe fora de documentação; Instagram não foi alterado nesta etapa além do worktree Analytics preexistente que está sendo consolidado.
 - Rollback: reverter o futuro commit do checkpoint; não tocar no remoto.
 - Status: `completed`.
+
 - Próxima ação segura: commit de baseline e abertura da branch X.
 
 ## X-0003 — checkpoint da Fase 0 criado
@@ -1318,3 +1319,58 @@ Registros são append-only.
 - Deploy: Preview `dpl_1bdFDYr9xTYKSkJPFAzHDacnp9xo` (`READY`), URL `https://pomodoro-mdxt2j6c5-shoows-projects-2caaf9e9.vercel.app`; Production `dpl_GrJgg9gdno45YFQFKUioYfNhZ1yH` (`READY`), URL `https://pomodoro-53dvwtim7-shoows-projects-2caaf9e9.vercel.app`; alias oficial confirmado. Rollback: `dpl_81WuidWazEQ8cLgES1fdhHqJh1SH`.
 - QA Production autenticado: três métricas, altura 132 px, espaçamento do hero 26 px, formulário 101 px, largura 1265/1265 sem overflow; `1750` virou `17,50`; ocupação confirmada 1/2, um perfil Athena e reserva OAuth com expiração 09:48; modal explicou soft-delete e preservação do histórico. Após o vencimento exato 09:48:46, a UI removeu a reserva automaticamente, alterou o total 2/2→1/2 e reabilitou `Conectar conta X`. Smoke `/zernio` Instagram aprovou título, importação e sincronização geral.
 - Dados/infra: nenhuma migration, RPC financeira, chamada Zernio, sync, exclusão, publicação, ajuste financeiro, fila, ledger, flag, release VPS ou processo PM2 mudou. Saldo US$ 16,20 preservado. Status: `completed`.
+
+## X-0108 — centro de observabilidade X em Production
+
+- UTC: 2026-08-24T15:41:45Z; São Paulo: 2026-08-24T12:41:45-03:00. Escopo: reconstrução de `/x/logs`, eventos imutáveis, incidentes, paginação, retenção, connect worker e worker de observabilidade. Alterações locais preexistentes foram preservadas.
+- Supabase: migration 259 aplicada e alinhada local/remoto. Backfill inicial criou 41 eventos e 1 incidente; partições garantidas até novembro de 2026. Teste pgTAP local 23/23 aprovado. O pgTAP remoto foi recusado antes da transação pelo papel CLI sem `USAGE` no schema `extensions`; validação service-role confirmou tabelas, RPC de partições e dados remotos.
+- Escala: 2.000.000 eventos sintéticos inseridos no Docker local com triggers reais em 149,674 s e revertidos integralmente. Primeira página de publicação: 50 linhas, índice particionado, 0,081 ms. Atenção/incidentes: índice `twitter_observability_incidents_queue_idx`, 0,401 ms.
+- Vercel: Preview `dpl_EscSDpAfg3qHEF9wuu4vv8ztwi3L` (`READY`); Production `dpl_84yMvyKGiRqNb5zhU7ByLYu23ocS` (`READY`), URL `https://pomodoro-2ouvo14u0-shoows-projects-2caaf9e9.vercel.app`, alias oficial preservado. Rollback imediato: `dpl_GrJgg9gdno45YFQFKUioYfNhZ1yH`.
+- VPS: release `/opt/athena-twitter/releases/observability-20260824T153956Z`, SHA-256 `86df355e28db28f1acbe499e54e72174bebcb65c95cb25b1989c7f05bd2bb835`; rollback `/opt/athena-twitter/releases/fcd21a3-20260823T171308Z`. Env permaneceu modo 600; backup `/opt/athena-twitter/shared/.env.worker.backup-observability-20260824T153641Z`.
+- Operação: seis workers X online, incluindo connect e observabilidade; todos com heartbeat `live`, zero restart inesperado e breakers fechados. Os seis processos Instagram mantiveram os PIDs anteriores. One-shot de retenção retornou `ok`, zero arquivos elegíveis.
+- Gate final: endpoint oficial de rollout HTTP 200/status `ok`, seis workers esperados ativos, zero breaker, zero sinal crítico e zero aviso. `/x/logs` Production redireciona ao login e APIs de logs retornam 401 sem sessão.
+- Validação de código: TypeScript aprovado, 261/261 testes Node, build local/Preview/Production e `git diff --check` aprovados. Status: `completed`.
+
+## X-0109 — analytics X escalável em Production
+
+- UTC: 2026-08-24T17:07:00Z; São Paulo: 2026-08-24T14:07:00-03:00. Escopo: projeções tipadas de followers/posts, contrato versionado de coleta, idempotência por estágio, nova `/x/analises`, dashboard X exclusivamente local e worker Analytics com janela explícita.
+- Supabase: migration 260 aplicada no projeto `hqwhumdumfmixxbvneae`. O primeiro teste transacional detectou ambiguidade PL/pgSQL em `collection_key`; nenhuma coleta foi criada e a correção forward-only 261 foi aplicada. Reexecução remota aprovou 29/29 verificações e o dry-run final confirmou banco alinhado, sem migration pendente.
+- Vercel: Preview `dpl_7PrVf8KKNzMJKFRQaXYSXqooHxqw` (`READY`); Production promovida `dpl_DsgHTR84FKfcrtr6Aa5BRdFUouUM` (`READY`), URL `https://pomodoro-ak0l1a0fm-shoows-projects-2caaf9e9.vercel.app`, alias oficial preservado. Rollback imediato: `dpl_Cuf64u9Vijz6qkMiXmdoGvjtCwhS`.
+- Smokes Production sem sessão: `/login` 200, `/x/analises` 307 para `/login` e `/api/x/analytics/dashboard` 401. Build Vercel aprovou as 53 páginas; warnings metadata e vulnerabilidades npm já existentes permaneceram inalterados.
+- VPS: release `/opt/athena-twitter/releases/analytics-20260824T170343Z`, pacote SHA-256 `81f4743175d99e6f772e9a254e171c3ea7f3f134aeb4e4e221fe5be0cc378951`; rollback `/opt/athena-twitter/releases/observability-20260824T153956Z`. O primeiro `startOrReload` preservou caminhos antigos do PM2, foi detectado na inspeção e corrigido recriando exclusivamente as seis entradas `athena-twitter-*`.
+- Gate final: seis workers X online apontando ao release novo, zero restart após a recriação, seis workers Instagram com PIDs preservados, endpoint oficial HTTP 200/status `ok`, seis heartbeats `live`, zero breaker aberto, zero sinal crítico e zero aviso. Analytics ficou sem item reservado, processando ou incerto.
+- Status: `completed`. Rollback de aplicação por promoção do deployment anterior; rollback dos workers recriando somente as seis entradas X a partir do release anterior. Banco permanece forward-only em 261.
+
+## X-0110 — Analytics obrigatório ao conectar perfis X
+
+- UTC: 2026-08-24T17:22:00Z; São Paulo: 2026-08-24T14:22:00-03:00. Todo perfil conectado pela tela `/x/perfis`, manual ou Bulk, agora exige confirmação remota de `analytics=true` antes de concluir a reconciliação; Inbox permanece desligado. Falha da capability impede a conclusão do perfil.
+- Supabase: migration 262 aplicada e alinhada no projeto `hqwhumdumfmixxbvneae`; default de novas conexões e trigger de perfil mantêm o estado local obrigatório. Dry-run anterior listou somente 262.
+- Vercel: Preview `dpl_CpwXYVM7FdinqmTdYW75vpfjx7uS` (`READY`); Production `dpl_CBaSM8tviGMFTxMjTH1Uzf23xMHp` (`READY`), alias oficial preservado. Rollback imediato: `dpl_DsgHTR84FKfcrtr6Aa5BRdFUouUM`.
+- VPS: somente `athena-twitter-connect-worker` foi recriado na release `/opt/athena-twitter/releases/profile-analytics-required-20260824T141917Z`, SHA-256 `25e8a23c54bf22a01b8d8c6a69248b6a35602c0aa9ada4b7ac4f55479be91635`; rollback `/opt/athena-twitter/releases/analytics-20260824T170343Z`. Os outros cinco workers X e os seis workers Instagram preservaram PIDs e permaneceram online.
+- Gate final: 267/267 testes, TypeScript, build local e Vercel aprovados; Production login 200 e `/x/perfis` 307 sem sessão; health oficial HTTP 200/status `ok`, seis workers ativos/live, zero sinal crítico, zero aviso e log do connect worker sem erro.
+- Status: `completed`.
+
+## X-0111 — Analytics por perfil na tela de Perfis X
+
+- UTC: 2026-08-24T17:37:49Z; São Paulo: 2026-08-24T14:37:49-03:00. Escopo: mover o controle de Analytics da conexão Zernio para cada perfil, manter novos perfis ativos por padrão e retirar os controles de conexão/Analytics da administração Zernio.
+- Supabase: migration 263 aplicada no projeto `hqwhumdumfmixxbvneae`. `twitter_profiles.analytics_enabled` nasce `true`; quote/confirm, guard de insert e claim exigem a preferência do perfil. Desativar cancela e libera somente coletas ainda reservadas daquele perfil, preservando tentativas já iniciadas ou incertas. A conexão compartilhada permanece com Analytics disponível e Inbox desligado.
+- Aplicação: `/x/perfis` exibe estado e botão `Ativar/Desativar Analytics` por cartão; a API administrativa sincroniza a capability da conta Zernio com rollback compensatório. `/x/zernio` não exibe mais `Conectar conta X`, estado de Analytics nem botão de capability; o endpoint legado por conexão responde 410 e direciona para Perfis.
+- Worker: o sync agora recebe e aplica capabilities por `account_id`, preservando perfis desligados durante reconciliações. Somente `athena-twitter-zernio-sync-worker` foi recriado; os demais processos X e Instagram preservaram seus PIDs.
+- Vercel: Production `dpl_BqwH4AiJrPWWiWXzZFMdfAkeYVzG` (`READY`), URL `https://pomodoro-cz7zfb0bg-shoows-projects-2caaf9e9.vercel.app`, alias oficial preservado. Rollback imediato: `dpl_CBaSM8tviGMFTxMjTH1Uzf23xMHp`.
+- VPS: release `/opt/athena-twitter/releases/profile-analytics-per-profile-20260824T173448Z`, pacote SHA-256 `ba59890c6561e2e4e97907ab21272b3f0b6f506be7709563e8e96ebe669c1d75`; rollback do sync para `/opt/athena-twitter/releases/analytics-20260824T170343Z`. Worker sync online, zero restart e log sem erro.
+- Validação: 268/268 testes, TypeScript, build local e Vercel aprovados. QA Production autenticado confirmou `Analytics ativo` e `Desativar Analytics` em `@Guilherme369s`; sincronização terminou com inventário `24/08/2026, 14:37`. A tela Zernio confirmou apenas `Sincronizar inventário`, `Configurar` e `Excluir API e perfis`, sem os dois botões indevidos.
+- Status: `completed`.
+
+## X-0112 — esteira de publicação X escalável e segura
+
+- UTC: 2026-08-24T20:44:00Z; São Paulo: 2026-08-24T17:44:00-03:00. Athena permanece fonte única do agendamento; a Zernio recebe somente `publishNow` no instante do envio. Janela individual de despacho fixada em 15 minutos e preparação móvel em 24 horas.
+- Supabase: migrations 266–269 aplicadas no projeto `hqwhumdumfmixxbvneae`. O backfill idempotente incorporou 18 itens futuros sem alterar `execute_at`, conteúdo, perfil, mídia ou valores financeiros; zero item vencido foi reenviado. Os 18 itens ficaram preparados e com deadline; terminais permaneceram inalterados.
+- Concorrência: claim em lotes de 50 com `FOR UPDATE SKIP LOCKED`, quatro instâncias e pool de 32. O limite adaptativo inicial é oito por conexão, serializado pela própria linha da conexão; conexões diferentes continuam concorrentes. Um perfil mantém no máximo um envio ativo. Fencing VPS/fallback permanece obrigatório.
+- Segurança de resultado: URL/texto do provedor passa pelo normalizador comum; timeout/5xx após início externo vira `outcome_unknown`, sem retry cego. Apenas `account_disconnected` e `auth_expired` iniciam retirada auditável de perfil. Não existe `ignored` em cascata nem publicação manual de item `missed`.
+- Migração e gate: dry-run, digest e reservas foram conferidos antes/depois. Estado final de ativação: 31 itens totais, 18 `ready`, 11 `published`, 1 `cancelled`, 1 `failed`, 0 `missed`, 0 vencidos, 0 `processing/outcome_unknown`; 270.000 micros reservados e zero hold ativo/incerto.
+- Incidente de rollout contido: o primeiro claim live encontrou ambiguidade PL/pgSQL 42702 em `connection_id`. Os quatro publicadores foram parados antes de qualquer chamada externa; migration corretiva 268 foi validada em branch temporária e aplicada forward-only. Migration 269 removeu a varredura de conexões a cada claim e tornou o limite distribuído estrito sob claims simultâneos.
+- Vercel: Production final `dpl_9Y8BKP97qr6dQoWS4LhzBc4cwX9T` (`READY`), URL `https://pomodoro-2f3yo3elk-shoows-projects-2caaf9e9.vercel.app`, alias oficial preservado. O segredo exclusivo do health foi rotacionado e pareado sem alterar credenciais Zernio.
+- VPS: release `/opt/athena-twitter/releases/x-scale-20260824T2029Z`, SHA-256 `17ccec3bb3c793bcb9fc785e2f5e6858015fcdf83994c7fa924266dd30853bb7`. Sete papéis X online, com quatro processos de publicação; processos Instagram não foram recriados. Segredos por papel foram rotacionados e o arquivo compartilhado permanece modo 600.
+- Gate final: health HTTP 200/status `ok`; sete heartbeats `live`, zero worker stale, breaker, sinal crítico ou aviso. Fila: 18 futuros preparados, zero `missed`, overdue, due, claimed, processing ou unknown. Latência histórica p50/p95/p99: 3/4/4 segundos. Testes Node 135/135, build Next.js e `npm run load-test:twitter-scale` aprovados.
+- Rollback: promover o deployment anterior e parar somente `athena-twitter-*`; banco permanece forward-only. O fallback continua desligado e não pode tomar a fila enquanto o fencing VPS estiver válido.
+- Status: `completed`.

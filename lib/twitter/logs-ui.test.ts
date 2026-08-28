@@ -2,52 +2,39 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-test('logs X exibem contexto financeiro e evidências usando somente dados locais', async () => {
-  const source = await readFile(
-    new URL('../../app/(painel)/x/logs/page.tsx', import.meta.url),
-    'utf8',
-  );
-
-  for (const expected of [
-    'twitter_operation_logs',
-    'twitter_item_holds',
-    'twitter_wallet_reservations',
-    'twitter_reservation_events',
-    'twitter_wallet_ledger',
-    'Perfil',
-    'Conexão',
-    'Categoria',
-    'Request ID',
-    'Post ID',
-    'Timeline de reserva e ledger',
-    'Ver evidências',
-  ]) {
-    assert.ok(source.includes(expected), expected);
-  }
-
-  assert.doesNotMatch(source, /zernio|ZERNIO|\/v1\//);
+test('centro de observabilidade X usa incidentes, listas e paginação independentes', async () => {
+  const [page, client, migration, eventsRoute] = await Promise.all([
+    readFile(new URL('../../app/(painel)/x/logs/page.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/x/twitter-logs-center.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../supabase/migrations/259_twitter_observability_center.sql', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/api/x/logs/events/route.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(page, /Centro de observabilidade/);
+  for (const label of ['Atenção', 'Quedas de contas', 'Agendamentos', 'Postagens e fila', 'Workers', 'Zernio e conexões', 'Analytics e financeiro', 'Toda a atividade']) assert.ok(client.includes(label), label);
+  assert.match(client, /Carregar mais 50/);
+  assert.match(client, /Evidências técnicas/);
+  assert.match(migration, /twitter_observability_events/);
+  assert.match(migration, /partition by range/);
+  assert.match(migration, /twitter_observability_incidents/);
+  assert.match(migration, /twitter_operation_logs/);
+  assert.match(eventsRoute, /limit\(limit \+ 1\)/);
+  assert.doesNotMatch(`${page}\n${client}`, /\/v1\//);
 });
 
-test('viewer não recebe controles de reconciliação financeira', async () => {
-  const source = await readFile(
-    new URL('../../app/(painel)/x/logs/page.tsx', import.meta.url),
-    'utf8',
-  );
-
-  assert.match(
-    source,
-    /const canResolve = context\.activeOrganization\.role !== "viewer"/,
-  );
-  assert.match(source, /log\.attempt_id &&\s+canResolve/);
-  assert.match(source, /log\.status === "outcome_unknown" && canResolve/);
+test('viewer recebe evidência sanitizada e não recebe ações de incidente ou reconciliação', async () => {
+  const [client, occurrences, statusRoute] = await Promise.all([
+    readFile(new URL('../../app/x/twitter-logs-center.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/api/x/logs/incidents/[incidentId]/occurrences/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/api/x/logs/incidents/[incidentId]/status/route.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(client, /const canManage = role !== "viewer"/);
+  assert.match(client, /canManage && event\.event_type === "outcome_unknown"/);
+  assert.match(occurrences, /const canInspect = auth\.context\.activeOrganization\.role !== "viewer"/);
+  assert.match(statusRoute, /getTwitterRequestContext\("operator"\)/);
 });
 
 test('reconciliação explica que não repete a chamada externa', async () => {
-  const source = await readFile(
-    new URL('../../app/x/twitter-log-resolution.tsx', import.meta.url),
-    'utf8',
-  );
-
+  const source = await readFile(new URL('../../app/x/twitter-log-resolution.tsx', import.meta.url), 'utf8');
   assert.match(source, /Esta ação não\s+repete a chamada original/);
   assert.match(source, /justification: j/);
 });

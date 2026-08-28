@@ -117,6 +117,11 @@ export default function GroupsClient({
     memberships.forEach((membership) => result.set(membership.profile_id, membership.group_id));
     return result;
   }, [memberships]);
+  const sortedGroups = useMemo(() => [...groups].sort((first, second) =>
+    first.name.localeCompare(second.name, 'pt-BR', { sensitivity: 'base', numeric: true })
+      || first.name.localeCompare(second.name, 'pt-BR', { numeric: true })
+      || first.id.localeCompare(second.id)
+  ), [groups]);
   const memberModalGroup = groups.find((group) => group.id === memberModalGroupId) ?? null;
   const availableProfiles = useMemo(() => profiles.filter((profile) => !groupByProfileId.has(profile.id)), [groupByProfileId, profiles]);
   const filteredAvailableProfiles = useMemo(() => {
@@ -361,7 +366,7 @@ export default function GroupsClient({
       <p>Crie um grupo e escolha os perfis que farão parte dele.</p>
       {canManage && <button className="button button-primary" type="button" onClick={openCreateForm}>Criar primeiro grupo</button>}
     </section> : <section className={styles.grid} aria-label="Grupos de perfis">
-      {groups.map((group) => {
+      {sortedGroups.map((group) => {
         const memberProfiles = (membershipsByGroup.get(group.id) ?? []).map((id) => profileById.get(id)).filter((profile): profile is Profile => Boolean(profile));
         return <article className={`panel ${styles.card}`} key={group.id}>
           <div className={styles.cardHeader}>

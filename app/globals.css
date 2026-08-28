@@ -632,6 +632,35 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
   .twitter-module-shell .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+/* Centro de observabilidade X */
+.twitter-logs-center{--border-color:var(--border);--text-secondary:var(--text-muted);--text-primary:var(--text);--background:var(--bg);--surface-subtle:var(--surface-raised);--surface-strong:var(--surface-soft);--accent:var(--purple-bright);--accent-soft:var(--purple-soft)}
+.twitter-worker-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}.twitter-worker-status-grid article{display:flex;align-items:flex-start;gap:8px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}.twitter-worker-status-grid article.is-problem{border-color:#ef6b8388}.twitter-worker-status-grid strong,.twitter-worker-status-grid small{display:block}.twitter-worker-status-grid small{margin-top:4px;color:var(--text-muted);font-size:11px}
+.twitter-log-archives>summary{cursor:pointer;font-weight:800}.twitter-log-archives>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--border)}.twitter-log-archives span strong,.twitter-log-archives span small{display:block}.twitter-log-archives span small{margin-top:4px;color:var(--text-muted)}
+.twitter-logs-page{max-width:1600px}.twitter-logs-header{margin-bottom:20px}.twitter-logs-center{display:grid;gap:16px}.twitter-log-metrics{grid-template-columns:repeat(5,minmax(150px,1fr))}.twitter-log-tabs{display:flex;gap:8px;overflow-x:auto;padding:4px 0}.twitter-log-tabs button{display:flex;align-items:center;gap:8px;white-space:nowrap;border:1px solid var(--border-color);background:var(--surface);color:var(--text-secondary);padding:10px 14px;border-radius:999px;font:inherit;font-weight:700;cursor:pointer}.twitter-log-tabs button:hover,.twitter-log-tabs button.is-active{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}.twitter-log-tabs button span{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--surface-strong);font-size:11px}.twitter-log-toolbar{display:grid;grid-template-columns:minmax(240px,2fr) repeat(4,minmax(130px,1fr)) auto;gap:12px;align-items:end}.twitter-log-toolbar label,.twitter-incident-action label{display:grid;gap:6px;color:var(--text-secondary);font-size:12px;font-weight:700}.twitter-log-toolbar input,.twitter-log-toolbar select,.twitter-incident-action input,.twitter-incident-action select,.twitter-incident-action textarea{width:100%;border:1px solid var(--border-color);background:var(--surface);color:var(--text-primary);border-radius:10px;padding:10px 11px;font:inherit}.twitter-log-toolbar-actions{display:flex;gap:8px;justify-content:flex-end}.twitter-log-list{padding:0;overflow:hidden}.twitter-log-list-head{display:flex;justify-content:space-between;gap:16px;padding:16px 18px;border-bottom:1px solid var(--border-color)}.twitter-log-list-head span{color:var(--text-secondary);font-size:13px}.twitter-log-loading,.twitter-log-more{padding:28px;text-align:center;color:var(--text-secondary)}.twitter-incident-row,.twitter-event-row{width:100%;display:grid;grid-template-columns:90px minmax(300px,1fr) 110px 90px 170px;gap:16px;align-items:center;padding:14px 18px;border:0;border-bottom:1px solid var(--border-color);background:transparent;color:inherit;text-align:left;font:inherit}.twitter-incident-row{cursor:pointer}.twitter-incident-row:hover{background:var(--surface-subtle)}.twitter-incident-row>span:not(.twitter-log-main):not(.twitter-severity),.twitter-event-row>span:not(.twitter-log-main):not(.twitter-severity){display:grid;gap:3px}.twitter-incident-row small,.twitter-event-row small{color:var(--text-secondary);font-size:12px}.twitter-log-main{display:grid;gap:5px;min-width:0}.twitter-log-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.twitter-log-main code{font-size:11px}.twitter-event-row{grid-template-columns:90px minmax(300px,1fr) 150px 180px}.twitter-event-row details{grid-column:2/-1}.twitter-event-row pre,.twitter-occurrence pre{max-height:280px;overflow:auto;padding:12px;border-radius:10px;background:var(--surface-subtle);font-size:12px}.twitter-severity{display:inline-flex;justify-content:center;width:max-content;min-width:72px;padding:5px 8px;border-radius:999px;font-size:11px;font-weight:800}.twitter-severity-info{color:#2563eb;background:#dbeafe}.twitter-severity-warning{color:#a16207;background:#fef3c7}.twitter-severity-error{color:#c2410c;background:#ffedd5}.twitter-severity-critical{color:#b91c1c;background:#fee2e2}.twitter-log-drawer-backdrop{position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.5);display:flex;justify-content:flex-end}.twitter-log-drawer{width:min(760px,96vw);height:100%;overflow:auto;background:var(--background);box-shadow:-16px 0 50px rgba(15,23,42,.25);padding:22px;display:grid;align-content:start;gap:18px}.twitter-log-drawer>header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.twitter-log-drawer h2{margin:10px 0 6px;font-size:22px}.twitter-log-drawer p{color:var(--text-secondary)}.twitter-incident-action{display:grid;gap:12px}.twitter-incident-action h3,.twitter-occurrences h3{margin:0}.twitter-incident-action-fields{display:grid;grid-template-columns:1fr 2fr;gap:12px}.twitter-incident-action .button{justify-self:start}.twitter-occurrences{display:grid;gap:12px}.twitter-occurrence{display:grid;gap:10px}.twitter-occurrence>div{display:flex;justify-content:space-between;gap:16px}.twitter-occurrence time{color:var(--text-secondary);font-size:12px}.twitter-occurrence dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:0}.twitter-occurrence dl div{padding:9px;border-radius:8px;background:var(--surface-subtle)}.twitter-occurrence dt{color:var(--text-secondary);font-size:11px}.twitter-occurrence dd{margin:3px 0 0;font-size:12px;word-break:break-all}.twitter-financial-settings{margin-top:20px}.twitter-financial-settings>summary{cursor:pointer;font-weight:800}
+@media(max-width:1100px){.twitter-log-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.twitter-log-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}.twitter-log-search,.twitter-log-toolbar-actions{grid-column:1/-1}.twitter-incident-row,.twitter-event-row{grid-template-columns:80px minmax(220px,1fr) 120px}.twitter-incident-row>span:nth-child(4),.twitter-incident-row>span:nth-child(5),.twitter-event-row>span:nth-child(4){display:none!important}}
+@media(max-width:700px){.twitter-log-metrics,.twitter-log-toolbar{grid-template-columns:1fr}.twitter-log-search,.twitter-log-toolbar-actions{grid-column:auto}.twitter-log-toolbar-actions{justify-content:stretch;flex-wrap:wrap}.twitter-incident-row,.twitter-event-row{grid-template-columns:1fr;padding:14px}.twitter-incident-row>span,.twitter-event-row>span{display:grid!important}.twitter-log-main strong{white-space:normal}.twitter-event-row details{grid-column:auto}.twitter-incident-action-fields,.twitter-occurrence dl{grid-template-columns:1fr}.twitter-log-drawer{padding:16px}.twitter-log-drawer>header{display:grid}}
+
+/* Fluxo OAuth do X: isolado para não herdar grids/medidas do Instagram. */
+.xConnectFlow { min-height: 100dvh; display: grid; place-items: center; padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); background: radial-gradient(circle at 50% 10%, rgba(113, 88, 245, .2), transparent 34%), #090a0f; color: #f8f8fb; }
+.xConnectCard { width: min(520px, 100%); min-width: 0; display: grid; justify-items: center; gap: 20px; text-align: center; padding: clamp(22px, 6vw, 44px); border: 1px solid rgba(255,255,255,.11); border-radius: 24px; background: rgba(18,19,25,.96); box-shadow: 0 30px 90px rgba(0,0,0,.42); overflow-wrap: anywhere; }
+.xConnectKicker { color: #aaa0ff; font-size: 11px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+.xConnectCard h1 { margin: 0 0 8px; font-size: clamp(26px, 7vw, 38px); letter-spacing: -.035em; }
+.xConnectCard p { margin: 0; color: #a8a9b3; line-height: 1.55; }
+.xConnectOrbit { width: 88px; height: 88px; display: grid; place-items: center; border: 2px solid rgba(121,103,247,.25); border-top-color: #7967f7; border-radius: 50%; animation: xConnectSpin 1.5s linear infinite; }
+.xConnectOrbit span { font-size: 30px; animation: xConnectSpin 1.5s linear infinite reverse; }
+.xConnectOrbitTerminal { animation: none; border-color: rgba(88,221,157,.5); }
+.xConnectOrbitTerminal span { animation: none; }
+.xConnectFailure .xConnectOrbitTerminal { border-color: rgba(255,90,98,.55); }
+.xConnectPosition { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-radius: 13px; background: #0c0d12; padding: 13px 15px; }
+.xConnectPosition span { color: #a8a9b3; }.xConnectPosition strong { font-size: 20px; }
+.xConnectProgress { width: 100%; height: 5px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.07); }
+.xConnectProgress i { display: block; width: 38%; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#7967f7,#b5aaff); animation: xConnectMove 1.3s ease-in-out infinite alternate; }
+.xConnectNote { border: 1px solid rgba(255,255,255,.08); border-radius: 13px; background: rgba(255,255,255,.025); padding: 13px; font-size: 13px; }
+.xConnectError { color: #ff9da2 !important; }.xConnectAction { width: 100%; min-height: 48px; }
+@keyframes xConnectSpin { to { transform: rotate(360deg); } }
+@keyframes xConnectMove { from { transform: translateX(-25%); } to { transform: translateX(190%); } }
+@media (prefers-reduced-motion: reduce) { .xConnectOrbit, .xConnectOrbit span, .xConnectProgress i { animation: none; } }
+
 @media (max-width: 700px) {
   .twitter-module-shell .page-stack { gap: 18px; padding-bottom: 32px; }
   .twitter-module-shell .page-heading, .twitter-module-shell .panel-heading, .twitter-module-shell .standalone-header { display: grid; gap: 14px; }
@@ -1221,6 +1250,20 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 .queue-view-switch button.is-active { background: #28252d; color: #fff; box-shadow: 0 2px 8px #0005, inset 0 1px #ffffff0b; }
 
 .queue-reference-view { width: min(100%, 1240px); margin: 0 auto; }
+.queue-paused-alert { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 14px; width: min(100%, 1240px); margin: -6px auto 18px; padding: 17px 18px; border: 1px solid #b66b37; border-radius: 14px; background: linear-gradient(120deg, #352417, #2a1b18); box-shadow: 0 18px 44px #0004, inset 0 1px #ffffff0a; }
+.queue-paused-alert-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: #d07a3d; color: #1b1009; font-size: 20px; font-weight: 950; }
+.queue-paused-alert-content { display: grid; gap: 12px; min-width: 0; }
+.queue-paused-alert-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.queue-paused-alert-heading > div { display: grid; gap: 3px; }
+.queue-paused-alert-heading strong { color: #ffd5b5; font-size: 15px; }
+.queue-paused-alert-heading span, .queue-paused-alert-heading small { color: #cba98e; font-size: 11px; }
+.queue-paused-alert-list { display: grid; gap: 8px; }
+.queue-paused-alert-list article { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; align-items: center; gap: 8px 18px; padding: 11px 12px; border: 1px solid #6f432b; border-radius: 10px; background: #1d1411aa; }
+.queue-paused-alert-list article > div { display: grid; gap: 2px; }
+.queue-paused-alert-list article strong { color: #f5e6dc; font-size: 12px; }
+.queue-paused-alert-list article small, .queue-paused-alert-list article span { color: #c09f89; font-size: 10px; }
+.queue-paused-alert-list article p { grid-column: 1 / -1; margin: 0; color: #bda99d; font-size: 10px; line-height: 1.45; }
+.queue-paused-alert-note { margin: 0; color: #d1b29d; font-size: 10px; }
 .queue-reference-shell { overflow: hidden; border: 1px solid #2e2b33; border-radius: 20px; background: linear-gradient(180deg, rgba(24,23,27,.97), rgba(13,13,16,.98)); box-shadow: 0 24px 70px #0006, inset 0 1px #ffffff09; }
 .queue-reference-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; padding: 30px 30px 24px; border-bottom: 1px solid #27242b; }
 .queue-reference-header h2 { margin: 0; color: #f5f3f6; font-size: 27px; letter-spacing: -.035em; }
@@ -1233,7 +1276,7 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 .queue-reference-actions .queue-reference-action-danger { color: #c28b96; }
 .queue-reference-actions .queue-reference-action-danger:hover:not(:disabled) { background: #ef6b8312; color: #ffafbe; }
 
-.queue-reference-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; padding: 22px 30px 18px; }
+.queue-reference-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; padding: 22px 30px 18px; }
 .queue-reference-kpis article { position: relative; display: grid; gap: 7px; min-width: 0; min-height: 112px; align-content: center; padding: 18px 19px; overflow: hidden; border: 1px solid #302d35; border-radius: 13px; background: linear-gradient(145deg, #1c1a20, #151419); }
 .queue-reference-kpis article::after { position: absolute; inset: auto 0 0; height: 2px; background: #8851c4; content: ''; opacity: .65; }
 .queue-reference-kpis span { color: #98919e; font-size: 10px; font-weight: 900; letter-spacing: .11em; }
@@ -1241,6 +1284,7 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 .queue-reference-kpis small { color: #85808a; font-size: 11px; }
 .queue-reference-kpis .queue-reference-kpi-error::after { background: #d9657c; }
 .queue-reference-kpis .queue-reference-kpi-error strong { color: #f3a0b0; }
+.queue-reference-kpis .queue-reference-kpi-accounts strong { font-size: clamp(23px, 2.2vw, 30px); }
 
 .queue-reference-progress { display: grid; gap: 11px; padding: 2px 30px 26px; }
 .queue-reference-progress > div:first-child { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
@@ -1264,10 +1308,13 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 .queue-reference-legend .is-posting { background: #8f55c9; box-shadow: 0 0 0 3px #8f55c91c; }
 .queue-reference-legend .is-waiting { background: #c49b51; }
 .queue-reference-legend .is-error { background: #d9657c; }
+.queue-reference-legend .is-paused { background: #d48345; box-shadow: 0 0 0 3px #d483451c; }
 .queue-reference-legend .is-suspended { background: #8f7aa3; }
 .queue-reference-legend .is-done { background: #57ad86; }
 
 .queue-reference-list { display: grid; }
+.queue-reference-pagination { display: flex; grid-column: 1 / -1; align-items: center; justify-content: center; gap: 14px; padding: 18px 30px; border-top: 1px solid #242128; color: #8f8994; font-size: 11px; }
+.queue-reference-pagination .button { min-height: 34px; }
 .queue-reference-row { display: grid; grid-template-columns: 50px minmax(180px, 1.25fr) minmax(112px, .65fr) minmax(180px, 1.4fr) minmax(90px, .55fr) minmax(90px, .55fr) auto; align-items: center; gap: 18px; min-height: 92px; padding: 16px 30px; border-bottom: 1px solid #242128; transition: background .16s ease; }
 .queue-reference-row:last-child { border-bottom: 0; }
 .queue-reference-row:hover { background: #ffffff03; }
@@ -1281,6 +1328,9 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 .queue-reference-row.is-posting .queue-reference-status i { background: #9a5ad4; }
 .queue-reference-row.is-error .queue-reference-status { background: #3a2028; color: #e99aaa; }
 .queue-reference-row.is-error .queue-reference-status i { background: #dc6c82; }
+.queue-reference-row.is-paused { background: linear-gradient(90deg, #4b2c151f, transparent); }
+.queue-reference-row.is-paused .queue-reference-status { background: #432919; color: #f0b47f; }
+.queue-reference-row.is-paused .queue-reference-status i { background: #d48345; }
 .queue-reference-row.is-idle .queue-reference-status { background: #342f24; color: #d7b778; }
 .queue-reference-row.is-idle .queue-reference-status i { background: #c49b51; }
 .queue-reference-row.is-suspended .queue-reference-status { background: #302a39; color: #c4b0d6; }
@@ -1317,11 +1367,22 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 @keyframes queue-cancellation-spin { to { transform: rotate(360deg); } }
 @keyframes queue-cancellation-button-pulse { 50% { transform: scale(.97); opacity: .7; } }
 @keyframes queue-cancellation-progress { 50% { filter: brightness(1.3); } }
+@media (max-width: 760px) {
+  .queue-paused-alert { grid-template-columns: 1fr; }
+  .queue-paused-alert-heading { display: grid; }
+  .queue-paused-alert-list article { grid-template-columns: 1fr; }
+  .queue-paused-alert-list article p { grid-column: auto; }
+}
 .queue-reference-empty { display: grid; justify-items: center; gap: 7px; padding: 52px 24px; color: #77717b; text-align: center; }
 .queue-reference-empty > span { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #343039; border-radius: 50%; color: #6ea98e; }
 .queue-reference-empty h3, .queue-reference-empty p { margin: 0; }
 .queue-reference-empty h3 { color: #bdb7c1; font-size: 13px; }
 .queue-reference-empty p { font-size: 10px; }
+.queue-reference-error { display: grid; justify-items: center; gap: 9px; padding: 46px 24px; border-top: 1px solid #ef6b8329; background: #ef6b8308; color: #c9c2cc; text-align: center; }
+.queue-reference-error strong { color: #ffafbe; font-size: 14px; }
+.queue-reference-error p { max-width: 560px; margin: 0; color: #968f9a; font-size: 11px; }
+.queue-reference-stale { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 14px; border-top: 1px solid #d49a462e; background: #d49a460d; color: #cbbca6; font-size: 11px; }
+.queue-reference-stale button { padding: 0; border: 0; background: transparent; color: #f0c889; cursor: pointer; font: inherit; font-weight: 800; }
 .queue-reference-loading { display: grid; gap: 1px; }
 .queue-reference-loading span { display: block; height: 72px; background: linear-gradient(90deg, transparent, #ffffff05, transparent); background-size: 200% 100%; animation: queueReferenceLoading 1.3s linear infinite; }
 @keyframes queueReferenceLoading { to { background-position: -200% 0; } }

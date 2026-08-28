@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
+import { isDashboardV2Enabled } from '@/lib/dashboard/rollout';
 import type { DashboardV2Bootstrap } from '@/lib/dashboard/v2-types';
 
 export type DashboardData = {
@@ -82,12 +83,7 @@ export type DashboardData = {
 
 export async function getDashboardData(organizationId: string): Promise<DashboardData> {
   const supabase = await createSupabaseServerClient();
-  const v2OrganizationIds = (process.env.DASHBOARD_V2_ORGANIZATION_IDS ?? '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const v2Enabled = process.env.DASHBOARD_V2_ENABLED === 'true'
-    || v2OrganizationIds.includes(organizationId);
+  const v2Enabled = isDashboardV2Enabled(organizationId);
 
   if (v2Enabled) {
     const { data, error } = await supabase.rpc('get_dashboard_bootstrap_v2', {
@@ -136,8 +132,11 @@ export async function getDashboardData(organizationId: string): Promise<Dashboar
       .eq('organization_id', organizationId)
       .gte('metric_date', analyticsSinceDate)
       .in('coverage_status', ['complete', 'partial'])
-      .order('metric_date', { ascending: true })
-      .limit(10000),
+      // O PostgREST limita cada resposta a 1.000 linhas neste projeto. Em
+      // contingência, priorize os dias recentes para nunca ocultar "Hoje".
+      // O caminho normal V2 agrega o período no banco e não possui este corte.
+      .order('metric_date', { ascending: false })
+      .limit(1000),
     supabase
       .from('profile_follower_daily_snapshots')
       .select('profile_id, snapshot_date, followers_count, followers_gained, followers_lost')
@@ -246,7 +245,9 @@ export async function getDashboardData(organizationId: string): Promise<Dashboar
   }));
   const snapshots = (snapshotsResult.data ?? []) as DashboardData['analytics']['snapshots'];
   const usableSnapshots = latestUsableSnapshotsByProfile(snapshots);
-  const dailyMetrics = (dailyMetricsResult.data ?? []).map((row) => ({ ...row, date: row.metric_date })) as DashboardData['analytics']['dailyMetrics'];
+  const dailyMetrics = (dailyMetricsResult.data ?? [])
+    .map((row) => ({ ...row, date: row.metric_date }))
+    .sort((a, b) => a.date.localeCompare(b.date)) as DashboardData['analytics']['dailyMetrics'];
 
   return {
     version: 'v1',

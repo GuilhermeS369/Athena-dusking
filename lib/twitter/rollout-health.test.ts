@@ -11,12 +11,16 @@ test('workers X só são esperados quando suas flags exclusivas estão habilitad
   const enabled = expectedTwitterWorkers({
     TWITTER_MODULE_ENABLED: 'true',
     TWITTER_PUBLICATION_WORKER_ENABLED: 'true',
+    TWITTER_PREPARATION_WORKER_ENABLED: 'true',
     TWITTER_ANALYTICS_ENABLED: 'true',
     TWITTER_ANALYTICS_WORKER_ENABLED: 'true',
+    TWITTER_CONNECT_WORKER_ENABLED: 'true',
   });
   assert.equal(enabled.get('athena-twitter-publication-worker'), true);
+  assert.equal(enabled.get('athena-twitter-preparation-worker'), true);
   assert.equal(enabled.get('athena-twitter-analytics-worker'), true);
   assert.equal(enabled.get('athena-twitter-webhook-reconcile-worker'), false);
+  assert.equal(enabled.get('athena-twitter-connect-worker'), true);
   assert.equal(enabled.get('athena-twitter-vercel-fallback'), false);
 });
 

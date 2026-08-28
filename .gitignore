@@ -64,9 +64,15 @@ npm-debug.log*
 # X/Twitter execution evidence (summaries belong in docs/x-twitter)
 /artifacts/x-twitter/
 
+# Backups e dumps de produção gerados por scripts operacionais.
+# Os scripts de deploy em /artifacts/*.sh continuam versionados.
+/artifacts/*.json
+
 # Undated local production investigation output
 /bulk-organization-mismatches.json
 /incident-*.json
 /zernio-investigation-*.json
 
 zernio-phase0-baseline-*.json
+.vercel
+.env*

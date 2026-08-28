@@ -191,7 +191,7 @@ export default function ZernioClient({ activeOrganization, initialConnections, i
 
   useEffect(() => {
     void refreshImportBatches().catch(() => undefined);
-    const interval = window.setInterval(() => void refreshImportBatches().catch(() => undefined), 5000);
+    const interval = window.setInterval(() => { if (document.visibilityState === 'visible') void refreshImportBatches().catch(() => undefined); }, 5000);
     return () => window.clearInterval(interval);
   }, []);
 

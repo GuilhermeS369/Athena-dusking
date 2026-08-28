@@ -2,18 +2,23 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  buildZernioMediaItems,
   buildVerifiedMediaUrls,
   claimedProfileRemainsOnline,
   deferFirstZernioMediaDownloadFailure,
+  ensureClaimedProfileOnlineOrSuspend,
   isMetaTerminalProfileDisconnection,
+  isPublicationInfrastructureError,
   isZernioTerminalAccountDisconnection,
   loadWorkItem,
+  mapWithConcurrency,
   nextAdaptiveDispatchLimit,
   preserveAcceptedProviderCreation,
   preserveConfirmedPublication,
   preserveReconciledZernioPublication,
   probeMediaUrl,
   recordZernioRequestTelemetry,
+  retryZernioMediaDownloadOnSamePost,
   scheduleZernioMediaDownloadRecovery,
   sanitizedZernioDiagnostic,
   urlFingerprint,
@@ -24,7 +29,117 @@ import {
   zernioWorkItemRequiresManualReconciliation,
   validatePreparedPublicationWorkItem,
   flushZernioRequestTelemetry,
+  ignoreExpiredUnstartedPublications,
 } from './publication-direct-dispatch.mjs';
+
+test('limpeza automática não descarta backlog causado pela capacidade interna', async () => {
+  const calls = [];
+  const supabase = {
+    rpc: async (name, parameters) => {
+      calls.push({ name, parameters });
+      return { data: { ignored: 7 }, error: null };
+    },
+  };
+
+  const result = await ignoreExpiredUnstartedPublications(supabase, {
+    now: Date.parse('2026-08-28T05:12:00.000Z'),
+    cutoffDelayMs: 60_000,
+    limit: 10,
+  });
+
+  assert.deepEqual(result, {
+    ignored: 0,
+    pages: 0,
+    cutoff: '2026-08-28T05:11:00.000Z',
+    failed: false,
+    automaticDiscardDisabled: true,
+  });
+  assert.deepEqual(calls, []);
+});
+
+test('Data API indisponível não interfere porque limpeza automática não chama RPC', async () => {
+  const supabase = { rpc: async () => ({ data: null, error: { code: 'PGRST002', message: 'Data API indisponível' } }) };
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const result = await ignoreExpiredUnstartedPublications(supabase, {
+      now: Date.parse('2026-08-28T05:12:00.000Z'),
+    });
+    assert.deepEqual(result, {
+      ignored: 0,
+      pages: 0,
+      cutoff: '2026-08-28T05:11:00.000Z',
+      failed: false,
+      automaticDiscardDisabled: true,
+    });
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test('limpeza automática permanece desativada mesmo com paginação configurada', async () => {
+  let calls = 0;
+  const supabase = {
+    rpc: async (_name, parameters) => {
+      calls += 1;
+      assert.equal(parameters.p_limit, 10);
+      return { data: { ignored: calls < 5 ? 10 : 4 }, error: null };
+    },
+  };
+
+  const result = await ignoreExpiredUnstartedPublications(supabase, {
+    now: Date.parse('2026-08-28T05:12:00.000Z'),
+  });
+  assert.equal(calls, 0);
+  assert.equal(result.ignored, 0);
+  assert.equal(result.pages, 0);
+  assert.equal(result.failed, false);
+  assert.equal(result.automaticDiscardDisabled, true);
+});
+
+test('preparação respeita concorrência máxima sem alterar a ordem dos resultados', async () => {
+  let active = 0;
+  let maximumActive = 0;
+  const results = await mapWithConcurrency([1, 2, 3, 4, 5, 6], 2, async (value) => {
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    active -= 1;
+    if (value === 4) throw new Error('falha isolada');
+    return value * 2;
+  });
+
+  assert.equal(maximumActive, 2);
+  assert.deepEqual(results.map((result) => result.status), [
+    'fulfilled', 'fulfilled', 'fulfilled', 'rejected', 'fulfilled', 'fulfilled',
+  ]);
+  assert.equal(results[0].value, 2);
+  assert.match(results[3].reason.message, /falha isolada/);
+});
+
+test('cancelamento cooperativo interrompe antes de novos itens, mas nunca aborta um item em andamento', async () => {
+  // Concorrência 1 torna o teste determinístico: sem disputa entre workers, o único
+  // worker sempre vê o shouldStop atualizado pelo item anterior antes de pegar o próximo.
+  let shouldStop = false;
+  const attempted = [];
+  const results = await mapWithConcurrency([1, 2, 3, 4, 5, 6], 1, async (value) => {
+    attempted.push(value);
+    if (value === 2) shouldStop = true;
+    return value * 10;
+  }, () => shouldStop);
+
+  assert.deepEqual(attempted, [1, 2]);
+  assert.equal(results[0].status, 'fulfilled');
+  assert.equal(results[0].value, 10);
+  assert.equal(results[1].status, 'fulfilled');
+  assert.equal(results[1].value, 20);
+  assert.deepEqual(Array.from(results.slice(2)), [undefined, undefined, undefined, undefined]);
+});
+
+test('shouldStop ausente preserva o comportamento padrão (nunca para sozinho)', async () => {
+  const results = await mapWithConcurrency([1, 2, 3], 1, async (value) => value);
+  assert.deepEqual(results.map((entry) => entry.status), ['fulfilled', 'fulfilled', 'fulfilled']);
+});
 
 test('preparação Athena valida payload sem depender de URL ou chamada ao provedor', () => {
   const prepared = validatePreparedPublicationWorkItem({
@@ -49,6 +164,14 @@ test('concorrência adaptativa reduz sob pressão e cresce quando a capacidade f
   assert.equal(nextAdaptiveDispatchLimit(20, 100, [{ state: 'failed', errorCode: 'http_429' }], 20), 10);
   assert.equal(nextAdaptiveDispatchLimit(10, 100, Array.from({ length: 10 }, () => ({ state: 'published' })), 10), 12);
   assert.equal(nextAdaptiveDispatchLimit(100, 100, [], 100), 100);
+});
+
+test('timeout interno do banco nunca vira falha terminal de publicação', () => {
+  assert.equal(isPublicationInfrastructureError({ code: '57014', message: 'canceling statement due to statement timeout' }), true);
+  assert.equal(isPublicationInfrastructureError({ code: '40001', message: 'serialization failure' }), true);
+  assert.equal(isPublicationInfrastructureError(new TypeError("Cannot read properties of undefined (reading 'provider')")), true);
+  assert.equal(isPublicationInfrastructureError({ code: 'platform_error', message: 'Instagram não baixou a mídia' }), false);
+  assert.equal(isPublicationInfrastructureError({ code: '190', message: 'Token expirado' }), false);
 });
 
 test('classifica somente os sinais terminais aprovados da Zernio', () => {
@@ -365,19 +488,40 @@ test('preserva criação aceita pelo provedor quando item já foi suspenso', asy
   }]);
 });
 
-test('sonda mídia por HEAD válido sem expor a URL no resultado', async () => {
+test('sonda vídeo com HEAD e GET Range real sem expor a URL no resultado', async () => {
   const url = 'https://storage.example/video.mp4?token=segredo';
+  const calls = [];
   const result = await probeMediaUrl(url, 'video', {
     fetch: async (_input, init) => {
-      assert.equal(init.method, 'HEAD');
-      return new Response(null, { status: 200, headers: { 'content-type': 'video/mp4' } });
+      calls.push(init);
+      if (init.method === 'HEAD') {
+        return new Response(null, { status: 200, headers: { 'content-type': 'video/mp4', 'content-length': '1024' } });
+      }
+      assert.equal(init.headers.Range, 'bytes=0-1023');
+      return new Response('x', { status: 206, headers: { 'content-type': 'video/mp4', 'content-range': 'bytes 0-1023/1024' } });
     },
   });
 
-  assert.equal(result.httpStatus, 200);
+  assert.equal(result.httpStatus, 206);
   assert.equal(result.contentType, 'video/mp4');
+  assert.equal(result.contentLength, 1024);
+  assert.equal(calls.length, 2);
   assert.equal(result.fingerprint, urlFingerprint(url));
   assert.notEqual(result.fingerprint, url);
+});
+
+test('snapshot antecipado não publica perfil que caiu e devolve a tentativa ao fluxo suspenso', async () => {
+  const calls = [];
+  const allowed = await ensureClaimedProfileOnlineOrSuspend({ id: 'item-staged' }, 'worker-staged', {
+    claimedProfileRemainsOnline: async () => false,
+    suspendClaimedPublication: async (item, workerId, reason) => calls.push({ item, workerId, reason }),
+  });
+  assert.equal(allowed, false);
+  assert.deepEqual(calls, [{
+    item: { id: 'item-staged' },
+    workerId: 'worker-staged',
+    reason: 'Perfil offline; retomada manual necessária.',
+  }]);
 });
 
 test('usa GET parcial quando HEAD não retorna tipo de mídia válido', async () => {
@@ -411,6 +555,34 @@ test('não entrega URL ao provedor quando a sonda de mídia falha e registra a t
   assert.deepEqual(attempts[0].slice(2, 4), ['url_probe', 'failed']);
   assert.equal(attempts[0][4].errorCode, 'media_url_probe_http_404');
   assert.equal(attempts[0][4].urlFingerprint, urlFingerprint('https://storage.example/asset.mp4?token=segredo'));
+});
+
+test('quinhentos itens Zernio recebem URL direta fresca sem hospedagem antecipada', async () => {
+  let signedUrls = 0;
+  let probes = 0;
+  const results = await Promise.all(Array.from({ length: 500 }, async (_, index) => {
+    const item = {
+      id: `item-direct-${index}`,
+      media: [{ id: 'asset-shared', storage_path: 'org/shared.mp4', kind: 'video' }],
+    };
+    return buildZernioMediaItems(item, {
+      createTemporaryUrl: async () => {
+        signedUrls += 1;
+        return `https://storage.example/org/shared.mp4?token=${index}`;
+      },
+      probeMediaUrl: async (url) => {
+        probes += 1;
+        return { url, fingerprint: urlFingerprint(url), httpStatus: 206, contentType: 'video/mp4' };
+      },
+      recordMediaDeliveryAttempt: async () => undefined,
+    });
+  }));
+
+  assert.equal(signedUrls, 500);
+  assert.equal(probes, 500);
+  assert.equal(new Set(results.map((mediaItems) => mediaItems[0].url)).size, 500);
+  assert.ok(results.every((mediaItems) => mediaItems[0].url.startsWith('https://storage.example/')));
+  assert.ok(results.every((mediaItems) => !mediaItems[0].url.includes('athena_publication=')));
 });
 
 test('agenda polls Zernio em +1, +3, +6 de recuperação e +10 final sem bloquear worker', () => {
@@ -497,4 +669,53 @@ test('primeira falha de download Zernio agenda segundo poll sem recriar o post',
       p_is_poll: true,
     },
   }]);
+});
+
+test('recupera download atualizando e repetindo o mesmo post Zernio', async () => {
+  const rpcCalls = [];
+  const providerCalls = [];
+  const supabase = {
+    async rpc(name, payload) {
+      rpcCalls.push({ name, payload });
+      if (name === 'reserve_zernio_same_post_media_retry') return { data: { reserved: true }, error: null };
+      throw new Error(`RPC inesperado: ${name}`);
+    },
+  };
+  const client = {
+    async updatePost(postId, body) {
+      providerCalls.push({ operation: 'update', postId, body });
+      return {};
+    },
+    async retryPost(postId) {
+      providerCalls.push({ operation: 'retry', postId });
+      return { post: { _id: postId, status: 'processing', platforms: [{ platform: 'instagram', status: 'processing' }] } };
+    },
+  };
+  const workItem = {
+    id: 'item-same-post',
+    batch_id: 'batch-1',
+    creation_id: 'post-original',
+    execute_at: new Date().toISOString(),
+    attempt_count: 2,
+    profile: { organization_id: 'org-1', provider: 'zernio' },
+    media: [{ id: 'asset-1', storage_path: 'org/video.mp4', kind: 'video' }],
+  };
+
+  const recovery = await retryZernioMediaDownloadOnSamePost(workItem, 'worker-same-post', {
+    errorCode: 'platform_error',
+    errorMessage: 'Instagram could not download the video.',
+  }, {
+    createSupabase: () => supabase,
+    client,
+    createTemporaryUrl: async () => 'https://storage.example/org/video.mp4?token=fresco',
+    probeMediaUrl: async (url) => ({ url, fingerprint: urlFingerprint(url), httpStatus: 206, contentType: 'video/mp4' }),
+    recordMediaDeliveryAttempt: async () => undefined,
+  });
+
+  assert.equal(recovery.started, true);
+  assert.equal(recovery.result.state, 'processing');
+  assert.deepEqual(providerCalls.map((call) => call.operation), ['update', 'retry']);
+  assert.ok(providerCalls.every((call) => call.postId === 'post-original'));
+  assert.equal(providerCalls[0].body.mediaItems[0].url, 'https://storage.example/org/video.mp4?token=fresco');
+  assert.equal(rpcCalls.filter((call) => call.name === 'reserve_zernio_same_post_media_retry').length, 1);
 });

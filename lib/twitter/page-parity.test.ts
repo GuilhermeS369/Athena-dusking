@@ -146,7 +146,7 @@ test("galeria X usa o cliente otimizado e os mesmos grupos dos perfis X", async 
 });
 
 test("composer X preserva a estrutura compacta e as interações críticas do Instagram", async () => {
-  const [client, page, migration] = await Promise.all([
+  const [client, page, migration, css] = await Promise.all([
     readFile(
       new URL("../../app/x/twitter-bulk-client.tsx", import.meta.url),
       "utf8",
@@ -160,6 +160,10 @@ test("composer X preserva a estrutura compacta e as interações críticas do In
         "../../supabase/migrations/248_twitter_media_groups.sql",
         import.meta.url,
       ),
+      "utf8",
+    ),
+    readFile(
+      new URL("../../app/x/twitter-bulk.module.css", import.meta.url),
       "utf8",
     ),
   ]);
@@ -177,6 +181,15 @@ test("composer X preserva a estrutura compacta e as interações críticas do In
   assert.match(client, /Ordem da rotação/);
   assert.match(client, /Diversificada e determinística/);
   assert.match(client, /Mesma ordem em todos os perfis/);
+  assert.match(client, /leftTotal === 0/);
+  assert.match(client, /leftScheduled - rightScheduled/);
+  assert.match(client, /scrollTop[\s\S]*bulkProfileRenderLimit/);
+  assert.match(client, /Perfis e saldos/);
+  assert.match(client, /Disponível agora/);
+  assert.match(client, /Carteira não identificada/);
+  assert.match(css, /\.twitterProfilesPanel[\s\S]*minmax\(0, 1fr\)[\s\S]*overflow: hidden/);
+  assert.match(css, /\.twitterProfileList[\s\S]*overflow-y: auto/);
+  assert.match(css, /\.profileFinanceList[\s\S]*max-height:[\s\S]*overflow-y: auto/);
   assert.match(client, /orderMode,/);
   assert.match(client, /rotationSeed: rotationSeedValue/);
   assert.match(client, /todas as imagens compatíveis serão publicadas uma a uma/i);

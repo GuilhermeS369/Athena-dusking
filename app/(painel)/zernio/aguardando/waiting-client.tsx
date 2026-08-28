@@ -12,13 +12,16 @@ export default function ZernioOauthWaitingClient({ turnId, returnTo }: { turnId:
       setMessage('Este turno não é válido. Volte para Perfis e inicie somente a conexão faltante.');
       return;
     }
-    let cancelled = false;
+    let cancelled = false; let timer = 0; let failures = 0;
+    const schedule = (delay: number) => { if (!cancelled) timer = window.setTimeout(poll, delay); };
     const poll = async () => {
+      if (cancelled) return;
       try {
         const response = await fetch(`/api/integrations/zernio/turn-status?turnId=${encodeURIComponent(turnId)}`, { cache: 'no-store' });
         const payload = await response.json() as { status?: string; position?: number; error?: string };
         if (cancelled) return;
         if (!response.ok) throw new Error(payload.error ?? 'A fila não pôde ser consultada.');
+        failures = 0;
         setConnectionError(false);
         setPosition(payload.position ?? null);
         if (payload.status === 'active') {
@@ -29,15 +32,19 @@ export default function ZernioOauthWaitingClient({ turnId, returnTo }: { turnId:
           window.location.assign(`${returnTo}?error=zernio_intent_failed`);
           return;
         }
-        setTimeout(poll, 1500);
+        schedule(1500);
       } catch (error) {
+        // Sem o guard de `cancelled` e sem limpar o timer no cleanup, esta ramificação
+        // seguia consultando indefinidamente após o unmount enquanto o fetch falhasse.
+        if (cancelled) return;
+        failures += 1;
         setConnectionError(true);
         setMessage(error instanceof Error ? error.message : 'A fila não pôde ser consultada.');
-        setTimeout(poll, 3000);
+        schedule(Math.min(30_000, 3000 * 2 ** Math.min(failures - 1, 3)));
       }
     };
     void poll();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; window.clearTimeout(timer); };
   }, [returnTo, turnId]);
 
   return <main className="zernio-mobile-flow">

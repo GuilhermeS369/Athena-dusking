@@ -67,8 +67,8 @@ test('período de posts não oculta leitura de perfil quando tipo é todos', () 
   );
 });
 
-test('tela carrega grupos locais e filtros não chamam o provedor', async () => {
-  const [page, client] = await Promise.all([
+test('tela escalável carrega conexões, grupos e não chama o provedor diretamente', async () => {
+  const [page, client, resourcesRoute] = await Promise.all([
     readFile(
       new URL('../../app/(painel)/x/analises/page.tsx', import.meta.url),
       'utf8',
@@ -77,14 +77,27 @@ test('tela carrega grupos locais e filtros não chamam o provedor', async () => 
       new URL('../../app/x/twitter-analytics-client.tsx', import.meta.url),
       'utf8',
     ),
+    readFile(
+      new URL('../../app/api/x/analytics/resources/route.ts', import.meta.url),
+      'utf8',
+    ),
   ]);
 
   assert.match(page, /twitter_groups/);
   assert.match(page, /twitter_group_members/);
-  assert.match(client, /Filtros locais/);
-  assert.match(client, /Perfil/);
-  assert.match(client, /Grupo/);
-  assert.match(client, /Tipo de métrica/);
-  assert.match(client, /Publicado de/);
-  assert.doesNotMatch(client, /zernio|ZERNIO|\/v1\//);
+  assert.match(page, /twitter_connections/);
+  assert.match(page, /analytics_enabled/);
+  assert.match(page, /can_fetch_analytics/);
+  assert.match(page, /twitter_profile_follower_daily_metrics/);
+  assert.doesNotMatch(page, /twitter_publication_items/);
+  assert.match(client, /Buscar Zernio ou @perfil/);
+  assert.match(client, /Pendências de ontem/);
+  assert.match(client, /Forçar nova coleta/);
+  assert.match(client, /version: 2/);
+  assert.match(client, /targets/);
+  assert.match(client, /\/api\/x\/analytics\/resources/);
+  assert.match(resourcesRoute, /twitter_publication_items/);
+  assert.match(resourcesRoute, /twitter_post_analytics_current/);
+  assert.match(resourcesRoute, /nextCursor/);
+  assert.doesNotMatch(client, /zernio\.com|\/v1\//);
 });

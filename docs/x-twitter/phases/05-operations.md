@@ -7,7 +7,7 @@ Status: `completed`
 - Migrations 229–232 aplicadas no Supabase vinculado.
 - Holds individuais, claim por perfil, tentativas, lease, matriz financeira e cancelamento por escopo.
 - Logs e resoluções imutáveis; decisão manual exige operador/admin e justificativa.
-- Quatro roles operacionais de worker Twitter com heartbeat próprio e shadow sem chamada externa; o quinto papel vazio originalmente instalado foi removido pela ADR-X-017.
+- Seis roles operacionais com heartbeat próprio: publicação, sync, analytics, reconciliação, conexão OAuth e manutenção de observabilidade. O antigo papel vazio de geração continua removido pela ADR-X-017.
 - Páginas `/x/fila`, `/x/agenda` e `/x/logs` isoladas.
 
 ## Evidências
@@ -32,6 +32,6 @@ Auditoria final em 22/08/2026 detectou que o lock original abrangia somente `cla
 
 Auditoria final posterior completou `/x/logs` com perfil, conexão, categoria de preço, custos estimado/liquidado, HTTP/código estável, request/post IDs, hold, reserva, valores restante/liquidado/devolvido, timeline de eventos/ledger e evidências persistidas. Tudo é obtido de tabelas `twitter_*`, sem leitura Zernio. Ações de reconciliação aparecem somente para operador/admin, exigem justificativa e informam que não repetem a chamada original. Cobertura total: 186/186 testes, TypeScript e build aprovados.
 
-Auditoria de runtime em 22/08/2026: o papel `generation` somente autenticava heartbeat e não possuía claim ou responsabilidade. A ADR-X-017 removeu seu contrato, segredo, flag e entrada PM2. Publicação, sync, analytics e reconciliação permanecem isolados; o histórico anterior de cinco one-shots continua válido como evidência daquele release, não como topologia vigente.
+Auditoria de runtime em 22/08/2026: o papel `generation` somente autenticava heartbeat e não possuía claim ou responsabilidade. A ADR-X-017 removeu seu contrato, segredo, flag e entrada PM2. Publicação, sync, analytics e reconciliação permanecem isolados; conexão OAuth e observabilidade foram adicionadas depois com trabalho dedicado e segredos próprios. O histórico anterior de cinco one-shots continua válido como evidência daquele release, não como topologia vigente.
 
 Auditoria final da UI em 23/08/2026 UTC: `/x/fila` passou a expor os quatro escopos já transacionais no banco — item, programa, perfil dentro do programa e grupo dentro do programa. Cada ação exige confirmação e motivo, separa valor liberado de itens iniciados ainda em reconciliação e avisa que resultado incerto não libera hold. Itens são carregados somente do Supabase, até 500 por programa sob demanda; controles de escopo continuam abrangendo o conjunto completo no RPC. IDs, tamanho do grupo, motivo e idempotency key são validados na API. Gate local: 195/195 testes, TypeScript, build e diff check aprovados; nenhum ambiente remoto ou saldo foi alterado.

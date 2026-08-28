@@ -23,9 +23,20 @@ function worker(name, role) {
 
 module.exports = {
   apps: [
-    worker('athena-twitter-publication-worker', 'publication'),
+    { ...worker('athena-twitter-publication-worker', 'publication'), instances: 4, exec_mode: 'cluster' },
+    {
+      ...worker('athena-twitter-preparation-worker', 'preparation'),
+      script: path.join(cwd, 'scripts', 'workers', 'twitter-preparation-worker.mjs'),
+      args: '',
+    },
     worker('athena-twitter-zernio-sync-worker', 'sync'),
     worker('athena-twitter-analytics-worker', 'analytics'),
     worker('athena-twitter-webhook-reconcile-worker', 'reconcile'),
+    worker('athena-twitter-connect-worker', 'connect'),
+    {
+      ...worker('athena-twitter-observability-worker', 'observability'),
+      script: path.join(cwd, 'scripts', 'workers', 'twitter-observability-worker.mjs'),
+      args: '',
+    },
   ],
 };

@@ -15,8 +15,10 @@ function internalRequest(path: string, secret: string) {
 test('cada worker X aceita somente o segredo do próprio papel', () => {
   const previousPublication = process.env.TWITTER_PUBLICATION_WORKER_SECRET;
   const previousAnalytics = process.env.TWITTER_ANALYTICS_WORKER_SECRET;
+  const previousConnect = process.env.TWITTER_CONNECT_WORKER_SECRET;
   process.env.TWITTER_PUBLICATION_WORKER_SECRET = 'publication-secret-test';
   process.env.TWITTER_ANALYTICS_WORKER_SECRET = 'analytics-secret-test';
+  process.env.TWITTER_CONNECT_WORKER_SECRET = 'connect-secret-test';
   try {
     assert.equal(isTwitterWorkerAuthorized(request('publication-secret-test'), 'publication'), true);
     assert.equal(isTwitterWorkerAuthorized(request('analytics-secret-test'), 'publication'), false);
@@ -25,11 +27,15 @@ test('cada worker X aceita somente o segredo do próprio papel', () => {
     assert.equal(isTwitterNamedWorkerAuthorized(request('publication-secret-test'), 'worker-desconhecido'), false);
     assert.equal(isTwitterWorkerAuthorized(internalRequest('/api/internal/twitter-publication-claims', 'publication-secret-test')), true);
     assert.equal(isTwitterWorkerAuthorized(internalRequest('/api/internal/twitter-analytics-claims', 'publication-secret-test')), false);
+    assert.equal(isTwitterWorkerAuthorized(internalRequest('/api/internal/twitter-connect-claims', 'connect-secret-test')), true);
+    assert.equal(isTwitterWorkerAuthorized(internalRequest('/api/internal/twitter-connect-claims', 'publication-secret-test')), false);
   } finally {
     if (previousPublication === undefined) delete process.env.TWITTER_PUBLICATION_WORKER_SECRET;
     else process.env.TWITTER_PUBLICATION_WORKER_SECRET = previousPublication;
     if (previousAnalytics === undefined) delete process.env.TWITTER_ANALYTICS_WORKER_SECRET;
     else process.env.TWITTER_ANALYTICS_WORKER_SECRET = previousAnalytics;
+    if (previousConnect === undefined) delete process.env.TWITTER_CONNECT_WORKER_SECRET;
+    else process.env.TWITTER_CONNECT_WORKER_SECRET = previousConnect;
   }
 });
 
@@ -45,21 +51,22 @@ test('rotas internas não usam mais segredo genérico compartilhado', async () =
 });
 
 test('todo papel respeita heartbeat stopped e rollout antes de qualquer operação', async () => {
-  const [worker, heartbeat, example, publicationClaims, analyticsClaims, reconcile, fallback] = await Promise.all([
+  const [worker, heartbeat, example, publicationClaims, analyticsClaims, connectClaims, reconcile, fallback] = await Promise.all([
     readFile(new URL('../../scripts/workers/twitter-worker.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../app/api/internal/twitter-heartbeat/route.ts', import.meta.url), 'utf8'),
     readFile(new URL('../../.env.example', import.meta.url), 'utf8'),
     readFile(new URL('../../app/api/internal/twitter-publication-claims/route.ts', import.meta.url), 'utf8'),
     readFile(new URL('../../app/api/internal/twitter-analytics-claims/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../../app/api/internal/twitter-connect-claims/route.ts', import.meta.url), 'utf8'),
     readFile(new URL('../../app/api/internal/twitter-reconcile/route.ts', import.meta.url), 'utf8'),
     readFile(new URL('../../app/api/internal/twitter-fallback-dispatch/route.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(worker, /heartbeat\.mode==='stopped'/);
-  for (const flag of ['TWITTER_PUBLICATION_WORKER_ENABLED', 'TWITTER_SYNC_WORKER_ENABLED', 'TWITTER_ANALYTICS_WORKER_ENABLED', 'TWITTER_RECONCILE_WORKER_ENABLED']) {
+  for (const flag of ['TWITTER_PUBLICATION_WORKER_ENABLED', 'TWITTER_SYNC_WORKER_ENABLED', 'TWITTER_ANALYTICS_WORKER_ENABLED', 'TWITTER_RECONCILE_WORKER_ENABLED', 'TWITTER_CONNECT_WORKER_ENABLED']) {
     assert.match(heartbeat, new RegExp(flag));
     assert.match(example, new RegExp(`${flag}=false`));
   }
   assert.doesNotMatch(`${worker}\n${heartbeat}\n${example}`, /TWITTER_GENERATION_WORKER/);
-  for (const route of [heartbeat, publicationClaims, analyticsClaims, reconcile, fallback]) assert.match(route, /isTwitterRolloutActive/);
+  for (const route of [heartbeat, publicationClaims, analyticsClaims, connectClaims, reconcile, fallback]) assert.match(route, /isTwitterRolloutActive/);
   assert.match(reconcile, /TWITTER_RECONCILE_WORKER_ENABLED/);
 });

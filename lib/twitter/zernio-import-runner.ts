@@ -1,6 +1,7 @@
 import { decryptToken } from '@/lib/security/token-crypto';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { provisionTwitterZernioConnection } from './zernio-connections';
+import { forEachWithConcurrency, twitterZernioImportConcurrency } from './zernio-import-concurrency';
 
 type Batch = { id:string;organization_id:string;created_by:string;status:string };
 type Item = {
@@ -28,12 +29,12 @@ export async function processTwitterZernioImportBatch(batchId:string,organizatio
     .eq('batch_id',batchId).in('status',['queued','failed']).order('line_number');
   if(itemsError)throw new Error('Não foi possível carregar as linhas do lote Zernio X.');
 
-  for(const item of(items??[])as Item[]){
+  await forEachWithConcurrency((items??[])as Item[],twitterZernioImportConcurrency(),async(item)=>{
     const{data:itemClaim}=await admin.from('twitter_connection_import_items').update({
       status:'processing',attempts:item.attempts+1,processing_started_at:new Date().toISOString(),
       completed_at:null,last_error_message:null,
     }).eq('id',item.id).in('status',['queued','failed']).select('id').maybeSingle();
-    if(!itemClaim)continue;
+    if(!itemClaim)return;
     try{
       const result=await provisionTwitterZernioConnection({
         organizationId:typed.organization_id,organizationName,actorUserId:typed.created_by,
@@ -52,7 +53,7 @@ export async function processTwitterZernioImportBatch(batchId:string,organizatio
         last_error_message:(error instanceof Error?error.message:'Falha ao cadastrar a conexão Zernio X.').slice(0,1000),
       }).eq('id',item.id);
     }
-  }
+  });
   const{data:states}=await admin.from('twitter_connection_import_items').select('status').eq('batch_id',batchId);
   const hasFailures=(states??[]).some(item=>item.status==='failed');
   const status=hasFailures?'completed_with_errors':'completed';

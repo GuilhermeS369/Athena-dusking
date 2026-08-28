@@ -1,3 +1,5 @@
 export type TwitterProviderResolution = 'confirmed_failure' | 'rate_limited' | 'outcome_unknown' | 'existing_post' | 'published' | 'accepted';
+export function normalizeTwitterProviderResponseBody(rawText: unknown): { payload:unknown;responseKind:'empty'|'json'|'url'|'text' };
+export function terminalTwitterDisconnectionSignal(value: unknown): 'account_disconnected'|'auth_expired'|null;
 export function classifyTwitterProviderResponse(input: { ok:boolean;status:number;payload:unknown;requestId?:string|null;retryAfter?:string|null }): { resolution:TwitterProviderResolution;httpStatus:number;providerCode:string;requestId?:string|null;postId?:string|null;retryAfterSeconds?:number;message:string };
 export function classifyTwitterAnalyticsResponse(input: { ok:boolean;status:number }): 'succeeded'|'failed'|'outcome_unknown';

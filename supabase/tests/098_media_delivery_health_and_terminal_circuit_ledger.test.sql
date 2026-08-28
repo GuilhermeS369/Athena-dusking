@@ -56,8 +56,11 @@ begin
   if position($needle$new.event_type not in ('published', 'failed')$needle$ in lower(trigger_definition)) = 0 then
     raise exception 'Cancelamento não pode zerar o circuito.';
   end if;
-  if position($needle$inserted_outcome.outcome = 'published'$needle$ in lower(trigger_definition)) = 0 then
-    raise exception 'Somente publicação confirmada pode zerar o circuito.';
+  if position('is_publication_infrastructure_error' in lower(trigger_definition)) = 0 then
+    raise exception 'Erros internos não podem alimentar o circuito terminal.';
+  end if;
+  if position('for update' in lower(trigger_definition)) > 0 then
+    raise exception 'Trigger por item não pode travar a linha compartilhada do lote.';
   end if;
 
   if has_function_privilege('authenticated', 'public.record_media_asset_delivery_attempt(uuid, uuid, text, text, text, text, text, text)', 'EXECUTE') then

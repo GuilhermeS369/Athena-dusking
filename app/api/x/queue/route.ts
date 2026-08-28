@@ -9,7 +9,11 @@ export async function GET(request: Request) {
   const auth = await getTwitterRequestContext();
   if ('response' in auth) return auth.response;
   const url=new URL(request.url);const programId = url.searchParams.get('programId');
-  if (!programId || !uuid.test(programId)) return NextResponse.json({ error:'Programa X inválido.' }, { status:400 });
+  if (!programId) {
+    const { data, error } = await createSupabaseAdminClient().rpc('twitter_queue_operational_summary', { p_organization_id: auth.context.activeOrganization.id });
+    return error ? NextResponse.json({ error: 'Falha ao atualizar o resumo da fila X.' }, { status: 500 }) : NextResponse.json({ summary: data }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+  }
+  if (!uuid.test(programId)) return NextResponse.json({ error:'Programa X inválido.' }, { status:400 });
   let query=createSupabaseAdminClient().from('twitter_publication_items')
     .select('id,program_id,profile_id,execute_at,content,category,amount_micros,status,attempt_count,next_attempt_at')
     .eq('organization_id', auth.context.activeOrganization.id).eq('program_id', programId).order('execute_at').order('id').limit(201);

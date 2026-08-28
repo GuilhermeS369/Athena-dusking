@@ -60,9 +60,7 @@ export async function POST(request: Request) {
           ? body.errorMessage.slice(0, 700)
           : null,
     });
-    return error
-      ? NextResponse.json({ error: 'Falha ao concluir sync X.' }, { status: 409 })
-      : NextResponse.json(data);
+    return error ? NextResponse.json({ error: 'Falha ao concluir sync X.' }, { status: 409 }) : NextResponse.json(data);
   }
 
   if (!Array.isArray(body.accounts) || !Array.isArray(body.health)) {
@@ -87,9 +85,7 @@ export async function POST(request: Request) {
       p_error_code: null,
       p_error_message: null,
     });
-    return error
-      ? NextResponse.json({ error: 'Falha ao concluir sync X.' }, { status: 409 })
-      : NextResponse.json(data);
+    return error ? NextResponse.json({ error: 'Falha ao concluir sync X.' }, { status: 409 }) : NextResponse.json(data);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Falha ao persistir inventário X.';

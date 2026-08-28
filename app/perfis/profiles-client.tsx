@@ -1,9 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import styles from './profiles-catalog.module.css';
 import { buildBulkZernioRows, resolveZernioBulkTarget, sortZernioConnectionsByProfileCount } from '@/lib/integrations/zernio-bulk';
+import type {
+  InstagramProfileAnalyticsSummary,
+  InstagramProfileCatalogItem,
+  InstagramProfilesCatalogPage,
+} from '@/lib/profiles/catalog';
 import { ProfilePublicationMetrics, emptyPublicationFormatCounts } from '@/lib/publications/composer';
 
 type Organization = {
@@ -12,57 +18,12 @@ type Organization = {
   role: 'admin' | 'operator' | 'viewer';
 };
 
-type Profile = {
-  id: string;
-  username: string;
-  display_name: string | null;
-  profile_picture_url: string | null;
-  account_type: string | null;
-  status: 'no_data' | 'online' | 'offline' | 'reauthorization_required';
-  provider: 'meta_official' | 'zernio';
-  zernio_account_id: string | null;
-  zernio_connection_id: string | null;
-  token_expires_at: string | null;
-  last_checked_at: string | null;
-  last_error_message: string | null;
-  created_at: string;
-  publication_metrics?: ProfileAnalyticsSummary;
-};
-
-type ProfileAnalyticsSummary = {
-  profile_id: string;
-  scheduled_total: number;
-  scheduled_reel: number;
-  scheduled_story: number;
-  scheduled_image: number;
-  scheduled_carousel: number;
-  published_total: number;
-  published_reel: number;
-  published_story: number;
-  published_image: number;
-  published_carousel: number;
-  followers_count: number;
-  followers_delta: number;
-  views: number;
-  reach: number;
-  impressions: number;
-  total_interactions: number;
-  engagement_rate: number;
-  posts_count: number;
-  latest_published_at: string | null;
-  analytics_status: 'pending' | 'synced' | 'partial' | 'no_data' | 'not_configured' | 'unavailable_plan' | 'permission_missing' | 'rate_limited' | 'failed';
-  analytics_unavailable_reason: string | null;
-  analytics_synced_at: string | null;
-};
+type Profile = InstagramProfileCatalogItem;
+type ProfileAnalyticsSummary = InstagramProfileAnalyticsSummary;
 
 type Group = {
   id: string;
   name: string;
-};
-
-type Membership = {
-  group_id: string;
-  profile_id: string;
 };
 
 type ConnectionResult = {
@@ -247,20 +208,6 @@ function publicationMetricsFromSummary(summary: ProfileAnalyticsSummary | undefi
   };
 }
 
-function profileHasError(profile: Profile) {
-  return profile.status === 'reauthorization_required' || Boolean(profile.last_error_message);
-}
-
-function compareProfilesByNewestAddition(first: Profile, second: Profile) {
-  const firstCreatedAt = Date.parse(first.created_at);
-  const secondCreatedAt = Date.parse(second.created_at);
-  const firstTimestamp = Number.isNaN(firstCreatedAt) ? 0 : firstCreatedAt;
-  const secondTimestamp = Number.isNaN(secondCreatedAt) ? 0 : secondCreatedAt;
-  const createdAtDifference = secondTimestamp - firstTimestamp;
-
-  return createdAtDifference === 0 ? second.id.localeCompare(first.id) : createdAtDifference;
-}
-
 function ProfileAvatar({ profile }: { profile: Profile }) {
   const [failed, setFailed] = useState(false);
   const initial = profile.username.trim().charAt(0).toUpperCase() || '@';
@@ -268,8 +215,16 @@ function ProfileAvatar({ profile }: { profile: Profile }) {
   if (profile.profile_picture_url && !failed) {
     return (
       <span className={`profile-avatar-frame profile-avatar-frame-${profile.status}`}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img className="profile-avatar" src={profile.profile_picture_url} alt={`Foto de @${profile.username}`} onError={() => setFailed(true)} />
+        <Image
+          className="profile-avatar"
+          src={profile.profile_picture_url}
+          alt={`Foto de @${profile.username}`}
+          width={52}
+          height={52}
+          sizes="52px"
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
         <span className="profile-avatar-online-dot" aria-hidden="true" />
       </span>
     );
@@ -355,24 +310,22 @@ function PublicationMetricBreakdown({
 
 export default function ProfilesClient({
   activeOrganization,
-  profiles: initialProfiles,
+  initialCatalog,
   groups,
-  memberships,
   zernioConnections: initialZernioConnections,
   authMirrorLink: initialAuthMirrorLink,
   connectionResult,
 }: {
   activeOrganization: Organization;
-  profiles: Profile[];
+  initialCatalog: InstagramProfilesCatalogPage;
   groups: Group[];
-  memberships: Membership[];
   zernioConnections: ZernioConnection[];
   authMirrorLink: AuthMirrorLinkState;
   connectionResult: ConnectionResult;
 }) {
-  const router = useRouter();
   const canManage = ['admin', 'operator'].includes(activeOrganization.role);
-  const [profiles, setProfiles] = useState(initialProfiles);
+  const [catalog, setCatalog] = useState(initialCatalog);
+  const profiles = catalog.items;
   const [checkingProfileId, setCheckingProfileId] = useState<string | null>(null);
   const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
   const [deleteChoiceProfile, setDeleteChoiceProfile] = useState<Profile | null>(null);
@@ -399,50 +352,19 @@ export default function ProfilesClient({
   const [selectedPublicationView, setSelectedPublicationView] = useState<'all' | 'posted'>('all');
   const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [catalogCursor, setCatalogCursor] = useState<string | null>(null);
+  const [catalogCursorHistory, setCatalogCursorHistory] = useState<Array<string | null>>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
+  const [catalogReloadKey, setCatalogReloadKey] = useState(0);
+  const skippedInitialCatalogRequest = useRef(false);
   const [message, setMessage] = useState('');
   const [authMirrorLink, setAuthMirrorLink] = useState(initialAuthMirrorLink);
   const [authMirrorUrl, setAuthMirrorUrl] = useState('');
   const [authMirrorBusy, setAuthMirrorBusy] = useState(false);
   const [authMirrorMessage, setAuthMirrorMessage] = useState('');
-  const groupByProfileId = useMemo(() => {
-    const result = new Map<string, Group>();
-    const groupById = new Map(groups.map((group) => [group.id, group]));
-    memberships.forEach((membership) => {
-      const group = groupById.get(membership.group_id);
-      if (group) result.set(membership.profile_id, group);
-    });
-    return result;
-  }, [groups, memberships]);
-  const zernioConnectionById = useMemo(
-    () => new Map(zernioConnections.map((connection) => [connection.id, connection])),
-    [zernioConnections],
-  );
-  const profileCounters = useMemo(() => ({
-    total: profiles.length,
-    online: profiles.filter((profile) => profile.status === 'online').length,
-    error: profiles.filter(profileHasError).length,
-    paused: profiles.filter((profile) => profile.status === 'offline' || profile.status === 'no_data').length,
-  }), [profiles]);
-  const visibleProfiles = useMemo(
-    () => profiles.filter((profile) => {
-      if (selectedGroupId !== 'all' && groupByProfileId.get(profile.id)?.id !== selectedGroupId) return false;
-      if (selectedStatus !== 'all' && profile.status !== selectedStatus) return false;
-      if (selectedSituation === 'online' && profile.status !== 'online') return false;
-      if (selectedSituation === 'error' && !profileHasError(profile)) return false;
-      if (selectedSituation === 'paused' && profile.status !== 'offline' && profile.status !== 'no_data') return false;
-      if (selectedPublicationView === 'posted' && (profile.publication_metrics?.published_total ?? 0) <= 0) return false;
-      if (search.trim()) {
-        const term = search.trim().toLowerCase().replace(/^@+/, '');
-        const zernioConnectionLabel = profile.zernio_connection_id
-          ? zernioConnectionById.get(profile.zernio_connection_id)?.label ?? ''
-          : '';
-        const haystack = `${profile.username.replace(/^@+/, '')} ${profile.display_name ?? ''} ${zernioConnectionLabel}`.toLowerCase();
-        if (!haystack.includes(term)) return false;
-      }
-      return true;
-    }).sort(compareProfilesByNewestAddition),
-    [groupByProfileId, profiles, search, selectedGroupId, selectedPublicationView, selectedSituation, selectedStatus, zernioConnectionById],
-  );
+  const profileCounters = catalog.summary;
   const groupAssignmentSuffix = connectionResult.groupAssignment === 'assigned'
     ? ` Perfil(is) adicionado(s) ao grupo “${connectionResult.groupName ?? 'selecionado'}”.`
     : connectionResult.groupAssignment === 'failed'
@@ -490,12 +412,72 @@ export default function ProfilesClient({
   const bulkZernioLastRefreshLabel = formatBulkRefreshTime(bulkZernioLastRefreshAt);
 
   useEffect(() => {
-    setProfiles(initialProfiles);
-  }, [initialProfiles]);
+    setCatalog(initialCatalog);
+  }, [initialCatalog]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setCatalogCursor(null);
+      setCatalogCursorHistory([]);
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
+
+  useEffect(() => {
+    if (!skippedInitialCatalogRequest.current) {
+      skippedInitialCatalogRequest.current = true;
+      return;
+    }
+    const controller = new AbortController();
+    const params = new URLSearchParams({ limit: String(initialCatalog.limit) });
+    if (catalogCursor) params.set('cursor', catalogCursor);
+    if (debouncedSearch) params.set('query', debouncedSearch);
+    if (selectedGroupId !== 'all') params.set('groupId', selectedGroupId);
+    if (selectedStatus !== 'all') params.set('status', selectedStatus);
+    if (selectedSituation !== 'all') params.set('situation', selectedSituation);
+    if (selectedPublicationView !== 'all') params.set('publication', selectedPublicationView);
+
+    setCatalogLoading(true);
+    setCatalogError('');
+    void fetch(`/api/profiles?${params.toString()}`, { cache: 'no-store', signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json() as InstagramProfilesCatalogPage & { error?: string };
+        if (!response.ok) throw new Error(payload.error ?? 'Não foi possível carregar os perfis.');
+        setCatalog(payload);
+        setSelectedProfileIds([]);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setCatalogError(error instanceof Error ? error.message : 'Não foi possível carregar os perfis.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCatalogLoading(false);
+      });
+    return () => controller.abort();
+  }, [catalogCursor, catalogReloadKey, debouncedSearch, initialCatalog.limit, selectedGroupId, selectedPublicationView, selectedSituation, selectedStatus]);
 
   useEffect(() => {
     if (connectionResult.connected || connectionResult.error) setConnectModalOpen(true);
   }, [connectionResult.connected, connectionResult.error]);
+
+  function resetCatalogPagination() {
+    setCatalogCursor(null);
+    setCatalogCursorHistory([]);
+  }
+
+  function loadNextCatalogPage() {
+    if (!catalog.nextCursor || catalogLoading) return;
+    setCatalogCursorHistory((current) => [...current, catalogCursor]);
+    setCatalogCursor(catalog.nextCursor);
+  }
+
+  function loadPreviousCatalogPage() {
+    if (!catalogCursorHistory.length || catalogLoading) return;
+    const previous = catalogCursorHistory[catalogCursorHistory.length - 1] ?? null;
+    setCatalogCursorHistory((current) => current.slice(0, -1));
+    setCatalogCursor(previous);
+  }
 
   function zernioReconnectUrl(profile: Profile) {
     const connectionId = profile.zernio_connection_id ?? selectedConnectionId;
@@ -539,7 +521,7 @@ export default function ProfilesClient({
         if (['completed', 'completed_with_errors', 'failed', 'cancelled'].includes(payload.job.status)) {
           setActiveRefreshJobId(null);
           if (['completed', 'completed_with_errors'].includes(payload.job.status) && payload.job.processed_count > 0) {
-            router.refresh();
+            setCatalogReloadKey((current) => current + 1);
           }
         }
       }
@@ -550,7 +532,7 @@ export default function ProfilesClient({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [activeRefreshJobId, router]);
+  }, [activeRefreshJobId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -661,7 +643,18 @@ export default function ProfilesClient({
         return;
       }
 
-      setProfiles((current) => current.filter((item) => item.id !== profile.id));
+      setCatalog((current) => ({
+        ...current,
+        items: current.items.filter((item) => item.id !== profile.id),
+        summary: {
+          ...current.summary,
+          total: Math.max(0, current.summary.total - 1),
+          filteredTotal: Math.max(0, current.summary.filteredTotal - 1),
+          online: Math.max(0, current.summary.online - (profile.status === 'online' ? 1 : 0)),
+          error: Math.max(0, current.summary.error - (profile.status === 'reauthorization_required' || profile.last_error_message ? 1 : 0)),
+          paused: Math.max(0, current.summary.paused - (profile.status === 'offline' || profile.status === 'no_data' ? 1 : 0)),
+        },
+      }));
       setMessage(disconnectZernio ? 'Perfil removido do Atena e desconectado na Zernio.' : 'Perfil removido do Atena.');
     } catch {
       setMessage('Não foi possível conectar ao servidor.');
@@ -914,7 +907,7 @@ export default function ProfilesClient({
         </section>
       )}
 
-      {profiles.length === 0 ? (
+      {profileCounters.total === 0 ? (
         <section className="panel empty-state">
           <span className="empty-state-icon" aria-hidden="true">◎</span>
           <h2>Nenhum perfil conectado</h2>
@@ -929,22 +922,22 @@ export default function ProfilesClient({
         <>
           <section className="profiles-toolbar panel" aria-label="Filtros de perfis">
             <div className="profiles-status-tabs" role="tablist" aria-label="Resumo das contas">
-              <button className={selectedSituation === 'all' ? 'profiles-status-tab profiles-status-tab-active' : 'profiles-status-tab'} type="button" onClick={() => setSelectedSituation('all')}><span>Todas</span><strong>{profileCounters.total}</strong></button>
-              <button className={selectedSituation === 'online' ? 'profiles-status-tab profiles-status-tab-active' : 'profiles-status-tab'} type="button" onClick={() => setSelectedSituation('online')}><span>Online</span><strong>{profileCounters.online}</strong></button>
-              <button className={selectedSituation === 'error' ? 'profiles-status-tab profiles-status-tab-active' : 'profiles-status-tab'} type="button" onClick={() => setSelectedSituation('error')}><span>Com erro</span><strong>{profileCounters.error}</strong></button>
-              <button className={selectedSituation === 'paused' ? 'profiles-status-tab profiles-status-tab-active' : 'profiles-status-tab'} type="button" onClick={() => setSelectedSituation('paused')}><span>Pausadas</span><strong>{profileCounters.paused}</strong></button>
+              <button className={selectedSituation === 'all' ? 'profiles-status-tab profiles-status-tab-active' : 'profiles-status-tab'} type="button" onClick={() => { resetCatalogPagination(); setSelectedSituation('all'); }}><span>Todas</span><strong>{profileCounters.total}</strong></button>
+              <button className={selectedSituation === 'online' ? 'profiles-status-tab profiles-status-tab-active' : 'profiles-status-tab'} type="button" onClick={() => { resetCatalogPagination(); setSelectedSituation('online'); }}><span>Online</span><strong>{profileCounters.online}</strong></button>
+              <button className={selectedSituation === 'error' ? 'profiles-status-tab profiles-status-tab-active' : 'profiles-status-tab'} type="button" onClick={() => { resetCatalogPagination(); setSelectedSituation('error'); }}><span>Com erro</span><strong>{profileCounters.error}</strong></button>
+              <button className={selectedSituation === 'paused' ? 'profiles-status-tab profiles-status-tab-active' : 'profiles-status-tab'} type="button" onClick={() => { resetCatalogPagination(); setSelectedSituation('paused'); }}><span>Pausadas</span><strong>{profileCounters.paused}</strong></button>
             </div>
             <div className="profiles-toolbar-controls">
             <label htmlFor="profile-group-filter">
               Filtrar por grupo
-              <select id="profile-group-filter" value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)}>
-                <option value="all">Todos os grupos ({profiles.length})</option>
+              <select id="profile-group-filter" value={selectedGroupId} onChange={(event) => { resetCatalogPagination(); setSelectedGroupId(event.target.value); }}>
+                <option value="all">Todos os grupos ({profileCounters.total})</option>
                 {groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
               </select>
             </label>
             <label htmlFor="profile-status-filter">
               Status
-              <select id="profile-status-filter" value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value as typeof selectedStatus)}>
+              <select id="profile-status-filter" value={selectedStatus} onChange={(event) => { resetCatalogPagination(); setSelectedStatus(event.target.value as typeof selectedStatus); }}>
                 <option value="all">Todos</option>
                 <option value="online">Online</option>
                 <option value="offline">Offline</option>
@@ -957,29 +950,26 @@ export default function ProfilesClient({
               <input id="profile-search-filter" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="@usuario, nome ou conta Zernio" />
             </label>
             <div className="profiles-posted-toggle" role="group" aria-label="Filtro de postadas">
-              <button className={selectedPublicationView === 'all' ? 'profiles-posted-toggle-button-active' : ''} type="button" aria-pressed={selectedPublicationView === 'all'} onClick={() => setSelectedPublicationView('all')}>Todas</button>
-              <button className={selectedPublicationView === 'posted' ? 'profiles-posted-toggle-button-active' : ''} type="button" aria-pressed={selectedPublicationView === 'posted'} onClick={() => setSelectedPublicationView('posted')}>Postadas {profiles.reduce((sum, profile) => sum + (profile.publication_metrics?.published_total ?? 0), 0)}</button>
+              <button className={selectedPublicationView === 'all' ? 'profiles-posted-toggle-button-active' : ''} type="button" aria-pressed={selectedPublicationView === 'all'} onClick={() => { resetCatalogPagination(); setSelectedPublicationView('all'); }}>Todas</button>
+              <button className={selectedPublicationView === 'posted' ? 'profiles-posted-toggle-button-active' : ''} type="button" aria-pressed={selectedPublicationView === 'posted'} onClick={() => { resetCatalogPagination(); setSelectedPublicationView('posted'); }}>Postadas {profileCounters.publishedItems}</button>
             </div>
-            <span>{visibleProfiles.length} {visibleProfiles.length === 1 ? 'perfil encontrado' : 'perfis encontrados'}</span>
+            <span aria-live="polite">{catalogLoading ? 'Carregando…' : `${profiles.length} de ${profileCounters.filteredTotal} ${profileCounters.filteredTotal === 1 ? 'perfil' : 'perfis'}`}</span>
             </div>
           </section>
-          {visibleProfiles.length === 0 ? (
+          {catalogError && <p className={`inline-message inline-message-error ${styles.catalogMessage}`} role="alert">{catalogError}</p>}
+          {profiles.length === 0 ? (
             <section className="panel empty-state profiles-filter-empty">
-              <h2>Nenhum perfil neste grupo</h2>
-              <p>Escolha outro grupo ou adicione perfis em Grupos.</p>
+              <h2>Nenhum perfil encontrado</h2>
+              <p>Ajuste a busca ou os filtros para consultar outro trecho do catálogo.</p>
             </section>
           ) : <section className="profile-grid" aria-label="Perfis conectados">
-          {visibleProfiles.map((profile) => {
-              const group = groupByProfileId.get(profile.id);
-              const zernioConnection = profile.zernio_connection_id
-                ? zernioConnectionById.get(profile.zernio_connection_id)
-                : null;
+          {profiles.map((profile) => {
             const metrics = publicationMetricsFromSummary(profile.publication_metrics);
             const analytics = profile.publication_metrics;
             const delta = analytics?.followers_delta ?? 0;
             const selected = selectedProfileIds.includes(profile.id);
               return (
-            <article className="panel profile-card profile-card-clickable" key={profile.id} onClick={(event) => {
+            <article className={`panel profile-card profile-card-clickable ${styles.profileCard}`} key={profile.id} onClick={(event) => {
               if ((event.target as HTMLElement).closest('a, button, select, input, label')) return;
               window.location.assign(`/perfis/${profile.id}`);
             }}>
@@ -995,10 +985,10 @@ export default function ProfilesClient({
                     </a>
                    </h2>
                    <p>{profile.display_name ?? 'Perfil profissional'}</p>
-                   <span className="profile-group-chip">{group ? group.name : 'Sem grupo'}</span>
+                   <span className="profile-group-chip">{profile.group_name ?? 'Sem grupo'}</span>
                    {profile.provider === 'zernio' && (
-                     <span className="profile-zernio-connection-chip" title={zernioConnection?.label ?? 'Conta Zernio não identificada'}>
-                       Zernio: {zernioConnection?.label ?? 'Não identificada'}
+                     <span className="profile-zernio-connection-chip" title={profile.zernio_connection_label ?? 'Conta Zernio não identificada'}>
+                       Zernio: {profile.zernio_connection_label ?? 'Não identificada'}
                      </span>
                    )}
                  </div>
@@ -1057,6 +1047,13 @@ export default function ProfilesClient({
             );
           })}
           </section>}
+          <nav className={`${styles.pagination} panel`} aria-label="Paginação dos perfis">
+            <span>Página {catalogCursorHistory.length + 1} · até {catalog.limit} perfis por página</span>
+            <div>
+              <button className="button button-secondary" type="button" onClick={loadPreviousCatalogPage} disabled={!catalogCursorHistory.length || catalogLoading}>Anterior</button>
+              <button className="button button-primary" type="button" onClick={loadNextCatalogPage} disabled={!catalog.hasMore || !catalog.nextCursor || catalogLoading}>Próxima</button>
+            </div>
+          </nav>
         </>
       )}
       {connectModalOpen && (

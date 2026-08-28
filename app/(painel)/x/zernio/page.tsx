@@ -3,7 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import TwitterZernioClient from '@/app/x/twitter-zernio-client';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { isTwitterModuleEnabled, isTwitterZernioAnalyticsSyncEnabled } from '@/lib/twitter/feature';
+import { isTwitterModuleEnabled } from '@/lib/twitter/feature';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,13 +15,15 @@ export default async function TwitterZernioPage() {
   const admin = createSupabaseAdminClient();
   const organizationId = context.activeOrganization.id;
   const [connectionsResult, profilesResult, attemptsResult, settingsResult] = await Promise.all([
-    admin.from('twitter_connections').select('id,identity_id,label,zernio_profile_id,status,analytics_enabled,inbox_enabled,last_verified_at,last_sync_at,last_error_message,created_at,twitter_slot_limit,remote_twitter_account_count,remote_inventory_checked_at').eq('organization_id', organizationId).is('deleted_at', null).order('created_at', { ascending: false }),
+    admin.from('twitter_connections').select('id,identity_id,label,zernio_profile_id,status,analytics_enabled,inbox_enabled,last_verified_at,last_sync_at,last_error_message,created_at,twitter_slot_limit,remote_twitter_account_count,remote_inventory_checked_at').eq('organization_id', organizationId).is('deleted_at', null).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(101),
     admin.from('twitter_profiles').select('current_connection_id').eq('organization_id', organizationId).is('deleted_at', null).not('current_connection_id', 'is', null),
     admin.from('twitter_connection_oauth_attempts').select('id,connection_id,expires_at').eq('organization_id', organizationId).eq('status', 'pending').gt('expires_at', new Date().toISOString()).order('expires_at', { ascending: true }),
     admin.from('twitter_organization_settings').select('default_initial_grant_micros,default_twitter_slot_limit').eq('organization_id', organizationId).maybeSingle(),
   ]);
   if (connectionsResult.error || profilesResult.error || attemptsResult.error || settingsResult.error) throw new Error('Não foi possível carregar a administração Zernio do X.');
-  const identityIds = [...new Set((connectionsResult.data ?? []).map((connection) => connection.identity_id))];
+  const connectionRows = connectionsResult.data ?? [];
+  const pageConnections = connectionRows.slice(0, 100);
+  const identityIds = [...new Set(pageConnections.map((connection) => connection.identity_id))];
   const [walletsResult, grantsResult] = identityIds.length ? await Promise.all([
     admin.from('twitter_wallets').select('identity_id,posted_balance_micros,reserved_micros,version').in('identity_id', identityIds),
     admin.from('twitter_wallet_grants').select('identity_id,amount_micros,created_at').in('identity_id', identityIds),
@@ -39,8 +41,9 @@ export default async function TwitterZernioPage() {
 
   return <main className="standalone-page zernio-page"><header className="standalone-header zernio-hero"><div><span className="section-kicker">{context.activeOrganization.name} · X / Twitter</span><h1>Zernio</h1><p>Chaves, capacidade de contas X e carteira sintética em uma administração isolada.</p></div></header><TwitterZernioClient
     activeOrganization={{ id: organizationId, name: context.activeOrganization.name, role: context.activeOrganization.role }}
-    initialConnections={(connectionsResult.data ?? []).map((connection) => ({ ...connection, wallet: walletsById.get(connection.identity_id) ?? null, grant: grantsById.get(connection.identity_id) ?? null, twitter_profile_count: profileCounts.get(connection.id) ?? 0, active_slot_reservation_count: pendingCounts.get(connection.id) ?? 0, oauth_reservations: reservationsByConnection.get(connection.id) ?? [] }))}
-    initialDefaultGrantMicros={Number(settings.default_initial_grant_micros)} initialDefaultTwitterSlotLimit={settings.default_twitter_slot_limit}
-    analyticsGateEnabled={isTwitterZernioAnalyticsSyncEnabled(organizationId)} />
+    initialConnections={pageConnections.map((connection) => ({ ...connection, wallet: walletsById.get(connection.identity_id) ?? null, grant: grantsById.get(connection.identity_id) ?? null, twitter_profile_count: profileCounts.get(connection.id) ?? 0, active_slot_reservation_count: pendingCounts.get(connection.id) ?? 0, oauth_reservations: reservationsByConnection.get(connection.id) ?? [] }))}
+    initialHasMore={connectionRows.length > 100}
+    initialCursor={connectionRows.length > 100 && pageConnections.length ? Buffer.from(`${pageConnections.at(-1)!.created_at}|${pageConnections.at(-1)!.id}`).toString('base64url') : null}
+    initialDefaultGrantMicros={Number(settings.default_initial_grant_micros)} initialDefaultTwitterSlotLimit={settings.default_twitter_slot_limit} />
   </main>;
 }

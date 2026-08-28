@@ -1,615 +1,88 @@
-"use client";
+'use client';
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
-type Program = {
-  id: string;
-  name: string | null;
-  status: string;
-  funded_count: number;
-  unfunded_count: number;
-  reserved_micros: number;
-  starts_at: string;
-  ends_at: string;
-  created_at: string;
-};
-type Profile = {
-  id: string;
-  username: string;
-  display_name: string | null;
-  status: string;
-};
-type Group = { id: string; name: string };
-type Membership = { group_id: string; profile_id: string };
-type Shortfall = {
-  program_id: string;
-  profile_id: string;
-  requested_count: number;
-  funded_count: number;
-  unfunded_count: number;
-};
-type QueueItem = {
-  id: string;
-  program_id: string;
-  profile_id: string;
-  execute_at: string;
-  content: string;
-  category: string;
-  amount_micros: number;
-  status: string;
-  attempt_count: number;
-  next_attempt_at: string | null;
-};
-type CancelTarget = {
-  label: string;
-  body: {
-    itemId?: string;
-    programId?: string;
-    profileId?: string;
-    groupProfileIds?: string[];
-  };
-};
+type Program = { id:string;name:string|null;status:string;funded_count:number;unfunded_count:number;reserved_micros:number;starts_at:string;ends_at:string;created_at:string };
+type Profile = { id:string;username:string;display_name:string|null;avatar_url:string|null;status:string };
+type Group = { id:string;name:string };
+type Membership = { group_id:string;profile_id:string };
+type Shortfall = { program_id:string;profile_id:string;requested_count:number;funded_count:number;unfunded_count:number };
+type QueueItem = { id:string;program_id:string;profile_id:string;execute_at:string;content:string;category:string;amount_micros:number;status:string;attempt_count:number;next_attempt_at:string|null };
+type AggregateRow = { id:string;title?:string;username?:string;display_name?:string|null;avatar_url?:string|null;profile_count?:number;created_at?:string;total:number;completed:number;closed:number;errors:number;suspended:number;pending:number;processing:number;active:number;next_at:string|null;tone:'posting'|'error'|'done'|'idle' };
+type QueueSummary = { totals:{total:number;ok:number;pending:number;processing:number;errors:number;closed:number;active:number;active_accounts:number;total_accounts:number;progress:number};accounts:AggregateRow[];batches:AggregateRow[];groups:AggregateRow[] };
+type Tab = 'account'|'batch'|'group';
+type CancelScope = Tab|'item';
+type CancelTarget = { scope:CancelScope;targetId:string|null;label:string };
+type CancellationOperation = { id:string;scope:CancelScope;targetId:string|null;targetLabel:string;status:'running'|'completed'|'failed';progress:number;result:Record<string,unknown>;error?:string|null;createdAt:string;idempotencyKey:string };
 
-const activeStatuses = new Set([
-  "ready",
-  "retry",
-  "claimed",
-  "processing",
-  "outcome_unknown",
-]);
-const statusLabels: Record<string, string> = {
-  confirmed: "Confirmado",
-  completed: "Concluído",
-  cancelled: "Cancelado",
-  attention: "Requer atenção",
-  ready: "Agendado",
-  retry: "Aguardando nova tentativa",
-  claimed: "Em processamento",
-  processing: "Enviado à Zernio",
-  outcome_unknown: "Resultado incerto",
-  published: "Publicado",
-  failed: "Falhou",
-};
-const usd = (micros: number) =>
-  new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 3,
-  }).format(micros / 1_000_000);
-const date = (value: string) =>
-  new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-    timeZone: "America/Sao_Paulo",
-  }).format(new Date(value));
+const activeStatuses = new Set(['ready','retry','claimed','processing','outcome_unknown']);
+const statusLabels:Record<string,string> = { confirmed:'Confirmado',completed:'Concluído',cancelled:'Cancelado',missed:'Prazo perdido',attention:'Requer atenção',ready:'Agendado',retry:'Aguardando nova tentativa',claimed:'Em processamento',processing:'Enviado à Zernio',outcome_unknown:'Resultado incerto',published:'Publicado',failed:'Falhou' };
+const usd = (micros:number) => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'USD',minimumFractionDigits:3}).format(micros/1_000_000);
+const date = (value:string) => new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short',timeZone:'America/Sao_Paulo'}).format(new Date(value));
+const initials = (value:string) => value.replace(/^@/,'').split(/[\s._-]+/).filter(Boolean).slice(0,2).map((part)=>part[0]).join('').toUpperCase() || 'X';
+const percent = (completed:number,total:number) => total ? Math.round(completed*100/total) : 0;
+function compactFuture(value:string|null){if(!value)return'sem horário';const diff=new Date(value).getTime()-Date.now();if(!Number.isFinite(diff))return'sem horário';if(diff<=0)return'agora';const minutes=Math.max(1,Math.round(diff/60000));if(minutes<60)return`próx ${minutes}min`;const hours=Math.round(minutes/60);return hours<24?`próx ${hours}h`:`próx ${Math.round(hours/24)}d`;}
+function toneLabel(row:AggregateRow){if(row.tone==='error')return'Com atenção';if(row.tone==='posting')return'Postando';if(row.tone==='done')return'Concluído';return'Na fila';}
+function aggregateItems(id:string,source:QueueItem[],extra:Partial<AggregateRow>):AggregateRow{const errors=source.filter((item)=>['failed','outcome_unknown','missed'].includes(item.status)).length,processing=source.filter((item)=>['claimed','processing'].includes(item.status)).length,pending=source.filter((item)=>['ready','retry'].includes(item.status)).length;return{id,...extra,total:source.filter((item)=>item.status!=='cancelled').length,completed:source.filter((item)=>item.status==='published').length,closed:source.filter((item)=>['cancelled','missed'].includes(item.status)).length,errors,suspended:0,pending,processing,active:source.filter((item)=>activeStatuses.has(item.status)).length,next_at:source.filter((item)=>activeStatuses.has(item.status)).map((item)=>item.next_attempt_at??item.execute_at).sort()[0]??null,tone:errors?'error':processing?'posting':pending?'idle':'done'};}
 
-export default function TwitterQueueClient({
-  programs,
-  profiles,
-  groups,
-  memberships,
-  shortfalls,
-  items,
-  canEdit,
-}: {
-  programs: Program[];
-  profiles: Profile[];
-  groups: Group[];
-  memberships: Membership[];
-  shortfalls: Shortfall[];
-  items: QueueItem[];
-  canEdit: boolean;
-}) {
-  const router = useRouter();
-  const [selectedProgramId, setSelectedProgramId] = useState(
-    programs[0]?.id ?? "",
-  );
-  const [target, setTarget] = useState<CancelTarget | null>(null);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [itemsByProgram, setItemsByProgram] = useState<
-    Record<string, QueueItem[]>
-  >(() => (programs[0] ? { [programs[0].id]: items.slice(0, 200) } : {}));
-  const [loadingItems, setLoadingItems] = useState(false);
-  const initialLast = items.slice(0, 200).at(-1);
-  const [cursorByProgram, setCursorByProgram] = useState<
-    Record<string, string | null>
-  >(() =>
-    programs[0] && items.length > 200 && initialLast
-      ? {
-          [programs[0].id]: btoa(
-            JSON.stringify({
-              executeAt: initialLast.execute_at,
-              id: initialLast.id,
-            }),
-          )
-            .replaceAll("+", "-")
-            .replaceAll("/", "_")
-            .replaceAll("=", ""),
-        }
-      : {},
-  );
-  const [hasMoreByProgram, setHasMoreByProgram] = useState<
-    Record<string, boolean>
-  >(() => (programs[0] ? { [programs[0].id]: items.length > 200 } : {}));
-  const selectedProgram =
-    programs.find((program) => program.id === selectedProgramId) ??
-    programs[0] ??
-    null;
-  const profilesById = useMemo(
-    () => new Map(profiles.map((profile) => [profile.id, profile])),
-    [profiles],
-  );
-  const selectedShortfalls = shortfalls.filter(
-    (row) => row.program_id === selectedProgram?.id,
-  );
-  const selectedProfileIds = new Set(
-    selectedShortfalls.map((row) => row.profile_id),
-  );
-  const selectedItems = selectedProgram
-    ? (itemsByProgram[selectedProgram.id] ?? [])
-    : [];
-  const programGroups = groups
-    .map((group) => ({
-      ...group,
-      profileIds: memberships
-        .filter(
-          (member) =>
-            member.group_id === group.id &&
-            selectedProfileIds.has(member.profile_id),
-        )
-        .map((member) => member.profile_id),
-    }))
-    .filter((group) => group.profileIds.length);
+function CancellationProgress({operation,onDismiss,onResume}:{operation:CancellationOperation|null;onDismiss:()=>void;onResume:()=>Promise<void>}){
+  const requestInFlight=useRef(false);const[elapsed,setElapsed]=useState(0);
+  useEffect(()=>{if(!operation||operation.status!=='running'){setElapsed(0);return;}const started=Date.parse(operation.createdAt);const tick=()=>setElapsed(Math.max(0,Math.floor((Date.now()-started)/1000)));tick();const timer=window.setInterval(tick,1000);return()=>window.clearInterval(timer);},[operation]);
+  useEffect(()=>{if(!operation||operation.status!=='running')return;const timer=window.setInterval(()=>{if(requestInFlight.current)return;requestInFlight.current=true;void onResume().finally(()=>{requestInFlight.current=false;});},3000);return()=>window.clearInterval(timer);},[operation,onResume]);
+  if(!operation)return null;const running=operation.status==='running';const affected=Number(operation.result?.affectedItems??0);const pending=Number(operation.result?.pendingReconciliation??0);const released=Number(operation.result?.releasedMicros??0);
+  const title=running?`Cancelando ${operation.targetLabel} com segurança…`:operation.status==='completed'?`Cancelamento de ${operation.targetLabel} verificado`:`Não foi possível cancelar ${operation.targetLabel}`;
+  const detail=running?`Validando reservas e chamadas externas há ${elapsed}s. A operação foi salva e será retomada automaticamente se a página for recarregada.`:operation.status==='completed'?`${affected.toLocaleString('pt-BR')} item(ns) cancelado(s) e ${usd(released)} devolvido ao saldo.${pending?` ${pending} item(ns) já iniciado(s) permaneceu(ram) em hold até reconciliação.`:''}`:operation.error??'A operação foi preservada para auditoria.';
+  return <section className={`queue-cancellation-progress is-${operation.status}`} role={running?'status':'alert'} aria-live="polite"><div className="queue-cancellation-progress-icon" aria-hidden="true">{running?'×':operation.status==='completed'?'✓':'!'}</div><div className="queue-cancellation-progress-content"><div><strong>{title}</strong><span>{running?'Em andamento':'100%'}</span></div><p>{detail}</p>{running&&<div className="queue-cancellation-progress-track" aria-label={`Cancelamento em andamento: ${operation.progress}%`}><span style={{width:`${Math.max(5,operation.progress)}%`}}/></div>}</div>{!running&&<button type="button" className="queue-cancellation-progress-close" onClick={onDismiss} aria-label="Fechar aviso de cancelamento">×</button>}</section>;
+}
 
-  useEffect(() => {
-    if (
-      !selectedProgramId ||
-      Object.prototype.hasOwnProperty.call(itemsByProgram, selectedProgramId)
-    )
-      return;
-    let cancelled = false;
-    setLoadingItems(true);
-    void fetch(
-      `/api/x/queue?programId=${encodeURIComponent(selectedProgramId)}`,
-      { cache: "no-store" },
-    )
-      .then(async (response) => {
-        const body = (await response.json().catch(() => ({}))) as {
-          items?: QueueItem[];
-          nextCursor?: string | null;
-          hasMore?: boolean;
-          error?: string;
-        };
-        if (!response.ok)
-          throw new Error(
-            body.error ?? "Não foi possível carregar os itens deste programa.",
-          );
-        if (!cancelled) {
-          setItemsByProgram((current) => ({
-            ...current,
-            [selectedProgramId]: body.items ?? [],
-          }));
-          setCursorByProgram((current) => ({
-            ...current,
-            [selectedProgramId]: body.nextCursor ?? null,
-          }));
-          setHasMoreByProgram((current) => ({
-            ...current,
-            [selectedProgramId]: Boolean(body.hasMore),
-          }));
-        }
-      })
-      .catch((error) => {
-        if (!cancelled)
-          setMessage(
-            error instanceof Error ? error.message : "Falha ao carregar itens.",
-          );
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingItems(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedProgramId, itemsByProgram]);
+export default function TwitterQueueClient({organizationId,programs,profiles,groups,memberships,shortfalls,items,summary:initialSummary,canEdit}:{organizationId:string;programs:Program[];profiles:Profile[];groups:Group[];memberships:Membership[];shortfalls:Shortfall[];items:QueueItem[];summary:QueueSummary|null;canEdit:boolean}){
+  const router=useRouter();const[tab,setTab]=useState<Tab>('account');const[summary,setSummary]=useState<QueueSummary|null>(initialSummary);const[refreshing,setRefreshing]=useState(false);const[message,setMessage]=useState<string|null>(null);
+  const[target,setTarget]=useState<CancelTarget|null>(null);const[reason,setReason]=useState('');const[busy,setBusy]=useState(false);const[operation,setOperation]=useState<CancellationOperation|null>(null);
+  const[selectedProgramId,setSelectedProgramId]=useState(programs[0]?.id??'');const[itemsByProgram,setItemsByProgram]=useState<Record<string,QueueItem[]>>(()=>programs[0]?{[programs[0].id]:items.slice(0,200)}:{});const[loadingItems,setLoadingItems]=useState(false);
+  const initialLast=items.slice(0,200).at(-1);const[cursorByProgram,setCursorByProgram]=useState<Record<string,string|null>>(()=>programs[0]&&items.length>200&&initialLast?{[programs[0].id]:btoa(JSON.stringify({executeAt:initialLast.execute_at,id:initialLast.id})).replaceAll('+','-').replaceAll('/','_').replaceAll('=','')}:{});const[hasMoreByProgram,setHasMoreByProgram]=useState<Record<string,boolean>>(()=>programs[0]?{[programs[0].id]:items.length>200}:{});
+  const storageKey=`athena.twitter.queue.cancellation.${organizationId}`;
+  const profilesById=useMemo(()=>new Map(profiles.map((profile)=>[profile.id,profile])),[profiles]);
+  const groupProfiles=useMemo(()=>new Map(groups.map((group)=>[group.id,memberships.filter((member)=>member.group_id===group.id).map((member)=>member.profile_id)])),[groups,memberships]);
+  const selectedProgram=programs.find((program)=>program.id===selectedProgramId)??programs[0]??null;const selectedItems=selectedProgram?itemsByProgram[selectedProgram.id]??[]:[];const selectedShortfall=shortfalls.filter((row)=>row.program_id===selectedProgram?.id);
 
-  function requestCancel(next: CancelTarget) {
-    setTarget(next);
-    setReason("");
-    setMessage(null);
-  }
-  async function loadMore() {
-    if (
-      !selectedProgram ||
-      !hasMoreByProgram[selectedProgram.id] ||
-      loadingItems
-    )
-      return;
-    setLoadingItems(true);
-    try {
-      const cursor = cursorByProgram[selectedProgram.id];
-      const response = await fetch(
-        `/api/x/queue?programId=${encodeURIComponent(selectedProgram.id)}&cursor=${encodeURIComponent(cursor ?? "")}`,
-        { cache: "no-store" },
-      );
-      const body = (await response.json()) as {
-        items?: QueueItem[];
-        nextCursor?: string | null;
-        hasMore?: boolean;
-        error?: string;
-      };
-      if (!response.ok)
-        throw new Error(body.error ?? "Não foi possível carregar mais itens.");
-      setItemsByProgram((current) => ({
-        ...current,
-        [selectedProgram.id]: [
-          ...(current[selectedProgram.id] ?? []),
-          ...(body.items ?? []),
-        ],
-      }));
-      setCursorByProgram((current) => ({
-        ...current,
-        [selectedProgram.id]: body.nextCursor ?? null,
-      }));
-      setHasMoreByProgram((current) => ({
-        ...current,
-        [selectedProgram.id]: Boolean(body.hasMore),
-      }));
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Falha ao carregar mais itens.",
-      );
-    } finally {
-      setLoadingItems(false);
-    }
-  }
-  async function confirmCancel() {
-    if (!target || reason.trim().length < 4) return;
-    setBusy(true);
-    setMessage(null);
-    try {
-      const response = await fetch("/api/x/queue/cancel", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ...target.body,
-          reason: reason.trim(),
-          idempotencyKey: crypto.randomUUID(),
-        }),
-      });
-      const body = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        affectedItems?: number;
-        releasedMicros?: number;
-        pendingReconciliation?: number;
-      };
-      if (!response.ok)
-        throw new Error(body.error ?? "Não foi possível cancelar a fila X.");
-      const pending = Number(body.pendingReconciliation ?? 0);
-      setMessage(
-        `${Number(body.affectedItems ?? 0)} item(ns) cancelado(s); ${usd(Number(body.releasedMicros ?? 0))} voltou ao saldo disponível.${pending ? ` ${pending} item(ns) já iniciado(s) continuam bloqueados até reconciliação.` : ""}`,
-      );
-      setTarget(null);
-      setReason("");
-      router.refresh();
-    } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "Falha no cancelamento.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
+  function persistOperation(next:CancellationOperation|null){setOperation(next);if(next)window.localStorage.setItem(storageKey,JSON.stringify(next));else window.localStorage.removeItem(storageKey);}
+  useEffect(()=>{try{const saved=window.localStorage.getItem(storageKey);if(saved)setOperation(JSON.parse(saved)as CancellationOperation);}catch{window.localStorage.removeItem(storageKey);}},[storageKey]);
 
-  if (!programs.length)
-    return (
-      <div className="empty-state">
-        <h2>Fila X vazia</h2>
-        <p>Nenhum programa foi confirmado.</p>
-      </div>
-    );
-  if (!selectedProgram) return null;
-  return (
-    <section className="content-stack">
-      {message ? (
-        <div className="notice-banner" role="status">
-          {message}
-        </div>
-      ) : null}
-      <div className="panel queue-classic-controls">
-        <label>
-          Programa
-          <select
-            value={selectedProgram.id}
-            onChange={(event) => setSelectedProgramId(event.target.value)}
-          >
-            {programs.map((program) => (
-              <option key={program.id} value={program.id}>
-                {program.name ?? `Programa ${program.id.slice(0, 8)}`} ·{" "}
-                {statusLabels[program.status] ?? program.status} ·{" "}
-                {date(program.starts_at)}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <article className="panel">
-        <div className="standalone-header">
-          <div>
-            <span className="section-kicker">
-              Programa {selectedProgram.id.slice(0, 8)}
-            </span>
-            <h2>
-              {selectedProgram.name ??
-                statusLabels[selectedProgram.status] ??
-                selectedProgram.status}
-            </h2>
-            <p className="muted">
-              {statusLabels[selectedProgram.status] ?? selectedProgram.status} ·{" "}
-              {date(selectedProgram.starts_at)} até{" "}
-              {date(selectedProgram.ends_at)}
-            </p>
-          </div>
-          {canEdit && selectedProgram.status === "confirmed" ? (
-            <button
-              className="button button-danger"
-              type="button"
-              onClick={() =>
-                requestCancel({
-                  label: "todo o programa",
-                  body: { programId: selectedProgram.id },
-                })
-              }
-            >
-              Cancelar programa
-            </button>
-          ) : null}
-        </div>
-        <div className="summary-grid">
-          <div>
-            <span>Financiados</span>
-            <strong>{selectedProgram.funded_count}</strong>
-          </div>
-          <div>
-            <span>Sem saldo</span>
-            <strong>{selectedProgram.unfunded_count}</strong>
-          </div>
-          <div>
-            <span>Reserva inicial</span>
-            <strong>{usd(selectedProgram.reserved_micros)}</strong>
-          </div>
-          <div>
-            <span>Itens exibidos</span>
-            <strong>{selectedItems.length}</strong>
-          </div>
-        </div>
-      </article>
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <span className="section-kicker">Escopo por perfil</span>
-            <h2>Perfis deste programa</h2>
-            <p>
-              O cancelamento combina programa + perfil; outras programações do
-              perfil não são afetadas.
-            </p>
-          </div>
-        </div>
-        <div className="content-stack">
-          {selectedShortfalls.map((row) => {
-            const profile = profilesById.get(row.profile_id);
-            return (
-              <div className="standalone-header" key={row.profile_id}>
-                <div>
-                  <strong>
-                    @{profile?.username ?? row.profile_id.slice(0, 8)}
-                  </strong>
-                  <p className="muted">
-                    {row.funded_count} financiado(s) · {row.unfunded_count} sem
-                    saldo
-                  </p>
-                </div>
-                {canEdit && selectedProgram.status === "confirmed" ? (
-                  <button
-                    type="button"
-                    className="button button-ghost"
-                    onClick={() =>
-                      requestCancel({
-                        label: `a fila de @${profile?.username ?? row.profile_id.slice(0, 8)} neste programa`,
-                        body: {
-                          programId: selectedProgram.id,
-                          profileId: row.profile_id,
-                        },
-                      })
-                    }
-                  >
-                    Cancelar neste programa
-                  </button>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <span className="section-kicker">Escopo por grupo</span>
-            <h2>Grupos com perfis neste programa</h2>
-            <p>
-              A associação atual do grupo é congelada no pedido; somente esses
-              perfis e este programa serão alcançados.
-            </p>
-          </div>
-        </div>
-        {programGroups.length ? (
-          <div className="content-stack">
-            {programGroups.map((group) => (
-              <div className="standalone-header" key={group.id}>
-                <div>
-                  <strong>{group.name}</strong>
-                  <p className="muted">
-                    {group.profileIds.length} perfil(is) participante(s)
-                  </p>
-                </div>
-                {canEdit && selectedProgram.status === "confirmed" ? (
-                  <button
-                    type="button"
-                    className="button button-ghost"
-                    onClick={() =>
-                      requestCancel({
-                        label: `o grupo ${group.name} neste programa`,
-                        body: {
-                          programId: selectedProgram.id,
-                          groupProfileIds: group.profileIds,
-                        },
-                      })
-                    }
-                  >
-                    Cancelar grupo neste programa
-                  </button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="muted">
-            Nenhum grupo atual contém perfis deste programa.
-          </p>
-        )}
-      </section>
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <span className="section-kicker">Itens financiados</span>
-            <h2>Próximas publicações</h2>
-            <p>
-              Carregadas em páginas de 200; ações de programa, perfil e grupo
-              atuam no escopo completo.
-            </p>
-          </div>
-        </div>
-        <div className="content-stack">
-          {selectedItems.length ? (
-            selectedItems.map((item) => {
-              const profile = profilesById.get(item.profile_id);
-              return (
-                <article className="standalone-header" key={item.id}>
-                  <div>
-                    <strong>
-                      @{profile?.username ?? item.profile_id.slice(0, 8)} ·{" "}
-                      {date(item.execute_at)}
-                    </strong>
-                    <p className="muted">
-                      {statusLabels[item.status] ?? item.status} ·{" "}
-                      {usd(item.amount_micros)} · tentativa {item.attempt_count}
-                    </p>
-                    <p>
-                      {item.content.length > 180
-                        ? `${item.content.slice(0, 180)}…`
-                        : item.content}
-                    </p>
-                    {item.status === "outcome_unknown" ? (
-                      <p className="field-error-message">
-                        Resultado incerto: cancelar não libera o hold sem
-                        reconciliação.
-                      </p>
-                    ) : null}
-                  </div>
-                  {canEdit && activeStatuses.has(item.status) ? (
-                    <button
-                      type="button"
-                      className="button button-danger"
-                      onClick={() =>
-                        requestCancel({
-                          label: `o item ${item.id.slice(0, 8)}`,
-                          body: { itemId: item.id },
-                        })
-                      }
-                    >
-                      Cancelar item
-                    </button>
-                  ) : null}
-                </article>
-              );
-            })
-          ) : (
-            <p className="muted">
-              {loadingItems
-                ? "Carregando itens…"
-                : "Nenhum item financiado neste programa."}
-            </p>
-          )}
-          {selectedProgram && hasMoreByProgram[selectedProgram.id] ? (
-            <button
-              className="button button-ghost"
-              type="button"
-              disabled={loadingItems}
-              onClick={() => void loadMore()}
-            >
-              {loadingItems ? "Carregando…" : "Ver mais publicações"}
-            </button>
-          ) : null}
-        </div>
-      </section>
-      {target ? (
-        <div className="modal-backdrop" role="presentation">
-          <section
-            className="panel bulk-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="twitter-cancel-title"
-          >
-            <div className="panel-heading">
-              <div>
-                <span className="section-kicker">
-                  Cancelamento financeiro seguro
-                </span>
-                <h2 id="twitter-cancel-title">Cancelar {target.label}</h2>
-              </div>
-            </div>
-            <p>
-              Itens ainda não iniciados liberam a reserva. Itens já enviados à
-              Zernio permanecem em hold e aparecem nos Logs até reconciliação;
-              nenhuma chamada será repetida.
-            </p>
-            <label>
-              Motivo obrigatório
-              <textarea
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-                minLength={4}
-                maxLength={1000}
-                rows={4}
-                autoFocus
-              />
-            </label>
-            <div className="detail-actions">
-              <button
-                className="button button-ghost"
-                type="button"
-                disabled={busy}
-                onClick={() => setTarget(null)}
-              >
-                Voltar
-              </button>
-              <button
-                className="button button-danger"
-                type="button"
-                disabled={busy || reason.trim().length < 4}
-                onClick={() => void confirmCancel()}
-              >
-                {busy ? "Cancelando…" : "Confirmar cancelamento"}
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
-    </section>
-  );
+  const refreshSummary=useCallback(async()=>{setRefreshing(true);try{const response=await fetch('/api/x/queue',{cache:'no-store'});const body=await response.json()as{summary?:QueueSummary;error?:string};if(!response.ok||!body.summary)throw new Error(body.error??'Não foi possível atualizar a fila X.');setSummary(body.summary);router.refresh();}catch(error){setMessage(error instanceof Error?error.message:'Falha ao atualizar a fila.');}finally{setRefreshing(false);}},[router]);
+  const loadProgramItems=useCallback(async(programId:string,append=false)=>{if(!programId)return;setLoadingItems(true);try{const cursor=append?cursorByProgram[programId]:null;const response=await fetch(`/api/x/queue?programId=${encodeURIComponent(programId)}${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`,{cache:'no-store'});const body=await response.json()as{items?:QueueItem[];nextCursor?:string|null;hasMore?:boolean;error?:string};if(!response.ok)throw new Error(body.error??'Não foi possível carregar as publicações.');setItemsByProgram((current)=>({...current,[programId]:append?[...(current[programId]??[]),...(body.items??[])]:body.items??[]}));setCursorByProgram((current)=>({...current,[programId]:body.nextCursor??null}));setHasMoreByProgram((current)=>({...current,[programId]:Boolean(body.hasMore)}));}catch(error){setMessage(error instanceof Error?error.message:'Falha ao carregar publicações.');}finally{setLoadingItems(false);}},[cursorByProgram]);
+  useEffect(()=>{if(selectedProgramId&&!Object.prototype.hasOwnProperty.call(itemsByProgram,selectedProgramId))void loadProgramItems(selectedProgramId);},[selectedProgramId,itemsByProgram,loadProgramItems]);
+
+  const finishOperation=useCallback(async(next:CancellationOperation)=>{persistOperation(next);if(next.status==='completed'){const affected=Number(next.result?.affectedItems??0),pending=Number(next.result?.pendingReconciliation??0);setMessage(`${affected} item(ns) cancelado(s) com saldo devolvido; ${pending} item(ns) mantido(s) para reconciliação.`);await refreshSummary();if(selectedProgramId)await loadProgramItems(selectedProgramId);}else if(next.status==='failed')setMessage(next.error??'Não foi possível concluir o cancelamento.');},[refreshSummary,selectedProgramId,loadProgramItems]);
+  const executeOperation=useCallback(async(current:CancellationOperation)=>{try{const statusResponse=await fetch(`/api/x/queue/cancel?operationId=${encodeURIComponent(current.id)}`,{cache:'no-store'});const statusBody=await statusResponse.json()as{operation?:CancellationOperation};const latest=statusBody.operation?{...current,...statusBody.operation}:current;if(latest.status!=='running'){await finishOperation(latest);return;}const response=await fetch('/api/x/queue/cancel',{method:'POST',headers:{'content-type':'application/json'},cache:'no-store',body:JSON.stringify({operationId:latest.id,execute:true})});const body=await response.json()as{operation?:CancellationOperation;error?:string};await finishOperation(body.operation?{...latest,...body.operation}:{...latest,status:'failed',progress:100,error:body.error??'Não foi possível confirmar o cancelamento.'});}catch{persistOperation({...current,status:'running',error:'A conexão foi interrompida; a operação será retomada automaticamente.'});setMessage('A conexão foi interrompida. O cancelamento salvo será retomado automaticamente.');}},[finishOperation]);
+  const resumeOperation=useCallback(async()=>{if(operation?.status==='running')await executeOperation(operation);},[operation,executeOperation]);
+
+  function requestCancel(next:CancelTarget){setTarget(next);setReason('');setMessage(null);}
+  async function confirmCancel(){if(!target||reason.trim().length<4)return;setBusy(true);try{const idempotencyKey=crypto.randomUUID();const response=await fetch('/api/x/queue/cancel',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({scope:target.scope,targetId:target.targetId,targetLabel:target.label,reason:reason.trim(),idempotencyKey})});const body=await response.json()as{operation?:CancellationOperation;error?:string};if(!response.ok&&!body.operation)throw new Error(body.error??'Não foi possível iniciar o cancelamento.');if(!body.operation)throw new Error('O cancelamento não retornou uma operação válida.');const next={...body.operation,scope:target.scope,targetId:target.targetId,targetLabel:target.label,idempotencyKey};persistOperation(next);setTarget(null);setReason('');void executeOperation(next);}catch(error){setMessage(error instanceof Error?error.message:'Falha no cancelamento.');}finally{setBusy(false);}}
+
+  const fallbackRows:AggregateRow[]=programs.map((program)=>({id:program.id,title:program.name??`Programa ${program.id.slice(0,8)}`,created_at:program.created_at,total:program.funded_count,completed:program.status==='completed'?program.funded_count:0,closed:program.status==='cancelled'?program.funded_count:0,errors:program.status==='attention'?1:0,suspended:0,pending:program.status==='confirmed'?program.funded_count:0,processing:0,active:program.status==='confirmed'?program.funded_count:0,next_at:program.starts_at,tone:program.status==='attention'?'error':program.status==='confirmed'?'idle':'done'}));
+  const loadedItems=Object.values(itemsByProgram).flat();
+  const fallbackAccounts=profiles.map((profile)=>aggregateItems(profile.id,loadedItems.filter((item)=>item.profile_id===profile.id),{username:profile.username,display_name:profile.display_name,avatar_url:profile.avatar_url})).filter((row)=>row.total||row.closed);
+  const fallbackGroups=groups.map((group)=>{const profileIds=new Set(groupProfiles.get(group.id)??[]);return aggregateItems(group.id,loadedItems.filter((item)=>profileIds.has(item.profile_id)),{title:group.name,profile_count:profileIds.size});}).filter((row)=>row.total||row.closed);
+  const rows=summary?(tab==='account'?summary.accounts:tab==='batch'?summary.batches:summary.groups):(tab==='account'?fallbackAccounts:tab==='batch'?fallbackRows:fallbackGroups);
+  const fallbackTotal=programs.reduce((sum,p)=>sum+(p.status==='cancelled'?0:p.funded_count),0),fallbackOk=programs.reduce((sum,p)=>sum+(p.status==='completed'?p.funded_count:0),0);
+  const totals=summary?.totals??{total:fallbackTotal,ok:fallbackOk,pending:loadedItems.filter((item)=>['ready','retry'].includes(item.status)).length,processing:loadedItems.filter((item)=>['claimed','processing'].includes(item.status)).length,errors:loadedItems.filter((item)=>['failed','outcome_unknown','missed'].includes(item.status)).length,closed:programs.reduce((sum,p)=>sum+(p.status==='cancelled'?p.funded_count:0),0)+loadedItems.filter((item)=>item.status==='missed').length,active:loadedItems.filter((item)=>activeStatuses.has(item.status)).length,active_accounts:new Set(loadedItems.filter((item)=>activeStatuses.has(item.status)).map((item)=>item.profile_id)).size,total_accounts:new Set(shortfalls.map((row)=>row.profile_id)).size,progress:percent(fallbackOk,fallbackTotal)};
+
+  if(!programs.length&&!summary?.totals.total)return <div className="queue-reference-view"><div className="queue-reference-shell"><div className="queue-reference-empty"><span aria-hidden="true">✓</span><h3>Fila X vazia</h3><p>Nenhum programa foi confirmado.</p></div></div></div>;
+  return <section className="content-stack">
+    {message&&<p className="inline-message" role="status">{message}</p>}{!canEdit&&<p className="inline-message" role="alert">Seu papel permite acompanhar a fila, mas não executar ações operacionais.</p>}
+    <CancellationProgress operation={operation} onDismiss={()=>persistOperation(null)} onResume={resumeOperation}/>
+    <section className="queue-reference-view" aria-labelledby="twitter-queue-title"><div className="queue-reference-shell">
+      <header className="queue-reference-header"><div><h2 id="twitter-queue-title">Fila de Postagem no X</h2><p>{totals.total.toLocaleString('pt-BR')} itens em acompanhamento</p></div><div className="queue-reference-actions"><button type="button" onClick={()=>void refreshSummary()} disabled={refreshing}><span aria-hidden="true">↻</span>{refreshing?'Atualizando…':'Recarregar'}</button><button type="button" onClick={()=>setMessage(null)}><span aria-hidden="true">⌫</span>Limpar aviso</button></div></header>
+      <div className="queue-reference-kpis" aria-label="Resumo da fila"><article><span>OK</span><strong>{totals.ok.toLocaleString('pt-BR')}</strong><small>publicadas</small></article><article><span>PENDENTES</span><strong>{totals.pending.toLocaleString('pt-BR')}</strong><small>aguardando</small></article><article><span>PROCESSANDO</span><strong>{totals.processing.toLocaleString('pt-BR')}</strong><small>claim ou envio externo</small></article><article className="queue-reference-kpi-error"><span>ATENÇÃO</span><strong>{totals.errors.toLocaleString('pt-BR')}</strong><small>falha ou resultado incerto</small></article><article><span>CONTAS NA FILA</span><strong>{totals.active_accounts}/{totals.total_accounts}</strong><small>ativas / total</small></article></div>
+      <div className="queue-reference-progress"><div><span>Progresso geral</span><strong>{totals.progress}%</strong></div><div className="queue-reference-progress-track" aria-label={`Progresso geral: ${totals.progress}%`}><span style={{width:`${totals.progress}%`}}/></div></div>
+      <div className="queue-reference-tabs" role="tablist" aria-label="Agrupamento da fila"><button type="button" className={tab==='account'?'is-active':''} onClick={()=>setTab('account')} role="tab" aria-selected={tab==='account'}>Por conta <span>{summary?.accounts.length??profiles.length}</span></button><button type="button" className={tab==='batch'?'is-active':''} onClick={()=>setTab('batch')} role="tab" aria-selected={tab==='batch'}>Por lote <span>{summary?.batches.length??programs.length}</span></button><button type="button" className={tab==='group'?'is-active':''} onClick={()=>setTab('group')} role="tab" aria-selected={tab==='group'}>Por grupo <span>{summary?.groups.length??groups.length}</span></button></div>
+      <div className="queue-reference-legend" aria-label="Legenda de estados"><span><i className="is-posting"/><strong>Postando</strong> — claim ou envio em andamento</span><span><i className="is-waiting"/><strong>Na fila</strong> — aguardando o horário</span><span><i className="is-error"/><strong>Com atenção</strong> — falha ou resultado incerto</span><span><i className="is-done"/><strong>Concluída</strong> — sem itens ativos</span></div>
+      {!rows.length?<div className="queue-reference-empty"><span aria-hidden="true">✓</span><h3>Fila operacional vazia</h3><p>Não há itens para exibir neste agrupamento.</p></div>:<div className="queue-reference-list">{rows.map((row)=>{const title=tab==='account'?`@${row.username??'perfil'}`:row.title??'Sem nome';const subtitle=tab==='account'?(row.display_name||'Conta X'):tab==='group'?`${row.profile_count??0} conta(s)`:row.created_at?`Criado em ${date(row.created_at)}`:'Lote de publicação';const cancelling=operation?.status==='running'&&operation.scope===tab&&operation.targetId===row.id;return <article className={`queue-reference-row is-${row.tone}`} key={row.id}><div className="queue-reference-avatar">{row.avatar_url?<img src={row.avatar_url} alt=""/>:initials(title)}</div><div className="queue-reference-identity"><strong>{title}</strong><small>{subtitle}</small></div><span className="queue-reference-status"><i/>{toneLabel(row)}</span><div className="queue-reference-row-progress"><div><span style={{width:`${percent(row.completed,row.total)}%`}}/></div><small>{percent(row.completed,row.total)}%</small></div><div className="queue-reference-next"><span>Próxima</span><strong>{compactFuture(row.next_at)}</strong></div><div className="queue-reference-total"><strong>{row.completed} publicadas</strong><small>{row.active?`${row.active} ativa(s)`:row.errors?`${row.errors} com atenção`:'sem itens ativos'}{row.closed?` · ${row.closed} encerrada(s)`:''}</small></div><div className="queue-reference-row-actions"><button type="button" className="button button-danger" disabled={!canEdit||!row.active||operation?.status==='running'} aria-busy={cancelling} onClick={()=>requestCancel({scope:tab,targetId:row.id,label:title})}>{cancelling?'Cancelando…':tab==='account'?'Cancelar fila':tab==='batch'?'Cancelar lote':'Cancelar grupo'}</button></div></article>;})}</div>}
+    </div></section>
+
+    {selectedProgram&&<details className="queue-jobs-disclosure"><summary>Publicações e custos por lote <span>{selectedItems.length}</span></summary><section className="panel content-stack"><div className="queue-classic-controls"><label>Lote<select value={selectedProgram.id} onChange={(event)=>setSelectedProgramId(event.target.value)}>{programs.map((program)=><option value={program.id} key={program.id}>{program.name??`Programa ${program.id.slice(0,8)}`} · {statusLabels[program.status]??program.status}</option>)}</select></label></div><div className="summary-grid"><div><span>Financiados</span><strong>{selectedProgram.funded_count}</strong></div><div><span>Sem saldo</span><strong>{selectedProgram.unfunded_count}</strong></div><div><span>Reserva inicial</span><strong>{usd(selectedProgram.reserved_micros)}</strong></div><div><span>Perfis</span><strong>{selectedShortfall.length}</strong></div></div><div className="content-stack">{selectedItems.map((item)=>{const profile=profilesById.get(item.profile_id);return <article className="standalone-header" key={item.id}><div><strong>@{profile?.username??item.profile_id.slice(0,8)} · {date(item.execute_at)}</strong><p className="muted">{statusLabels[item.status]??item.status} · {usd(item.amount_micros)} · tentativa {item.attempt_count}</p><p>{item.content.length>180?`${item.content.slice(0,180)}…`:item.content}</p>{item.status==='outcome_unknown'&&<p className="field-error-message">Resultado incerto: cancelar não libera o hold sem reconciliação.</p>}</div>{canEdit&&activeStatuses.has(item.status)&&<button type="button" className="button button-danger" disabled={operation?.status==='running'} onClick={()=>requestCancel({scope:'item',targetId:item.id,label:`o item ${item.id.slice(0,8)}`})}>Cancelar item</button>}</article>;})}{!selectedItems.length&&<p className="muted">{loadingItems?'Carregando itens…':'Nenhum item financiado neste lote.'}</p>}{hasMoreByProgram[selectedProgram.id]&&<button className="button button-ghost" type="button" disabled={loadingItems} onClick={()=>void loadProgramItems(selectedProgram.id,true)}>{loadingItems?'Carregando…':'Ver mais publicações'}</button>}</div></section></details>}
+
+    {target&&<div className="modal-backdrop" role="presentation" onMouseDown={()=>!busy&&setTarget(null)}><section className="panel bulk-modal" role="dialog" aria-modal="true" aria-labelledby="twitter-cancel-title" onMouseDown={(event)=>event.stopPropagation()}><div className="panel-heading"><div><span className="section-kicker">Cancelamento financeiro seguro</span><h2 id="twitter-cancel-title">Cancelar {target.label}</h2></div></div><p>{target.scope==='account'?'Todas as postagens ativas desta conta, em todos os lotes, serão alcançadas.':target.scope==='group'?'A composição atual do grupo será congelada e todas as filas dessas contas serão alcançadas.':target.scope==='batch'?'Todas as postagens ativas deste lote serão alcançadas, independentemente da conta.':'Somente esta publicação será alcançada.'}</p><p>Itens ainda não iniciados liberam a reserva. Itens já enviados à Zernio ou com resultado incerto permanecem em hold até reconciliação; nenhuma chamada externa será repetida.</p><label>Motivo obrigatório<textarea value={reason} onChange={(event)=>setReason(event.target.value)} minLength={4} maxLength={1000} rows={4} autoFocus/></label><div className="detail-actions"><button className="button button-ghost" type="button" disabled={busy} onClick={()=>setTarget(null)}>Voltar</button><button className="button button-danger" type="button" disabled={busy||reason.trim().length<4} onClick={()=>void confirmCancel()}>{busy?'Preparando…':'Confirmar cancelamento'}</button></div></section></div>}
+  </section>;
 }

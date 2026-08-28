@@ -5,12 +5,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   Batch,
   PublicationGenerationJob,
+  QueueAggregateTab,
   QueueCursor,
   QueueCancellationOperation,
   QueueFormatFilter,
   QueueGroup,
+  PausedPublicationBatchSummary,
   QueueResumption,
   QueueSummary,
+  QueueSummaryPage,
   QueueStatusFilter,
   QueueTimingFilter,
 } from './publication-queue-types';
@@ -26,10 +29,14 @@ export function usePublicationQueue({
   initialBatches,
   groups,
   canManage,
+  organizationId,
+  aggregateTab,
 }: {
   initialBatches: Batch[];
   groups: QueueGroup[];
   canManage: boolean;
+  organizationId: string;
+  aggregateTab: QueueAggregateTab;
 }) {
   const [batches, setBatches] = useState(initialBatches);
   const [message, setMessage] = useState('');
@@ -52,13 +59,29 @@ export function usePublicationQueue({
   const [generationJobsLoading, setGenerationJobsLoading] = useState(false);
   const [generationJobActionId, setGenerationJobActionId] = useState<string | null>(null);
   const [summary, setSummary] = useState<QueueSummary | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryErrors, setSummaryErrors] = useState<Record<QueueAggregateTab, string | null>>({ account: null, batch: null, group: null });
+  const [summaryLoadedScopes, setSummaryLoadedScopes] = useState<Record<QueueAggregateTab, boolean>>({ account: false, batch: false, group: false });
+  const [summaryPages, setSummaryPages] = useState<Record<QueueAggregateTab, QueueSummaryPage>>({
+    account: { scope: 'account', offset: 0, limit: 25, totalCount: 0, hasMore: false },
+    batch: { scope: 'batch', offset: 0, limit: 25, totalCount: 0, hasMore: false },
+    group: { scope: 'group', offset: 0, limit: 25, totalCount: 0, hasMore: false },
+  });
+  const [pausedBatches, setPausedBatches] = useState<PausedPublicationBatchSummary>({
+    snapshotAt: null,
+    total: 0,
+    blockedItems: 0,
+    batches: [],
+  });
   const [cancellationOperation, setCancellationOperation] = useState<QueueCancellationOperation | null>(null);
 
   const queueFilterSignature = [queueFilter, queueFormatFilter, queueTimingFilter, queueProfileFilter, queueGroupFilter].join('|');
   const latestQueueFilterSignatureRef = useRef(queueFilterSignature);
   const loadedQueueFilterSignatureRef = useRef(queueFilterSignature);
   const queueRequestSeqRef = useRef(0);
+  const summaryRequestSeqRef = useRef<Record<QueueAggregateTab, number>>({ account: 0, batch: 0, group: 0 });
+  const summaryPendingRef = useRef(0);
+  const cancellationStorageKey = `athena.queue.cancellation-operation.${organizationId}`;
 
   function appendQueueFilterParams(params: URLSearchParams) {
     if (queueFilter !== 'all' && queueFilter !== 'acknowledged_failed') params.set('status', queueFilter);
@@ -70,15 +93,78 @@ export function usePublicationQueue({
     if (queueGroupFilter !== 'all') params.set('groupId', queueGroupFilter);
   }
 
-  async function refreshSummary() {
+  async function refreshSummary(scope: QueueAggregateTab = aggregateTab, append = false) {
+    const currentPage = summaryPages[scope];
+    if (append && (!currentPage.hasMore || summaryLoading)) return;
+    const offset = append ? currentPage.offset + currentPage.limit : 0;
+    const requestSeq = summaryRequestSeqRef.current[scope] + 1;
+    summaryRequestSeqRef.current[scope] = requestSeq;
+    summaryPendingRef.current += 1;
     setSummaryLoading(true);
+    if (!append) setSummaryErrors((current) => ({ ...current, [scope]: null }));
     try {
-      const response = await fetch('/api/publications/summary', { cache: 'no-store' });
-      if (!response.ok) return;
-      const payload = await response.json() as QueueSummary;
-      setSummary(payload);
+      const params = new URLSearchParams({ scope, limit: String(currentPage.limit), offset: String(offset) });
+      const response = await fetch(`/api/publications/summary?${params.toString()}`, { cache: 'no-store' });
+      const payload = await response.json() as {
+        snapshotAt?: string | null;
+        totals?: QueueSummary['totals'];
+        rows?: QueueSummary['accounts'];
+        page?: QueueSummaryPage;
+        error?: string;
+      };
+      if (!response.ok || !payload.totals || !payload.page || !Array.isArray(payload.rows)) {
+        throw new Error(payload.error ?? 'Não foi possível carregar o resumo da fila.');
+      }
+      if (summaryRequestSeqRef.current[scope] !== requestSeq) return;
+      setSummary((current) => {
+        const previous = current ?? {
+          snapshotAt: null,
+          totals: payload.totals!,
+          accounts: [],
+          batches: [],
+          groups: [],
+        };
+        const key = scope === 'account' ? 'accounts' : scope === 'batch' ? 'batches' : 'groups';
+        const existingRows = append ? previous[key] : [];
+        const byId = new Map(existingRows.map((row) => [row.id, row]));
+        payload.rows!.forEach((row) => byId.set(row.id, row));
+        return {
+          ...previous,
+          snapshotAt: payload.snapshotAt ?? null,
+          totals: payload.totals!,
+          [key]: [...byId.values()],
+        };
+      });
+      setSummaryPages((current) => ({ ...current, [scope]: payload.page! }));
+      setSummaryLoadedScopes((current) => ({ ...current, [scope]: true }));
+      setSummaryErrors((current) => ({ ...current, [scope]: null }));
+    } catch (error) {
+      if (summaryRequestSeqRef.current[scope] === requestSeq) {
+        setSummaryErrors((current) => ({
+          ...current,
+          [scope]: error instanceof Error ? error.message : 'Não foi possível carregar o resumo da fila.',
+        }));
+      }
     } finally {
-      setSummaryLoading(false);
+      summaryPendingRef.current = Math.max(0, summaryPendingRef.current - 1);
+      if (summaryPendingRef.current === 0) setSummaryLoading(false);
+    }
+  }
+
+  async function refreshPausedBatches() {
+    try {
+      const response = await fetch('/api/publications/paused-batches', { cache: 'no-store' });
+      if (!response.ok) return;
+      const payload = await response.json() as PausedPublicationBatchSummary;
+      setPausedBatches({
+        snapshotAt: payload.snapshotAt ?? null,
+        total: Number(payload.total ?? 0),
+        blockedItems: Number(payload.blockedItems ?? 0),
+        batches: Array.isArray(payload.batches) ? payload.batches : [],
+      });
+    } catch {
+      // O alerta preserva o ultimo snapshot valido; falha de rede nao apaga
+      // uma pausa ja visivel nem interfere na fila.
     }
   }
 
@@ -132,31 +218,40 @@ export function usePublicationQueue({
     }
   }
 
-  async function refreshAll(force = false) {
-    await Promise.all([refreshQueue(false, force), refreshGenerationJobs(), refreshSummary()]);
+  async function refreshAll(_force = false) {
+    await Promise.all([refreshGenerationJobs(), refreshSummary(aggregateTab), refreshPausedBatches()]);
   }
 
   useEffect(() => {
-    void refreshAll(true);
-  // A tela /queue carrega a fila ao abrir, sem depender de compositor ou mídia da galeria.
+    void Promise.all([refreshGenerationJobs(), refreshPausedBatches()]);
+  // Jobs e alertas sao independentes da pagina agregada ativa.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem('athena.queue.cancellation-operation');
+    void refreshSummary(aggregateTab);
+  // Cada aba busca somente a sua primeira pagina; nenhum item detalhado e carregado.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aggregateTab]);
+
+  useEffect(() => {
+    // A chave antiga não era isolada por organização e podia fazer uma operação
+    // já encerrada em outra conta reaparecer como se ainda estivesse rodando.
+    window.localStorage.removeItem('athena.queue.cancellation-operation');
+    const saved = window.localStorage.getItem(cancellationStorageKey);
     if (!saved) return;
     try {
       const operation = JSON.parse(saved) as QueueCancellationOperation;
       if (operation?.id) setCancellationOperation(operation);
     } catch {
-      window.localStorage.removeItem('athena.queue.cancellation-operation');
+      window.localStorage.removeItem(cancellationStorageKey);
     }
-  }, []);
+  }, [cancellationStorageKey]);
 
   function persistCancellationOperation(operation: QueueCancellationOperation | null) {
     setCancellationOperation(operation);
-    if (!operation) window.localStorage.removeItem('athena.queue.cancellation-operation');
-    else window.localStorage.setItem('athena.queue.cancellation-operation', JSON.stringify(operation));
+    if (!operation) window.localStorage.removeItem(cancellationStorageKey);
+    else window.localStorage.setItem(cancellationStorageKey, JSON.stringify(operation));
   }
 
   useEffect(() => {
@@ -184,6 +279,22 @@ export function usePublicationQueue({
   // O polling é ligado/desligado pelo conjunto atual de jobs ativos.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [generationJobs]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void refreshPausedBatches();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 10_000);
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  // Consulta leve e independente de jobs para nunca esconder uma pausa operacional.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const visibleBatches = batches.map((batch) => ({
     ...batch,
@@ -425,7 +536,10 @@ export function usePublicationQueue({
 
   async function resumeCancellationOperation() {
     if (!cancellationOperation || cancellationOperation.status !== 'running') return;
-    await runCancellation(cancellationOperation);
+    // A primeira execução pode ter sido interrompida por timeout/rede. Reusar a
+    // mesma chave idempotente retoma a mutação; a RPC serializa concorrência e
+    // devolve imediatamente se outra tentativa já a concluiu.
+    await runCancellation(cancellationOperation, true);
   }
 
   function dismissCancellationOperation() {
@@ -468,33 +582,6 @@ export function usePublicationQueue({
     }
   }
 
-  async function acknowledgeFailures(batchId: string, itemIds: string[] = []) {
-    if (!canManage) return;
-    const scope = batchId ? 'deste lote' : `${itemIds.length} falha(s) visível(eis)`;
-    if (!window.confirm(`Confirmar e ocultar ${scope}? O histórico e os itens com falha serão preservados.`)) return;
-    setMessage('');
-    const actionId = `failures:${batchId || 'visible'}`;
-    setQueueActionId(actionId);
-    try {
-      const response = await fetch('/api/publications/queue-actions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'acknowledge_failures', batchId: batchId || undefined, itemIds: batchId ? undefined : itemIds }),
-      });
-      const payload = await response.json() as { acknowledged?: number; acknowledgedItemIds?: string[]; error?: string };
-      if (!response.ok) {
-        setMessage(payload.error ?? 'Não foi possível confirmar as falhas.');
-        return;
-      }
-      setMessage(`${payload.acknowledged ?? 0} falha(s) confirmada(s). Os indicadores ativos foram atualizados; o histórico foi preservado.`);
-      await refreshAll(true);
-    } catch {
-      setMessage('Não foi possível conectar ao servidor.');
-    } finally {
-      setQueueActionId(null);
-    }
-  }
-
   async function cancelGenerationJob(job: PublicationGenerationJob) {
     if (!canManage || !cancelableGenerationJobStatuses.has(job.status)) return;
     if (!window.confirm('Cancelar este agendamento grande? Chunks pendentes serão interrompidos e publicações já geradas que ainda não foram publicadas serão canceladas.')) return;
@@ -519,8 +606,7 @@ export function usePublicationQueue({
       }
 
       setGenerationJobs((current) => current.map((candidate) => candidate.id === job.id ? { ...candidate, ...payload.job! } : candidate));
-      await refreshQueue(false, true);
-      void refreshSummary();
+      await refreshSummary();
       setMessage(`Job grande cancelado. ${payload.cancelledItems ?? 0} publicação(ões) cancelada(s); ${payload.preservedItems ?? 0} já estavam encerrada(s) e foram mantidas.`);
     } catch {
       setMessage('Não foi possível conectar ao servidor.');
@@ -529,32 +615,56 @@ export function usePublicationQueue({
     }
   }
 
-  async function runQueueAction(action: 'process' | 'release_stuck' | 'clear_completed') {
-    if (!canManage && action !== 'clear_completed') return;
-    if (action === 'clear_completed') {
-      const completedCount = summary?.totals.ok ?? 0;
-      if (!completedCount || !window.confirm(`Arquivar ${completedCount} publicação(ões) concluída(s)? Elas sairão da fila operacional, mas o histórico será preservado.`)) return;
-    }
+  async function cleanFinished() {
+    if (!canManage) return;
+    const completedCount = summary?.totals.ok ?? 0;
+    const failureCount = summary?.totals.errors ?? 0;
+    const closedCount = summary?.totals.closed ?? 0;
+    const cleanableCount = completedCount + failureCount + closedCount;
+    if (!cleanableCount || !window.confirm(`Limpar ${cleanableCount} publicação(ões) encerrada(s) da fila? Isso inclui publicadas, canceladas e falhas. O histórico será preservado.`)) return;
     setMessage('');
-    setQueueActionId(`queue:${action}`);
+    setQueueActionId('queue:clean_finished');
     try {
-      const response = await fetch('/api/publications/queue-actions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
-      });
-      const payload = await response.json() as { claimed?: number; released?: number; archived?: number; message?: string; error?: string };
-      if (!response.ok) {
-        setMessage(payload.error ?? 'Não foi possível executar a ação da fila.');
-        return;
-      }
-      if (action === 'clear_completed') {
-        setMessage(payload.message ?? `${payload.archived ?? 0} item(ns) concluído(s) arquivado(s).`);
-      } else if (action === 'release_stuck') {
-        setMessage(`${payload.released ?? 0} item(ns) travado(s) liberado(s).`);
-      } else {
-        setMessage(`${payload.claimed ?? 0} item(ns) enviado(s) para processamento manual.`);
-      }
+      let archivedCompleted = 0;
+      let archivedFailures = 0;
+      let remaining = cleanableCount;
+      let capacityWaits = 0;
+      do {
+        const response = await fetch('/api/publications/queue-actions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'clean_finished' }),
+        });
+        const payload = await response.json() as { archivedCompleted?: number; archivedFailures?: number; remaining?: number; busy?: boolean; error?: string };
+        if (!response.ok) {
+          const partial = archivedCompleted + archivedFailures;
+          setMessage(`${payload.error ?? 'Não foi possível limpar todas as publicações encerradas.'}${partial ? ` ${partial.toLocaleString('pt-BR')} item(ns) já foram arquivados com segurança.` : ''}`);
+          return;
+        }
+        if (payload.busy) {
+          capacityWaits += 1;
+          if (capacityWaits >= 120) {
+            setMessage('A limpeza ficou aguardando capacidade por dois minutos. Nada foi perdido; tente novamente quando as tarefas pesadas atuais avançarem.');
+            return;
+          }
+          setMessage('A limpeza está aguardando capacidade para não sobrecarregar publicações, sincronização e o painel.');
+          await new Promise((resolve) => window.setTimeout(resolve, 1000));
+          continue;
+        }
+        capacityWaits = 0;
+        archivedCompleted += payload.archivedCompleted ?? 0;
+        archivedFailures += payload.archivedFailures ?? 0;
+        remaining = payload.remaining ?? 0;
+        if (remaining > 0 && (payload.archivedCompleted ?? 0) + (payload.archivedFailures ?? 0) === 0) {
+          setMessage(`A limpeza foi pausada porque outro processo está alterando os itens encerrados. ${remaining.toLocaleString('pt-BR')} item(ns) ainda precisam ser limpos; tente novamente em instantes.`);
+          return;
+        }
+        if (remaining > 0) {
+          setMessage(`Limpando em blocos… ${(archivedCompleted + archivedFailures).toLocaleString('pt-BR')} arquivada(s), ${remaining.toLocaleString('pt-BR')} restante(s).`);
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+        }
+      } while (remaining > 0);
+      setMessage(`Fila limpa: ${archivedCompleted.toLocaleString('pt-BR')} concluída(s)/cancelada(s) e ${archivedFailures.toLocaleString('pt-BR')} falha(s) arquivada(s). O histórico foi preservado.`);
       await refreshAll(true);
     } catch {
       setMessage('Não foi possível conectar ao servidor.');
@@ -607,11 +717,16 @@ export function usePublicationQueue({
     generationJobsLoading,
     generationJobActionId,
     summary,
+    summaryPages,
+    summaryLoadedScopes,
+    summaryErrors,
+    pausedBatches,
     summaryLoading,
     cancellationOperation,
     refreshQueue,
     refreshGenerationJobs,
     refreshSummary,
+    refreshPausedBatches,
     refreshAll,
     handleQueueAction,
     resumeBatchProfile,
@@ -621,9 +736,8 @@ export function usePublicationQueue({
     cancelScope,
     resumeCancellationOperation,
     dismissCancellationOperation,
-    acknowledgeFailures,
     cancelGenerationJob,
-    runQueueAction,
+    cleanFinished,
     clearFilters,
     openPublicationDetails,
   };

@@ -25,6 +25,7 @@ export async function POST(request: Request) {
       schedule: review.schedule,
       typeBreakdown: review.typeBreakdown,
       warnings: review.warnings,
+      dispatchPolicy: review.dispatchPolicy,
       name: review.name,
     });
   } catch (error) {

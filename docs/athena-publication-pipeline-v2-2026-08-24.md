@@ -69,3 +69,53 @@
 - 9 criações confirmadas remotamente como `failed` foram marcadas `ignored` com evento de auditoria.
 - 5 resultados desconhecidos sem `creation_id` foram pesquisados por conta, horário e mídia; nenhum match remoto foi encontrado, então foram marcados `ignored` com evento de auditoria.
 - Estado verificado após a reconciliação: 6.755 `waiting`, 2.170 `published`, 339 `ignored` e zero `failed`.
+
+## Entrega resiliente de mídia Zernio
+
+Em 24/08/2026, a esteira passou a preparar o arquivo na hospedagem de mídia da
+Zernio dentro da janela móvel de 24 horas, sem criar ou agendar post remoto.
+
+- migrations `273`, `274` e `275` persistem uma única mídia preparada por
+  organização/arquivo, com lease, validade e metadados da sonda;
+- a sonda de vídeo sempre executa `GET Range` no início e no fim do arquivo;
+- itens já agendados entram na mesma preparação e arquivos repetidos são
+  compartilhados entre os perfis;
+- até quatro arquivos distintos são transferidos em paralelo e falhas de rede
+  transitórias recebem até três tentativas antes de bloquear a preparação;
+- itens que compartilham mídia já pronta são promovidos em páginas
+  transacionais, sem milhares de leituras externas repetidas;
+- falha confirmada de download pode renovar a mídia, atualizar o mesmo
+  `postId` e chamar o retry oficial uma única vez dentro de dez minutos;
+- `creation_id` nunca é limpo nesse fluxo e nenhuma segunda criação é enviada;
+- classificadores de desconexão Zernio e Meta permanecem inalterados.
+
+Validação e produção:
+
+- 32 testes do dispatcher aprovados, incluindo 1.000 itens simultâneos com uma
+  única preparação de arquivo;
+- TypeScript e build Next.js aprovados;
+- migrations `273`, `274` e `275` aplicadas no Supabase remoto;
+- worker `athena-publication-worker` reiniciado isoladamente e online;
+- janela inicial concluída com 16.623 itens ativos prontos, zero pendente, zero
+  preparando, zero bloqueado e 522 mídias compartilhadas hospedadas;
+- hash implantado do dispatcher:
+  `0db459b760ab504a4860fff01275fb71d39d5c4b3c7c566b3733cf5246694a16`;
+- backup remoto mais recente:
+  `/opt/athena-worker/scripts/workers/publication-direct-dispatch.mjs.backup-20260825T0305Z`.
+
+## Reversão da hospedagem antecipada — 27/08/2026
+
+A preparação local de 24 horas foi preservada, mas a hospedagem antecipada e o
+cache compartilhado de mídia na Zernio foram retirados do caminho ativo. O
+compartilhamento da mesma URL física entre publicações provocou recusas de
+conteúdo duplicado e acrescentar um parâmetro à URL não alterou a identidade
+considerada pelo provedor.
+
+- preparação valida perfil, conexão, formato, mídia e capa somente no banco;
+- nenhum byte é lido ou transferido durante a preparação;
+- no despacho, uma URL assinada fresca do Supabase é sondada e enviada direto à Zernio;
+- `zernio_prepared_media` e as RPCs das migrations 273–275 permanecem apenas
+  como legado inativo durante o rollout, sem remoção destrutiva;
+- falha de download renova a URL no mesmo `postId`, sem segunda criação;
+- itens com `creation_id` continuam elegíveis à reconciliação em lote pausado;
+- duplicidade explícita fica isolada no item e não alimenta o circuit breaker do lote.

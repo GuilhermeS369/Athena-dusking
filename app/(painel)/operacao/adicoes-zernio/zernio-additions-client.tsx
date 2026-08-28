@@ -61,7 +61,7 @@ export default function ZernioAdditionsClient({ organizationName }: { organizati
     }
 
     void loadAdditions();
-    const interval = window.setInterval(() => void loadAdditions(), 4000);
+    const interval = window.setInterval(() => { if (document.visibilityState === 'visible') void loadAdditions(); }, 4000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);

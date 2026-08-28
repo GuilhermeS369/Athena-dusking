@@ -1,0 +1,41 @@
+.catalogMessage {
+  max-width: 1180px;
+  margin: 0 auto 18px;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 1180px;
+  margin: 18px auto 0;
+  padding: 14px 18px;
+}
+
+.pagination > span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pagination > div {
+  display: flex;
+  gap: 10px;
+}
+
+.profileCard {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 460px;
+}
+
+@media (max-width: 560px) {
+  .pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pagination > div {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}

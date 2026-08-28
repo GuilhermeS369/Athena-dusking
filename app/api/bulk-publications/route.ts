@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { summarizeBulkPlanAttention, type BulkPlanAttentionChunk } from '@/lib/bulk-plan-attention';
 import { getOrganizationContext } from '@/lib/organizations/server';
+import { deriveBulkOperationalStatus } from '@/lib/publications/bulk-horizon-status';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -22,7 +23,7 @@ export async function GET(request: Request) {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from('bulk_publication_plans')
-    .select('id, batch_id, name, status, format, profile_count, media_count, slots_per_profile, expected_publications, generated_publications, suspended_publications, ignored_publications, failed_publications, expected_chunks, created_by_email, created_at, updated_at, bulk_publication_plan_profiles(first_execute_at, last_execute_at), bulk_publication_generation_chunks(profile_id, status, slot_count, generated_items, ignored_items, failed_items, last_error_message, instagram_profiles(username, status, deleted_at))')
+    .select('id, batch_id, name, status, format, interval_minutes, profile_count, media_count, slots_per_profile, expected_publications, generated_publications, suspended_publications, ignored_publications, failed_publications, expected_chunks, created_by_email, created_at, updated_at, bulk_publication_plan_profiles(id, schedule_base_at, first_execute_at, last_execute_at), bulk_publication_generation_chunks(plan_profile_id, profile_id, status, slot_start, slot_count, next_slot_index, retry_exhausted_at, generated_items, ignored_items, failed_items, last_error_message, instagram_profiles(username, status, deleted_at))')
     .eq('organization_id', context.activeOrganization.id)
     .order('updated_at', { ascending: false })
     .limit(listLimit(new URL(request.url).searchParams.get('limit')));
@@ -35,6 +36,19 @@ export async function GET(request: Request) {
   const plans = (data ?? []).map((plan) => {
     const profiles = plan.bulk_publication_plan_profiles ?? [];
     const chunks = plan.bulk_publication_generation_chunks ?? [];
+    const scheduleBaseByProfilePlan = new Map(profiles.map((profile) => [profile.id, profile.schedule_base_at]));
+    const operational = deriveBulkOperationalStatus({
+      planStatus: plan.status,
+      intervalMinutes: plan.interval_minutes,
+      chunks: chunks.map((chunk) => ({
+        status: chunk.status,
+        slotStart: chunk.slot_start,
+        slotCount: chunk.slot_count,
+        nextSlotIndex: chunk.next_slot_index,
+        retryExhaustedAt: chunk.retry_exhausted_at,
+        scheduleBaseAt: scheduleBaseByProfilePlan.get(chunk.plan_profile_id) ?? null,
+      })),
+    });
     const chunkCounts = chunks.reduce<Record<string, bigint>>((counts, chunk) => {
       counts[chunk.status] = (counts[chunk.status] ?? BigInt(0)) + BigInt(1);
       return counts;
@@ -46,6 +60,9 @@ export async function GET(request: Request) {
       batchId: plan.batch_id,
       name: plan.name,
       status: plan.status,
+      operationalStatus: operational.status,
+      eligibleChunks: operational.eligibleChunks,
+      nextHorizonRefreshAt: operational.nextHorizonRefreshAt,
       format: plan.format,
       profileCount: String(plan.profile_count),
       mediaCount: String(plan.media_count),

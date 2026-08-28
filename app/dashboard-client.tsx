@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 
 import type { DashboardData } from '@/lib/dashboard/server';
 import { buildDailyMetricTimeSeries, dailyMetricRanking, dailyMetricValue, dashboardPeriodRange, filterDailyMetricsForPeriod, sumDailyMetrics, type DashboardMetric } from '@/lib/dashboard/analytics-period';
 import type { DashboardV2Analytics, DashboardV2Section, DashboardV2TopPost } from '@/lib/dashboard/v2-types';
+import twitterStyles from './x/twitter-dashboard.module.css';
 
 type Organization = {
   id: string;
@@ -17,6 +18,22 @@ type Organization = {
 
 type RefreshJobSummary = { job_id: string; status: string; total_count: number; reason: string };
 type RefreshJobStatus = { status: string; total_count: number; processed_count: number; synced_count: number; partial_count: number; failed_count: number; last_error_message: string | null };
+type TwitterMetric = 'impressions' | 'views' | 'likes' | 'comments' | 'shares' | 'engagement';
+type TwitterDashboardData = {
+  summary: { followers: number; followerDelta: number; impressions: number; views: number; likes: number; comments: number; shares: number; engagement: number; engagementRate: number; posts: number; lastCapturedAt: string | null };
+  coverage: { eligibleProfiles: number; disabledProfiles: number; profilesWithData: number; missingProfiles: number; pendingD1: number; pendingD7: number; pendingD30: number };
+  followerSeries: Array<{ date: string; followers: number }>;
+  ranking: Array<{ profileId: string; username: string; displayName: string | null; avatarUrl: string | null; value: number; followers: number }>;
+  topPosts: Array<{ publicationItemId: string; profileId: string; username: string; publishedAt: string | null; content: string; url: string | null; impressions: number; views: number; likes: number; comments: number; shares: number; engagement: number; value: number }>;
+  filters: {
+    connections: Array<{ id: string; label: string; analytics_enabled: boolean; status: string }>;
+    profiles: Array<{ id: string; username: string; display_name: string | null; current_connection_id: string | null }>;
+    groups: Array<{ id: string; name: string }>;
+  };
+  pagination: { page: number; limit: number; totalTopPosts: number };
+  source: 'typed_projections' | 'local_snapshots';
+  metric: TwitterMetric;
+};
 
 export default function DashboardClient({
   activeOrganization,
@@ -41,19 +58,31 @@ export default function DashboardClient({
   const [v2TopPosts, setV2TopPosts] = useState<DashboardV2TopPost[]>([]);
   const [v2Loading, setV2Loading] = useState(data.version === 'v2');
   const [v2Error, setV2Error] = useState('');
-  const [twitterLocal, setTwitterLocal] = useState<{ snapshots: Array<{ captured_at: string;resource_type:string }>; jobs: Array<{ status: string }> } | null>(null);
-  const [twitterLocalError,setTwitterLocalError]=useState('');
+  const [analyticsRevision, setAnalyticsRevision] = useState(0);
+  const pendingRefreshMessageRef = useRef<string | null>(null);
+  const [twitterDashboard, setTwitterDashboard] = useState<TwitterDashboardData | null>(null);
+  const [twitterLoading, setTwitterLoading] = useState(false);
+  const [twitterLocalError, setTwitterLocalError] = useState('');
+  const [twitterConnectionId, setTwitterConnectionId] = useState('all');
+  const [twitterMetric, setTwitterMetric] = useState<TwitterMetric>('engagement');
 
   useEffect(() => {
     if (selectedPlatform !== 'twitter' || !twitterEnabled) return;
     const controller = new AbortController();
+    const range = dashboardPeriodRange(selectedPeriod);
+    const params = new URLSearchParams({ start: range.startDate, end: range.endDate, metric: twitterMetric });
+    if (twitterConnectionId !== 'all') params.set('connectionId', twitterConnectionId);
+    if (selectedProfileId !== 'all') params.set('profileId', selectedProfileId);
+    if (selectedGroupId !== 'all') params.set('groupId', selectedGroupId);
+    setTwitterLoading(true);
     setTwitterLocalError('');
-    void fetch('/api/x/analytics/snapshots', { cache: 'no-store', signal: controller.signal })
-      .then(async(response) => {const payload=await response.json().catch(()=>({})) as {snapshots?:Array<{captured_at:string;resource_type:string}>;jobs?:Array<{status:string}>;error?:string};if(!response.ok)throw new Error(payload.error??'Snapshots X indisponíveis.');return{snapshots:payload.snapshots??[],jobs:payload.jobs??[]};})
-      .then((payload) => setTwitterLocal(payload))
-      .catch((error:unknown) => {if(!controller.signal.aborted)setTwitterLocalError(error instanceof Error?error.message:'Snapshots X indisponíveis.');});
+    void fetch(`/api/x/analytics/dashboard?${params}`, { cache: 'no-store', signal: controller.signal })
+      .then(async (response) => { const payload = await response.json().catch(() => ({})) as TwitterDashboardData & { error?: string }; if (!response.ok) throw new Error(payload.error ?? 'Dashboard X indisponível.'); return payload; })
+      .then((payload) => setTwitterDashboard(payload))
+      .catch((error: unknown) => { if (!controller.signal.aborted) setTwitterLocalError(error instanceof Error ? error.message : 'Dashboard X indisponível.'); })
+      .finally(() => { if (!controller.signal.aborted) setTwitterLoading(false); });
     return () => controller.abort();
-  }, [selectedPlatform,twitterEnabled]);
+  }, [selectedGroupId, selectedPeriod, selectedPlatform, selectedProfileId, twitterConnectionId, twitterEnabled, twitterMetric]);
 
   async function requestMetricsRefresh(trigger: 'page_view' | 'manual') {
     try {
@@ -113,9 +142,16 @@ export default function DashboardClient({
       if (!['completed', 'completed_with_errors', 'failed', 'cancelled'].includes(job.status)) return;
       setActiveRefreshJobId(null);
       if (job.status === 'completed' || job.status === 'completed_with_errors') {
-        setRefreshMessage(job.failed_count > 0
+        const completionMessage = job.failed_count > 0
           ? `Métricas atualizadas; ${job.failed_count} perfil(is) mantiveram o último dado válido.`
-          : 'Métricas atualizadas agora.');
+          : 'Métricas atualizadas agora.';
+        if (data.version === 'v2') {
+          pendingRefreshMessageRef.current = completionMessage;
+          setRefreshMessage('Coleta concluída; carregando os novos indicadores…');
+          setAnalyticsRevision((revision) => revision + 1);
+        } else {
+          setRefreshMessage(completionMessage);
+        }
         router.refresh();
       } else {
         setRefreshMessage(job.last_error_message ?? 'A atualização falhou; exibindo o último dado válido.');
@@ -127,7 +163,7 @@ export default function DashboardClient({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [activeRefreshJobId, router]);
+  }, [activeRefreshJobId, data.version, router]);
 
   useEffect(() => {
     if (data.version !== 'v2' || selectedPlatform !== 'instagram') { setV2Loading(false); return; }
@@ -137,13 +173,14 @@ export default function DashboardClient({
       end: dashboardPeriodRange(selectedPeriod).endDate,
       metric: selectedMetric,
     });
+    if (analyticsRevision > 0) params.set('_refresh', String(analyticsRevision));
     if (selectedProfileId !== 'all') params.set('profileId', selectedProfileId);
     if (selectedGroupId !== 'all') params.set('groupId', selectedGroupId);
     if (selectedSource !== 'all') params.set('provider', selectedSource);
 
     setV2Loading(true);
     setV2Error('');
-    fetch(`/api/dashboard/analytics-v2?${params}`, { signal: controller.signal })
+    fetch(`/api/dashboard/analytics-v2?${params}`, { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
         const payload = await response.json().catch(() => ({})) as {
           analytics?: DashboardV2Section<DashboardV2Analytics>;
@@ -153,6 +190,10 @@ export default function DashboardClient({
         if (!response.ok || !payload.analytics?.data) throw new Error(payload.error ?? 'Analytics indisponível.');
         setV2Analytics(payload.analytics.data);
         setV2TopPosts(payload.topPosts?.data ?? []);
+        if (pendingRefreshMessageRef.current) {
+          setRefreshMessage(pendingRefreshMessageRef.current);
+          pendingRefreshMessageRef.current = null;
+        }
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -162,7 +203,7 @@ export default function DashboardClient({
         if (!controller.signal.aborted) setV2Loading(false);
       });
     return () => controller.abort();
-  }, [data.version, selectedGroupId, selectedMetric, selectedPeriod, selectedPlatform, selectedProfileId, selectedSource]);
+  }, [analyticsRevision, data.version, selectedGroupId, selectedMetric, selectedPeriod, selectedPlatform, selectedProfileId, selectedSource]);
 
   const filteredProfiles = useMemo(() => data.analytics.profiles.filter((profile) => {
     if (selectedProfileId !== 'all' && profile.id !== selectedProfileId) return false;
@@ -280,6 +321,12 @@ export default function DashboardClient({
   const effectiveTopPost = effectiveTopPosts[0];
   const effectiveStatusRollups = v2Analytics?.publication_status;
   const effectiveFormatRollups = v2Analytics?.publication_format;
+  const v2CoverageWarning = v2Analytics && (
+    v2Analytics.coverage.profiles_with_metrics < v2Analytics.coverage.selected_profiles
+    || v2Analytics.coverage.last_metric_date !== periodRange.endDate
+  )
+    ? `Cobertura parcial: ${v2Analytics.coverage.profiles_with_metrics}/${v2Analytics.coverage.selected_profiles} perfis com métricas; última data disponível ${v2Analytics.coverage.last_metric_date ?? 'indisponível'}.`
+    : '';
 
   return (
     <section className="analytics-page">
@@ -295,18 +342,20 @@ export default function DashboardClient({
       </header>
 
       {refreshMessage && <div className="analytics-refresh-status" role="status">{refreshMessage}</div>}
+      {selectedPlatform === 'instagram' && data.version === 'v1' && <div className="analytics-refresh-status" role="alert">Analytics em modo de contingência. Os dias mais recentes permanecem visíveis, mas períodos extensos podem ter cobertura parcial.</div>}
       {selectedPlatform === 'instagram' && data.version === 'v2' && v2Loading && <div className="analytics-refresh-status" role="status">Carregando agregados do filtro…</div>}
       {selectedPlatform === 'instagram' && data.version === 'v2' && v2Error && <div className="analytics-refresh-status" role="alert">{v2Error} O resumo operacional continua disponível.</div>}
+      {selectedPlatform === 'instagram' && data.version === 'v2' && v2CoverageWarning && <div className="analytics-refresh-status" role="status">{v2CoverageWarning}</div>}
 
       <section className="analytics-filter-panel analytics-filter-panel-compact panel" aria-label="Filtros de analytics">
-        <label>Plataforma<select value={selectedPlatform} onChange={(event) => setSelectedPlatform(event.target.value)}><option value="instagram">Instagram</option>{twitterEnabled?<option value="twitter">X / Twitter</option>:null}</select></label>
+        <label>Plataforma<select value={selectedPlatform} onChange={(event) => { setSelectedPlatform(event.target.value); setSelectedProfileId('all'); setSelectedGroupId('all'); setTwitterConnectionId('all'); }}><option value="instagram">Instagram</option>{twitterEnabled?<option value="twitter">X / Twitter</option>:null}</select></label>
         {selectedPlatform==='instagram'?<><label>Perfil<select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}><option value="all">Todos os perfis</option>{data.analytics.profiles.map((profile) => <option key={profile.id} value={profile.id}>@{profile.username}</option>)}</select></label>
         <label>Fonte<select value={selectedSource} onChange={(event) => setSelectedSource(event.target.value)}><option value="all">Todas as fontes</option><option value="meta_official">API oficial</option><option value="zernio">Integração externa</option></select></label>
         <label>Grupo<select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)}><option value="all">Todos os grupos</option>{data.analytics.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-        <label>Período<select value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}><option value="1">Hoje</option><option value="2">Ontem</option><option value="3">Anteontem</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="180">Últimos 6 meses</option><option value="365">Último ano</option></select></label></>:<p className="muted">O X mostra somente snapshots já comprados manualmente.</p>}
+        <label>Período<select value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}><option value="1">Hoje</option><option value="2">Ontem</option><option value="3">Anteontem</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="180">Últimos 6 meses</option><option value="365">Último ano</option></select></label></>:<><label>Zernio<select value={twitterConnectionId} onChange={(event) => { setTwitterConnectionId(event.target.value); setSelectedProfileId('all'); }}><option value="all">Todas as Zernios</option>{twitterDashboard?.filters.connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.label}{connection.analytics_enabled ? '' : ' · desligada'}</option>)}</select></label><label>Perfil<select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}><option value="all">Todos os perfis</option>{twitterDashboard?.filters.profiles.map((profile) => <option key={profile.id} value={profile.id}>@{profile.username}</option>)}</select></label><label>Grupo<select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)}><option value="all">Todos os grupos</option>{twitterDashboard?.filters.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><label>Período<select value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="180">Últimos 6 meses</option><option value="365">Último ano</option></select></label><label>Métrica<select value={twitterMetric} onChange={(event) => setTwitterMetric(event.target.value as TwitterMetric)}><option value="engagement">Engajamento</option><option value="impressions">Impressões</option><option value="views">Visualizações</option><option value="likes">Curtidas</option><option value="comments">Comentários</option><option value="shares">Compartilhamentos</option></select></label></>}
       </section>
 
-      {selectedPlatform === 'twitter' ? <section className="panel"><h2>Snapshots locais do X</h2><p>O Dashboard não consulta a Zernio nem o X automaticamente. Para selecionar recursos, revisar o custo e gerar novos snapshots locais, abra Análises X.</p>{twitterLocalError?<p className="field-error-message" role="alert">{twitterLocalError}</p>:null}<div className="summary-grid"><div><span>Snapshots de posts</span><strong>{twitterLocal?.snapshots.filter((snapshot)=>snapshot.resource_type==='post').length??0}</strong></div><div><span>Snapshots de perfis</span><strong>{twitterLocal?.snapshots.filter((snapshot)=>snapshot.resource_type==='profile').length??0}</strong></div><div><span>Jobs recentes</span><strong>{twitterLocal?.jobs.length ?? 0}</strong></div><div><span>Última coleta</span><strong>{twitterLocal?.snapshots[0]?.captured_at ? new Date(twitterLocal.snapshots[0].captured_at).toLocaleString('pt-BR') : '—'}</strong></div></div><button className="button button-primary" type="button" onClick={() => window.location.assign('/x/analises')}>Abrir Análises X</button></section> : <><section className="analytics-kpi-strip" aria-label="Indicadores de análise de postagens">
+      {selectedPlatform === 'twitter' ? <TwitterDashboard dashboard={twitterDashboard} loading={twitterLoading} error={twitterLocalError} metric={twitterMetric} period={periodLabel(periodDays)} /> : <><section className="analytics-kpi-strip" aria-label="Indicadores de análise de postagens">
         <KpiCard label="Taxa de engajamento" value={`${effectiveEngagementRate.toFixed(1)}%`} />
         <KpiCard label="Alcance total" value={formatCompact(effectiveDailyTotals.reach)} icon="◉" />
         <KpiCard label="Seguidores totais" value={formatCompact(effectiveFollowersTotal)} icon="♙" caption={`${effectiveFollowersDelta >= 0 ? '+' : ''}${formatCompact(effectiveFollowersDelta)} no período`} />
@@ -356,6 +405,56 @@ export default function DashboardClient({
       </>}
     </section>
   );
+}
+
+function TwitterDashboard({ dashboard, loading, error, metric, period }: { dashboard: TwitterDashboardData | null; loading: boolean; error: string; metric: TwitterMetric; period: string }) {
+  if (loading && !dashboard) return <section className={twitterStyles.loading} role="status"><span /><strong>Carregando analytics locais do X…</strong><p>Consolidando projeções, cobertura e rankings.</p></section>;
+  if (error) return <section className={twitterStyles.error} role="alert"><strong>Não foi possível carregar a dashboard X</strong><p>{error}</p><button className="button button-ghost" type="button" onClick={() => window.location.reload()}>Tentar novamente</button></section>;
+  if (!dashboard) return null;
+  const { summary, coverage } = dashboard;
+  const coverageTotal = coverage.eligibleProfiles + coverage.disabledProfiles;
+  const coveragePercent = coverage.eligibleProfiles ? Math.round((coverage.profilesWithData / coverage.eligibleProfiles) * 100) : 0;
+  return <div className={twitterStyles.dashboard} aria-busy={loading}>
+    {loading && <div className={twitterStyles.refreshing} role="status">Atualizando o filtro…</div>}
+    <section className={twitterStyles.notice}><div><span>Dados exclusivamente locais</span><p>Filtros e gráficos usam somente métricas já armazenadas. Nenhuma consulta paga é feita nesta tela.</p></div><small>{summary.lastCapturedAt ? `Última coleta: ${new Date(summary.lastCapturedAt).toLocaleString('pt-BR')}` : 'Nenhuma coleta local'}</small></section>
+    <section className={twitterStyles.kpis} aria-label="Indicadores do X">
+      <TwitterKpi label="Seguidores" value={formatCompact(summary.followers)} detail={`${summary.followerDelta >= 0 ? '+' : ''}${formatCompact(summary.followerDelta)} no período`} />
+      <TwitterKpi label="Impressões" value={formatCompact(summary.impressions)} detail={`${summary.posts} posts com snapshot`} />
+      <TwitterKpi label="Visualizações" value={formatCompact(summary.views)} />
+      <TwitterKpi label="Curtidas" value={formatCompact(summary.likes)} />
+      <TwitterKpi label="Comentários" value={formatCompact(summary.comments)} />
+      <TwitterKpi label="Compartilhamentos" value={formatCompact(summary.shares)} />
+      <TwitterKpi label="Engajamento" value={formatCompact(summary.engagement)} detail={`${summary.engagementRate.toFixed(2)}% por impressão`} accent />
+    </section>
+    <section className={twitterStyles.grid}>
+      <article className={`${twitterStyles.card} ${twitterStyles.wide}`}><header><div><h2>Evolução de seguidores</h2><p>Total dos perfis no filtro · {period.toLowerCase()}</p></div></header><TwitterSeries points={dashboard.followerSeries} /></article>
+      <article className={twitterStyles.card}><header><div><h2>Cobertura dos dados</h2><p>{coveragePercent}% dos perfis elegíveis com dados</p></div></header><div className={twitterStyles.coverage}><div className={twitterStyles.ring} style={{ '--coverage': `${coveragePercent * 3.6}deg` } as React.CSSProperties}><strong>{coveragePercent}%</strong></div><dl><div><dt>Elegíveis</dt><dd>{coverage.eligibleProfiles}</dd></div><div><dt>Com dados</dt><dd>{coverage.profilesWithData}</dd></div><div><dt>Sem dados</dt><dd>{coverage.missingProfiles}</dd></div><div><dt>Desabilitados</dt><dd>{coverage.disabledProfiles}</dd></div></dl></div><small>{coverageTotal} perfis no escopo selecionado</small></article>
+      <article className={twitterStyles.card}><header><div><h2>Pendências de coleta</h2><p>Marcos de posts detectados localmente</p></div></header><div className={twitterStyles.milestones}><div><span>D+1</span><strong>{coverage.pendingD1}</strong></div><div><span>D+7</span><strong>{coverage.pendingD7}</strong></div><div><span>D+30</span><strong>{coverage.pendingD30}</strong></div></div><button className="button button-ghost" type="button" onClick={() => window.location.assign('/x/analises')}>Revisar coletas e custos</button></article>
+      <article className={`${twitterStyles.card} ${twitterStyles.wide}`}><header><div><h2>Ranking de perfis</h2><p>{twitterMetricLabel(metric)} · {period.toLowerCase()}</p></div></header>{dashboard.ranking.some((item) => item.value > 0) ? <div className={twitterStyles.ranking}>{dashboard.ranking.slice(0, 10).map((item, index) => <div key={item.profileId}><span>{index + 1}</span>{item.avatarUrl ? <img src={item.avatarUrl} alt="" /> : <i>@</i>}<div><strong>@{item.username}</strong><small>{item.displayName || `${formatCompact(item.followers)} seguidores`}</small></div><em>{formatCompact(item.value)}</em></div>)}</div> : <TwitterEmpty text={`Nenhum dado de ${twitterMetricLabel(metric).toLowerCase()} neste filtro.`} />}</article>
+      <article className={`${twitterStyles.card} ${twitterStyles.full}`}><header><div><h2>Posts com melhor desempenho</h2><p>Ordenados por {twitterMetricLabel(metric).toLowerCase()}</p></div></header>{dashboard.topPosts.length ? <div className={twitterStyles.tableWrap}><table><thead><tr><th>Post</th><th>Perfil</th><th>{twitterMetricLabel(metric)}</th><th>Impressões</th><th>Interações</th><th>Publicado</th><th /></tr></thead><tbody>{dashboard.topPosts.slice(0, 12).map((post) => <tr key={post.publicationItemId}><td><strong>{post.content.slice(0, 90) || 'Post no X'}</strong></td><td>@{post.username}</td><td><b>{formatCompact(post.value)}</b></td><td>{formatCompact(post.impressions)}</td><td>{formatCompact(post.engagement)}</td><td>{post.publishedAt ? new Date(post.publishedAt).toLocaleDateString('pt-BR') : '—'}</td><td>{post.url ? <a href={post.url} target="_blank" rel="noreferrer">Abrir ↗</a> : '—'}</td></tr>)}</tbody></table></div> : <TwitterEmpty text="Nenhum post com analytics local neste período." />}</article>
+    </section>
+  </div>;
+}
+
+function TwitterKpi({ label, value, detail, accent }: { label: string; value: string; detail?: string; accent?: boolean }) {
+  return <article className={accent ? twitterStyles.kpiAccent : undefined}><span>{label}</span><strong>{value}</strong><small>{detail ?? 'No período selecionado'}</small></article>;
+}
+
+function TwitterSeries({ points }: { points: TwitterDashboardData['followerSeries'] }) {
+  if (!points.length) return <TwitterEmpty text="O histórico aparecerá após uma coleta local de seguidores." />;
+  const values = points.map((point) => point.followers);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const spread = Math.max(1, max - min);
+  return <div className={twitterStyles.series}><div className={twitterStyles.seriesScale}><span>{formatCompact(max)}</span><span>{formatCompact(min)}</span></div><div className={twitterStyles.seriesBars}>{points.slice(-45).map((point) => <div key={point.date} title={`${new Date(`${point.date}T12:00:00`).toLocaleDateString('pt-BR')}: ${point.followers.toLocaleString('pt-BR')}`}><span style={{ height: `${12 + ((point.followers - min) / spread) * 88}%` }} /><small>{point.date.slice(5).replace('-', '/')}</small></div>)}</div></div>;
+}
+
+function TwitterEmpty({ text }: { text: string }) {
+  return <div className={twitterStyles.empty}><span>◎</span><p>{text}</p></div>;
+}
+
+function twitterMetricLabel(metric: TwitterMetric) {
+  return ({ impressions: 'Impressões', views: 'Visualizações', likes: 'Curtidas', comments: 'Comentários', shares: 'Compartilhamentos', engagement: 'Engajamento' })[metric];
 }
 
 function KpiCard({ label, value, icon, caption }: { label: string; value: string; icon?: string; caption?: string }) {

@@ -36,7 +36,7 @@ test('usa contratos compactos com limites conservadores', async () => {
       return { data: [{ id: 'chunk-1' }], error: null };
     }
     if (name === 'process_bulk_rotation_generation_chunk') {
-      return { data: { processedItems: '500', status: 'queued' }, error: null };
+      return { data: { processedItems: '50', status: 'queued' }, error: null };
     }
     return { data: null, error: new Error(`RPC inesperada: ${name}`) };
   });
@@ -46,15 +46,15 @@ test('usa contratos compactos com limites conservadores', async () => {
     remainingPublications: '900',
   });
   assert.deepEqual(await claimBulkChunks(supabase), [{ id: 'chunk-1' }]);
-  assert.deepEqual(await processBulkChunk(supabase, { id: 'chunk-1' }), {
-    processedItems: '500',
+  assert.deepEqual(await processBulkChunk(supabase, { id: 'chunk-1' }, 50), {
+    processedItems: '50',
     status: 'queued',
   });
 
   assert.equal(calls[1].parameters.p_limit, 1);
   assert.equal(calls[1].parameters.p_lease_seconds, 300);
   assert.equal(calls[1].parameters.p_max_failures, 3);
-  assert.equal(calls[2].parameters.p_step_size, 500);
+  assert.equal(calls[2].parameters.p_step_size, 50);
 });
 
 test('registra falha de um chunk compacto sem propagar para os demais', async () => {

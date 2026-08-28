@@ -14,6 +14,7 @@ function validDate(value: string | null) {
 }
 
 export async function GET(request: Request) {
+  const startedAt = Date.now();
   const context = await getOrganizationContext();
   if (!context.user || !context.activeOrganization) {
     return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
@@ -59,10 +60,27 @@ export async function GET(request: Request) {
     ? { status: 'unavailable', data: [], error: 'Top posts temporariamente indisponíveis.' }
     : { status: 'ok', data: (postsResult.data ?? []) as DashboardV2TopPost[] };
 
+  const analytics = analyticsResult.data as DashboardV2Analytics;
+  console.info('Dashboard V2 analytics carregada.', {
+    organizationId: context.activeOrganization.id,
+    startDate,
+    endDate,
+    metric,
+    selectedProfiles: analytics.coverage.selected_profiles,
+    profilesWithMetrics: analytics.coverage.profiles_with_metrics,
+    lastMetricDate: analytics.coverage.last_metric_date,
+    topPostsStatus: topPosts.status,
+    durationMs: Date.now() - startedAt,
+  });
+
   return NextResponse.json({
-    analytics: { status: 'ok', data: analyticsResult.data as DashboardV2Analytics },
+    analytics: { status: 'ok', data: analytics },
     topPosts,
   }, {
-    headers: { 'Cache-Control': 'private, max-age=30, stale-while-revalidate=120' },
+    headers: {
+      'Cache-Control': 'private, no-store, max-age=0',
+      'X-Dashboard-Version': 'v2',
+      'X-Dashboard-Generated-At': analytics.generated_at,
+    },
   });
 }

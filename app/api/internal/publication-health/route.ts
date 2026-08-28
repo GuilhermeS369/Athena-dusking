@@ -28,13 +28,14 @@ export async function GET(request: Request) {
 
   try {
     const supabase = createSupabaseAdminClient();
-    const { data, error } = await supabase.rpc('get_publication_queue_operational_summary', {
+    const { data, error } = await supabase.rpc('get_publication_queue_operational_snapshot', {
       p_organization_id: null,
     });
 
     if (error) return NextResponse.json({ error: 'Não foi possível consultar a fila.' }, { status: 500 });
 
-    const rows = (data ?? []) as QueueSummaryRow[];
+    const snapshot = (data ?? {}) as { rows?: QueueSummaryRow[]; generatedAt?: string | null; stale?: boolean };
+    const rows = snapshot.rows ?? [];
     const counts = rows.reduce((result: Record<string, number>, item) => {
       result[item.status] = (result[item.status] ?? 0) + item.total;
       return result;
@@ -47,6 +48,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ok: true,
       queue: { counts, activeItems, expiredLeases, dueRetries, overdue },
+      generatedAt: snapshot.generatedAt ?? null,
+      stale: snapshot.stale ?? true,
       checkedAt: new Date().toISOString(),
     });
   } catch (error) {

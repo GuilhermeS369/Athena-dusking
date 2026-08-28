@@ -42,9 +42,16 @@ export async function provisionTwitterZernioConnection(input: ProvisionInput) {
   }
 
   const client = createTwitterZernioClient(apiKey);
-  const verification = await client.verifyAuth();
+  const [verificationResult, profilesResult] = await Promise.allSettled([
+    client.verifyAuth(),
+    client.listProfiles(),
+  ]);
+  if (verificationResult.status === 'rejected') throw verificationResult.reason;
+  const verification = verificationResult.value;
   const userId = typeof verification.userId === 'string' ? verification.userId.trim() : '';
   if (verification.valid === false || !userId) throw new Error('A Zernio não confirmou a identidade estável desta API key.');
+  if (profilesResult.status === 'rejected') throw profilesResult.reason;
+  const listed = profilesResult.value;
 
   const admin = createSupabaseAdminClient();
   const fingerprint = tokenFingerprint(apiKey, TWITTER_ZERNIO_KEY_FINGERPRINT_DOMAIN);
@@ -79,7 +86,6 @@ export async function provisionTwitterZernioConnection(input: ProvisionInput) {
   }
 
   const canonicalProfileName = `${input.organizationName} · X · ${label}`.slice(0, 180);
-  const listed = await client.listProfiles();
   const existingProfile = listed.profiles?.find((item) => item.name?.trim() === canonicalProfileName);
   let zernioProfileId = profileId(existingProfile);
   let adoptedExistingProfile = false;
@@ -120,8 +126,10 @@ export async function provisionTwitterZernioConnection(input: ProvisionInput) {
   const connectionId = String((connection as Record<string, unknown>).connectionId);
   const { error: slotError } = await admin.from('twitter_connections').update({
     twitter_slot_limit: twitterSlotLimit,
+    analytics_enabled: true,
+    inbox_enabled: false,
   }).eq('id', connectionId).eq('organization_id', input.organizationId);
-  if (slotError) throw new Error('A conexão foi validada, mas o limite de contas X não pôde ser salvo.');
+  if (slotError) throw new Error('A conexão foi validada, mas o limite e o Analytics obrigatório não puderam ser salvos.');
 
   if (input.importItemId) {
     const { data: registry, error: registryError } = await admin.from('twitter_api_key_registry').update({

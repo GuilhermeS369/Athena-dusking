@@ -90,6 +90,42 @@ values
   ('21000000-0000-4000-8000-000000000001', '31000000-0000-4000-8000-000000000001', 'zernio', 'dashboard-v2-post-2', 'segundo', '2026-08-02 15:00:00+00', 5, 30, 20, 7, 'synced'),
   ('21000000-0000-4000-8000-000000000002', '31000000-0000-4000-8000-000000000003', 'zernio', 'dashboard-v2-post-b', 'não pode vazar', '2026-08-01 15:00:00+00', 999, 999, 999, 999, 'synced');
 
+-- Regressão do incidente de 25/08: uma organização grande ultrapassa com
+-- facilidade o limite de 1.000 linhas do PostgREST. O agregado deve continuar
+-- incluindo o dia atual porque filtra e soma dentro do banco.
+create temporary table dashboard_v2_volume_profiles (id uuid primary key) on commit drop;
+insert into dashboard_v2_volume_profiles (id)
+select gen_random_uuid() from generate_series(1, 420);
+
+insert into public.instagram_profiles (
+  id, organization_id, instagram_user_id, username,
+  encrypted_access_token, status, created_by, provider
+)
+select
+  volume.id,
+  '21000000-0000-4000-8000-000000000001',
+  'dashboard-volume-' || volume.id,
+  'volume_' || replace(volume.id::text, '-', ''),
+  'token',
+  'online',
+  '11000000-0000-4000-8000-000000000001',
+  'meta_official'
+from dashboard_v2_volume_profiles volume;
+
+insert into public.profile_analytics_daily_metrics (
+  organization_id, profile_id, provider, metric_date,
+  posts, impressions, reach, views, likes, comments, shares, saves,
+  interactions, coverage_status
+)
+select
+  '21000000-0000-4000-8000-000000000001',
+  volume.id,
+  'meta_official',
+  day::date,
+  1, 1, 1, 1, 1, 0, 0, 0, 1, 'complete'
+from dashboard_v2_volume_profiles volume
+cross join generate_series('2026-08-18'::date, '2026-08-25'::date, interval '1 day') day;
+
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '11000000-0000-4000-8000-000000000001', true);
 select set_config('request.jwt.claim.role', 'authenticated', true);
@@ -100,7 +136,7 @@ declare
   top_post record;
 begin
   payload := public.get_dashboard_bootstrap_v2('21000000-0000-4000-8000-000000000001');
-  if jsonb_array_length(payload -> 'profiles') <> 2
+  if jsonb_array_length(payload -> 'profiles') <> 422
     or jsonb_array_length(payload -> 'groups') <> 1
   then
     raise exception 'Bootstrap V2 não respeitou o escopo da organização.';
@@ -128,6 +164,18 @@ begin
     or (payload #>> '{coverage,selected_profiles}')::integer <> 1
   then
     raise exception 'Filtros de grupo/provider incorretos: %', payload;
+  end if;
+
+  payload := public.get_dashboard_analytics_v2(
+    '21000000-0000-4000-8000-000000000001',
+    '2026-08-25', '2026-08-25', null, null, null, 'likes', 'day'
+  );
+  if (payload #>> '{kpis,likes}')::bigint <> 420
+    or (payload #>> '{coverage,selected_profiles}')::integer <> 422
+    or (payload #>> '{coverage,profiles_with_metrics}')::integer <> 420
+    or payload #>> '{coverage,last_metric_date}' <> '2026-08-25'
+  then
+    raise exception 'Agregado V2 perdeu o dia atual acima de 1.000 linhas: %', payload;
   end if;
 
   select * into top_post
