@@ -63,7 +63,22 @@ export function validateExplicitZernioCallbackAccount(input: {
 export function zernioTerminalCallbackFailure(values: CallbackValues) {
   const error = callbackValue(values, 'error')?.trim().toLocaleLowerCase('en-US') ?? '';
   const reason = callbackValue(values, 'reason')?.trim().toLocaleLowerCase('en-US') ?? '';
-  const terminalCodes = new Set(['payment_required', 'free_tier_exceeded', 'billing_required', 'plan_limit_exceeded']);
+  // Terminal significa "nenhuma conta foi criada e nenhuma vai aparecer": sem
+  // isso o attempt entra em recuperação e prende o aparelho até o prazo.
+  //
+  // `oauth_denied` entrou na lista por medição: em 2.953 callbacks históricos
+  // ele apareceu 16 vezes e nenhuma delas resultou em conta.
+  //
+  // `connection_failed` fica deliberadamente de fora: apareceu 6 vezes e em 5
+  // delas a conta foi criada e sincronizada normalmente. Tratá-lo como terminal
+  // transformaria plug bem-sucedido em falha.
+  const terminalCodes = new Set([
+    'payment_required',
+    'free_tier_exceeded',
+    'billing_required',
+    'plan_limit_exceeded',
+    'oauth_denied',
+  ]);
   const code = terminalCodes.has(reason) ? reason : terminalCodes.has(error) ? error : null;
   return { terminal: Boolean(code), code };
 }

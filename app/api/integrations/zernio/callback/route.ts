@@ -39,7 +39,17 @@ export async function GET(request: Request) {
     const terminalFailure = zernioTerminalCallbackFailure(url.searchParams);
     if (terminalFailure.terminal) {
       const reason = terminalFailure.code ?? 'A Zernio recusou a criação da conta.';
-      await markZernioConnectionAttemptFailed(attemptId, new Error(`Falha terminal da Zernio: ${reason}.`), {
+      // O operador lê isso no celular, no meio de uma onda. A mensagem precisa
+      // dizer o que aconteceu, que nada ficou pendurado e o que fazer agora.
+      const terminalMessages: Record<string, string> = {
+        oauth_denied: 'A autorização no Instagram foi negada ou cancelada. Nenhuma conta foi criada e nenhum slot foi ocupado. Gere uma nova linha no Bulk Zernio para tentar de novo.',
+        payment_required: 'A Zernio recusou a conexão por falta de capacidade de cobrança nesta chave. Nenhuma conta foi criada. Use outra chave com vaga.',
+        free_tier_exceeded: 'Esta chave Zernio já atingiu o limite do plano gratuito. Nenhuma conta foi criada. Use outra chave com vaga.',
+        billing_required: 'A Zernio exige forma de pagamento nesta chave. Nenhuma conta foi criada. Use outra chave com vaga.',
+        plan_limit_exceeded: 'Esta chave Zernio já atingiu o limite do plano. Nenhuma conta foi criada. Use outra chave com vaga.',
+      };
+      const message = terminalMessages[reason] ?? `A Zernio recusou a criação da conta (${reason}). Nenhuma conta foi criada.`;
+      await markZernioConnectionAttemptFailed(attemptId, new Error(message), {
         callbackQuery,
         terminalCallbackFailure: true,
         terminalCallbackFailureReason: reason,

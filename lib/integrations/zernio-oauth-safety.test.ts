@@ -45,6 +45,20 @@ test('classifica cobrança e limite da Zernio como falha terminal', () => {
   assert.deepEqual(result, { terminal: true, code: 'free_tier_exceeded' });
 });
 
+test('classifica autorização negada como falha terminal em vez de esperar a conta propagar', () => {
+  assert.deepEqual(
+    zernioTerminalCallbackFailure(new URLSearchParams({ error: 'oauth_denied', platform: 'instagram' })),
+    { terminal: true, code: 'oauth_denied' },
+  );
+});
+
+test('mantém connection_failed fora do terminal porque a conta costuma ser criada mesmo assim', () => {
+  assert.deepEqual(
+    zernioTerminalCallbackFailure(new URLSearchParams({ error: 'connection_failed', platform: 'instagram' })),
+    { terminal: false, code: null },
+  );
+});
+
 test('não classifica callback de autorização normal como falha terminal', () => {
   assert.deepEqual(
     zernioTerminalCallbackFailure(new URLSearchParams({ profileId: 'profile-a', accountId: 'account-a' })),
