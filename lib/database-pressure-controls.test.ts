@@ -123,7 +123,11 @@ test("modo de reconciliação do publicador não cria novo trabalho no provedor"
 
   assert.match(worker, /PUBLICATION_WORKER_RECONCILIATION_ONLY/);
   assert.match(dispatcher, /claim_provider_accepted_publication_items/);
-  assert.match(dispatcher, /reconciliationOnly \? \{ claimed: 0/);
+  // A preparação passou a poder ser pulada também quando roda em laço próprio
+  // (skipPreparation), mas `reconciliationOnly` continua sendo condição
+  // suficiente para não criar trabalho novo — que é o que este teste protege.
+  assert.match(dispatcher, /reconciliationOnly \|\| options\.skipPreparation === true/);
+  assert.match(dispatcher, /\{ claimed: 0, ready: 0, blocked: 0, errors: 0, results: \[\] \}/);
   assert.match(dispatcher, /reconciliationOnly \? \[\] : await claimCoordinatedBulkSlotRecoveryItems/);
   assert.match(dispatcher, /reconciliationOnly \? \[\] : await processZernioProfileRecyclingJobs/);
 });

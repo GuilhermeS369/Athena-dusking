@@ -12,6 +12,7 @@ import {
   flushZernioRequestTelemetry,
   mapWithConcurrency,
   preparePublicationDispatchEnvelope,
+  preparePublicationQueueDirect,
   processClaimedItem,
 } from './publication-direct-dispatch.mjs';
 import { PublicationDispatchSpool } from './publication-dispatch-spool.mjs';
@@ -35,6 +36,21 @@ const heartbeatIntervalMs = integerEnv('PUBLICATION_WORKER_HEARTBEAT_INTERVAL_MS
 const dispatchLimit = integerEnv('PUBLICATION_WORKER_LIMIT', 5, 1, 100);
 const preparationLimit = integerEnv('PUBLICATION_WORKER_PREPARATION_LIMIT', 4, 1, 500);
 const preparationConcurrency = integerEnv('PUBLICATION_WORKER_PREPARATION_CONCURRENCY', 4, 1, 20);
+// A preparacao roda em laco proprio desde 29/08/2026. Antes ela era executada
+// DENTRO de dispatchPublicationQueueDirect, no mesmo ciclo que publica — e por
+// isso o limite ficava preso em valores baixos: subir atrasava item vencido.
+// Com o laco separado, o limite pode crescer sem competir com a publicacao.
+// PUBLICATION_WORKER_PREPARATION_IN_DISPATCH=true volta ao comportamento antigo.
+const preparationLoopEnabled = (process.env.PUBLICATION_WORKER_PREPARATION_IN_DISPATCH || 'false') !== 'true';
+const preparationPollIntervalMs = integerEnv('PUBLICATION_WORKER_PREPARATION_POLL_INTERVAL_MS', 5000, 500, 60000);
+// A preparação cede a vez ao despacho, mas com janela MUITO menor que a do
+// staging (60 s): com ~4.000 publicações/hora sempre há algo vencendo nos
+// próximos 60 s, então reusar aquele valor deixava a preparação parada.
+const preparationDueGuardMs = integerEnv('PUBLICATION_WORKER_PREPARATION_DUE_GUARD_MS', 5000, 0, 60000);
+// E a cessão é limitada: depois de N ciclos cedidos seguidos a preparação roda
+// de qualquer forma. Fila de preparação parada é justamente o que produz item
+// vencido — ceder para sempre seria trocar o problema de lugar.
+const preparationMaxConsecutiveSkips = integerEnv('PUBLICATION_WORKER_PREPARATION_MAX_CONSECUTIVE_SKIPS', 3, 0, 100);
 const leaseSeconds = integerEnv('PUBLICATION_WORKER_LEASE_SECONDS', 180, 30, 900);
 const coordinatedRecoveryLimit = integerEnv('PUBLICATION_WORKER_COORDINATED_RECOVERY_LIMIT', 0, 0, 100);
 const reconciliationOnly = process.env.PUBLICATION_WORKER_RECONCILIATION_ONLY === 'true';
@@ -195,6 +211,7 @@ async function heartbeat(supabase, status, metadata = {}, lastErrorMessage = nul
       dispatchLimit,
       preparationLimit,
       preparationConcurrency,
+      preparationLoopEnabled,
       leaseSeconds,
       reconciliationOnly,
       stagingEnabled,
@@ -431,6 +448,19 @@ async function stageUpcomingPublications(supabase, spool, correlationId, options
   };
 }
 
+// A preparação cede a vez ao despacho, mas a cessão é LIMITADA. Sem o teto, com
+// ~4.000 publicações/hora sempre existe algo vencendo dentro da janela e a
+// preparação ficaria com `claimed: 0` em todos os ciclos — pior do que antes de
+// separar os laços, já que antes ela ao menos rodava junto com o despacho.
+export function shouldPreparationYieldToDispatch(
+  publicationDueWithinGuard,
+  consecutiveSkips,
+  maxConsecutiveSkips = preparationMaxConsecutiveSkips,
+) {
+  if (!publicationDueWithinGuard) return false;
+  return consecutiveSkips < maxConsecutiveSkips;
+}
+
 export async function stagingHasSafeWindow(spool, now = Date.now(), dueGuardMs = stagingDueGuardMs) {
   const nearDue = await spool.listDue(now + dueGuardMs, 1);
   return nearDue.length === 0;
@@ -508,6 +538,7 @@ async function runDispatchCycle(supabase, correlationId, spool = null) {
       workerId,
       limit: dispatchLimit,
       leaseSeconds,
+      skipPreparation: preparationLoopEnabled,
       preparationLimit,
       preparationConcurrency,
       correlationId,
@@ -666,6 +697,9 @@ async function reportCycleFailure(supabase, correlationId, startedAt, error) {
 
 const dispatchGuard = createSingleFlightGuard();
 const stagingGuard = createSingleFlightGuard();
+const preparationGuard = createSingleFlightGuard();
+let lastPreparationCycleResult = null;
+let preparationConsecutiveSkips = 0;
 
 async function dispatchLoop(supabase, spool) {
   while (!stopping) {
@@ -709,6 +743,60 @@ async function stagingLoop(supabase, spool) {
   }
 }
 
+// Laco proprio da preparacao de midia. Espelha stagingLoop: polling proprio,
+// mutex contra sobreposicao e a mesma flag `stopping` em SIGTERM.
+//
+// A contrapressao importa tanto quanto a separacao: se houver item vencendo
+// agora, a preparacao cede a vez, porque publicar no horario vale mais do que
+// adiantar midia de item futuro. E a mesma guarda que o staging ja usa.
+async function preparationLoop(supabase, spool) {
+  if (!preparationLoopEnabled || dryRun || reconciliationOnly || (mode !== 'direct' && mode !== 'direct-dispatch')) {
+    return;
+  }
+
+  while (!stopping) {
+    await preparationGuard.run(async () => {
+      try {
+        const publicationDueWithinGuard = spool
+          ? !(await stagingHasSafeWindow(spool, Date.now(), preparationDueGuardMs))
+          : false;
+        if (shouldPreparationYieldToDispatch(publicationDueWithinGuard, preparationConsecutiveSkips)) {
+          preparationConsecutiveSkips += 1;
+          lastPreparationCycleResult = {
+            skipped: 'publication_due_within_guard',
+            consecutive: preparationConsecutiveSkips,
+          };
+          return;
+        }
+        preparationConsecutiveSkips = 0;
+        const result = await preparePublicationQueueDirect({
+          workerId: `${workerId}:prepare`.slice(0, 120),
+          limit: preparationLimit,
+          concurrency: preparationConcurrency,
+          leaseSeconds: Math.max(300, leaseSeconds),
+          windowHours: 24,
+          correlationId: randomUUID(),
+        });
+        lastPreparationCycleResult = {
+          claimed: result.claimed,
+          ready: result.ready,
+          blocked: result.blocked,
+          errors: result.errors,
+        };
+        if (result.claimed > 0) {
+          console.info('[publication-worker] ciclo de preparação', { workerId, ...lastPreparationCycleResult });
+        }
+      } catch (error) {
+        lastPreparationCycleResult = { error: errorMessage(error) };
+        console.error('[publication-worker] falha no ciclo de preparação', { workerId, message: errorMessage(error) });
+      }
+    });
+
+    if (runOnce) break;
+    await sleep(preparationPollIntervalMs);
+  }
+}
+
 async function main() {
   const supabase = createSupabase();
   const spool = stagingEnabled ? await new PublicationDispatchSpool(spoolDirectory).initialize() : null;
@@ -720,6 +808,7 @@ async function main() {
   await Promise.all([
     dispatchLoop(supabase, spool),
     stagingLoop(supabase, spool),
+    preparationLoop(supabase, spool),
   ]);
 
   await heartbeat(supabase, 'stopped').catch((error) => {

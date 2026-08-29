@@ -20,6 +20,17 @@ const deletionChunkSize = integerEnv('MEDIA_DELETION_WORKER_CHUNK_SIZE', 50, 1, 
 const groupAssignmentLimit = integerEnv('MEDIA_GROUP_ASSIGNMENT_WORKER_LIMIT', 3, 1, 10);
 const groupAssignmentChunkSize = integerEnv('MEDIA_GROUP_ASSIGNMENT_WORKER_CHUNK_SIZE', 500, 1, 1000);
 const leaseSeconds = integerEnv('MEDIA_MAINTENANCE_WORKER_LEASE_SECONDS', 180, 30, 900);
+// Arquivamento recorrente de itens encerrados. Antes disso, dependia de alguem
+// clicar "Limpar encerradas" na tela: em 29/08/2026 havia 212 mil itens
+// encerrados com archived_at nulo, engordando os ~20 indices de
+// publication_items — que precisam caber em RAM e eram a causa direta da
+// memoria do Supabase em 84%.
+const archiveEnabled = (process.env.MEDIA_MAINTENANCE_ARCHIVE_ENABLED || 'true') !== 'false';
+const archiveIntervalMs = integerEnv('MEDIA_MAINTENANCE_ARCHIVE_INTERVAL_MS', 600000, 60000, 3600000);
+// Orcamento por ciclo, para o arquivamento nunca competir com a publicacao.
+const archiveBudgetMs = integerEnv('MEDIA_MAINTENANCE_ARCHIVE_BUDGET_MS', 20000, 1000, 120000);
+
+let lastArchiveAt = 0;
 
 let stopping = false;
 let lastHeartbeatAt = 0;
@@ -98,6 +109,49 @@ async function heartbeat(supabase, status, metadata = {}, lastErrorMessage = nul
   lastHeartbeatAt = Date.now();
 }
 
+// A RPC clean_publication_queue_finished processa no maximo 250 itens por
+// chamada (teto imposto pela migration 302 como controle de pressao) — pedir
+// mais e cortado em silencio. Por isso o laco chama varias vezes dentro de um
+// orcamento de tempo, em vez de tentar um lote grande.
+async function archiveFinishedItems(supabase) {
+  const startedAt = Date.now();
+  const { data: organizations, error } = await supabase.from('organizations').select('id, name');
+  if (error) throw error;
+
+  let archived = 0;
+  let organizationsTouched = 0;
+  let exhaustedBudget = false;
+
+  for (const organization of organizations || []) {
+    let organizationArchived = 0;
+    while (Date.now() - startedAt < archiveBudgetMs) {
+      const { data, error: cleanError } = await supabase.rpc('clean_publication_queue_finished', {
+        p_organization_id: organization.id,
+        p_limit: 250,
+      });
+      if (cleanError) {
+        console.error('[media-maintenance-worker] falha ao arquivar encerrados', {
+          organization: organization.name,
+          message: cleanError.message,
+        });
+        break;
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      const moved = (row?.archived_completed_count || 0) + (row?.archived_failure_count || 0);
+      if (moved === 0) break;
+      organizationArchived += moved;
+    }
+    if (organizationArchived > 0) organizationsTouched += 1;
+    archived += organizationArchived;
+    if (Date.now() - startedAt >= archiveBudgetMs) {
+      exhaustedBudget = true;
+      break;
+    }
+  }
+
+  return { archived, organizationsTouched, exhaustedBudget, durationMs: Date.now() - startedAt };
+}
+
 async function tick() {
   if (!workerSecret) throw new Error('MEDIA_DELETION_WORKER_SECRET, PUBLICATION_WORKER_SECRET ou CRON_SECRET é obrigatório.');
 
@@ -130,13 +184,30 @@ async function main() {
   while (!stopping) {
     try {
       const payload = await tick();
+
+      // Roda em cadencia propria (10 min por padrao), nao a cada ciclo de 5s.
+      let archive = null;
+      if (archiveEnabled && Date.now() - lastArchiveAt >= archiveIntervalMs) {
+        lastArchiveAt = Date.now();
+        archive = await archiveFinishedItems(supabase).catch((error) => {
+          // Arquivamento e manutencao: falhar aqui nao pode derrubar o ciclo de
+          // exclusao de midia, que e o trabalho principal deste worker.
+          console.error('[media-maintenance-worker] falha no arquivamento', error);
+          return null;
+        });
+        if (archive && archive.archived > 0) {
+          console.info('[media-maintenance-worker] encerrados arquivados', archive);
+        }
+      }
+
       const deletionChunks = payload?.deletion?.chunks || 0;
       const groupAssignmentChunks = payload?.groupAssignment?.chunks || 0;
-      const status = deletionChunks > 0 || groupAssignmentChunks > 0 ? 'processing' : 'idle';
+      const status = deletionChunks > 0 || groupAssignmentChunks > 0 || (archive?.archived || 0) > 0 ? 'processing' : 'idle';
       if (Date.now() - lastHeartbeatAt >= heartbeatIntervalMs) {
         await heartbeat(supabase, status, {
           deletion: payload?.deletion || null,
           groupAssignment: payload?.groupAssignment || null,
+          archive,
         });
       }
     } catch (error) {

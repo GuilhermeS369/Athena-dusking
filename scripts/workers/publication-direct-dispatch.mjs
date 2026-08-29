@@ -1998,7 +1998,12 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   const expired = reconciliationOnly
     ? { ignored: 0, pages: 0, cutoff: null, failed: false }
     : await ignoreExpiredUnstartedPublications(supabase);
-  const preparation = reconciliationOnly ? { claimed: 0, ready: 0, blocked: 0, errors: 0, results: [] } : await preparePublicationQueueDirect({
+  // `skipPreparation` existe para quando a preparacao roda em laco proprio no
+  // publication-worker: sem isso ela continuaria consumindo tempo do ciclo de
+  // despacho, que e exatamente o acoplamento que a separacao veio desfazer.
+  const preparation = (reconciliationOnly || options.skipPreparation === true)
+    ? { claimed: 0, ready: 0, blocked: 0, errors: 0, results: [] }
+    : await preparePublicationQueueDirect({
     workerId: `${workerId}:prepare`.slice(0, 120),
     limit: Number.isInteger(options.preparationLimit)
       ? options.preparationLimit

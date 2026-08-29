@@ -10,6 +10,9 @@ Aceitar ondas de até 1.000 perfis no mesmo horário sem transformar atraso caus
 
 O Athena permanece autoritativo sobre horário, repetição, mídia, rotação e estado. A Zernio recebe `publishNow` somente quando cada item vence. Como o limite configurado é 200 criações/minuto por organização, uma onda válida de 1.000 perfis da mesma organização deve ser drenada com segurança em aproximadamente seis minutos; organizações distintas avançam em paralelo. O requisito é **nenhuma perda**, não 1.000 requisições externas no mesmo segundo.
 
+> **⚠️ Correção (2026-08-29):** a afirmação acima de que 200/minuto seria um teto da Zernio é **falsa**. Verificado contra [docs.zernio.com/guides/rate-limits](https://docs.zernio.com/guides/rate-limits): a Zernio limita **requisições de API por *team*** (60/min até 2 contas, 600/min de 3 a 2.000, 1.200/min acima de 2.001) e **postagem por conta** (25/hora, 100/dia no Instagram). O número 200 é um padrão interno do Athena gravado pela migration 179 com `organization_id is null`, sem respaldo do provedor. Como o *team* da Zernio corresponde a uma chave de API e não à organização do Athena, **separar perfis em mais organizações não aumenta orçamento algum**. Ver a correção completa no [runbook](../docs/vps-worker-runbook.md) e o [plano de ajuste](plano-ajuste-gargalos-reais-2026-08-29.md).
+
+
 ## Invariantes obrigatórias
 
 - Atraso, falta de capacidade, restart, timeout interno ou backlog nunca geram `automatic_expired_unstarted_publication`.
@@ -33,7 +36,7 @@ O Athena permanece autoritativo sobre horário, repetição, mídia, rotação e
 - `athena-publication-worker` online, PID `208716`, zero restart instável desde o rollout;
 - runtime em `/opt/athena-worker` com staging ligado;
 - configuração efetiva ainda usa `PUBLICATION_WORKER_STAGING_LIMIT=250` e não possui a nova guarda de 60 s;
-- limite de despacho ativo: 180/minuto por organização, abaixo do teto autoritativo Zernio de 200/minuto;
+- limite de despacho ativo: 180/minuto por organização — **não** por ser teto da Zernio (ver correção acima), mas como escolha conservadora do Athena;
 - 251 envelopes JSON no spool e 271 leases de staging ativos;
 - zero novo `automatic_expired_unstarted_publication` desde a 315;
 - log de erro do publicador inalterado desde `28/08/2026 03:47:30 BRT / 06:47:30 UTC`;

@@ -601,9 +601,51 @@ reservation_seconds=300
 Os limites acumulados por organização/provedor de uma hora e de 24 horas foram
 removidos pela migration
 [`179_raise_zernio_minute_limit_remove_provider_cumulative_limits.sql`](../supabase/migrations/179_raise_zernio_minute_limit_remove_provider_cumulative_limits.sql).
-O limite de 200/minuto é uma configuração global específica da Zernio, sem
-alterar o limite global/fallback aplicado à Meta. Continuam válidos os limites
-por perfil e as reservas transacionais para concorrência.
+Continuam válidos os limites por perfil e as reservas transacionais para
+concorrência.
+
+> ### ⚠️ Correção — os 200/minuto NÃO são um limite da Zernio
+>
+> **Verificado contra a documentação oficial em 2026-08-29** ([docs.zernio.com/guides/rate-limits](https://docs.zernio.com/guides/rate-limits)).
+>
+> Versões anteriores deste runbook afirmavam que *"o limite de 200/minuto é uma
+> configuração global específica da Zernio"*. **Isso é falso.** O número 200 não
+> aparece em lugar nenhum da documentação da Zernio, e o comentário da migration
+> 179 que originou a afirmação (*"A Zernio pode despachar até 200 publicações por
+> minuto por organização"*) também não tem respaldo. A própria migration grava a
+> linha com `organization_id is null` — é um padrão **global do Athena**, não um
+> teto do provedor.
+>
+> **O que a Zernio de fato limita:**
+>
+> | Limite | Valor | Escopo |
+> |---|---|---|
+> | Requisições de API | 60/min (0–2 contas) · 600/min (3–2.000) · **1.200/min (2.001+)** | **por *team*** (todas as contas do time de cobrança) |
+> | Analytics | 6 a 20 req/s conforme a faixa | por *team*, separado do limite geral |
+> | Velocidade de postagem | **25 posts/hora por conta** | por conta, por plataforma |
+> | Instagram | **100/dia por conta** | por conta |
+>
+> Ao exceder: `429 Too Many Requests` com `Retry-After` e `retryAfterSeconds`.
+>
+> **Três consequências práticas:**
+>
+> 1. **A escala da Zernio é por requisição HTTP, não por publicação**, e o agrupamento
+>    é por *team* — que no nosso modelo corresponde a uma **conexão/chave de API**,
+>    não à organização do Athena. A Zernio não sabe que "Pomodoro" ou "Vini" existem.
+> 2. **Distribuir perfis em mais organizações do Athena não aumenta orçamento
+>    nenhum** na Zernio. O que distribui carga é ter mais chaves — e em 2026-08-29
+>    havia **1.297 conexões com 1.102 chaves distintas**.
+> 3. **`min_seconds_between_profile_publications = 45` é mais permissivo que o
+>    provedor**: permite 80 posts/hora por perfil contra os 25/hora da Zernio. Não
+>    é atingido pela rotação em massa (o piso de 29 min dá ~2/hora), mas um
+>    agendamento avulso em rajada no mesmo perfil pode gerar `429`.
+>
+> O `max_profile_publications_per_24h = 100` **está correto** — coincide com o
+> limite diário do Instagram na Zernio.
+>
+> O valor de 200 continua em produção porque é **conservador**, não porque seja o
+> teto do provedor. Antes de alterá-lo, ver
+> [plano de ajuste de gargalos](../plans/plano-ajuste-gargalos-reais-2026-08-29.md).
 
 Comportamento no worker direto:
 

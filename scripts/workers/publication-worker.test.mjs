@@ -9,6 +9,7 @@ import {
   shouldForceStagingThroughCriticalDelay,
   shouldStagingYieldToPressure,
   stagingHasSafeWindow,
+  shouldPreparationYieldToDispatch,
 } from './publication-worker.mjs';
 
 test('ciclo ocioso não exige evento operacional por polling', () => {
@@ -153,4 +154,87 @@ test('teto de segurança força o staging depois do tempo limite cedendo continu
   assert.equal(shouldForceStagingThroughCriticalDelay(null, startedAt, 300_000), false);
   assert.equal(shouldForceStagingThroughCriticalDelay(startedAt, startedAt + 299_999, 300_000), false);
   assert.equal(shouldForceStagingThroughCriticalDelay(startedAt, startedAt + 300_000, 300_000), true);
+});
+
+// Separação da preparação em laço próprio (29/08/2026). Antes,
+// preparePublicationQueueDirect rodava DENTRO de dispatchPublicationQueueDirect,
+// no mesmo ciclo que publica — então o limite de preparação ficava preso em
+// valores baixos (4 em produção, medido em 960 itens/hora), porque subir
+// atrasava a publicação de item vencido. Este teste prova o que a separação
+// comprou: preparação travada não impede o despacho de avançar.
+test('loop de dispatch continua publicando enquanto o loop de preparação está travado', async () => {
+  const dispatchGuard = createSingleFlightGuard();
+  const preparationGuard = createSingleFlightGuard();
+  let dispatchCycles = 0;
+  let preparationCycles = 0;
+  let stopping = false;
+  let releasePreparation;
+  const preparationGate = new Promise((resolve) => { releasePreparation = resolve; });
+
+  async function dispatchLoop() {
+    while (!stopping) {
+      await dispatchGuard.run(async () => {
+        dispatchCycles += 1;
+      });
+      if (dispatchCycles >= 5) { stopping = true; break; }
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+  }
+
+  async function preparationLoop() {
+    await preparationGuard.run(async () => {
+      preparationCycles += 1;
+      await preparationGate;
+    });
+  }
+
+  const loops = Promise.all([dispatchLoop(), preparationLoop()]);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(preparationCycles, 1, 'preparação deveria estar presa no primeiro ciclo lento');
+  assert.ok(dispatchCycles >= 3, `dispatch deveria ter avançado vários ciclos independentes, obteve ${dispatchCycles}`);
+
+  releasePreparation();
+  await loops;
+});
+
+// O mutex precisa impedir que um ciclo de preparação lento seja sobreposto pelo
+// seguinte: duas preparações concorrentes reivindicariam os mesmos itens e
+// dobrariam a carga de mídia sem ganho.
+test('o mutex da preparação impede ciclos sobrepostos', async () => {
+  const guard = createSingleFlightGuard();
+  let concurrent = 0;
+  let maxConcurrent = 0;
+
+  const cycle = async () => guard.run(async () => {
+    concurrent += 1;
+    maxConcurrent = Math.max(maxConcurrent, concurrent);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    concurrent -= 1;
+  });
+
+  await Promise.all([cycle(), cycle(), cycle()]);
+  assert.equal(maxConcurrent, 1, 'nunca deveria haver dois ciclos de preparação ao mesmo tempo');
+});
+
+// MEDIDO EM PRODUÇÃO (29/08/2026): a primeira versão da separação reusava a
+// janela do staging (60 s) sem teto de cessão. Com ~4.000 publicações/hora
+// sempre havia item vencendo nos próximos 60 s, então a preparação cedia em
+// TODOS os ciclos e ficava com `claimed: 0` — 200 itens pendentes parados.
+test('a preparação cede ao despacho, mas nunca de forma indefinida', () => {
+  // Sem publicação próxima, roda sempre — a cessão nem entra em cena.
+  assert.equal(shouldPreparationYieldToDispatch(false, 0, 3), false);
+  assert.equal(shouldPreparationYieldToDispatch(false, 99, 3), false);
+
+  // Com publicação próxima, cede — até o teto.
+  assert.equal(shouldPreparationYieldToDispatch(true, 0, 3), true);
+  assert.equal(shouldPreparationYieldToDispatch(true, 2, 3), true);
+
+  // Atingido o teto, roda de qualquer forma: preparação parada é o que produz
+  // item vencido, então ceder para sempre trocaria o problema de lugar.
+  assert.equal(shouldPreparationYieldToDispatch(true, 3, 3), false);
+  assert.equal(shouldPreparationYieldToDispatch(true, 10, 3), false);
+
+  // Teto zero desliga a cessão por completo.
+  assert.equal(shouldPreparationYieldToDispatch(true, 0, 0), false);
 });

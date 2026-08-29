@@ -2008,7 +2008,7 @@ Implementar testes e controlador adaptativo 25/50/100 no worker de geração, co
 - a migration 315 foi executada integralmente no PostgreSQL remoto dentro de `BEGIN/ROLLBACK`; sintaxe, índices e funções foram aceitos e nenhuma mudança persistiu;
 - `supabase migration list --linked` confirmou novamente remoto 314 e local 315 pendente;
 - suíte completa: 361/361 testes aprovados; suíte focada após o último ajuste: 42/42; TypeScript, build Next e `git diff --check` aprovados;
-- a configuração autoritativa limita Zernio a 200 publicações/minuto por organização; para não lançar 500 reservas concorrentes contra o Micro, o spool seleciona 180/min por organização, deixando margem para reconciliações/fallback;
+- a configuração **interna do Athena** limita Zernio a 200 publicações/minuto por organização; para não lançar 500 reservas concorrentes contra o Micro, o spool seleciona 180/min por organização, deixando margem para reconciliações/fallback. **Correção de 2026-08-29:** esse 200 foi descrito como "autoritativo" da Zernio, o que é falso — a Zernio limita requisições por *team* (60/600/1.200 por minuto conforme o número de contas) e postagem por conta (25/hora, 100/dia no Instagram). Ver [runbook](../docs/vps-worker-runbook.md);
 - organizações avançam em paralelo e alternadas; 1.000 perfis de uma organização formam backlog interno durável e são drenados em cerca de seis minutos, em vez de virarem `ignored`;
 - a reserva Zernio passa de 300 s para 60 s, alinhada à janela por minuto; continua persistida no banco e impede estouro após restart ou concorrência externa;
 - o spool lê até 5.000 vencidos para aplicar fairness antes do recorte, evitando que uma organização com muitos itens esconda as demais.
