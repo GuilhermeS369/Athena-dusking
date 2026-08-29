@@ -44,7 +44,7 @@ segunda janela sobre eles.
 
 | Métrica | Antes | Depois |
 |---|---:|---:|
-| Publicações/hora | ~2.600 | **~4.070** |
+| Publicações/hora | 1.928–1.938 | **2.299** |
 | Itens vencidos | 169 | **0** |
 | Fila de preparação | 200 | **0** |
 | Itens com lease vencida | 0 | 0 |
@@ -55,7 +55,7 @@ segunda janela sobre eles.
 ## Erro que cometi e corrigi no B3
 
 A primeira versão do laço de preparação reusava a janela de backpressure do
-staging (`STAGING_DUE_GUARD_MS`, 60 s). Com ~4.000 publicações/hora **sempre há
+staging (`STAGING_DUE_GUARD_MS`, 60 s). Com ~2.300 publicações/hora **sempre há
 item vencendo nos próximos 60 s**, então a preparação cedia a vez em todos os
 ciclos e ficava com `claimed: 0` — 200 itens pendentes parados. Ficou **pior do
 que antes de separar os laços**, porque antes ela ao menos rodava junto com o
@@ -86,6 +86,44 @@ que é exatamente o B4.
 Para o plano Medium isso muda a conta: subir de faixa com 73% da tabela sendo
 histórico é comprar memória para guardar arquivo morto. **B4 antes do upgrade
 rende mais do que o upgrade sozinho.**
+
+
+## OBS — janela obrigatória de observação, fechada
+
+**13 amostras, 61 minutos (21:18 → 22:19 UTC de 29/08/2026)**, cobrindo B2, B3 e B3.3.
+
+| Critério de rollback | Limite | Medido | Resultado |
+|---|---|---|---|
+| Publicações/hora caindo >20% | — | 1.928–1.938 antes → **2.299** depois | **passou** (subiu 19%) |
+| Vencidos subindo por 3 amostras seguidas | 3 | picos de 412, 391 e 277, sempre caindo na amostra seguinte | **passou** |
+| Fila de preparação crescendo | — | picos de 808, 306, 305 → sempre volta a **0** | **passou** |
+| Memória do Supabase | 85% | **75–82%** | **passou** |
+| Padrão de erro novo | zero | log parado em **25.990 linhas** o tempo todo | **passou** |
+| Reinício de worker | zero | contador em **138** em todas as amostras | **passou** |
+| Itens presos (lease vencida) | zero | **0** em todas as amostras | **passou** |
+| Adiamentos por `profile_min_interval` | estabilizar | **0** em todas as amostras | **passou** |
+| VPS | — | load 0,01–0,33 · memória 34–37% | **passou** |
+
+**Nenhum gatilho de rollback foi acionado.**
+
+O padrão que se repete a cada hora é a onda do topo da hora: chegam ~400 itens
+de uma vez, a fila de preparação sobe até ~800, e **tudo drena em ~10 minutos**,
+voltando a zero. É o efeito dos planos antigos, cujos perfis nasceram todos no
+mesmo segundo — A5 só corrige isso para planos novos, então a onda continua até
+os planos atuais expirarem (no máximo 7 dias, pelo teto da migration 329). O que
+importa é que ela **drena por completo e não acumula**.
+
+### Correção de um número que reportei errado
+
+Em mensagens anteriores eu disse que a vazão tinha ido para **~4.070/hora**. Isso
+estava errado: veio de multiplicar por 12 uma única amostra de 5 minutos que caiu
+num pico. Os horários de publicação se concentram em poucos segundos por hora,
+então amostras de 5 minutos oscilam entre 0 e 356 e **não podem ser extrapoladas**
+— é o mesmo artefato de medição que eu já havia diagnosticado antes e acabei
+repetindo.
+
+A vazão real, contada por hora cheia, foi de **1.928–1.938 para 2.299/hora
+(+19%)**. Ganho real, mas menor do que eu disse.
 
 ## RESULTADO DA FRENTE A — medido em produção, 29/08/2026 21h50 UTC
 
@@ -141,7 +179,7 @@ concentrar rajada numa chave só geraria `429` mesmo com orçamento sobrando.
 | **B5.3** — subir 180 → 300 → 500 → 600 | **não dado de propósito.** Nenhuma organização chega perto de 180 (Pomodoro ~94/min, Vini ~124/min). Subir agora só gastaria a margem de memória. O teto de código já está em 600, então o degrau é uma linha de `.env` quando fizer falta |
 | **B5.4** — agrupar por conexão Zernio em vez de organização | **pendente.** Depende de B5.3 fazer falta primeiro |
 | **B4** — executar a retenção | **documentado, não executado.** Gatilho definido: memória >85%, disco >80%, ou tabela passando de 1 milhão de linhas. Obrigatório antes dos 5.000 perfis |
-| **OBS.1** | **em andamento** — janela de 65 min iniciada às 21:18 UTC |
+| **OBS.1** | **concluída** — nenhum gatilho de rollback acionado |
 
 ---
 
@@ -423,9 +461,9 @@ Correção da revisão: uma versão anterior tratava A5 e B5 como interdependent
 
 Nenhuma etapa é considerada concluída antes disto. Vale depois de **cada** bloco que toca produção (B1, A4, A5), não só no fim.
 
-- [~] **OBS.1** Acompanhar por **no mínimo 1 hora contínua**, com amostragem a cada 5 minutos:
+- [x] **OBS.1** Acompanhar por **no mínimo 1 hora contínua**, com amostragem a cada 5 minutos:
 
-  > **Estado:** **EM ANDAMENTO** — janela de 65 min iniciada 21:18 UTC de 29/08, cobrindo B2/B3/B3.3.
+  > **Estado:** **CONCLUÍDA** — 13 amostras, 61 min (21:18 → 22:19 UTC de 29/08). Nenhum gatilho de rollback acionado.
   - **publicações/hora** — não pode cair (baseline ~2.600/h)
   - **itens vencidos** (`overdueUnstarted`) — não pode subir de forma sustentada
   - **itens em `preparation_status = pending`** — não pode crescer

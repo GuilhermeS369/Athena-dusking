@@ -107,12 +107,12 @@ Com a premissa da Zernio derrubada, os 180/min podem subir. Mas **não é a alav
 | 4 — Subir a preparação | limite 50, concorrência 4 | limite 150, concorrência 8 |
 
 **Efeito medido logo após a fase 4:** itens vencidos **169 → 0**, fila de
-preparação **200 → 0**, vazão em ~4.070 publicações/hora (linha de base ~2.600).
+preparação **200 → 0**, vazão de 1.928–1.938 para **2.299** publicações/hora (+19%).
 
 ### Erro cometido e corrigido na fase 3
 
 A primeira versão do laço de preparação reusava a janela de backpressure do
-staging (`STAGING_DUE_GUARD_MS`, 60 s). Com ~4.000 publicações/hora **sempre há
+staging (`STAGING_DUE_GUARD_MS`, 60 s). Com ~2.300 publicações/hora **sempre há
 item vencendo nos próximos 60 s**, então a preparação cedia a vez em todos os
 ciclos e ficava com `claimed: 0` — 200 itens pendentes parados. Ficou **pior do
 que antes de separar**, porque antes ela ao menos rodava junto com o despacho.
