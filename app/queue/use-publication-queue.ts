@@ -535,6 +535,11 @@ export function usePublicationQueue({
         setMessage('Cancelamento bloqueado: há publicação em processamento. Nenhum item foi alterado.');
         return;
       }
+      if (updated.status === 'running') {
+        // Escopo grande: esta chamada processou só o próximo bloco (progresso
+        // real já foi persistido); o próprio poll de 3s continua sozinho.
+        return;
+      }
       if (!response.ok || updated.status !== 'completed') {
         setMessage(updated.error ?? payload.error ?? 'Não foi possível confirmar o cancelamento da fila selecionada.');
         return;

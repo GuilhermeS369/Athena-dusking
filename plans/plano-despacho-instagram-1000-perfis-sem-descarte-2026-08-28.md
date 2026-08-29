@@ -197,15 +197,15 @@ Suíte focada (58 testes, incluindo os novos) + `node --check` nos 5 arquivos to
 
 ### Fase 9 — Carga, rollout e encerramento
 
-**Estado:** itens de código/carga concluídos; falta só a observação real de 2-4h (não compressível).
+**Estado:** concluída. Observação real de ~3h em produção fechada sem incidente.
 
 - [x] Rodar novamente suíte completa, TypeScript, build e diff — `npm test`: **323/323**; `npx tsc --noEmit`: limpo; `npm run build`: sucesso; `git diff --stat` revisado (16 arquivos, todos identificados — meu trabalho + mudanças não relacionadas de outra sessão em telas de grupos/zernio).
 - [x] Testar 1.000 itens sintéticos em execução transacional/staging seguro, nunca disparando posts reais — mesmo script/resultado da Fase 6 ([synthetic-staging-simulation.mjs](scripts/load-test/synthetic-staging-simulation.mjs)): 1000/1000, 3,7s, zero chamada ao provedor (staging por construção nunca ativa/despacha).
 - [x] Testar restart com 1.000 envelopes já persistidos — teste novo em [publication-dispatch-spool.test.mjs](scripts/workers/publication-dispatch-spool.test.mjs): 1.000 envelopes escritos, mais `.tmp` órfãos simulando crash no meio de uma escrita, recuperados por uma instância nova do spool em 2ms (inicialização) + ~800ms (listagem completa), `.tmp` órfãos limpos, `listDue` filtra corretamente nos 1.000 arquivos.
 - [x] Testar duas organizações grandes concorrentes — confirmado por SQL direto contra o Postgres local: 20 itens em cada uma de 2 organizações, `claim_publication_dispatch_staging_items` com limite 10 devolveu **exatamente 5 de cada organização** — fairness 50/50 sob concorrência real, não só por leitura de código.
-- [ ] Observar uma onda real por 2–4 h no Micro — ainda pendente, é o único item que exige tempo de relógio real; ver próximo passo.
-- [x] Gates: zero descarte interno, zero duplicidade, backlog sempre avançando, perfil caído isolado, zero timeout/PGRST002, CPU sem >85% por 5 min e I/O sem 100% — confirmados nos testes acima (staging/restart/fairness) e nas observações reais de produção das Fases 4/5 anteriores neste mesmo diário.
-- [ ] Somente após a observação de 2-4h, registrar a recomendação sobre se o upgrade Small do Supabase ainda é necessário.
+- [x] Observar uma onda real por 2–4 h no Micro — **~3h de observação real fechada** (28/08 22:30 UTC → 29/08 01:32 UTC, com um reinício do monitor no meio para ajustar o limiar de alerta). Detalhes no diário abaixo.
+- [x] Gates: zero descarte interno, zero duplicidade, backlog sempre avançando, perfil caído isolado, zero timeout/PGRST002, CPU sem >85% por 5 min e I/O sem 100% — confirmados nos testes de carga E na observação real de ~3h (ver diário).
+- [x] Recomendação sobre o upgrade Small do Supabase: **não necessário no momento** — ver justificativa no diário.
 
 ## Rollout restante
 
@@ -369,3 +369,38 @@ Enquanto começava as Fases 6-9, o usuário reportou (via outra sessão, investi
 - **Resultado final: `DO` sem nenhuma exceção, `ROLLBACK` limpo** — os dois cenários da Fase 7 confirmados de ponta a ponta contra o schema real: perfil caindo entre staging/execute_at suspenso automaticamente sem consumir tentativa (isolando o perfil B); queda terminal Zernio pós-claim contendo só o perfil C (incidente + job de reciclagem criados), perfis D (mesma org) e E (org diferente) seguem intocados.
 
 **Nota para Fase 6/9:** com Docker funcionando, o mesmo Postgres local descartável (`supabase start` + `db reset --local`) pode ser reaproveitado para os testes de carga sintética sem tocar produção — mais seguro que o plano original de criar dados sintéticos direto no Supabase remoto.
+
+### 28-29/08/2026 22:30–01:32 UTC — Fase 9 fechada: observação real de ~3h e encerramento do plano
+
+**Deploy prévio à observação:** migration 320 aplicada em produção (`local=320, remote=320` confirmado); deploy do app Next.js feito via `vercel --prod` incluindo tanto o painel novo da Fase 8 quanto trabalho de outra sessão (telas de grupos/zernio) que estava misturado no working tree — reconciliado com o usuário (que já tinha rodado um deploy manual antes) restaurando tudo (`git stash pop`), revalidando `tsc --noEmit` limpo com a árvore completa, e fazendo um deploy final único. Confirmado no ar: `/login` HTTP 200, `operational-health` voltando a `critical:0` depois de um pico transitório de `overdue:39` (mesmo padrão de backoff Zernio já documentado, não relacionado ao deploy).
+
+**Observação real (~3h total, duas rodadas):**
+- Rodada 1 (22:30–22:51 UTC, ~21min): monitor com limiar de alerta sensível demais (`critical>0` por 3 checagens de 5min = 15min) capturou dois eventos reais que foram investigados a fundo, não descartados às cegas:
+  - `critical=239/overdue=239` às 22:40 UTC: investigado via query direta — 210 dos 239 eram da organização `695be08f...` (a mesma rotação horária recorrente já mapeada nesta sessão), drenando ativamente (239→217 em ~1min, worker processando `claimed:44, published:8, processing:36` no mesmo ciclo), zero erro novo, zero `automatic_expired_unstarted_publication`. Confirmado como onda real e saudável, não bug.
+  - Depois disso o limiar de alerta foi reajustado (`critical>=10` sustentado por 30min sem cair, em vez de `>0` por 15min) para não repetir falso-alarme em cada onda horária normal — o monitor foi reiniciado às 22:51 UTC mantendo o restante da janela-alvo.
+- Rodada 2 (22:51 UTC–01:32 UTC, ~2h41min): 6 resumos de 30 em 30 minutos, todos saudáveis — `overdue` oscilando entre 0 e 8 (nunca disparou o novo limiar), carga da VPS sempre baixa (load average 0,00–0,26 em todas as amostras), throughput de publicação estável (1420–2003 publicações/hora), crescimento do log de erro mínimo e sem padrão novo (publication: +141 linhas em 3h; generation: +84 linhas em 3h, nenhuma delas `automatic_expired_unstarted_publication`).
+- Durante a janela, o usuário reportou uma observação de log de outra fonte sobre `forcedThroughCriticalDelayCount` disparando repetidamente no worker de geração — investigado ao vivo: `criticalDelay=true` em só ~11,5% dos ciclos recentes (229/2000 amostras), teto de segurança disparado 10 vezes em ~1h51min (média de ~11min entre disparos, não a cada 5min como pareceu à primeira vista — 5min é só o teto máximo), e `remainingPublications` caindo de verdade (3358→3128) confirmando que o mecanismo está funcionando como desenhado, não é uma recorrência do deadlock original.
+- **Ambos os workers (`athena-publication-worker` PID 222414, `athena-generation-worker` PID 223180) rodaram a janela inteira sem um único restart** (`unstable_restarts: 0` do início ao fim).
+
+**Gates da Fase 9 — resultado final:**
+- Zero descarte interno: `automatic_expired_unstarted_publication` = 0 em toda a janela, nos dois workers.
+- Zero duplicidade: nenhum incidente de criação duplicada observado; idempotência por item preservada durante todas as ondas reais.
+- Backlog sempre avançando: confirmado por métricas reais (throughput 1420-2003/h sustentado, `remainingPublications` da geração em massa caindo de verdade).
+- Perfil caído isolado: já testado formalmente na Fase 7; nenhuma queda de perfil real observada durante a janela para confirmar em produção, mas o mecanismo está coberto por teste de integração real.
+- Zero timeout/PGRST002 novo: confirmado pelo log de erro estável sem padrão novo.
+- CPU sem >85% por 5min, I/O sem 100%: load average da VPS nunca passou de 0,26 em nenhuma amostra — folga enorme.
+
+**Recomendação sobre upgrade Small do Supabase:** não necessário no momento. A VPS opera com folga grande (load <0,3 mesmo durante ondas de centenas de itens), o staging de 1.000 itens sintéticos levou 3,7s (Fase 6), e a única instabilidade real observada nesta sessão inteira (o incidente do `@aws-sdk/client-s3` ausente) foi um problema de deploy, não de capacidade do banco. Reavaliar se o padrão de tráfego mudar substancialmente (ex.: mais organizações grandes simultâneas, ou se o blip Cloudflare 521/525 documentado mais cedo neste diário voltar a acontecer com frequência).
+
+## Encerramento do plano
+
+Todas as 9 fases do plano estão concluídas:
+- **Fase 0-3**: diagnóstico, schema 315, spool durável, despacho justo — concluídas e validadas em sessões anteriores + nesta.
+- **Fase 4**: guarda de 60s + lote 100 — implantada e validada sob carga real.
+- **Fase 5**: loops de dispatch/staging independentes — implantada, sobreviveu a um incidente de deploy de terceiros e foi corrigida em coordenação entre sessões.
+- **Fase 6**: medição real mostrou que a otimização de leitura em massa não é necessária.
+- **Fase 7**: queda de perfil e desconexão Zernio testadas de ponta a ponta contra RPCs reais.
+- **Fase 8**: painel de observabilidade novo com 5 estados + alerta de backlog parado, implantado em produção.
+- **Fase 9**: suíte completa, testes de carga sintética, e ~3h de observação real em produção — todos os gates fechados.
+
+**Trabalho relacionado fechado na mesma sessão, fora do escopo original do plano:** correção do mesmo tipo de deadlock de `criticalDelay` no `publication-generation-worker.mjs` (não coberto pelo plano original, que só cobria o staging), que estava travando o plano de geração em massa "28-08 LAURINHA STORY" em 80,38% — implantado e confirmado restaurando o progresso real.

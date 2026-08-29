@@ -8,17 +8,12 @@
 
 begin;
 
-create or replace function auth.jwt()
-returns jsonb
-language sql
-stable
-as $$
-  select jsonb_build_object(
-    'sub', nullif(current_setting('request.jwt.claim.sub', true), ''),
-    'role', nullif(current_setting('request.jwt.claim.role', true), ''),
-    'email', nullif(current_setting('request.jwt.claim.email', true), '')
-  )
-$$;
+-- auth.jwt() no ambiente local atual só lê os GUCs `request.jwt.claim` ou
+-- `request.jwt.claims` (um JSON só) e o papel `postgres` usado por
+-- `supabase test db` não tem mais CREATE no schema `auth` (dono:
+-- supabase_admin) para redefini-la — por isso ajustamos o GUC combinado mais
+-- abaixo (perto de `set local request.jwt.claim.role`) em vez de recriar a
+-- função, como este teste fazia antes.
 
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
 values (
@@ -44,6 +39,7 @@ insert into public.publication_batches (id, organization_id, created_by, name, s
 
 set local role service_role;
 set local request.jwt.claim.role = 'service_role';
+select set_config('request.jwt.claims', jsonb_build_object('role', 'service_role')::text, true);
 
 do $$
 declare

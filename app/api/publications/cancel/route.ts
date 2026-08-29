@@ -121,6 +121,11 @@ export async function POST(request: Request) {
     if (current.status === 'blocked') return noStoreJson({ ...operationPayload(current), cancellation: result }, { status: 409 });
   }
 
-  if (current.status !== 'completed') return noStoreJson(operationPayload(current), { status: current.status === 'blocked' ? 409 : 500 });
+  // 'running' aqui é um resultado normal para escopos grandes: a RPC processou
+  // só o próximo bloco (statement_timeout não permite fazer tudo de uma vez) e
+  // devolveu progresso real; o polling de 3s do cliente chama de novo sozinho.
+  if (current.status !== 'completed' && current.status !== 'running') {
+    return noStoreJson(operationPayload(current), { status: current.status === 'blocked' ? 409 : 500 });
+  }
   return noStoreJson(operationPayload(current));
 }

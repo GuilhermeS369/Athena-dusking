@@ -3,16 +3,14 @@
 
 begin;
 
-create or replace function auth.jwt()
-returns jsonb language sql stable as $$
-  select jsonb_build_object(
-    'sub', nullif(current_setting('request.jwt.claim.sub', true), ''),
-    'role', nullif(current_setting('request.jwt.claim.role', true), ''),
-    'email', nullif(current_setting('request.jwt.claim.email', true), '')
-  )
-$$;
-
-insert into auth.users (id, instance_id, aud, role, email, encrypted_password, confirmed_at, created_at, updated_at)
+-- auth.jwt() no ambiente local atual só lê os GUCs `request.jwt.claim` ou
+-- `request.jwt.claims` (um JSON só); os campos individuais abaixo
+-- (`request.jwt.claim.sub/.role/.email`) continuam alimentando auth.uid() e
+-- auth.role() normalmente. O papel `postgres` usado por `supabase test db`
+-- não tem mais CREATE no schema `auth` (dono: supabase_admin), então
+-- redefinir auth.jwt() diretamente (como este teste fazia antes) já não é
+-- permitido — por isso só ajustamos o GUC combinado em vez de recriar a função.
+insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
 values ('16700000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cancel@example.com', '', timezone('utc', now()), timezone('utc', now()), timezone('utc', now()));
 insert into public.organizations (id, name, slug, created_by)
 values ('26700000-0000-0000-0000-000000000001', 'Organização de cancelamento', 'organizacao-cancelamento', '16700000-0000-0000-0000-000000000001');
@@ -36,13 +34,20 @@ values
   ('66700000-0000-0000-0000-000000000001', '26700000-0000-0000-0000-000000000001', '56700000-0000-0000-0000-000000000001', '36700000-0000-0000-0000-000000000001', 'image', 'waiting', 'cancel-group-waiting-0001', null, null),
   ('66700000-0000-0000-0000-000000000002', '26700000-0000-0000-0000-000000000001', '56700000-0000-0000-0000-000000000001', '36700000-0000-0000-0000-000000000002', 'image', 'waiting', 'cancel-group-outside-0001', null, null),
   ('66700000-0000-0000-0000-000000000003', '26700000-0000-0000-0000-000000000001', '56700000-0000-0000-0000-000000000002', '36700000-0000-0000-0000-000000000002', 'image', 'preparing', 'cancel-blocked-active-001', timezone('utc', now()) + interval '5 minutes', 'worker-test'),
-  ('66700000-0000-0000-0000-000000000004', '26700000-0000-0000-0000-000000000001', '56700000-0000-0000-0000-000000000002', '36700000-0000-0000-0000-000000000001', 'image', 'waiting', 'cancel-blocked-waiting-1', null, null),
+  -- Perfil B (fora do grupo): este item só existe para o cenário de bloqueio
+  -- por lote abaixo. Com perfil A ele também seria varrido pelo cancelamento
+  -- por grupo do primeiro cenário (grupo ignora lote, só filtra por perfil),
+  -- inflando cancelledItems de 2 para 3 e derrubando aquele teste.
+  ('66700000-0000-0000-0000-000000000004', '26700000-0000-0000-0000-000000000001', '56700000-0000-0000-0000-000000000002', '36700000-0000-0000-0000-000000000002', 'image', 'waiting', 'cancel-blocked-waiting-1', null, null),
   ('66700000-0000-0000-0000-000000000005', '26700000-0000-0000-0000-000000000001', '56700000-0000-0000-0000-000000000003', '36700000-0000-0000-0000-000000000001', 'image', 'suspended', 'cancel-account-suspended-1', null, null);
 
 set local role authenticated;
 set local request.jwt.claim.sub = '16700000-0000-0000-0000-000000000001';
 set local request.jwt.claim.role = 'authenticated';
 set local request.jwt.claim.email = 'cancel@example.com';
+select set_config('request.jwt.claims', jsonb_build_object(
+  'sub', '16700000-0000-0000-0000-000000000001', 'role', 'authenticated', 'email', 'cancel@example.com'
+)::text, true);
 
 do $$
 declare

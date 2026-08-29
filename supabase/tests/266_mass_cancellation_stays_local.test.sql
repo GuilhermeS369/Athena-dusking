@@ -10,6 +10,8 @@ values ('26600000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000
   'authenticated', 'authenticated', 'cancel266@example.com', '', timezone('utc', now()), timezone('utc', now()), timezone('utc', now()));
 insert into public.organizations (id, name, slug, created_by)
 values ('26600000-0000-0000-0000-000000000002', 'Mass cancellation 266', 'mass-cancellation-266', '26600000-0000-0000-0000-000000000001');
+insert into public.organization_members (organization_id, user_id, role, invited_by)
+values ('26600000-0000-0000-0000-000000000002', '26600000-0000-0000-0000-000000000001', 'admin', '26600000-0000-0000-0000-000000000001');
 insert into public.instagram_profiles (id, organization_id, instagram_user_id, username, encrypted_access_token, status, created_by, provider, capabilities)
 select gen_random_uuid(), '26600000-0000-0000-0000-000000000002', 'cancel-266-' || profile_number,
   'cancel_266_' || profile_number, 'synthetic-token', 'offline', '26600000-0000-0000-0000-000000000001',
