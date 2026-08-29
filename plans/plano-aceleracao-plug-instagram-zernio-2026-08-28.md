@@ -398,7 +398,21 @@ A listagem da Zernio confirmou que os três profiles foram criados pelo próprio
 
 Estado final das três chaves: `local 2 | remoto 2 | limite 1 | vagas no Bulk: 0`.
 
-**Pendência para o dono:** essas chaves têm `instagram_slot_limit = 1` com 2 contas reais cada. Ou o limite está mal configurado, ou há uma conta a mais do que o plano permite. Não mexi na configuração.
+### Remoção autorizada das 3 contas mortas
+
+Com a confirmação de que estavam inutilizáveis (`needsReconnection=true`, token do Instagram inválido), o dono autorizou removê-las.
+
+A remoção seguiu exatamente a sequência da rota `DELETE /api/integrations/meta/profiles/[id]?disconnectZernio=true`: desconecta na Zernio, remove das associações de grupo, faz soft delete do perfil e soft delete dos snapshots de analytics. Preflight por conta: a conta precisava ser a esperada na chave, o `accountId` não podia estar em uso por outro perfil ativo, e a outra conta da chave precisava ter `accountId` distinto.
+
+| chave | antes | depois | conta preservada |
+|---|---|---|---|
+| BoydKidwai9429 | 2/1 | **1/1** | `@ayumisakamoto81` |
+| CasperAshmon2315 | 2/1 | **1/1** | `@_delmamartin.685` |
+| ChristalAlcocer471776 | 2/1 | **1/1** | `@jheniffer.vale338` |
+
+As três contas boas seguem `online` e ativas. As três removidas saíram do Atena e da Zernio. Nenhuma chave está mais acima do limite, e local e remoto estão iguais nas três.
+
+**Pendência para o dono:** essas chaves seguem com `instagram_slot_limit = 1`. Se o plano da Zernio permite 2, o limite está subconfigurado e cada uma está desperdiçando uma vaga. Não mexi na configuração.
 
 ## Ordem de execução recomendada
 
