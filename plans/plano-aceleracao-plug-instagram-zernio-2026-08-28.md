@@ -203,9 +203,21 @@ Daria paralelismo real: celulares em chaves diferentes finalizando ao mesmo temp
 - **Risco:** alto se feito isoladamente; a RPC de slot depende da trava.
 - **Validação obrigatória antes do deploy:** ensaio com duas chaves e dois aparelhos, confirmando que o `reconcile` continua bloqueando atribuição cruzada.
 
-### Fase 4 — Higiene do `/start` (opcional, ganho de segundos)
+### Fase 4 — Higiene do `/start` — **executada em 29/08/2026** (commit `9844348`)
 
-Remover a segunda listagem redundante (`:164`), unificar a consulta duplicada a `profile_groups` e decidir o destino da checagem de limite pré-OAuth descrita em R3 — corrigi-la para contar profiles dedicados, ou removê-la assumindo explicitamente que o Bulk Zernio é a barreira.
+**A questão em aberto foi respondida:** `GET /v1/accounts?profileId=X` **filtra de fato**. Testado contra a API com uma chave de duas contas em profiles distintos: com o parâmetro volta 1 conta, sem ele voltam 2. `profile_id` com underscore é ignorado silenciosamente — não usar.
+
+Isso permitiu manter as duas checagens de segurança e mesmo assim baratear as leituras, em vez da troca "segurança por velocidade" que o plano original previa.
+
+1. **A checagem de limite virou local e passou a funcionar.** Antes lia o inventário remoto inteiro e contava só o profile canônico — no modelo de profile isolado, letra morta (R3). Agora usa a **mesma fórmula** de `reserve_zernio_addition_finalization_slot`: perfis locais ativos da conexão + reservas vigentes. As duas pontas passam a concordar por construção: se o `/start` deixa passar, a reserva final também deixa. Simulado contra as 1.261 chaves: **zero casos** em que a barreira bloquearia chave com vaga real, e zero divergências com o que o Bulk oferece.
+
+   Ganho operacional: o operador que aponta para uma chave cheia é barrado **antes** de autorizar no Instagram, com mensagem dizendo a ocupação real. Era a origem das 46 falhas históricas de `add a payment method`, que só apareciam depois do OAuth.
+
+2. **As leituras remotas restantes pedem só o profile de interesse.** O baseline do profile isolado e o "canônico já tem conta" foram preservados integralmente; mudou apenas o tamanho da resposta. O filtro local por profile continua no código como rede, caso a API deixe de honrar o parâmetro.
+
+3. **A consulta duplicada a `profile_groups` virou uma só.**
+
+Validação: 325 testes passando, `tsc --noEmit` limpo, simulação da barreira contra a frota inteira. Deploy de produção na Vercel.
 
 ## Medições — executadas em 28/08/2026
 
@@ -445,5 +457,5 @@ Validação após cada passo: repetir a medição de gap entre conclusões e de 
 ## Questões em aberto
 
 - Qual é a janela real de propagação da Zernio entre callback e conta visível no inventário? Define o teto do backoff da Fase 1.
-- A Zernio aceita filtro por `profileId` em `/v1/accounts`? Se sim, reduz D4 e o custo de cada finalização.
-- O limite de slot por chave deve ser aplicado antes do OAuth (custa uma leitura remota a mais no `/start`) ou continuar apenas no Bulk Zernio?
+- ~~A Zernio aceita filtro por `profileId` em `/v1/accounts`?~~ **Sim**, verificado em 29/08/2026 e já aplicado na Fase 4. `profile_id` com underscore é ignorado.
+- ~~O limite de slot por chave deve ser aplicado antes do OAuth?~~ **Sim, e sem custo remoto**: a Fase 4 usa contagem local com a mesma fórmula da reserva final.
