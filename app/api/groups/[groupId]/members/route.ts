@@ -149,21 +149,26 @@ export async function DELETE(
   }
 
   try {
-    const body = await request.json() as { profileId?: unknown };
-    const profileId = String(body.profileId ?? '');
+    const body = await request.json() as AddMembersPayload;
+    const profileIds = parseProfileIds(body);
+
+    if (profileIds.length === 0) {
+      return NextResponse.json({ error: 'Selecione ao menos um perfil válido.' }, { status: 400 });
+    }
+
     const supabase = await createSupabaseServerClient();
     const { error } = await supabase
       .from('profile_group_members')
       .delete()
       .eq('group_id', groupId)
-      .eq('profile_id', profileId)
+      .in('profile_id', profileIds)
       .eq('organization_id', context.activeOrganization.id);
 
     if (error) {
-      return NextResponse.json({ error: 'Não foi possível remover o perfil do grupo.' }, { status: 400 });
+      return NextResponse.json({ error: 'Não foi possível remover o(s) perfil(is) do grupo.' }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, profileIds });
   } catch {
     return NextResponse.json({ error: 'Requisição inválida.' }, { status: 400 });
   }

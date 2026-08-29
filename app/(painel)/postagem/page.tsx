@@ -6,6 +6,7 @@ import { Suspense } from 'react';
 import PageLoadingSkeleton from '@/app/components/page-loading-skeleton';
 import PublishingClient from '@/app/postagem/publishing-client';
 import { getOrganizationContext } from '@/lib/organizations/server';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { signMediaPreviewUrl } from '@/lib/storage/media-storage';
 import {
@@ -79,23 +80,27 @@ async function PublishingPageContent() {
   if (!context.user) redirect('/login');
   if (!context.activeOrganization) redirect('/onboarding');
 
+  const organizationId = context.activeOrganization.id;
   const supabase = await createSupabaseServerClient();
   // Nunca carregue publication_items linha a linha ao abrir o compositor.
   // Em organizações grandes, isso traz todo o histórico publicado, bloqueia o
   // SSR e deixa a tela em carregamento permanente. A agregação é feita pelo
   // banco e devolve somente uma linha de métricas por perfil.
   const [profilesResult, assetsResult, groupsResult, composerMetricsResult] = await Promise.all([
-    supabase
+    // Organizations can hold more online profiles than PostgREST's default row cap (1000),
+    // which would otherwise silently truncate the composer's profile list and counts.
+    fetchAllRows((from, to) => supabase
       .from('instagram_profiles_safe')
       .select('id, username, display_name, profile_picture_url, status, provider, zernio_account_id, zernio_connection_id')
-      .eq('organization_id', context.activeOrganization.id)
+      .eq('organization_id', organizationId)
       .eq('status', 'online')
       .is('deleted_at', null)
-      .order('username', { ascending: true }),
+      .order('username', { ascending: true })
+      .range(from, to)),
     supabase
       .from('media_assets')
       .select('id, original_name, mime_type, kind, size_bytes, status, storage_path, thumbnail_storage_path, created_at')
-      .eq('organization_id', context.activeOrganization.id)
+      .eq('organization_id', organizationId)
       .is('deleted_at', null)
       .eq('status', 'ready')
       .order('created_at', { ascending: false })
@@ -103,11 +108,11 @@ async function PublishingPageContent() {
     supabase
       .from('profile_groups')
       .select('id, name, description, consumption_mode, default_caption, profile_group_members(profile_id)')
-      .eq('organization_id', context.activeOrganization.id)
+      .eq('organization_id', organizationId)
       .is('deleted_at', null)
       .order('name', { ascending: true }),
     supabase.rpc('get_posting_composer_profile_metrics', {
-      p_organization_id: context.activeOrganization.id,
+      p_organization_id: organizationId,
       p_slot_horizon_days: 90,
     }),
   ]);
@@ -118,10 +123,10 @@ async function PublishingPageContent() {
       supabase
         .from('media_group_assignments')
         .select('media_asset_id, group_id')
-        .eq('organization_id', context.activeOrganization.id)
+        .eq('organization_id', organizationId)
         .in('media_asset_id', assetIds),
       supabase.rpc('get_media_publication_states', {
-        p_organization_id: context.activeOrganization.id,
+        p_organization_id: organizationId,
         p_media_asset_ids: assetIds,
       }),
     ])
@@ -152,7 +157,7 @@ async function PublishingPageContent() {
   }
   const composerMetrics = (composerMetricsResult.data ?? []) as ComposerMetricsRow[];
   console.info('Métricas agregadas de /postagem carregadas', {
-    organizationId: context.activeOrganization.id,
+    organizationId,
     onlineProfiles: profilesResult.data?.length ?? 0,
     metricRows: composerMetrics.length,
     profilesWithReels: composerMetrics.filter((metric) => metric.scheduled_counts.reel + metric.published_counts.reel > 0).length,

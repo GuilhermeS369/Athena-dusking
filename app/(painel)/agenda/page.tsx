@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 
 import AgendaClient from '@/app/agenda/agenda-client';
 import { getOrganizationContext } from '@/lib/organizations/server';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -12,14 +13,18 @@ export default async function AgendaPage() {
   if (!context.activeOrganization) redirect('/onboarding');
 
   const supabase = await createSupabaseServerClient();
-  const { data: profiles, error: profilesError } = await supabase
+  const organizationId = context.activeOrganization.id;
+  // Organizations can hold more profiles than PostgREST's default row cap (1000),
+  // which would otherwise silently truncate this list.
+  const { data: profiles, error: profilesError } = await fetchAllRows((from, to) => supabase
     .from('instagram_profiles')
     .select('id, username')
-    .eq('organization_id', context.activeOrganization.id)
+    .eq('organization_id', organizationId)
     .is('deleted_at', null)
-    .order('username');
+    .order('username')
+    .range(from, to));
 
   if (profilesError) throw new Error('Não foi possível carregar a agenda.');
 
-  return <AgendaClient activeOrganization={context.activeOrganization} profiles={profiles ?? []} items={[]} />;
+  return <AgendaClient activeOrganization={context.activeOrganization} profiles={profiles} items={[]} />;
 }

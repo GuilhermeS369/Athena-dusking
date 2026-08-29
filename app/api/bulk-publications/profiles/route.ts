@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { getOrganizationContext } from '@/lib/organizations/server';
 import type { ComposerMetricRow } from '@/lib/publications/composer-metrics-fallback';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -9,17 +10,21 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   const context = await getOrganizationContext();
   if (!context.user || !context.activeOrganization) return NextResponse.json({ error: 'Autenticação necessária.' }, { status: 401 });
+  const organizationId = context.activeOrganization.id;
   const supabase = await createSupabaseServerClient();
   const [profilesResult, composerMetricsResult] = await Promise.all([
-    supabase
+    // Organizations can hold more online profiles than PostgREST's default row cap (1000),
+    // which would otherwise silently truncate this list.
+    fetchAllRows((from, to) => supabase
       .from('instagram_profiles_safe')
       .select('id, username, display_name, profile_picture_url, provider')
-      .eq('organization_id', context.activeOrganization.id)
+      .eq('organization_id', organizationId)
       .eq('status', 'online')
       .is('deleted_at', null)
-      .order('username', { ascending: true }),
+      .order('username', { ascending: true })
+      .range(from, to)),
     supabase.rpc('get_posting_composer_profile_metrics', {
-      p_organization_id: context.activeOrganization.id,
+      p_organization_id: organizationId,
       p_slot_horizon_days: 90,
     }),
   ]);
