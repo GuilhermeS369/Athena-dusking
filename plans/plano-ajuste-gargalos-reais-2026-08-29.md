@@ -92,3 +92,72 @@ Com a premissa da Zernio derrubada, os 180/min podem subir. Mas **não é a alav
 - **Não subir `BULK_STEP_SIZE` para 100** — reintroduz o `statement_timeout` que a migration 303 existia para evitar.
 - **Não reintroduzir o horizonte de geração para conter volume.** O jeito certo é retenção e arquivamento, não deixar o gerador competir para sempre com a publicação ao vivo.
 - **Não tratar número de documentação interna como verificado.** O 200/min sobreviveu em quatro documentos por meses sem nunca ter sido conferido contra a fonte. Ao registrar um limite externo, citar a URL e a data da verificação.
+
+---
+
+# Execução — 29/08/2026
+
+## Fases 1 a 4: concluídas e medidas em produção
+
+| Fase | O que era | O que ficou |
+|---|---|---|
+| 1 — Arquivamento | 212 mil itens encerrados sem `archived_at` | drenado; fila de arquivamento na casa das dezenas |
+| 2 — Arquivamento recorrente | dependia de alguém clicar "Limpar encerradas" | ciclo automático no worker de manutenção, a cada 10 min |
+| 3 — Preparação em laço próprio | rodava dentro do laço que publica | laço próprio, com cessão limitada ao despacho |
+| 4 — Subir a preparação | limite 50, concorrência 4 | limite 150, concorrência 8 |
+
+**Efeito medido logo após a fase 4:** itens vencidos **169 → 0**, fila de
+preparação **200 → 0**, vazão em ~4.070 publicações/hora (linha de base ~2.600).
+
+### Erro cometido e corrigido na fase 3
+
+A primeira versão do laço de preparação reusava a janela de backpressure do
+staging (`STAGING_DUE_GUARD_MS`, 60 s). Com ~4.000 publicações/hora **sempre há
+item vencendo nos próximos 60 s**, então a preparação cedia a vez em todos os
+ciclos e ficava com `claimed: 0` — 200 itens pendentes parados. Ficou **pior do
+que antes de separar**, porque antes ela ao menos rodava junto com o despacho.
+
+Corrigido com duas coisas: janela própria (`PREPARATION_DUE_GUARD_MS`, 5 s) e
+**teto de cessões seguidas** (`PREPARATION_MAX_CONSECUTIVE_SKIPS`, 3). Depois do
+teto a preparação roda de qualquer forma — fila de preparação parada é
+justamente o que produz item vencido. Coberto por teste
+(`shouldPreparationYieldToDispatch`).
+
+**Lição:** backpressure sem teto de cessão não é backpressure, é inanição.
+
+## Fase 5 — Retenção
+
+Fechada em [plano-retencao-fila-de-publicacao-2026-08-29.md](plano-retencao-fila-de-publicacao-2026-08-29.md).
+Resumo: arquivar grava `archived_at` mas **mantém a linha na tabela quente**, e
+23 dos 34 índices não filtram por essa coluna — então as fases 1 e 2 tiraram a
+pressão operacional, não o espaço. Executar quando a memória passar de 85%, o
+disco de 80%, ou a tabela de 1 milhão de linhas. Obrigatório antes dos 5.000
+perfis.
+
+## Fase 6 — Teto de 180/min: medição feita, degrau NÃO dado
+
+**Medido em 29/08/2026:**
+
+| | valor |
+|---|---:|
+| Perfis Zernio | 3.290 |
+| Conexões (chaves de API) distintas | 1.213 |
+| Publicações na última hora | 2.213 |
+| Chaves usadas nessa hora | 1.087 |
+| **Pico por chave** | **4/hora** |
+| Limite da Zernio por conta | **25/hora** |
+| Chaves acima do limite | **0** |
+
+O despacho já distribui bem: o pico usa **16% do teto do provedor**, com folga
+de ~6× por chave. Era exatamente o risco que a fase 6 mandava descartar antes de
+subir — concentrar rajada numa chave só geraria `429` mesmo com orçamento
+agregado sobrando. **Não é o caso.**
+
+Feito: o teto de código subiu de 200 para 600
+(`PUBLICATION_WORKER_STAGED_MAX_PER_ORGANIZATION_PER_MINUTE`), que era o bloqueio
+apontado na revisão do plano — passar de 200 exigia mudar código, não `.env`.
+
+**Não feito de propósito:** o valor em uso continua **180**. Nenhuma organização
+chega perto dele hoje (Pomodoro ~94/min, Vini ~124/min no pico da janela de 10
+min), e subir sem necessidade só gastaria a margem de memória que a fase 1
+liberou. O teto vira bloqueio quando uma organização passar de ~1.800 perfis.

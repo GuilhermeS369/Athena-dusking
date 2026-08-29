@@ -63,11 +63,20 @@ const stagingDueGuardMs = integerEnv('PUBLICATION_WORKER_STAGING_DUE_GUARD_MS', 
 const stagedDispatchLimit = integerEnv('PUBLICATION_WORKER_STAGED_DISPATCH_LIMIT', 500, 1, 500);
 const stagedDispatchConcurrency = integerEnv('PUBLICATION_WORKER_STAGED_DISPATCH_CONCURRENCY', 32, 1, 64);
 const stagedDispatchLeaseSeconds = integerEnv('PUBLICATION_WORKER_STAGED_DISPATCH_LEASE_SECONDS', 900, 30, 900);
+// O valor padrão (180) e o teto (antes 200) vieram do plano de estabilização de
+// 27/08, quando o Supabase era Micro: era proteção do BANCO, não da Zernio.
+// MEDIDO EM 29/08/2026: 2.213 publicações/hora distribuídas por 1.087 chaves
+// Zernio, com pico de 4/hora por chave contra o limite de 25/hora por conta —
+// 16% do teto do provedor. A Zernio não é o limitante; o teto é nosso.
+// O teto de código sobe para 600 para não bloquear os degraus previstos
+// (180 -> 300 -> 500 -> 600). **Subir o teto do parâmetro não muda nada
+// sozinho** — o valor em uso continua vindo do .env.worker, e cada degrau só
+// deve ser dado medindo memória do Supabase, taxa de 429 e itens vencidos.
 const stagedMaxPerOrganizationPerMinute = integerEnv(
   'PUBLICATION_WORKER_STAGED_MAX_PER_ORGANIZATION_PER_MINUTE',
   180,
   1,
-  200,
+  600,
 );
 const spoolDirectory = process.env.PUBLICATION_WORKER_SPOOL_DIR
   || (process.platform === 'win32'
