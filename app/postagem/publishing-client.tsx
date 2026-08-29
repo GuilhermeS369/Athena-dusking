@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { FormEvent, useState } from 'react';
 import { BulkPlanProgressFeed } from '@/app/components/bulk-plan-progress-list';
 import { formatSaoPauloDateTime, ScheduledCountsByFormat, ScheduledSlotsByFormat } from '@/lib/publications/composer';
@@ -360,16 +359,6 @@ export default function PublishingClient({
         </div>
       </div>
 
-      <section className="queue-section publication-queue-cta">
-        <div className="panel queue-cta-panel">
-          <div>
-            <span className="section-kicker">Histórico e operação</span>
-            <h2>Fila de publicação agora fica em /queue</h2>
-            <p className="queue-heading-description">O compositor continua otimizado para criar postagens. Acompanhe lotes, jobs, falhas, detalhes e ações operacionais na nova tela dedicada.</p>
-          </div>
-          <Link className="button queue-refresh-button" href="/queue" prefetch={false}>Abrir fila operacional</Link>
-        </div>
-      </section>
       <BulkPlanProgressFeed location="postagem" refreshSignal={bulkFeedRefreshSignal} />
     </main>
   );
