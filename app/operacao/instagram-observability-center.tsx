@@ -25,7 +25,8 @@ type Summary = {
   incidents?: Record<string, number>;
   events24h?: number;
   workers?: Record<string, number>;
-  queue?: Record<string, number>;
+  // `pendingArchive` é `null` quando a contagem falhou — distinto de zero.
+  queue?: Record<string, number> & { pendingArchive?: number | null };
   dispatch?: DispatchState | null;
 };
 type Entity = {
@@ -495,6 +496,19 @@ export default function InstagramObservabilityCenter({
           <small>
             {summary?.queue?.overdue ?? 0} atrasados ·{" "}
             {summary?.queue?.retries ?? 0} retries
+          </small>
+        </article>
+        <article className={styles.metric}>
+          <span>Aguardando arquivamento</span>
+          <strong>
+            {summary?.queue?.pendingArchive === null
+              ? "—"
+              : summary?.queue?.pendingArchive ?? "—"}
+          </strong>
+          <small>
+            {summary?.queue?.pendingArchive === null
+              ? "Não foi possível medir"
+              : "Encerrados ainda na tabela quente"}
           </small>
         </article>
         <article className={styles.metric}>

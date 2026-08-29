@@ -17,7 +17,7 @@ export async function GET() {
   const supabase = await createSupabaseServerClient();
   const admin = createSupabaseAdminClient();
   const organizationId = auth.context.activeOrganization.id;
-  const [summaryResult, queueResult, dispatchResult] = await Promise.all([
+  const [summaryResult, queueResult, dispatchResult, pendingArchiveResult] = await Promise.all([
     supabase.rpc("get_instagram_observability_summary", {
       p_organization_id: organizationId,
     }),
@@ -28,6 +28,18 @@ export async function GET() {
       p_organization_id: organizationId,
       p_stalled_after_seconds: 600,
     }),
+    // Quantos itens encerrados ainda esperam arquivamento. O worker de
+    // manutenção drena isso a cada 10 min; o número existe no painel para que
+    // nunca mais volte a crescer despercebido — foi assim que chegou a 212 mil.
+    // Os status são exatamente os que `clean_publication_queue_finished`
+    // processa, e o predicado é coberto por
+    // `publication_items_finished_cleanup_idx`, então é uma contagem barata.
+    admin
+      .from("publication_items")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .is("archived_at", null)
+      .in("status", ["published", "cancelled", "removed", "ignored", "failed"]),
   ]);
   stages.queries = performance.now() - queryStartedAt;
   if (summaryResult.error) {
@@ -66,6 +78,12 @@ export async function GET() {
     }),
     { active: 0, overdue: 0, retries: 0, expiredLeases: 0 },
   );
+  if (pendingArchiveResult.error) {
+    console.error("publication_pending_archive_count_failed", {
+      organizationId,
+      error: pendingArchiveResult.error.message,
+    });
+  }
   if (dispatchResult.error) {
     console.error("publication_dispatch_state_snapshot_failed", {
       organizationId,
@@ -81,6 +99,9 @@ export async function GET() {
       ...summaryResult.data,
       queue: {
         ...queue,
+        // `null` quando a contagem falhou, para a tela distinguir "zero
+        // esperando" de "não consegui medir".
+        pendingArchive: pendingArchiveResult.error ? null : pendingArchiveResult.count ?? 0,
         generatedAt: queueSnapshot.generatedAt ?? null,
         stale: queueSnapshot.stale ?? true,
       },

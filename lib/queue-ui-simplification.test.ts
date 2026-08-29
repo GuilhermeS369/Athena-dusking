@@ -30,3 +30,25 @@ test('fila Instagram mantém somente ações operacionais claras e pagina os agr
   assert.match(migration, /status = 'failed'/);
   assert.match(migration, /archived_at = timezone\('utc', now\(\)\)/);
 });
+
+// B2.2: o número de itens aguardando arquivamento chegou a 212 mil sem ninguém
+// perceber, porque só existia atrás de um botão na tela de fila. Agora fica no
+// painel operacional, ao lado das outras métricas de saúde.
+test("o painel operacional mostra quantos itens aguardam arquivamento", async () => {
+  const [route, panel] = await Promise.all([
+    readFile(new URL("../app/api/operation/observability/summary/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/operacao/instagram-observability-center.tsx", import.meta.url), "utf8"),
+  ]);
+
+  // A contagem usa exatamente os status que clean_publication_queue_finished
+  // processa, senão o painel mostraria um número que o worker não drena.
+  assert.match(route, /\.is\("archived_at", null\)/);
+  assert.match(route, /"published", "cancelled", "removed", "ignored", "failed"/);
+  assert.match(route, /pendingArchive:/);
+
+  // Falha de medição precisa aparecer como "—", não como zero: zero significa
+  // "nada esperando", que é a mensagem oposta.
+  assert.match(route, /pendingArchiveResult\.error \? null :/);
+  assert.match(panel, /Aguardando arquivamento/);
+  assert.match(panel, /Não foi possível medir/);
+});
