@@ -238,3 +238,29 @@ test('a preparação cede ao despacho, mas nunca de forma indefinida', () => {
   // Teto zero desliga a cessão por completo.
   assert.equal(shouldPreparationYieldToDispatch(true, 0, 0), false);
 });
+
+// A4.7: itens irmãos do mesmo perfil saíam juntos no mesmo lote, com
+// concorrência 32, e chegavam à reserva de capacidade no mesmo instante — o que
+// produzia intervalos de 0 min entre reels do mesmo perfil.
+test('o lote leva no máximo um item por perfil e formato', () => {
+  const now = Date.parse('2026-08-29T21:30:00Z');
+  const result = selectWithinOrganizationDispatchWindow([
+    { itemId: 'r1', organizationId: 'a', profileId: 'p1', format: 'reel', executeAt: '2026-08-29T21:29:00Z' },
+    { itemId: 'r2', organizationId: 'a', profileId: 'p1', format: 'reel', executeAt: '2026-08-29T21:29:01Z' },
+    { itemId: 's1', organizationId: 'a', profileId: 'p1', format: 'story', executeAt: '2026-08-29T21:29:02Z' },
+    { itemId: 'r3', organizationId: 'a', profileId: 'p2', format: 'reel', executeAt: '2026-08-29T21:29:03Z' },
+  ], new Map(), now, 10, 100);
+
+  // O segundo reel do perfil p1 fica para o ciclo seguinte; story e o outro
+  // perfil passam, porque são trilhas independentes.
+  assert.deepEqual(result.selected.map((item) => item.itemId), ['r1', 's1', 'r3']);
+});
+
+test('envelope antigo sem formato cai no comportamento conservador de um por perfil', () => {
+  const now = Date.parse('2026-08-29T21:30:00Z');
+  const result = selectWithinOrganizationDispatchWindow([
+    { itemId: 'v1', organizationId: 'a', profileId: 'p1', executeAt: '2026-08-29T21:29:00Z' },
+    { itemId: 'v2', organizationId: 'a', profileId: 'p1', executeAt: '2026-08-29T21:29:01Z' },
+  ], new Map(), now, 10, 100);
+  assert.deepEqual(result.selected.map((item) => item.itemId), ['v1']);
+});

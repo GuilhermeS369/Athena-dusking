@@ -408,11 +408,22 @@ export function selectWithinOrganizationDispatchWindow(envelopes, history, now, 
   for (const [organizationId, timestamps] of history.entries()) {
     working.set(organizationId, timestamps.filter((timestamp) => timestamp > cutoff));
   }
+  // No máximo UM item por perfil e formato em cada lote. Sem isso, itens irmãos
+  // do mesmo perfil saem juntos, com concorrência 32, e chegam à reserva de
+  // capacidade no mesmo instante — foi o que produziu intervalos de 0 min entre
+  // reels do mesmo perfil. O segundo item não se perde: volta no ciclo seguinte,
+  // poucos segundos depois, e aí a guarda de espaçamento decide com o estado já
+  // atualizado. Envelope antigo no spool não traz `format`; cai em 'unknown',
+  // que é o comportamento mais conservador (1 por perfil).
+  const perProfileFormat = new Set();
   for (const envelope of fairDispatchOrder(envelopes)) {
     if (selected.length >= limit) break;
     const organizationId = String(envelope.organizationId ?? 'unknown');
+    const profileFormatKey = `${envelope.profileId ?? 'unknown'}:${envelope.format ?? 'unknown'}`;
+    if (perProfileFormat.has(profileFormatKey)) continue;
     const timestamps = working.get(organizationId) ?? [];
     if (timestamps.length >= perOrganizationLimit) continue;
+    perProfileFormat.add(profileFormatKey);
     timestamps.push(now);
     working.set(organizationId, timestamps);
     selected.push(envelope);

@@ -337,6 +337,37 @@ async function reserveDailyPublicationLimit(itemId: string, workerId: string) {
   return result.allowed;
 }
 
+
+// O cron da Vercel é rede de segurança: assume quando o heartbeat da VPS passa
+// de 120 s — exatamente o cenário de atraso em que o espaçamento entre posts do
+// mesmo perfil é mais frágil. Até 29/08/2026 ele publicava SEM chamar a reserva
+// de capacidade, então toda a guarda de intervalo mínimo (migration 330) ficava
+// de fora justamente quando mais importa. Este é o furo 3 do plano de
+// espaçamento.
+//
+// Negar aqui não perde a publicação: `reserve_publication_dispatch_capacity`
+// devolve o item para `waiting` com `next_attempt_at` no futuro e **não**
+// consome tentativa.
+async function reserveDispatchCapacity(item: ClaimedItem, workerId: string) {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase.rpc('reserve_publication_dispatch_capacity', {
+    p_item_id: item.id,
+    p_worker_id: workerId,
+    p_reservation_seconds: 300,
+  });
+  if (error) throw error;
+  const result = (data as { allowed: boolean; reason: string | null; next_attempt_at: string | null }[] | null)?.[0];
+  if (!result) throw new Error('A reserva de capacidade de publicação não retornou resultado.');
+  if (!result.allowed) {
+    console.info('Publicação adiada pelo cron: capacidade negada.', {
+      itemId: item.id,
+      reason: result.reason,
+      nextAttemptAt: result.next_attempt_at,
+    });
+  }
+  return result.allowed;
+}
+
 async function processClaimedItem(item: ClaimedItem, workerId: string) {
   const supabase = createSupabaseAdminClient();
   try {
@@ -447,7 +478,12 @@ export async function dispatchPublicationQueue(options: DispatchOptions = {}) {
   const items = claimed as ClaimedItem[] ?? [];
   // O claim e a concorrência têm o mesmo teto. Cada tarefa possui seu próprio
   // try/catch, logo uma falha não cancela nem bloqueia as demais.
-  const settled = await Promise.allSettled(items.map((item) => processClaimedItem(item, workerId)));
+  const settled = await Promise.allSettled(items.map(async (item) => {
+    if (!(await reserveDispatchCapacity(item, workerId))) {
+      return { itemId: item.id, state: 'deferred' as const };
+    }
+    return processClaimedItem(item, workerId);
+  }));
   const processed = settled.map((entry, index) => entry.status === 'fulfilled'
     ? entry.value
     : { itemId: items[index].id, state: 'error', error: errorInfo(entry.reason).message ?? 'Falha desconhecida no processamento paralelo.' });

@@ -1195,6 +1195,9 @@ export async function preparePublicationDispatchEnvelope(item, options = {}) {
     itemId: item.id,
     organizationId: item.organization_id,
     profileId: item.profile_id,
+    // Usado para limitar o lote a um item por perfil e formato — reel disputa
+    // com reel, story não interfere.
+    format: item.format ?? null,
     executeAt: item.execute_at,
   };
   if ('state' in workItem) return { ...base, workItem };
