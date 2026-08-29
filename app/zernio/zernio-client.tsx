@@ -286,7 +286,7 @@ export default function ZernioClient({ activeOrganization, initialConnections, i
       setNamesText('');
       setApiKeysText('');
       await Promise.all([refreshConnections(), refreshImportBatches()]);
-      showMessage(payload.outcome?.status === 'waiting' ? 'Lote enfileirado. Outra importação está em processamento nesta organização.' : 'Lote Zernio processado. Confira o resumo abaixo.', 'success');
+      showMessage('Lote Zernio enfileirado. Acompanhe o progresso no painel abaixo — a tela atualiza sozinha.', 'success');
     } catch (error) {
       showMessage(error instanceof Error ? error.message : 'Não foi possível conectar ao servidor.', 'error');
     } finally {
@@ -302,10 +302,10 @@ export default function ZernioClient({ activeOrganization, initialConnections, i
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ retryBatchId: batchId }),
       });
-      const payload = await response.json() as { error?: string; outcome?: { status?: string } };
+      const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? 'Não foi possível retomar o lote.');
       await Promise.all([refreshConnections(), refreshImportBatches()]);
-      showMessage(payload.outcome?.status === 'waiting' ? 'Retomada enfileirada; outra importação ainda está em andamento.' : 'Falhas do lote retomadas.', 'success');
+      showMessage('Retomada enfileirada. Acompanhe o progresso no painel abaixo — a tela atualiza sozinha.', 'success');
     } catch (error) {
       showMessage(error instanceof Error ? error.message : 'Não foi possível retomar o lote.', 'error');
     } finally {

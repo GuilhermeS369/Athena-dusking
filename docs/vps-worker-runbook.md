@@ -998,3 +998,102 @@ O estado `degraded` restante vem de aviso de lag máximo da fila, não de worker
 ```bash
 pm2 logs athena-media-maintenance-worker --lines 40 --nostream
 ```
+
+## 24. Restauração do spool de staging, troca de worker e renovação de URL
+
+Fase 8 do `plans/plano-despacho-instagram-1000-perfis-sem-descarte-2026-08-28.md`. Procedimentos validados nesta sessão (não teóricos): o padrão de deploy abaixo é literalmente o que foi usado nas Fases 4/5 e no fix do deadlock de `criticalDelay`, incluindo o incidente real de 28/08 e sua recuperação.
+
+### 24.1. Restauração do spool (`/var/lib/athena-publication-spool`)
+
+O spool é só um cache em disco de itens já validados no Supabase — a fonte de verdade continua sendo `publication_items` (`dispatch_staged_by`/`dispatch_staged_at`/`dispatch_staged_until`). Perder o spool inteiro **não perde publicações**: o pior caso é os itens staged ficarem presos até `dispatch_staged_until` expirar e então voltarem a ser elegíveis para um novo staging.
+
+Se o spool precisar ser recriado do zero (disco corrompido, diretório apagado por engano):
+
+```bash
+pm2 stop athena-publication-worker
+rm -rf /var/lib/athena-publication-spool
+install -d -m 700 /var/lib/athena-publication-spool
+pm2 restart athena-publication-worker --update-env
+```
+
+O worker recria o diretório sozinho na inicialização (`PublicationDispatchSpool.initialize()`), mas criar explicitamente evita uma corrida entre o primeiro ciclo de staging e o primeiro ciclo de dispatch. Depois do restart, confirme que o worker está recuperando itens novos:
+
+```bash
+pm2 logs athena-publication-worker --lines 40 --nostream | grep -E "staging:|stagedDispatch:"
+```
+
+Se o spool ficar com arquivos `.tmp` órfãos (worker morto no meio de uma escrita), **não precisa intervenção manual** — `PublicationDispatchSpool.initialize()` já limpa `.tmp` órfãos a cada inicialização (validado com 1.000 envelopes + 2 `.tmp` órfãos em `scripts/workers/publication-dispatch-spool.test.mjs`, recuperação em ~2ms).
+
+### 24.2. Troca do worker (deploy de código novo)
+
+Sequência real usada nesta sessão (backup + `node --check` + confirmação de resolução real de módulo + restart isolado):
+
+```bash
+# No Windows, a partir do repositório local:
+scp -i C:\Users\<usuario>\.ssh\athena_vps_worker_ed25519 \
+  scripts/workers/publication-worker.mjs \
+  scripts/workers/publication-direct-dispatch.mjs \
+  scripts/workers/publication-dispatch-spool.mjs \
+  scripts/workers/adaptive-bulk-controller.mjs \
+  scripts/workers/publication-pressure-signal.mjs \
+  root@<ip-da-vps>:/tmp/
+```
+
+```bash
+# Na VPS:
+runtime_dir=/opt/athena-worker
+worker_dir="$runtime_dir/scripts/workers"
+backup_suffix="before-deploy-$(date -u +%Y%m%dT%H%M%SZ)"
+
+pm2 stop athena-publication-worker
+for f in publication-worker.mjs publication-direct-dispatch.mjs publication-dispatch-spool.mjs; do
+  [ -f "$worker_dir/$f" ] && cp -a "$worker_dir/$f" "$worker_dir/$f.$backup_suffix"
+done
+install -m 644 /tmp/*.mjs "$worker_dir/"
+
+node --check "$worker_dir/publication-worker.mjs"
+node --check "$worker_dir/publication-direct-dispatch.mjs"
+
+# node --check só valida sintaxe — não pega dependência de módulo ausente. Isso causou um
+# incidente real em produção (28/08/2026, @aws-sdk/client-s3 não instalado). Sempre confirmar
+# resolução real dos imports antes do restart:
+(cd "$runtime_dir" && node --input-type=module -e "await import('$worker_dir/publication-worker.mjs')") \
+  || { echo 'FALHA: não resolveu os imports. NÃO reiniciar.'; exit 1; }
+
+pm2 restart athena-publication-worker --update-env
+pm2 save
+```
+
+Depois do restart, confirmar por pelo menos 2-3 ciclos (10-20s) que não há erro novo:
+
+```bash
+wc -l /root/.pm2/logs/athena-publication-worker-error.log   # anotar antes e depois
+pm2 jlist | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const p=JSON.parse(d).find(x=>x.name==='athena-publication-worker');console.log(JSON.stringify({pid:p.pid,status:p.pm2_env.status,unstable:p.pm2_env.unstable_restarts}))})"
+```
+
+Rollback: restaurar os arquivos `.$backup_suffix` sobre os atuais e repetir `node --check` + restart isolado — nunca usar `pm2 delete`/recriar o processo do zero, isso perde `pm2 save`/o estado salvo de todos os outros workers na mesma lista.
+
+### 24.3. Renovação de snapshot/URL expirado
+
+`stagingLeaseSeconds` (`PUBLICATION_WORKER_STAGING_LEASE_SECONDS`, padrão 1200s) e `stagedDispatchLeaseSeconds` (`PUBLICATION_WORKER_STAGED_DISPATCH_LEASE_SECONDS`, padrão 900s) limitam por quanto tempo um item pode ficar staged/ativado sem ser reivindicado de novo. Se o worker cair por mais tempo que isso com itens staged, o item volta a ficar elegível para `claim_publication_dispatch_staging_items` automaticamente quando `dispatch_staged_until` expira — **não precisa renovação manual de URL**, o próximo ciclo de staging gera um snapshot/URL assinada nova do zero (`preparePublicationDispatchEnvelope` sempre assina uma URL nova, nunca reaproveita uma antiga entre ciclos).
+
+Se um item específico estiver preso com uma URL/criação suspeita de ter expirado (ex.: mais de 24h staged, incomum), a ação segura é liberar manualmente o staging dele para forçar reprocessamento:
+
+```sql
+-- Rodar via Supabase (service_role), substituindo o item_id real:
+select release_publication_dispatch_staging('<worker_id_atual>', array['<item_id>']::uuid[]);
+```
+
+Isso não afeta `execute_at`/`status` do item — ele só volta a ficar elegível para um novo ciclo de staging, que assina uma URL nova.
+
+### 24.4. Referência rápida: os cinco estados no painel `/operacao`
+
+Desde a Fase 8, `InstagramObservabilityCenter` mostra, por organização (via `get_publication_dispatch_state_snapshot`, refrescado por `refresh_publication_dispatch_state_snapshots` a cada ciclo de manutenção — `app/api/internal/instagram-observability-maintenance/route.ts`):
+
+- **Pré-carregado**: itens com `dispatch_staged_by` setado (no spool, aguardando `execute_at`).
+- **Aguardando cota**: itens `waiting` sem `creation_id`, com `next_attempt_at` no futuro — proxy de adiamento por reserva de capacidade negada.
+- **Enviado ao provedor**: itens com `creation_id` setado em `preparing`/`publishing`.
+- **Perfis desconectados**: contagem de perfis com `status <> 'online'` na organização.
+- **Backlog parado/avançando**: compara o total ativo entre duas leituras (`publication_dispatch_backlog_trend`) — só sinaliza "parado" quando existe backlog real (`activeTotal > 0`) e o total não muda por mais de 10 minutos (`p_stalled_after_seconds`).
+
+Limitação conhecida: o tamanho do spool em disco da VPS **não aparece por organização** (o spool é um diretório compartilhado, sem metadado por organização no heartbeat atual) — para ver o total global, usar `ls /var/lib/athena-publication-spool | wc -l` direto na VPS.

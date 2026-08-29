@@ -117,6 +117,9 @@ export async function POST(request: Request) {
   const queueSnapshotResult = await admin.rpc(
     "refresh_publication_queue_operational_snapshots",
   );
+  const dispatchStateSnapshotResult = await admin.rpc(
+    "refresh_publication_dispatch_state_snapshots",
+  );
   if (apiMetricsResult.error) failures.push({ source: "api_metrics", error: apiMetricsResult.error.message });
   if (boundaryResult.error) failures.push({ source: "boundary_events", error: boundaryResult.error.message });
   if (rollupResult.error) failures.push({ source: "recent_rollups", error: rollupResult.error.message });
@@ -124,6 +127,8 @@ export async function POST(request: Request) {
     failures.push({ source: "summary_snapshots", error: summarySnapshotResult.error.message });
   if (queueSnapshotResult.error)
     failures.push({ source: "queue_snapshots", error: queueSnapshotResult.error.message });
+  if (dispatchStateSnapshotResult.error)
+    failures.push({ source: "dispatch_state_snapshots", error: dispatchStateSnapshotResult.error.message });
   const response = {
     ok: failures.length === 0,
     mode: "frequent",
@@ -131,6 +136,7 @@ export async function POST(request: Request) {
     recentRollups: rollupResult.data ?? null,
     summarySnapshotsRefreshed: summarySnapshotResult.data ?? null,
     queueSnapshotsRefreshed: queueSnapshotResult.data ?? null,
+    dispatchStateSnapshotsRefreshed: dispatchStateSnapshotResult.data ?? null,
     apiMetricsDeleted: apiMetricsResult.data ?? null,
     failures,
     durationMs: Math.round(performance.now() - startedAt),

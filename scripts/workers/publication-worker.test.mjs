@@ -6,6 +6,8 @@ import {
   dispatchHasOperationalActivity,
   fairDispatchOrder,
   selectWithinOrganizationDispatchWindow,
+  shouldForceStagingThroughCriticalDelay,
+  shouldStagingYieldToPressure,
   stagingHasSafeWindow,
 } from './publication-worker.mjs';
 
@@ -119,4 +121,36 @@ test('loop de dispatch continua avançando em ciclos próprios enquanto o loop d
 
   releaseStaging();
   await loops;
+});
+
+// Reproduz o cenário de plans/plano-correcao-deadlock-staging-criticaldelay-2026-08-28.md:
+// atraso crítico causado só por itens não iniciados (creation_id nulo) nunca deveria fazer
+// o staging ceder, porque staging é a única fase capaz de resolvê-lo.
+test('staging não cede ao atraso crítico quando ele é só de itens não iniciados', () => {
+  assert.equal(shouldStagingYieldToPressure({
+    criticalDelay: true, overdueAccepted: false, overdueUnstarted: true,
+  }), false);
+});
+
+test('staging cede ao atraso crítico quando há itens já aceitos competindo por despacho', () => {
+  assert.equal(shouldStagingYieldToPressure({
+    criticalDelay: true, overdueAccepted: true, overdueUnstarted: false,
+  }), true);
+});
+
+test('staging não cede quando não há atraso crítico', () => {
+  assert.equal(shouldStagingYieldToPressure({ criticalDelay: false, overdueAccepted: false }), false);
+  assert.equal(shouldStagingYieldToPressure(null), false);
+});
+
+test('sinal antigo sem a distinção aceito/não-iniciado mantém o comportamento anterior (cede)', () => {
+  assert.equal(shouldStagingYieldToPressure({ criticalDelay: true, overdueAccepted: null }), true);
+  assert.equal(shouldStagingYieldToPressure({ criticalDelay: true }), true);
+});
+
+test('teto de segurança força o staging depois do tempo limite cedendo continuamente', () => {
+  const startedAt = 1_000_000;
+  assert.equal(shouldForceStagingThroughCriticalDelay(null, startedAt, 300_000), false);
+  assert.equal(shouldForceStagingThroughCriticalDelay(startedAt, startedAt + 299_999, 300_000), false);
+  assert.equal(shouldForceStagingThroughCriticalDelay(startedAt, startedAt + 300_000, 300_000), true);
 });

@@ -6,6 +6,11 @@ import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { createAdaptiveBulkController } from './adaptive-bulk-controller.mjs';
+import {
+  loadPublicationPressureSignal,
+  shouldYieldToPublicationPressure,
+  shouldForceThroughPublicationPressure,
+} from './publication-pressure-signal.mjs';
 
 loadEnvFile('.env.local');
 loadEnvFile('.env.worker');
@@ -37,8 +42,20 @@ export function bulkGenerationIsEnabled(value = process.env.PUBLICATION_GENERATI
 }
 const bulkGenerationEnabled = bulkGenerationIsEnabled();
 
+const criticalDelayForceAfterMs = integerEnv(
+  'PUBLICATION_GENERATION_WORKER_CRITICAL_DELAY_FORCE_AFTER_MS',
+  300000,
+  60000,
+  1800000,
+);
+
 let stopping = false;
 let lastHeartbeatAt = 0;
+// Marca quando a série atual de "geração cedeu ao atraso crítico" começou; null quando não
+// está cedendo. Mesma rede de segurança de shouldForceThroughPublicationPressure usada pelo
+// staging (ver plans/plano-correcao-deadlock-staging-criticaldelay-2026-08-28.md).
+let criticalDelayYieldStreakStartedAt = null;
+let forcedThroughCriticalDelayCount = 0;
 
 const adaptiveBulkController = createAdaptiveBulkController({
   initialStep: bulkInitialStepSize,
@@ -295,17 +312,7 @@ export async function processClaimedBulkChunk(supabase, chunk, options = {}) {
   }
 }
 
-export async function loadCriticalPublicationPressure(supabase) {
-  const { data, error } = await supabase.rpc('get_publication_generation_pressure_signal', {
-    p_critical_delay_seconds: 60,
-  });
-  if (error) throw error;
-  return data && typeof data === 'object'
-    ? data
-    : { criticalDelay: false, oldestDueAt: null, overdueCurrent: 0 };
-}
-
-async function tick(supabase) {
+export async function tick(supabase) {
   const [rows, initialBulkSummary] = await Promise.all([
     loadJobSummary(supabase),
     loadBulkSummary(supabase),
@@ -341,13 +348,36 @@ async function tick(supabase) {
   }
 
   let heavyLeaseToken = null;
-  let pressureSignal = { criticalDelay: false, oldestDueAt: null, overdueCurrent: 0 };
+  let pressureSignal = { criticalDelay: false, overdueAccepted: null, overdueUnstarted: null, oldestDueAt: null, checkedAt: null };
+  let yieldingToPressure = false;
   const adaptiveBefore = adaptiveBulkController.snapshot();
   if (bulkGenerationEnabled && adaptiveBulkController.canRun()) {
-    pressureSignal = await loadCriticalPublicationPressure(supabase);
-    if (pressureSignal.criticalDelay) adaptiveBulkController.markCriticalDelay();
+    pressureSignal = await loadPublicationPressureSignal(supabase, 60);
+    yieldingToPressure = shouldYieldToPublicationPressure(pressureSignal);
+    if (yieldingToPressure) {
+      const now = Date.now();
+      const forceThrough = shouldForceThroughPublicationPressure(
+        criticalDelayYieldStreakStartedAt, now, criticalDelayForceAfterMs,
+      );
+      if (forceThrough) {
+        forcedThroughCriticalDelayCount += 1;
+        console.warn('[publication-generation-worker] geração forçada apesar de atraso crítico: teto de segurança atingido', {
+          streakMs: now - criticalDelayYieldStreakStartedAt,
+          thresholdMs: criticalDelayForceAfterMs,
+          pressureSignal,
+          forcedThroughCriticalDelayCount,
+        });
+        yieldingToPressure = false;
+        criticalDelayYieldStreakStartedAt = null;
+      } else {
+        if (criticalDelayYieldStreakStartedAt == null) criticalDelayYieldStreakStartedAt = now;
+        adaptiveBulkController.markCriticalDelay();
+      }
+    } else {
+      criticalDelayYieldStreakStartedAt = null;
+    }
   }
-  if (bulkGenerationEnabled && adaptiveBulkController.canRun() && !pressureSignal.criticalDelay) {
+  if (bulkGenerationEnabled && adaptiveBulkController.canRun() && !yieldingToPressure) {
     const { data, error } = await supabase.rpc('acquire_operational_heavy_workload_lease', {
       p_category: 'bulk_generation',
       p_holder: workerId,
@@ -390,6 +420,8 @@ async function tick(supabase) {
     failedChunks: processedBulkChunks.filter((result) => !result.ok).length,
     waitingForCapacity: bulkGenerationEnabled && !heavyLeaseToken,
     pressureSignal,
+    yieldingToPressure,
+    forcedThroughCriticalDelayCount,
     adaptiveBefore,
     adaptiveAfter: adaptiveBulkController.snapshot(),
     lastChunk: processedBulkChunks.at(-1) || null,

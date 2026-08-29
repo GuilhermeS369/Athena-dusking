@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
 import { parseZernioConnectionImport } from '@/lib/integrations/zernio-connection-import';
 import { processZernioConnectionImportBatch } from '@/lib/integrations/zernio-connection-import-runner';
@@ -43,8 +43,10 @@ export async function POST(request: Request) {
     if (!retryBatch) return NextResponse.json({ error: 'Lote não encontrado.' }, { status: 404 });
     await admin.from('zernio_connection_import_items').update({ status: 'queued', completed_at: null }).eq('batch_id', retryBatch.id).eq('status', 'failed');
     await admin.from('zernio_connection_import_batches').update({ status: 'queued', completed_at: null }).eq('id', retryBatch.id);
-    const outcome = await processZernioConnectionImportBatch(retryBatch.id, context.activeOrganization.name);
-    return NextResponse.json({ ok: true, batchId: retryBatch.id, outcome });
+    const organizationName = context.activeOrganization.name;
+    after(() => processZernioConnectionImportBatch(retryBatch.id, organizationName)
+      .catch((error) => console.error('zernio_import_batch_retry_failed', { batchId: retryBatch.id, error })));
+    return NextResponse.json({ ok: true, batchId: retryBatch.id, outcome: { status: 'queued' } });
   }
 
   const draft = parseZernioConnectionImport(
@@ -126,8 +128,10 @@ export async function POST(request: Request) {
       }, { status: 409 });
     }
     if (error || !batchId) throw new Error('Não foi possível enfileirar o lote Zernio.');
-    const outcome = await processZernioConnectionImportBatch(batchId, context.activeOrganization.name);
-    return NextResponse.json({ ok: true, batchId, outcome }, { status: 201 });
+    const organizationName = context.activeOrganization.name;
+    after(() => processZernioConnectionImportBatch(batchId, organizationName)
+      .catch((processError) => console.error('zernio_import_batch_failed', { batchId, error: processError })));
+    return NextResponse.json({ ok: true, batchId, outcome: { status: 'queued' } }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Não foi possível enfileirar o lote Zernio.' }, { status: 500 });
   }

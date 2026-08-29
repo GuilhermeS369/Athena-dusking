@@ -17,12 +17,16 @@ export async function GET() {
   const supabase = await createSupabaseServerClient();
   const admin = createSupabaseAdminClient();
   const organizationId = auth.context.activeOrganization.id;
-  const [summaryResult, queueResult] = await Promise.all([
+  const [summaryResult, queueResult, dispatchResult] = await Promise.all([
     supabase.rpc("get_instagram_observability_summary", {
       p_organization_id: organizationId,
     }),
     admin.rpc("get_publication_queue_operational_snapshot", {
       p_organization_id: organizationId,
+    }),
+    admin.rpc("get_publication_dispatch_state_snapshot", {
+      p_organization_id: organizationId,
+      p_stalled_after_seconds: 600,
     }),
   ]);
   stages.queries = performance.now() - queryStartedAt;
@@ -62,6 +66,13 @@ export async function GET() {
     }),
     { active: 0, overdue: 0, retries: 0, expiredLeases: 0 },
   );
+  if (dispatchResult.error) {
+    console.error("publication_dispatch_state_snapshot_failed", {
+      organizationId,
+      error: dispatchResult.error.message,
+    });
+  }
+
   return instagramObservedJson(
     startedAt,
     organizationId,
@@ -73,6 +84,7 @@ export async function GET() {
         generatedAt: queueSnapshot.generatedAt ?? null,
         stale: queueSnapshot.stale ?? true,
       },
+      dispatch: dispatchResult.error ? null : dispatchResult.data,
       role: auth.context.activeOrganization.role,
       isSuperUser: auth.context.isSuperUser,
     },

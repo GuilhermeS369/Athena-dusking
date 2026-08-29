@@ -16,6 +16,11 @@ import {
 } from './publication-direct-dispatch.mjs';
 import { PublicationDispatchSpool } from './publication-dispatch-spool.mjs';
 import { createAdaptiveBulkController } from './adaptive-bulk-controller.mjs';
+import {
+  loadPublicationPressureSignal,
+  shouldYieldToPublicationPressure as shouldStagingYieldToPressure,
+  shouldForceThroughPublicationPressure as shouldForceStagingThroughCriticalDelay,
+} from './publication-pressure-signal.mjs';
 
 loadEnvFile('.env.local');
 loadEnvFile('.env.worker');
@@ -66,9 +71,26 @@ const stagedOrganizationDispatches = new Map();
 // Fase 5: staging e dispatch rodam em loops independentes (ver stagingLoop/dispatchLoop
 // em main()). lastStagingCycleResult é o único estado compartilhado entre os dois —
 // o loop de dispatch só o lê para telemetria, nunca aguarda o loop de staging.
-let lastStagingCycleResult = { claimed: 0, persisted: 0, failed: 0, skipped: null };
+let lastStagingCycleResult = { claimed: 0, persisted: 0, failed: 0, skipped: null, forcedThroughCriticalDelayCount: 0 };
+// Fase 6 do plano de correção do deadlock de staging: contador de quantas vezes a rede de
+// segurança (shouldForceStagingThroughCriticalDelay) já precisou agir neste processo. Fica
+// sempre presente em dispatch.staging/heartbeat — permanecer em 0 é o esperado; qualquer valor
+// > 0 é o sinal operacional de que o próprio teto de segurança está sendo acionado (indício de
+// outro problema), sem depender de um canal de alerta externo que este projeto ainda não tem.
+let stagingForcedThroughCriticalDelayCount = 0;
 let lastStagingPressureCheckAt = 0;
-let cachedStagingPressure = { criticalDelay: false, oldestDueAt: null, checkedAt: null };
+let cachedStagingPressure = {
+  criticalDelay: false, overdueAccepted: null, overdueUnstarted: null, oldestDueAt: null, checkedAt: null,
+};
+// Marca quando a série atual de "staging cedeu ao atraso crítico" começou; null quando o
+// staging não está cedendo. Alimenta shouldForceStagingThroughCriticalDelay (ver acima).
+let criticalDelayYieldStreakStartedAt = null;
+const stagingCriticalDelayForceAfterMs = integerEnv(
+  'PUBLICATION_WORKER_STAGING_CRITICAL_DELAY_FORCE_AFTER_MS',
+  300000,
+  60000,
+  1800000,
+);
 const stagingController = stagingEnabled ? createAdaptiveBulkController({
   initialStep: stagingLimit,
   minimumStep: Math.max(1, Math.min(25, Math.floor(stagingLimit / 4))),
@@ -203,18 +225,15 @@ async function loadSummary(supabase) {
 
 // Mesmo sinal global já consumido por zernio-sync-worker.mjs, profile-analytics-direct-worker.ts
 // e publication-generation-worker.mjs: existe algum item waiting/ready com execute_at mais
-// de p_critical_delay_seconds no passado, em qualquer organização.
-async function loadPublicationPressureSignal(supabase, criticalDelaySeconds) {
-  const { data, error } = await supabase.rpc('get_publication_generation_pressure_signal', {
-    p_critical_delay_seconds: criticalDelaySeconds,
-  });
-  if (error) throw error;
-  return {
-    criticalDelay: data?.criticalDelay === true,
-    oldestDueAt: typeof data?.oldestDueAt === 'string' ? data.oldestDueAt : null,
-    checkedAt: typeof data?.checkedAt === 'string' ? data.checkedAt : new Date().toISOString(),
-  };
-}
+// de p_critical_delay_seconds no passado, em qualquer organização. Nomes locais preservados
+// (shouldStagingYieldToPressure/shouldForceStagingThroughCriticalDelay) para não quebrar quem
+// já importa daqui — a implementação real é compartilhada com publication-generation-worker.mjs
+// em publication-pressure-signal.mjs, para que os dois consumidores do sinal nunca caiam de
+// volta no mesmo laço fechado (ver plans/plano-correcao-deadlock-staging-criticaldelay-2026-08-28.md).
+export {
+  shouldYieldToPublicationPressure as shouldStagingYieldToPressure,
+  shouldForceThroughPublicationPressure as shouldForceStagingThroughCriticalDelay,
+} from './publication-pressure-signal.mjs';
 
 // Garante que cada loop (dispatch/staging) nunca sobreponha seu próprio ciclo, mesmo se um
 // ciclo anterior ainda estiver em voo quando o polling tentar iniciar o próximo.
@@ -322,6 +341,7 @@ function summarizeDispatch(dispatch) {
         persisted: Number(dispatch.staging.persisted || 0),
         failed: Number(dispatch.staging.failed || 0),
         skipped: dispatch.staging.skipped ?? null,
+        forcedThroughCriticalDelayCount: Number(dispatch.staging.forcedThroughCriticalDelayCount || 0),
       }
       : null,
     stagedDispatch: dispatch.stagedDispatch && typeof dispatch.stagedDispatch === 'object'
@@ -526,10 +546,31 @@ async function runStagingCycle(supabase, spool) {
       console.error('[publication-worker] falha ao consultar pressão crítica de publicação', errorMessage(pressureError));
     }
   }
-  if (cachedStagingPressure.criticalDelay) {
-    stagingController.markCriticalDelay(now);
-    return { claimed: 0, persisted: 0, failed: 0, skipped: 'critical_publication_delay' };
+  if (cachedStagingPressure.criticalDelay && shouldStagingYieldToPressure(cachedStagingPressure)) {
+    const forceThrough = shouldForceStagingThroughCriticalDelay(
+      criticalDelayYieldStreakStartedAt, now, stagingCriticalDelayForceAfterMs,
+    );
+    if (!forceThrough) {
+      if (criticalDelayYieldStreakStartedAt == null) criticalDelayYieldStreakStartedAt = now;
+      stagingController.markCriticalDelay(now);
+      return {
+        claimed: 0,
+        persisted: 0,
+        failed: 0,
+        skipped: cachedStagingPressure.overdueAccepted === true
+          ? 'critical_publication_delay_accepted'
+          : 'critical_publication_delay',
+      };
+    }
+    stagingForcedThroughCriticalDelayCount += 1;
+    console.warn('[publication-worker] staging forçado apesar de atraso crítico: teto de segurança atingido', {
+      streakMs: now - criticalDelayYieldStreakStartedAt,
+      thresholdMs: stagingCriticalDelayForceAfterMs,
+      pressure: cachedStagingPressure,
+      forcedThroughCriticalDelayCount: stagingForcedThroughCriticalDelayCount,
+    });
   }
+  criticalDelayYieldStreakStartedAt = null;
 
   const limit = stagingController.snapshot(now).currentStep;
   const correlationId = randomUUID();
@@ -654,7 +695,10 @@ async function stagingLoop(supabase, spool) {
   while (!stopping) {
     await stagingGuard.run(async () => {
       try {
-        lastStagingCycleResult = await runStagingCycle(supabase, spool);
+        lastStagingCycleResult = {
+          ...(await runStagingCycle(supabase, spool)),
+          forcedThroughCriticalDelayCount: stagingForcedThroughCriticalDelayCount,
+        };
       } catch (error) {
         console.error('[publication-worker] falha no ciclo de staging', { workerId, message: errorMessage(error) });
       }

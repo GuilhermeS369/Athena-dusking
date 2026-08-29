@@ -6,11 +6,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import styles from "./instagram-observability-center.module.css";
 
+type DispatchState = {
+  preloaded: number;
+  awaitingQuota: number;
+  sentToProvider: number;
+  profileDisconnected: number;
+  due: number;
+  failuresLastHour: number;
+  publishedLastMinute: number;
+  oldestDueAgeSeconds: number;
+  activeTotal: number;
+  backlogStalled: boolean;
+  lastProgressAt: string | null;
+  generatedAt: string | null;
+  stale: boolean;
+};
 type Summary = {
   incidents?: Record<string, number>;
   events24h?: number;
   workers?: Record<string, number>;
   queue?: Record<string, number>;
+  dispatch?: DispatchState | null;
 };
 type Entity = {
   id: string;
@@ -494,6 +510,47 @@ export default function InstagramObservabilityCenter({
           <strong>{summary?.events24h ?? "—"}</strong>
           <small>
             {summary?.incidents?.affectedProfiles ?? 0} perfis afetados
+          </small>
+        </article>
+      </section>
+      <section className={styles.metrics} aria-label="Estado do despacho">
+        <article className={styles.metric}>
+          <span>Pré-carregado</span>
+          <strong>{summary?.dispatch?.preloaded ?? "—"}</strong>
+          <small>{summary?.dispatch?.due ?? 0} já vencidos</small>
+        </article>
+        <article className={styles.metric}>
+          <span>Aguardando cota</span>
+          <strong>{summary?.dispatch?.awaitingQuota ?? "—"}</strong>
+          <small>Adiados por limite de despacho</small>
+        </article>
+        <article className={styles.metric}>
+          <span>Enviado ao provedor</span>
+          <strong>{summary?.dispatch?.sentToProvider ?? "—"}</strong>
+          <small>{summary?.dispatch?.publishedLastMinute ?? 0} publicados no último minuto</small>
+        </article>
+        <article className={styles.metric}>
+          <span>Perfis desconectados</span>
+          <strong>{summary?.dispatch?.profileDisconnected ?? "—"}</strong>
+          <small>{summary?.dispatch?.failuresLastHour ?? 0} falhas na última hora</small>
+        </article>
+        <article
+          className={
+            summary?.dispatch?.backlogStalled
+              ? `${styles.metric} ${styles.metricDanger}`
+              : styles.metric
+          }
+        >
+          <span>Backlog</span>
+          <strong>
+            {summary?.dispatch?.backlogStalled ? "Parado" : "Avançando"}
+          </strong>
+          <small>
+            {summary?.dispatch?.activeTotal ?? 0} ativos · item mais antigo{" "}
+            {summary?.dispatch?.oldestDueAgeSeconds
+              ? `${Math.round(summary.dispatch.oldestDueAgeSeconds / 60)} min`
+              : "0 min"}{" "}
+            vencido
           </small>
         </article>
       </section>

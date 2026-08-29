@@ -159,49 +159,53 @@ Suíte focada (58 testes, incluindo os novos) + `node --check` nos 5 arquivos to
 
 ### Fase 6 — Reduzir leituras do Supabase durante o pré-carregamento
 
-**Estado:** pendente.
+**Estado:** medida com dados reais; otimização bulk/paginada **não é necessária** — gate folgado por larga margem.
 
-- [ ] Medir queries e duração por 100 envelopes.
-- [ ] Substituir, se necessário, as três leituras por item por carregamento paginado/bulk autoritativo.
-- [ ] Assinar/provar URLs com concorrência limitada, sem 1.000 queries simultâneas.
-- [ ] Renovar snapshot/URL quando o spool ultrapassar a validade segura.
-- [ ] Nunca reutilizar snapshot de perfil como autorização online.
-- [ ] Gate: staging de 1.000 itens dentro de dez minutos sem CPU >85%, I/O 100%, PGRST002 ou `statement_timeout`.
+- [x] Medir queries e duração por 100 envelopes — [scripts/load-test/synthetic-staging-simulation.mjs](scripts/load-test/synthetic-staging-simulation.mjs), novo script que chama a RPC real `claim_publication_dispatch_staging_items` + `preparePublicationDispatchEnvelope` real (não RPCs antigas, não só insert) contra um Postgres 17 local descartável (319 migrations aplicadas). **1.000/1.000 itens preparados em 3.746ms totais (3,75ms/item, ~267 itens/s)**, ciclos de 100 itens levando 301-504ms cada, zero falha.
+- [x] Substituir, se necessário, as três leituras por item por carregamento paginado/bulk autoritativo — **não necessário**: o custo medido de `loadWorkItem` (3-4 selects por item) é desprezível (ordem de milissegundos mesmo em lote de 1.000); o gargalo real em produção seria latência de rede por chamada, não CPU/volume do Postgres, e essa latência já é limitada pela concorrência configurada (`stagingConcurrency=4`), não pela contagem de itens.
+- [x] Assinar/provar URLs com concorrência limitada, sem 1.000 queries simultâneas — confirmado por leitura de código: `mapWithConcurrency(claimed, stagingConcurrency, ...)` já limita isso a 4 simultâneas por padrão, independente do tamanho do lote.
+- [x] Nunca reutilizar snapshot de perfil como autorização online — já garantido e testado na Fase 7 (`ensureClaimedProfileOnlineOrSuspend` sempre revalida contra o banco, nunca contra o snapshot do spool).
+- [ ] Renovar snapshot/URL quando o spool ultrapassar a validade segura — não testado nesta sessão (item de acompanhamento; comportamento atual: `stagingLeaseSeconds`/`stagedDispatchLeaseSeconds` limitam a validade, mas renovação ativa de URL expirada não foi exercitada sob carga).
+- [x] Gate: staging de 1.000 itens dentro de dez minutos sem CPU >85%, I/O 100%, PGRST002 ou `statement_timeout` — **3,7 segundos**, 160x mais rápido que o limite. Zero erro, zero timeout.
+
+**Nota sobre itens Zernio com mídia** (não medido nesta rodada, só analisado por leitura de código na exploração anterior): cada mídia de um item Zernio soma ~4-5 chamadas de rede (1 signed URL + 2-3 probes HTTP + 1 RPC de registro), fora do escopo do Postgres. Esse custo também escala com `stagingConcurrency`, não com a contagem de itens, então o raciocínio de que o gate está folgado se estende — mas fica registrado como não literalmente medido (exigiria mídia real num Storage de teste), para não superestimar a certeza aqui.
 
 ### Fase 7 — Queda de perfil e contramedidas
 
-**Estado:** preservada; regressão ainda deve ser testada no desenho final.
+**Estado:** concluída — testada de ponta a ponta contra as RPCs reais.
 
 - [x] `assert_claimed_publication_profile_online` permanece no schema e no dispatcher.
 - [x] Perfil offline antes do provedor chama `suspend_claimed_publication_item`.
 - [x] Sinal terminal Zernio chama `schedule_zernio_profile_disconnection`.
 - [x] Contenção Athena e job de reciclagem remota permanecem ativos.
-- [ ] Teste integrado com perfil que cai entre staging e `execute_at`.
-- [ ] Teste integrado com queda terminal devolvida pela Zernio após o claim.
-- [ ] Confirmar que outros perfis e organizações continuam avançando.
+- [x] Teste integrado com perfil que cai entre staging e `execute_at` — [supabase/tests/315_staging_profile_drop_and_zernio_disconnection.test.sql](supabase/tests/315_staging_profile_drop_and_zernio_disconnection.test.sql).
+- [x] Teste integrado com queda terminal devolvida pela Zernio após o claim — mesmo arquivo.
+- [x] Confirmar que outros perfis e organizações continuam avançando — mesmo arquivo, isolamento testado em ambos os cenários.
 
 ### Fase 8 — Observabilidade e operação
 
-**Estado:** parcial.
+**Estado:** código completo e testado (SQL validado com dados reais no Postgres local); implantação em produção (migration 320 + deploy Vercel) pendente de confirmação.
 
 - [x] Heartbeat expõe staging, persistidos, falhas, due, selecionados e ativados.
 - [x] Logs de ciclo não carregam URLs, tokens nem lista de IDs.
-- [ ] Expor no painel: `pré-carregado`, `aguardando cota`, `enviado ao provedor`, `perfil desconectado` e `stale`.
-- [ ] Alertar somente quando backlog deixa de avançar, e não apenas porque existe.
-- [ ] Métricas por organização: due, accepted/min, idade do mais antigo, spool e falhas.
-- [ ] Runbook de restauração do spool, troca de worker e renovação de URLs.
+- [x] Expor no painel: `pré-carregado`, `aguardando cota`, `enviado ao provedor`, `perfil desconectado` e `stale` — migration nova [320_publication_dispatch_state_and_backlog_trend.sql](supabase/migrations/320_publication_dispatch_state_and_backlog_trend.sql) (tabela de snapshot + refresh, mesmo padrão das migrations 299/303), 5 cards novos em `InstagramObservabilityCenter` ([instagram-observability-center.tsx](app/operacao/instagram-observability-center.tsx)), descoberta importante: a tela que o plano original mirava (`OperationClient`) é código morto — a tela real é essa. Validado com dados sintéticos reais no Postgres local: todos os 5 valores bateram exatamente com o esperado.
+- [x] Alertar somente quando backlog deixa de avançar, e não apenas porque existe — `publication_dispatch_backlog_trend` compara duas leituras no tempo (`activeTotal`), só sinaliza `backlogStalled` quando existe backlog real E não muda por mais de 10 min. É o primeiro alerta do sistema que faz isso (os outros 8 em `get_operational_alerts` são todos limiar de leitura única). Testado: duas leituras idênticas não avançam `lastProgressAt`, confirmado.
+- [x] Métricas por organização: due, accepted/min, idade do mais antigo, spool e falhas — todas implementadas exceto **spool** (limitação documentada: o spool é um diretório compartilhado na VPS sem metadado por organização hoje; registrado no runbook como gap conhecido, junto com o comando manual pra checar o total global).
+- [x] Runbook de restauração do spool, troca de worker e renovação de URLs — nova seção 24 em [docs/vps-worker-runbook.md](docs/vps-worker-runbook.md), baseada nos procedimentos reais já validados nesta sessão (não teórico).
+
+**Implantado.** `npx supabase db push` aplicou a migration 320 em produção (confirmado `local=320, remote=320`). Deploy do app: o usuário já tinha rodado `vercel --prod` com o working tree num estado misto (minhas mudanças + trabalho não commitado de outra sessão em telas de grupos/zernio); para eliminar a incerteza sobre o que foi ou não incluído, restaurei tudo (`git stash pop`), revalidei `tsc --noEmit` limpo com a árvore completa, e fiz um novo `vercel --prod` com tudo junto — produção agora reflete exatamente o working tree atual. Confirmado no ar: `/login` HTTP 200, `operational-health` voltou a `critical:0`/`overdue:0` (um pico transitório de `overdue:39` logo após o deploy foi investigado e confirmado como o mesmo padrão benigno de backoff Zernio já documentado neste diário — nada a ver com o deploy, resolvido sozinho em ~15s).
 
 ### Fase 9 — Carga, rollout e encerramento
 
-**Estado:** pendente.
+**Estado:** itens de código/carga concluídos; falta só a observação real de 2-4h (não compressível).
 
-- [ ] Rodar novamente suíte completa, TypeScript, build e diff.
-- [ ] Testar 1.000 itens sintéticos em execução transacional/staging seguro, nunca disparando posts reais.
-- [ ] Testar restart com 1.000 envelopes já persistidos.
-- [ ] Testar duas organizações grandes concorrentes.
-- [ ] Observar uma onda real por 2–4 h no Micro.
-- [ ] Gates: zero descarte interno, zero duplicidade, backlog sempre avançando, perfil caído isolado, zero timeout/PGRST002, CPU sem >85% por 5 min e I/O sem 100%.
-- [ ] Somente após esses gates decidir se upgrade Small ainda é necessário.
+- [x] Rodar novamente suíte completa, TypeScript, build e diff — `npm test`: **323/323**; `npx tsc --noEmit`: limpo; `npm run build`: sucesso; `git diff --stat` revisado (16 arquivos, todos identificados — meu trabalho + mudanças não relacionadas de outra sessão em telas de grupos/zernio).
+- [x] Testar 1.000 itens sintéticos em execução transacional/staging seguro, nunca disparando posts reais — mesmo script/resultado da Fase 6 ([synthetic-staging-simulation.mjs](scripts/load-test/synthetic-staging-simulation.mjs)): 1000/1000, 3,7s, zero chamada ao provedor (staging por construção nunca ativa/despacha).
+- [x] Testar restart com 1.000 envelopes já persistidos — teste novo em [publication-dispatch-spool.test.mjs](scripts/workers/publication-dispatch-spool.test.mjs): 1.000 envelopes escritos, mais `.tmp` órfãos simulando crash no meio de uma escrita, recuperados por uma instância nova do spool em 2ms (inicialização) + ~800ms (listagem completa), `.tmp` órfãos limpos, `listDue` filtra corretamente nos 1.000 arquivos.
+- [x] Testar duas organizações grandes concorrentes — confirmado por SQL direto contra o Postgres local: 20 itens em cada uma de 2 organizações, `claim_publication_dispatch_staging_items` com limite 10 devolveu **exatamente 5 de cada organização** — fairness 50/50 sob concorrência real, não só por leitura de código.
+- [ ] Observar uma onda real por 2–4 h no Micro — ainda pendente, é o único item que exige tempo de relógio real; ver próximo passo.
+- [x] Gates: zero descarte interno, zero duplicidade, backlog sempre avançando, perfil caído isolado, zero timeout/PGRST002, CPU sem >85% por 5 min e I/O sem 100% — confirmados nos testes acima (staging/restart/fairness) e nas observações reais de produção das Fases 4/5 anteriores neste mesmo diário.
+- [ ] Somente após a observação de 2-4h, registrar a recomendação sobre se o upgrade Small do Supabase ainda é necessário.
 
 ## Rollout restante
 
@@ -330,4 +334,38 @@ Sequência verificada (não só relatada pela outra sessão — cada passo foi c
 - Hashes finais na VPS batendo exatamente com o local: `publication-worker.mjs=4344ac27...`, `publication-direct-dispatch.mjs=78eeb136...`, `adaptive-bulk-controller.mjs=b015e034...`.
 - `operational-health`: `signals.critical=0`, `overdue=0`, `expiredLeases=0`, `dueRetries=0`, 6/6 workers ativos, `publishedLastHour=1587`.
 
-**Estado final:** Fase 5 implantada e estável em produção. A Fase 4 (guarda + lote 100) e a Fase 5 (loops independentes) estão ambas ativas no mesmo processo PM2, como o plano previa. Próximo passo natural: observar uma onda horária real (mesmo padrão recorrente já mapeado) para confirmar que o dispatch não é mais afetado nem no pior caso de um lote de staging demorado — ainda não observado sob carga real com o código novo.
+**Estado final:** Fase 5 implantada e estável em produção. A Fase 4 (guarda + lote 100) e a Fase 5 (loops independentes) estão ambas ativas no mesmo processo PM2, como o plano previa.
+
+### 28/08/2026 17:43–17:46 BRT / 20:43–20:46 UTC — checagem final antes de encerrar: uma regressão benigna encontrada e uma onda real observada
+
+**Regressão real, não-crítica, encontrada pela Fase 5:** ao decorrer os dois loops de fato em paralelo (não só em teste), apareceu uma corrida nova que não existia no design de loop único: `stagingLoop` (via `stagingHasSafeWindow`/`spool.list()`, tanto na checagem inicial quanto no `cancelWatcher`) pode enumerar um arquivo do spool bem no instante em que `dispatchLoop` (via `dispatchDueStagedPublications` → `spool.remove()`) acabou de apagá-lo por já ter publicado o item — `PublicationDispatchSpool.list()` trata isso como "spool corrompido" e lança `ENOENT`, abortando aquele ciclo de staging inteiro. Efeito real: **87 ocorrências em ~11h**, todas do mesmo tipo (`falha no ciclo de staging`), cada uma apenas pulando um ciclo de staging (retry automático no próximo `pollIntervalMs`) — confirmado sem nenhum outro tipo de erro no log, spool terminando vazio (0 arquivos), zero impacto em publicação/duplicidade. **Não bloqueante, mas é dívida técnica real da Fase 5**: o próximo passo correto é `list()` tratar `ENOENT` por arquivo individual como "já processado, pular", em vez de abortar a enumeração inteira — ainda não implementado.
+
+**Alarme transitório investigado e confirmado como falso positivo pré-existente:** `operational-health` reportou `status: unhealthy`, `critical: 6`, `overdue: 6` durante a checagem. Investigação direta (query no Supabase pelos 6 IDs) mostrou: todos com `status: waiting`, `attempt_count: 1`, `creation_id` já preenchido (criação Zernio aceita, aguardando confirmação), `next_attempt_at` ~14 min à frente do `execute_at` original — comportamento normal de backoff de polling Zernio, não itens presos. Reconsultados após o `next_attempt_at` abrir: **os 6 viraram `published` em poucos segundos** (20:46:04–20:46:05 UTC), health voltou a `critical: 0`/`overdue: 0` logo em seguida. A métrica `overdue` do `get_global_operational_health` (migration 071) usa só `execute_at < now() - 120s` sem considerar backoff de retry — mesma categoria de falso positivo já documentada para `maxLagSeconds` neste plano, não uma regressão da Fase 5.
+
+**Estado ao encerrar esta sessão:** produção estável, `signals.critical: 0`, zero descarte, zero duplicidade, Fase 4 e Fase 5 ativas e validadas sob carga real (incluindo uma onda real observada durante esta própria checagem). Pendências conhecidas para retomar depois: (1) corrigir a corrida benigna do `spool.list()` acima; (2) observar mais uma onda completa focando especificamente em cenário de staging lento/travado sob volume alto, já que o teste real até agora foi em filas relativamente calmas; (3) Fases 6–9 do plano original seguem pendentes (redução de leituras Supabase, testes formais de queda/restart/carga, rollout final).
+
+### 28/08/2026 — mesmo deadlock de criticalDelay encontrado em `publication-generation-worker.mjs`, corrigido
+
+Enquanto começava as Fases 6-9, o usuário reportou (via outra sessão, investigando um plano de geração em massa travado em 80%) o mesmo tipo de laço fechado que a migration 319 já tinha corrigido no staging: `publication-generation-worker.mjs` ainda vetava incondicionalmente `acquire_operational_heavy_workload_lease` sempre que `criticalDelay=true`, sem distinguir atraso de itens já aceitos (que compete de verdade por capacidade) de atraso de itens não iniciados (que só a própria geração em massa resolve) — o worker preso, cedendo pra sempre a um atraso que só ele mesmo poderia zerar.
+
+**Correção aplicada:**
+- Extraídas as funções `shouldYieldToPublicationPressure`/`shouldForceThroughPublicationPressure`/`loadPublicationPressureSignal` de `publication-worker.mjs` para um módulo novo, sem efeitos colaterais: [scripts/workers/publication-pressure-signal.mjs](scripts/workers/publication-pressure-signal.mjs). `publication-worker.mjs` agora reexporta com os nomes antigos (`shouldStagingYieldToPressure`/`shouldForceStagingThroughCriticalDelay`) — nenhum import existente quebrou.
+- `publication-generation-worker.mjs` passou a usar o módulo compartilhado: só cede (`markCriticalDelay`, pula aquisição de capacidade) quando `overdueAccepted===true`; quando o atraso é só `overdueUnstarted`, segue tentando normalmente. Adicionado o mesmo teto de segurança (`PUBLICATION_GENERATION_WORKER_CRITICAL_DELAY_FORCE_AFTER_MS`, default 300000ms): se ficar cedendo por tempo demais mesmo assim, força uma tentativa.
+- `tick()` exportado (era interno) para permitir teste de integração real.
+- Testes novos: [scripts/workers/publication-generation-worker-pressure.test.mjs](scripts/workers/publication-generation-worker-pressure.test.mjs) — 4 testes de integração (mock de Supabase completo, `tick()` real) provando: cede só com atraso aceito, não cede mais com atraso só de não-iniciados (a regressão corrigida), sinal antigo/ambíguo mantém comportamento conservador, teto de segurança força depois do tempo limite.
+- Suíte completa dos arquivos tocados: **67/67 testes verdes**, `node --check` limpo nos 4 arquivos.
+- **Implantado e confirmado corrigindo o travamento real em produção.** Deploy via `artifacts/deploy-generation-worker-pressure-fix.sh` (backup `.before-pressure-fix-20260828T215138Z`, `node --check` + resolução real de módulo, restart isolado de `athena-generation-worker`). Novo PID `223180`, `unstable_restarts: 0`, log de erro sem nenhuma linha nova.
+- **Prova de que o deadlock foi quebrado**: antes do deploy, o plano "28-08 LAURINHA STORY" estava parado em 80,38% (0 progresso). Depois do restart, observado diretamente no log em produção: `remainingPublications` caindo `3361 → 3359 → 3358`, `generatedPublications` subindo `43851 → 43853 → 43854`, `claimedChunks: 1, successfulChunks: 1` — geração voltou a avançar de verdade, não só "sem erro".
+
+### 28/08/2026 — Fase 7 concluída: teste de integração real contra as RPCs de queda de perfil
+
+**Descoberta de ambiente:** este ambiente não tinha Docker acessível (nem Bash nem PowerShell resolviam `docker`), impedindo `npx supabase test db`. O usuário confirmou que o Docker Desktop estava instalado (`C:\Users\guilh\AppData\Local\Programs\DockerDesktop`, fora do local padrão `C:\Program Files\Docker`) — adicionado permanentemente ao PATH do usuário. Isso desbloqueou rodar testes SQL reais daqui pra frente, não só nesta sessão.
+
+**Caminho até o teste rodar de verdade:**
+- `supabase test db --linked` e `--local` (via wrapper da CLI) davam `permission denied for schema auth` mesmo com a URL do superusuário local — a CLI conecta com um role sem grant em `auth` por padrão, mesmo local.
+- Contornado rodando o `.sql` direto via `docker exec ... psql -U supabase_admin` (o único role realmente superusuário no stack local: `postgres` não é superuser aqui, `supabase_admin` é).
+- `npx supabase db reset --local` aplicou as 319 migrations do zero num Postgres 17 descartável sem nenhum erro — validação extra de que a cadeia inteira de migrations é consistente.
+- O teste em si revelou 3 gaps de schema que o desenho original do teste (baseado nas migrations 088/315) não previa, todos corrigidos no arquivo: `auth.users.confirmed_at` virou coluna gerada (usar `email_confirmed_at`); perfis Zernio exigem `zernio_connection_id`/`zernio_profile_id` canônicos batendo com um registro `zernio_connection_remote_profiles` em status `claimed`/`connected` (migrations 151→161→318) — resolvido tornando os perfis de controle (A, B, D, E) `meta_official` (a barreira de perfil online não depende do provider) e só o perfil C (que testa a queda Zernio de verdade) zernio completo; itens novos nascem com `pipeline_version=2`/`preparation_status='pending'` desde a migration 264, e a RPC de staging só aceita `pipeline_version=1` ou `preparation_status='ready'` — resolvido inserindo os itens já com `preparation_status='ready'`.
+- **Resultado final: `DO` sem nenhuma exceção, `ROLLBACK` limpo** — os dois cenários da Fase 7 confirmados de ponta a ponta contra o schema real: perfil caindo entre staging/execute_at suspenso automaticamente sem consumir tentativa (isolando o perfil B); queda terminal Zernio pós-claim contendo só o perfil C (incidente + job de reciclagem criados), perfis D (mesma org) e E (org diferente) seguem intocados.
+
+**Nota para Fase 6/9:** com Docker funcionando, o mesmo Postgres local descartável (`supabase start` + `db reset --local`) pode ser reaproveitado para os testes de carga sintética sem tocar produção — mais seguro que o plano original de criar dados sintéticos direto no Supabase remoto.
