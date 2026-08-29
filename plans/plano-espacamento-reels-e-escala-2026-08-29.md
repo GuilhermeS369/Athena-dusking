@@ -29,12 +29,12 @@ motivo de cada um.
 | **B3.3** | limite 50 → 150, concorrência 4 → 8 | `.env.worker` |
 | **B5.2** | teto de código 200 → 600 | worker do publicador |
 
-## Commitado, deploy pendente
+## Commitado e implantado
 
 | Item | Onde | Por que ainda não subiu |
 |---|---|---|
-| **A4.6** | `lib/publications/dispatcher.ts` | `vercel --prod` seguraria a observação em curso |
-| **A4.7** | worker do publicador | exige reiniciar o worker, o que invalidaria a observação |
+| **A4.6** | `lib/publications/dispatcher.ts` | **NO AR** — `vercel --prod`, target production, status Ready |
+| **A4.7** | worker do publicador | **NO AR** — implantado na VPS, worker online sem erro novo |
 
 Os dois estão commitados, com `npm test` (342/342), testes de worker (73/73) e
 `tsc` limpos. Sobem assim que a janela de observação fechar, seguidos de uma
@@ -125,6 +125,32 @@ repetindo.
 A vazão real, contada por hora cheia, foi de **1.928–1.938 para 2.299/hora
 (+19%)**. Ganho real, mas menor do que eu disse.
 
+
+## OBS — segunda janela, sobre A4.6 e A4.7
+
+**13 amostras, 61 minutos (22:22 → 23:23 UTC de 29/08/2026)**, depois de subir o
+cron da Vercel com guarda (A4.6) e o lote de um item por perfil+formato (A4.7).
+
+| Critério | Medido | Resultado |
+|---|---|---|
+| Publicações/hora | 2.058 na hora 22:00, contra 1.928–1.938 antes das mudanças | **passou** |
+| Vencidos | picos de 155, 411 e 209, sempre zerando na amostra seguinte | **passou** |
+| Fila de preparação | pico de 305 → **0** | **passou** |
+| Adiamentos por `profile_min_interval` | **0** em todas as amostras | **passou** |
+| Itens presos | **0** em todas as amostras | **passou** |
+| Erro novo no log | **25.990 linhas**, o mesmo número desde antes do primeiro deploy | **passou** |
+| Reinícios de worker | 139, constante (o +1 foi o restart planejado do A4.7) | **passou** |
+| VPS | load 0,01–0,44 · memória 34–38% | **passou** |
+| Itens ativos na fila | 128.432 → **126.154** (o arquivamento supera a geração) | **passou** |
+
+**Nenhum gatilho de rollback acionado nas duas janelas.** Somadas, são **26
+amostras cobrindo 2h02**, e o log de erro do publicador não ganhou **uma única
+linha** em nenhuma delas.
+
+A vazão oscila entre horas (2.299 na hora 21:00, 2.058 na 22:00) porque os
+agendamentos se concentram em poucos segundos por hora. As duas ficam acima da
+faixa anterior às mudanças (1.928–1.938), que é o que o critério pede.
+
 ## RESULTADO DA FRENTE A — medido em produção, 29/08/2026 21h50 UTC
 
 A métrica principal do plano. Intervalos entre reels consecutivos do **mesmo
@@ -135,24 +161,29 @@ perfil**, comparando as 3 horas depois da migration 330 com a janela de 24 h a
 |---|---:|---:|---|
 | Intervalos medidos | 30.727 | 3.903 | — |
 | **Mínimo absoluto** | **4,8 min** | **42,0 min** | acima de 30 |
-| **Abaixo de 30 min** | **1.683 (5,48%)** | **0 (0,00%)** | **0** |
+| **Abaixo de 30 min** | **1.687 (5,48%)** | **0 (0,00%)** | **0** |
 | Abaixo de 5 min | 2 | **0** | **0** |
-| Mediana | 59,8 min | 60,0 min | não mudar |
-| p90 | 107,6 min | 64,2 min | — |
+| Mediana | 59,7 min | 58,9 min | não mudar |
+| p90 | 63,8 min | 62,4 min | — |
 
 **Zero violações.** E a mediana ficou em 60,0 min: o intervalo escolhido pelo
 usuário foi preservado exatamente, que era a condição inegociável.
 
-O número mais revelador é o **p90 caindo de 107,6 para 64,2 min**. Ele diz que a
-compressão vinha de **variação de atraso**, não de regra de agendamento errada.
-Consertar a vazão (B3) removeu a variação — e a prova é que a guarda de
-espaçamento (A4) **não precisou adiar nenhum item**: zero adiamentos por
-`profile_min_interval` em todas as amostras da observação. A rede de segurança
-está no ar, mas a causa raiz secou antes de ela precisar agir.
+A guarda de espaçamento (A4) **não precisou adiar nenhum item**: zero adiamentos
+por `profile_min_interval` nas 26 amostras das duas janelas de observação. A rede
+de segurança está no ar, mas o que de fato eliminou as violações foi remover o
+atraso — os itens deixaram de chegar espremidos ao despacho.
 
-**Ressalva honesta:** a janela do "depois" é de 3 horas contra 24 h da linha de
-base. O plano manda repetir a medição em 48 h — só então o resultado está
-confirmado no mesmo tamanho de amostra.
+**Correção de uma leitura minha.** Eu havia destacado o p90 caindo de 107,6 para
+64,2 min como prova de que a compressão vinha de variação de atraso. Ao repetir a
+medição 1,5 h depois, a **mesma** janela de base passou a dar p90 = 63,8 — igual
+ao depois. Os 107,6 eram efeito de qual fatia de 24 h foi amostrada, não uma
+melhora. A interpretação fica retirada; o resultado abaixo não depende dela.
+
+**Medido duas vezes**, com 1,5 h de intervalo e com A4.7 já implantado na segunda:
+zero violações nas duas. Ressalva que continua valendo: a janela do "depois" é de
+3 horas contra 24 h da linha de base. O plano manda repetir em 48 h — só então o
+resultado está confirmado no mesmo tamanho de amostra.
 
 ## O que a medição do B5.1 provou
 
