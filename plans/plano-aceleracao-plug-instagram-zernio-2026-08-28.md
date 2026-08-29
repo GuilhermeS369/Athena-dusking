@@ -364,6 +364,30 @@ A resposta do DELETE traz `gracePeriodEndsAt`, ou seja, a desconexão tem perío
 
 `@mikaelvilar424`, `@_mariangelavidal.168` e `@_karinemenezes766` seguem `online` e intactas sob suas chaves corretas. Três slots pagos recuperados.
 
+## Varredura completa das 1.261 chaves — 29/08 00:20 UTC
+
+Leitura de `/v1/accounts` em todas as chaves ativas, zero falhas, 1.936 contas remotas classificadas contra o estado local.
+
+| resultado | |
+|---|---|
+| duplicatas (conta gerenciada sob outra chave) | **0** |
+| órfãs reais (existem na Zernio, desconhecidas do Atena) | **3** |
+| falsos positivos por corrida da varredura | 3 |
+| chaves com contagem registrada desatualizada | 1.042 |
+| destas, subestimando a ocupação | 1.037 |
+
+**Zero duplicatas.** As duas tratadas antes eram as únicas da frota.
+
+**Ressalva de método:** a varredura carrega o estado local uma vez e depois lê as chaves por cerca de dez minutos. Como o operador estava plugando durante a execução, três contas criadas no meio (`@mesquitaevanilson716` 00:17:34, `@dernivalserejo653` 00:21:22, `@faustino.moraes513` 00:21:27) apareceram como órfãs sem serem. Estão corretas e vinculadas às chaves certas. Uma varredura futura deve reler o estado local ao classificar, ou ignorar contas mais novas que o início da leitura.
+
+**As 3 órfãs reais** — `@velvetor5813` (BoydKidwai9429), `@natsukihayashi42` (CasperAshmon2315), `@kanakimura31` (ChristalAlcocer471776) — compartilham a mesma assinatura: a conta está num profile remoto **não registrado** em `zernio_connection_remote_profiles` para aquela conexão. Por isso `reconcile_zernio_connection_accounts` recusou a importação com `O profileId remoto não pertence à conexão`. A guarda agiu corretamente: ela não tem como provar o pertencimento do profile.
+
+As três chaves têm `instagram_slot_limit = 1` mas **2 contas reais** cada.
+
+**Risco operacional já neutralizado:** a contagem de ocupação dessas chaves foi atualizada para o valor real, então elas aparecem como 2/1 e saíram do Bulk. Nenhuma chave da frota oferece hoje vaga que não existe.
+
+**Decisão pendente para as 3 órfãs:** importar exige antes registrar o profile remoto em `zernio_connection_remote_profiles`. Isso é factualmente correto — o profile só é visível pela API key daquela conexão —, mas escreve na tabela que sustenta a guarda de atribuição cruzada, então não deve ser feito sem decisão explícita. As alternativas são deixar como está (slot ocupado, invisível) ou remover da Zernio para liberar. O limite de 1 dessas chaves também parece mal configurado e merece revisão à parte.
+
 ## Ordem de execução recomendada
 
 1. **Agora, sem código:** devolver `ZERNIO_SYNC_WORKER_POLL_INTERVAL_MS` para 5000 na VPS e reiniciar o worker. Restaura a cadência de ontem (~6,2s) e corta a espera pela metade. Verificar em seguida a linha `[zernio-sync-worker] iniciando` no log, que imprime a configuração efetiva.
