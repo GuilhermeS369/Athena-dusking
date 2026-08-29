@@ -64,15 +64,29 @@ p.modalMessage { width: 100%; margin: -8px 0 16px; }
 .noProfiles { display: grid; gap: 6px; margin: 16px 0; padding: 30px 20px; border: 1px dashed var(--border-strong); border-radius: 13px; color: var(--text-muted); text-align: center; }
 .noProfiles strong { color: var(--text); font-size: 13px; }
 .noProfiles span { font-size: 11px; line-height: 1.5; }
-.currentMembers { display: grid; gap: 10px; margin-top: 4px; padding-top: 16px; border-top: 1px solid var(--border); }
-.currentMembersHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
-.currentMembersHeader > strong { color: var(--text-muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
-.currentMembers > span { color: var(--text-subtle); font-size: 12px; }
-.currentMembers > div { display: grid; gap: 7px; }
-.selectAllMembers { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; font-weight: 700; cursor: pointer; }
-.selectAllMembers input { width: 15px; height: 15px; accent-color: var(--purple-bright); cursor: pointer; }
-.bulkMemberActions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; border: 1px solid var(--purple-bright); border-radius: 11px; background: var(--purple-soft); }
-.bulkMemberActions span { color: #dec4ff; font-size: 12px; font-weight: 750; }
+.memberTabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.memberTab { margin-bottom: -1px; padding: 9px 4px 11px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 13px; font-weight: 750; }
+.memberTab + .memberTab { margin-left: 14px; }
+.memberTab:hover { color: var(--text); }
+.memberTabActive { border-bottom-color: var(--purple-bright); color: #fff; }
+.tabPanel { display: grid; gap: 0; }
+.listHeader { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-height: 28px; margin: 12px 0; }
+.memberSortSelect, .moveGroupSelect { height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-muted); font: inherit; font-size: 11px; cursor: pointer; }
+.memberSortSelect:focus-visible, .moveGroupSelect:focus-visible { border-color: var(--purple-bright); }
+.moveGroupSelect { max-width: 160px; color: var(--text); }
+.selectAllMembers { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.selectAllMembers input { width: 14px; height: 14px; accent-color: var(--purple-bright); cursor: pointer; }
+.bulkMemberActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bulkMemberActions span { color: #dec4ff; font-size: 11px; font-weight: 750; white-space: nowrap; }
+.bulkClearButton { height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 11px; font-weight: 700; }
+.bulkClearButton:hover { border-color: var(--border-strong); color: var(--text); }
+.bulkMoveButton { height: 28px; padding: 0 11px; border: 1px solid var(--purple-bright); border-radius: 7px; background: var(--purple-soft); color: #dec4ff; cursor: pointer; font: inherit; font-size: 11px; font-weight: 750; white-space: nowrap; }
+.bulkMoveButton:hover:not(:disabled) { background: #3a1863; color: #fff; }
+.bulkMoveButton:disabled { cursor: not-allowed; opacity: .5; }
+.bulkRemoveButton { height: 28px; padding: 0 11px; border: 1px solid #ef6b8355; border-radius: 7px; background: #ef6b831a; color: #ffb5c5; cursor: pointer; font: inherit; font-size: 11px; font-weight: 750; white-space: nowrap; }
+.bulkRemoveButton:hover:not(:disabled) { border-color: #ef6b83; background: #ef6b8330; color: #ffd2db; }
+.bulkRemoveButton:disabled { cursor: wait; opacity: .6; }
+.memberList { display: grid; gap: 7px; max-height: 380px; overflow-y: auto; padding-right: 4px; }
 .currentMember { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 10px; transition: background .15s ease; }
 .currentMember > input[type='checkbox'] { width: 15px; height: 15px; margin: 0; accent-color: var(--purple-bright); cursor: pointer; }
 .currentMemberSelected { background: #241f30; }
@@ -91,6 +105,6 @@ p.modalMessage { width: 100%; margin: -8px 0 16px; }
   .profileIdentity { gap: 8px; }
   .statusBadge { display: none; }
   .cardCounts { align-items: flex-end; flex-direction: column; gap: 5px; }
-  .bulkMemberActions { flex-direction: column; align-items: stretch; }
-  .bulkMemberActions .button { width: 100%; }
+  .memberList { max-height: 46vh; }
+  .moveGroupSelect { max-width: none; width: 100%; }
 }

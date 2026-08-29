@@ -33,7 +33,7 @@ export default async function GroupsPage() {
       .range(from, to)),
     fetchAllRows((from, to) => supabase
       .from('profile_group_members')
-      .select('group_id, profile_id')
+      .select('group_id, profile_id, created_at')
       .eq('organization_id', organizationId)
       .order('group_id', { ascending: true })
       .order('profile_id', { ascending: true })

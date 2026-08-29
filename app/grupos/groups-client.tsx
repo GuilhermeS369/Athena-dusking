@@ -25,7 +25,9 @@ type Profile = {
   status: 'no_data' | 'online' | 'offline' | 'reauthorization_required';
 };
 
-type Membership = { group_id: string; profile_id: string };
+type Membership = { group_id: string; profile_id: string; created_at: string };
+type MemberSort = 'recent' | 'oldest' | 'username';
+type MemberModalTab = 'available' | 'members';
 type FallenCount = { group_id: string; fallen_profile_count: number };
 
 type ExportRow = {
@@ -105,6 +107,10 @@ export default function GroupsClient({
   const [memberModalGroupId, setMemberModalGroupId] = useState<string | null>(null);
   const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [memberSort, setMemberSort] = useState<MemberSort>('recent');
+  const [memberModalTab, setMemberModalTab] = useState<MemberModalTab>('available');
+  const [memberFilterSearch, setMemberFilterSearch] = useState('');
+  const [moveTargetGroupId, setMoveTargetGroupId] = useState('');
   const [search, setSearch] = useState('');
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
@@ -114,8 +120,8 @@ export default function GroupsClient({
   const profileById = useMemo(() => new Map(profiles.map((profile) => [profile.id, profile])), [profiles]);
   const fallenCountByGroup = useMemo(() => new Map(fallenCounts.map((item) => [item.group_id, item.fallen_profile_count])), [fallenCounts]);
   const membershipsByGroup = useMemo(() => {
-    const result = new Map<string, string[]>();
-    memberships.forEach((membership) => result.set(membership.group_id, [...(result.get(membership.group_id) ?? []), membership.profile_id]));
+    const result = new Map<string, Membership[]>();
+    memberships.forEach((membership) => result.set(membership.group_id, [...(result.get(membership.group_id) ?? []), membership]));
     return result;
   }, [memberships]);
   const groupByProfileId = useMemo(() => {
@@ -129,7 +135,25 @@ export default function GroupsClient({
       || first.id.localeCompare(second.id)
   ), [groups]);
   const memberModalGroup = groups.find((group) => group.id === memberModalGroupId) ?? null;
-  const currentMemberIds = memberModalGroup ? (membershipsByGroup.get(memberModalGroup.id) ?? []) : [];
+  const sortedCurrentMemberships = useMemo(() => {
+    const list = memberModalGroup ? [...(membershipsByGroup.get(memberModalGroup.id) ?? [])] : [];
+    if (memberSort === 'username') {
+      list.sort((first, second) => (profileById.get(first.profile_id)?.username ?? '').localeCompare(profileById.get(second.profile_id)?.username ?? '', 'pt-BR', { sensitivity: 'base', numeric: true }));
+    } else {
+      list.sort((first, second) => memberSort === 'recent' ? second.created_at.localeCompare(first.created_at) : first.created_at.localeCompare(second.created_at));
+    }
+    return list;
+  }, [memberModalGroup, membershipsByGroup, memberSort, profileById]);
+  const filteredCurrentMemberships = useMemo(() => {
+    const term = memberFilterSearch.trim().toLocaleLowerCase('pt-BR');
+    if (!term) return sortedCurrentMemberships;
+    return sortedCurrentMemberships.filter((membership) => {
+      const profile = profileById.get(membership.profile_id);
+      if (!profile) return false;
+      return `${profile.username} ${profile.display_name ?? ''}`.toLocaleLowerCase('pt-BR').includes(term);
+    });
+  }, [sortedCurrentMemberships, memberFilterSearch, profileById]);
+  const currentMemberIds = filteredCurrentMemberships.map((membership) => membership.profile_id);
   const availableProfiles = useMemo(() => profiles.filter((profile) => !groupByProfileId.has(profile.id)), [groupByProfileId, profiles]);
   const filteredAvailableProfiles = useMemo(() => {
     const term = search.trim().toLocaleLowerCase('pt-BR');
@@ -137,6 +161,7 @@ export default function GroupsClient({
     return availableProfiles.filter((profile) => `${profile.username} ${profile.display_name ?? ''}`.toLocaleLowerCase('pt-BR').includes(term));
   }, [availableProfiles, search]);
   const groupedProfileCount = groupByProfileId.size;
+  const otherGroups = useMemo(() => memberModalGroup ? sortedGroups.filter((group) => group.id !== memberModalGroup.id) : [], [sortedGroups, memberModalGroup]);
 
   function closeForm() {
     setEditingId(null);
@@ -166,8 +191,11 @@ export default function GroupsClient({
   function openMemberModal(groupId: string) {
     setMessage('');
     setSearch('');
+    setMemberFilterSearch('');
+    setMoveTargetGroupId('');
     setSelectedProfileIds([]);
     setSelectedMemberIds([]);
+    setMemberModalTab('available');
     setMemberModalGroupId(groupId);
     router.refresh();
   }
@@ -177,6 +205,8 @@ export default function GroupsClient({
     setSelectedProfileIds([]);
     setSelectedMemberIds([]);
     setSearch('');
+    setMemberFilterSearch('');
+    setMoveTargetGroupId('');
   }
 
   async function saveGroup(event: FormEvent<HTMLFormElement>) {
@@ -238,17 +268,21 @@ export default function GroupsClient({
         setMessage(payload.error ?? 'Não foi possível adicionar os perfis ao grupo.');
         if (payload.conflictProfileIds?.length) {
           const stale = new Set(payload.conflictProfileIds);
+          const staleAt = new Date().toISOString();
           setMemberships((current) => [
             ...current.filter((item) => !stale.has(item.profile_id)),
-            ...payload.conflictProfileIds!.map((profileId) => ({ group_id: '__elsewhere__', profile_id: profileId })),
+            ...payload.conflictProfileIds!.map((profileId) => ({ group_id: '__elsewhere__', profile_id: profileId, created_at: staleAt })),
           ]);
           setSelectedProfileIds((current) => current.filter((id) => !stale.has(id)));
         }
         return;
       }
       const addedIds = payload.profileIds ?? selectedProfileIds;
-      setMemberships((current) => [...current, ...addedIds.map((profileId) => ({ group_id: memberModalGroup.id, profile_id: profileId }))]);
-      closeMemberModal();
+      const addedAt = new Date().toISOString();
+      setMemberships((current) => [...current, ...addedIds.map((profileId) => ({ group_id: memberModalGroup.id, profile_id: profileId, created_at: addedAt }))]);
+      setSelectedProfileIds([]);
+      setSearch('');
+      setMemberModalTab('members');
     } catch {
       setMessage('Não foi possível conectar ao servidor.');
     } finally {
@@ -302,6 +336,41 @@ export default function GroupsClient({
       }
       setMemberships((current) => current.filter((item) => !(item.group_id === groupId && profileIds.includes(item.profile_id))));
       setSelectedMemberIds([]);
+    } catch {
+      setMessage('Não foi possível conectar ao servidor.');
+    } finally {
+      setSavingMembers(false);
+    }
+  }
+
+  async function moveSelectedMembers(sourceGroupId: string, targetGroupId: string, profileIds: string[]) {
+    if (!targetGroupId || profileIds.length === 0) return;
+    const targetGroup = groups.find((group) => group.id === targetGroupId);
+    const confirmMessage = profileIds.length === 1
+      ? `Mover @${profileById.get(profileIds[0])?.username ?? 'perfil'} para o grupo “${targetGroup?.name ?? 'selecionado'}”?`
+      : `Mover ${profileIds.length} perfis para o grupo “${targetGroup?.name ?? 'selecionado'}”?`;
+    if (!window.confirm(confirmMessage)) return;
+    setSavingMembers(true);
+    setMessage('');
+    try {
+      const response = await fetch(`/api/groups/${sourceGroupId}/members/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetGroupId, profileIds }),
+      });
+      const payload = await response.json() as { error?: string; movedProfileIds?: string[] };
+      if (!response.ok) {
+        setMessage(payload.error ?? 'Não foi possível mover os perfis selecionados.');
+        return;
+      }
+      const movedIds = payload.movedProfileIds ?? profileIds;
+      const movedAt = new Date().toISOString();
+      setMemberships((current) => [
+        ...current.filter((item) => !(item.group_id === sourceGroupId && movedIds.includes(item.profile_id))),
+        ...movedIds.map((profileId) => ({ group_id: targetGroupId, profile_id: profileId, created_at: movedAt })),
+      ]);
+      setSelectedMemberIds([]);
+      setMoveTargetGroupId('');
     } catch {
       setMessage('Não foi possível conectar ao servidor.');
     } finally {
@@ -389,6 +458,14 @@ export default function GroupsClient({
       : [...current, profileId]);
   }
 
+  function toggleSelectAllProfiles(profileIds: string[]) {
+    setSelectedProfileIds((current) => {
+      const allSelected = profileIds.length > 0 && profileIds.every((id) => current.includes(id));
+      if (allSelected) return current.filter((id) => !profileIds.includes(id));
+      return [...new Set([...current, ...profileIds])];
+    });
+  }
+
   function toggleSelectedMember(profileId: string) {
     setSelectedMemberIds((current) => current.includes(profileId)
       ? current.filter((item) => item !== profileId)
@@ -396,7 +473,11 @@ export default function GroupsClient({
   }
 
   function toggleSelectAllMembers(memberIds: string[]) {
-    setSelectedMemberIds((current) => current.length === memberIds.length ? [] : memberIds);
+    setSelectedMemberIds((current) => {
+      const allSelected = memberIds.length > 0 && memberIds.every((id) => current.includes(id));
+      if (allSelected) return current.filter((id) => !memberIds.includes(id));
+      return [...new Set([...current, ...memberIds])];
+    });
   }
 
   return <main className="standalone-page groups-page">
@@ -424,7 +505,7 @@ export default function GroupsClient({
       {canManage && <button className="button button-primary" type="button" onClick={openCreateForm}>Criar primeiro grupo</button>}
     </section> : <section className={styles.grid} aria-label="Grupos de perfis">
       {sortedGroups.map((group) => {
-        const memberProfiles = (membershipsByGroup.get(group.id) ?? []).map((id) => profileById.get(id)).filter((profile): profile is Profile => Boolean(profile));
+        const memberProfiles = (membershipsByGroup.get(group.id) ?? []).map((membership) => profileById.get(membership.profile_id)).filter((profile): profile is Profile => Boolean(profile));
         return <article className={`panel ${styles.card}`} key={group.id}>
           <div className={styles.cardHeader}>
             <div>
@@ -481,40 +562,79 @@ export default function GroupsClient({
     {memberModalGroup && <div className={styles.backdrop} role="presentation" onMouseDown={closeMemberModal}>
       <section className={`panel ${styles.modal} ${styles.memberModal}`} role="dialog" aria-modal="true" aria-labelledby="member-modal-title" onMouseDown={(event) => event.stopPropagation()}>
         <header className={styles.modalHeader}>
-          <div><span className="section-kicker">{memberModalGroup.name}</span><h2 id="member-modal-title">Gerenciar perfis</h2><p>Somente perfis sem grupo aparecem nesta lista.</p></div>
+          <div><span className="section-kicker">{memberModalGroup.name}</span><h2 id="member-modal-title">Gerenciar perfis</h2></div>
           <button className={styles.closeButton} type="button" aria-label="Fechar" onClick={closeMemberModal}>×</button>
         </header>
         {message && <p className={`inline-message inline-message-error ${styles.modalMessage}`} role="alert">{message}</p>}
-        <label className={styles.searchLabel}>Buscar perfil<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por @usuário ou nome" autoFocus /></label>
-        {filteredAvailableProfiles.length === 0 ? <div className={styles.noProfiles}><strong>{availableProfiles.length === 0 ? 'Todos os perfis já estão em grupos.' : 'Nenhum perfil encontrado.'}</strong><span>{availableProfiles.length === 0 ? 'Remova um perfil de outro grupo para movê-lo.' : 'Tente outro nome ou usuário.'}</span></div> : <div className={styles.profileList}>
-          {filteredAvailableProfiles.map((profile) => {
-            const selected = selectedProfileIds.includes(profile.id);
-            return <label className={`${styles.profileChoice} ${selected ? styles.profileChoiceSelected : ''}`} key={profile.id}>
-              <input type="checkbox" checked={selected} onChange={() => toggleSelectedProfile(profile.id)} />
-              <ProfileIdentity profile={profile} compact />
-              <span className={styles.checkmark} aria-hidden="true">✓</span>
-            </label>;
-          })}
-        </div>}
-        <section className={styles.currentMembers} aria-label="Perfis atuais do grupo">
-          <div className={styles.currentMembersHeader}>
-            <strong>Perfis neste grupo</strong>
-            {canManage && currentMemberIds.length > 0 && <label className={styles.selectAllMembers}>
+
+        <div className={styles.memberTabs} role="tablist" aria-label="Seções de perfis do grupo">
+          <button type="button" role="tab" aria-selected={memberModalTab === 'available'} className={`${styles.memberTab} ${memberModalTab === 'available' ? styles.memberTabActive : ''}`} onClick={() => setMemberModalTab('available')}>
+            Disponíveis{availableProfiles.length > 0 ? ` (${availableProfiles.length})` : ''}
+          </button>
+          <button type="button" role="tab" aria-selected={memberModalTab === 'members'} className={`${styles.memberTab} ${memberModalTab === 'members' ? styles.memberTabActive : ''}`} onClick={() => setMemberModalTab('members')}>
+            Neste grupo{sortedCurrentMemberships.length > 0 ? ` (${sortedCurrentMemberships.length})` : ''}
+          </button>
+        </div>
+
+        {memberModalTab === 'available' ? <div className={styles.tabPanel} role="tabpanel">
+          <label className={styles.searchLabel}>Buscar perfil<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por @usuário ou nome" autoFocus /></label>
+          {filteredAvailableProfiles.length > 0 && <div className={styles.listHeader}>
+            {selectedProfileIds.length > 0 ? <div className={styles.bulkMemberActions}>
+              <span>{selectedProfileIds.length} selecionado{selectedProfileIds.length === 1 ? '' : 's'}</span>
+              <button className={styles.bulkClearButton} type="button" onClick={() => setSelectedProfileIds([])}>Limpar</button>
+            </div> : <label className={styles.selectAllMembers}>
               <input
                 type="checkbox"
-                checked={selectedMemberIds.length > 0 && selectedMemberIds.length === currentMemberIds.length}
-                ref={(input) => { if (input) input.indeterminate = selectedMemberIds.length > 0 && selectedMemberIds.length < currentMemberIds.length; }}
-                onChange={() => toggleSelectAllMembers(currentMemberIds)}
+                checked={filteredAvailableProfiles.every((profile) => selectedProfileIds.includes(profile.id))}
+                ref={(input) => { if (input) input.indeterminate = selectedProfileIds.length > 0 && !filteredAvailableProfiles.every((profile) => selectedProfileIds.includes(profile.id)); }}
+                onChange={() => toggleSelectAllProfiles(filteredAvailableProfiles.map((profile) => profile.id))}
               />
               Selecionar todos
             </label>}
-          </div>
-          {currentMemberIds.length === 0 ? <span>Nenhum perfil adicionado ainda.</span> : <>
-            {canManage && selectedMemberIds.length > 0 && <div className={styles.bulkMemberActions}>
+          </div>}
+          {filteredAvailableProfiles.length === 0 ? <div className={styles.noProfiles}><strong>{availableProfiles.length === 0 ? 'Todos os perfis já estão em grupos.' : 'Nenhum perfil encontrado.'}</strong><span>{availableProfiles.length === 0 ? 'Remova um perfil de outro grupo para movê-lo.' : 'Tente outro nome ou usuário.'}</span></div> : <div className={styles.profileList}>
+            {filteredAvailableProfiles.map((profile) => {
+              const selected = selectedProfileIds.includes(profile.id);
+              return <label className={`${styles.profileChoice} ${selected ? styles.profileChoiceSelected : ''}`} key={profile.id}>
+                <input type="checkbox" checked={selected} onChange={() => toggleSelectedProfile(profile.id)} />
+                <ProfileIdentity profile={profile} compact />
+                <span className={styles.checkmark} aria-hidden="true">✓</span>
+              </label>;
+            })}
+          </div>}
+        </div> : <div className={styles.tabPanel} role="tabpanel">
+          <label className={styles.searchLabel}>Buscar perfil neste grupo<input value={memberFilterSearch} onChange={(event) => setMemberFilterSearch(event.target.value)} placeholder="Buscar por @usuário ou nome" autoFocus /></label>
+          {sortedCurrentMemberships.length > 0 && <div className={styles.listHeader}>
+            {canManage && selectedMemberIds.length > 0 ? <div className={styles.bulkMemberActions}>
               <span>{selectedMemberIds.length} selecionado{selectedMemberIds.length === 1 ? '' : 's'}</span>
-              <button className="button button-danger" type="button" disabled={savingMembers} onClick={() => removeSelectedMembers(memberModalGroup.id, selectedMemberIds)}>Remover selecionados</button>
-            </div>}
-            <div>{currentMemberIds.map((profileId) => {
+              {otherGroups.length > 0 && <>
+                <select className={styles.moveGroupSelect} value={moveTargetGroupId} onChange={(event) => setMoveTargetGroupId(event.target.value)} aria-label="Mover selecionados para outro grupo">
+                  <option value="">Mover para…</option>
+                  {otherGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                </select>
+                <button className={styles.bulkMoveButton} type="button" disabled={!moveTargetGroupId || savingMembers} onClick={() => moveSelectedMembers(memberModalGroup.id, moveTargetGroupId, selectedMemberIds)}>Mover</button>
+              </>}
+              <button className={styles.bulkClearButton} type="button" onClick={() => setSelectedMemberIds([])}>Limpar</button>
+              <button className={styles.bulkRemoveButton} type="button" disabled={savingMembers} onClick={() => removeSelectedMembers(memberModalGroup.id, selectedMemberIds)}>Remover</button>
+            </div> : <>
+              {sortedCurrentMemberships.length > 1 && <select className={styles.memberSortSelect} value={memberSort} onChange={(event) => setMemberSort(event.target.value as MemberSort)} aria-label="Ordenar perfis do grupo">
+                <option value="recent">Adicionados recentemente</option>
+                <option value="oldest">Adicionados há mais tempo</option>
+                <option value="username">Usuário (A-Z)</option>
+              </select>}
+              {canManage && currentMemberIds.length > 0 && <label className={styles.selectAllMembers}>
+                <input
+                  type="checkbox"
+                  checked={currentMemberIds.every((id) => selectedMemberIds.includes(id))}
+                  ref={(input) => { if (input) input.indeterminate = selectedMemberIds.length > 0 && !currentMemberIds.every((id) => selectedMemberIds.includes(id)); }}
+                  onChange={() => toggleSelectAllMembers(currentMemberIds)}
+                />
+                Selecionar todos
+              </label>}
+            </>}
+          </div>}
+          {sortedCurrentMemberships.length === 0 ? <div className={styles.noProfiles}><strong>Nenhum perfil adicionado ainda.</strong><span>Use a aba “Disponíveis” para adicionar perfis a este grupo.</span></div> : currentMemberIds.length === 0 ? <div className={styles.noProfiles}><strong>Nenhum perfil encontrado.</strong><span>Tente outro nome ou usuário.</span></div> : <div className={styles.memberList}>
+            {currentMemberIds.map((profileId) => {
               const profile = profileById.get(profileId);
               if (!profile) return null;
               const selected = selectedMemberIds.includes(profileId);
@@ -523,10 +643,17 @@ export default function GroupsClient({
                 <ProfileIdentity profile={profile} compact />
                 {canManage && <button type="button" disabled={savingMembers} onClick={() => removeProfile(memberModalGroup.id, profileId)}>Remover</button>}
               </div>;
-            })}</div>
-          </>}
-        </section>
-        <footer className={styles.modalActions}><span className={styles.selectionCount}>{selectedProfileIds.length} selecionado{selectedProfileIds.length === 1 ? '' : 's'}</span><button className="button button-ghost" type="button" onClick={closeMemberModal}>Concluir</button><button className="button button-primary" type="button" disabled={selectedProfileIds.length === 0 || savingMembers} onClick={addSelectedProfiles}>{savingMembers ? 'Adicionando…' : `Adicionar${selectedProfileIds.length ? ` ${selectedProfileIds.length}` : ''} perfil${selectedProfileIds.length === 1 ? '' : 'is'}`}</button></footer>
+            })}
+          </div>}
+        </div>}
+
+        <footer className={styles.modalActions}>
+          {memberModalTab === 'available' ? <>
+            <span className={styles.selectionCount}>{selectedProfileIds.length} selecionado{selectedProfileIds.length === 1 ? '' : 's'}</span>
+            <button className="button button-ghost" type="button" onClick={closeMemberModal}>Fechar</button>
+            <button className="button button-primary" type="button" disabled={selectedProfileIds.length === 0 || savingMembers} onClick={addSelectedProfiles}>{savingMembers ? 'Adicionando…' : `Adicionar${selectedProfileIds.length ? ` ${selectedProfileIds.length}` : ''} perfil${selectedProfileIds.length === 1 ? '' : 'is'}`}</button>
+          </> : <button className="button button-ghost" type="button" onClick={closeMemberModal}>Fechar</button>}
+        </footer>
       </section>
     </div>}
   </main>;
