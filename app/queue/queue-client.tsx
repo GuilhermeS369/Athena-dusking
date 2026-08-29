@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { BulkPlanProgressFeed } from '@/app/components/bulk-plan-progress-list';
+
 import type { Organization, QueueAggregateTab } from './publication-queue-types';
 import { usePublicationQueue } from './use-publication-queue';
 import {
@@ -177,9 +179,9 @@ function GenerationJobsPanel({ queue, canManage }: { queue: ReturnType<typeof us
       <div className="panel generation-jobs-panel">
         <div className="panel-heading queue-heading">
           <div>
-            <span className="section-kicker">Agendamentos grandes</span>
-            <h2 id="generation-jobs-title">Geração assíncrona</h2>
-            <p className="queue-heading-description">Acompanhe os envios acima de 500 publicações enquanto a VPS transforma o plano em lotes e itens da fila.</p>
+            <span className="section-kicker">Compositor</span>
+            <h2 id="generation-jobs-title">Envios grandes do compositor</h2>
+            <p className="queue-heading-description">Envios do compositor comum acima de 500 publicações. A programação em massa aparece no bloco acima, não aqui.</p>
           </div>
           <button type="button" className="button button-ghost" onClick={() => void queue.refreshGenerationJobs()} disabled={queue.generationJobsLoading} aria-busy={queue.generationJobsLoading}>{queue.generationJobsLoading ? 'Atualizando…' : 'Atualizar jobs'}</button>
         </div>
@@ -376,7 +378,12 @@ export default function QueueClient({ activeOrganization }: QueueClientProps) {
       <PausedBatchAlert queue={queue} />
 
       <ReferenceQueueView queue={queue} tab={aggregateTab} setTab={setAggregateTab} canManage={canManage} />
-      <details className="queue-jobs-disclosure"><summary>Geração assíncrona e jobs grandes <span>{queue.generationJobs.length}</span></summary><GenerationJobsPanel queue={queue} canManage={canManage} /></details>
+      {/* Programação em massa: até aqui a tela da fila era cega para planos em
+          geração — o lote existe, mas fica sem itens até o worker materializar,
+          e a aba "Por lote" só mostra lote com item. Era o que fazia o usuário
+          achar que o agendamento tinha sumido e reagendar por cima. */}
+      <BulkPlanProgressFeed location="queue" />
+      <details className="queue-jobs-disclosure"><summary>Envios grandes do compositor <span>{queue.generationJobs.length}</span></summary><GenerationJobsPanel queue={queue} canManage={canManage} /></details>
     </main>
   );
 }

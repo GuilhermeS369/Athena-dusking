@@ -1,5 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
+import { MAX_BULK_DURATION_DAYS, MIN_BULK_INTERVAL_MINUTES } from './bulk-rotation.ts';
 import type { BulkRotationFormat, BulkRotationOrderMode, BulkRotationScheduleMode } from './bulk-rotation';
 
 export type BulkMediaOrigin = { type: 'group'; groupId: string } | { type: 'ungrouped'; groupId: null };
@@ -69,8 +70,14 @@ export function parseBulkRotationRequest(value: unknown): BulkRotationRequest {
   if (!profileIds.length || !profileIds.every((id) => typeof id === 'string' && UUID_PATTERN.test(id))) throw new RangeError('Perfis inválidos.');
   if (!['image', 'reel', 'story'].includes(String(format))) throw new RangeError('Formato inválido.');
   if (!['interval', 'daily_time'].includes(String(scheduleMode))) throw new RangeError('Esquema de horário inválido.');
-  if (scheduleMode === 'interval' && (!Number.isSafeInteger(intervalMinutes) || Number(intervalMinutes) < 1)) throw new RangeError('Intervalo inválido.');
+  if (scheduleMode === 'interval' && !Number.isSafeInteger(intervalMinutes)) throw new RangeError('Intervalo inválido.');
+  if (scheduleMode === 'interval' && Number(intervalMinutes) < MIN_BULK_INTERVAL_MINUTES) {
+    throw new RangeError(`O intervalo mínimo entre publicações é de ${MIN_BULK_INTERVAL_MINUTES} minutos.`);
+  }
   if (typeof durationDays !== 'string' || !/^[1-9]\d*$/.test(durationDays)) throw new RangeError('Duração inválida.');
+  if (Number(durationDays) > MAX_BULK_DURATION_DAYS) {
+    throw new RangeError(`A duração máxima de uma programação em massa é de ${MAX_BULK_DURATION_DAYS} dias.`);
+  }
   if (scheduleMode === 'daily_time' && (typeof dailyTime !== 'string' || !DAILY_TIME_PATTERN.test(dailyTime))) throw new RangeError('Horário diário inválido.');
   if (caption !== null && (typeof caption !== 'string' || caption.length > 2200)) throw new RangeError('Legenda inválida.');
   if (!['same_order', 'diversified'].includes(String(orderMode))) throw new RangeError('Modo de ordem inválido.');

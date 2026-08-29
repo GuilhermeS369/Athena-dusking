@@ -1,7 +1,16 @@
 export const BULK_ROTATION_ALGORITHM_VERSION = 2 as const;
 export const LEGACY_BULK_ROTATION_ALGORITHM_VERSION = 1 as const;
-export const MIN_BULK_INTERVAL_MINUTES = 1;
+// Piso de 29 minutos entre publicações de um mesmo lote (modo intervalo).
+// Protege os perfis (postar mais rápido derruba conta) e, desde a migration 328,
+// é também o único freio de tamanho do plano — o horizonte móvel de 48h, que
+// antes limitava a materialização, deixou de existir. Espelhado no banco pela
+// constraint bulk_publication_plans_minimum_interval_check.
+export const MIN_BULK_INTERVAL_MINUTES = 29;
 export const MIN_BULK_DURATION_DAYS = BigInt(1);
+// Teto de 7 dias por plano. Com o horizonte de 48h removido na migration 328, a
+// duração passou a definir sozinha quanto é materializado de uma vez. Espelhado
+// no banco pelo gatilho bulk_publication_plans_enforce_duration_cap (329).
+export const MAX_BULK_DURATION_DAYS = 7;
 
 export type BulkRotationAlgorithmVersion = typeof LEGACY_BULK_ROTATION_ALGORITHM_VERSION | typeof BULK_ROTATION_ALGORITHM_VERSION;
 export type BulkRotationOrderMode = 'same_order' | 'diversified';

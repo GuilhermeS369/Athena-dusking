@@ -14,7 +14,6 @@ export type BulkPlanProgress = {
   status: string;
   operationalStatus: string;
   eligibleChunks: number;
-  nextHorizonRefreshAt: string | null;
   format: 'image' | 'reel' | 'story';
   profileCount: string;
   mediaCount: string;
@@ -35,10 +34,12 @@ export type BulkPlanProgress = {
 };
 
 export const activeBulkPlanStatuses = new Set(['queued', 'generating', 'paused']);
+const listLimit = 20;
+const activePollIntervalMs = 4000;
+const idlePollIntervalMs = 60_000;
 const operationalStatusLabels: Record<string, string> = {
   queued: 'Aguardando geração',
   generating: 'Gerando',
-  horizon_ready: 'Horizonte abastecido',
   paused: 'Pausado',
   completed: 'Concluído',
   completed_with_errors: 'Concluído com avisos',
@@ -46,7 +47,10 @@ const operationalStatusLabels: Record<string, string> = {
   cancelled: 'Cancelado',
 };
 
-export function BulkPlanProgressFeed({ location }: { location: 'postagem' | 'queue' }) {
+// `refreshSignal` sobe de quem confirma uma programação: sem isso o lote
+// recém-criado só aparecia depois de um F5, porque este efeito não tinha
+// nenhuma dependência e nada externo o acordava.
+export function BulkPlanProgressFeed({ location, refreshSignal = 0 }: { location: 'postagem' | 'queue'; refreshSignal?: number }) {
   const [plans, setPlans] = useState<BulkPlanProgress[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -54,20 +58,24 @@ export function BulkPlanProgressFeed({ location }: { location: 'postagem' | 'que
     let active = true;
     let timer: number | null = null;
     const refresh = async () => {
+      let nextDelay = idlePollIntervalMs;
       try {
-        const response = await fetch('/api/bulk-publications?limit=12', { cache: 'no-store' });
+        const response = await fetch(`/api/bulk-publications?limit=${listLimit}`, { cache: 'no-store' });
         const payload = await response.json() as { plans?: BulkPlanProgress[] };
-        if (!response.ok || !active) return;
-        const nextPlans = payload.plans ?? [];
-        setPlans(nextPlans);
-        setLoaded(true);
-        if (nextPlans.some((plan) => plan.operationalStatus !== 'horizon_ready' && activeBulkPlanStatuses.has(plan.status))) {
-          timer = window.setTimeout(() => void refresh(), 4000);
-        } else if (nextPlans.some((plan) => plan.operationalStatus === 'horizon_ready')) {
-          timer = window.setTimeout(() => void refresh(), 60_000);
+        if (!active) return;
+        if (response.ok) {
+          const nextPlans = payload.plans ?? [];
+          setPlans(nextPlans);
+          if (nextPlans.some((plan) => activeBulkPlanStatuses.has(plan.status))) nextDelay = activePollIntervalMs;
         }
+        setLoaded(true);
       } catch {
         if (active) setLoaded(true);
+      } finally {
+        // Sempre reagenda. Antes, o próximo ciclo só era criado se o payload
+        // trouxesse um plano ativo — então uma página aberta sem nenhum plano
+        // em geração congelava o feed para sempre.
+        if (active) timer = window.setTimeout(() => void refresh(), nextDelay);
       }
     };
     void refresh();
@@ -75,7 +83,7 @@ export function BulkPlanProgressFeed({ location }: { location: 'postagem' | 'que
       active = false;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, []);
+  }, [refreshSignal]);
 
   return loaded ? <BulkPlanProgressList plans={plans} location={location} /> : null;
 }
@@ -116,10 +124,9 @@ export default function BulkPlanProgressList({ plans, location }: { plans: BulkP
         {plans.map((plan) => {
           const progress = percent(plan);
           const active = activeBulkPlanStatuses.has(plan.status);
-          const horizonReady = plan.operationalStatus === 'horizon_ready';
           const statusLabel = operationalStatusLabels[plan.operationalStatus] ?? plan.operationalStatus.replaceAll('_', ' ');
           return <article className={styles.card} key={plan.planId}>
-            <header><div><span className={`${styles.status} ${active ? styles.active : ''} ${horizonReady ? styles.horizonReady : ''}`}>{statusLabel}</span><h3>{plan.name}</h3><small>Por {plan.createdByEmail ?? 'membro da organização'} · atualizado {formatDate(plan.updatedAt)}</small></div><strong>{progress.toLocaleString('pt-BR')}%</strong></header>
+            <header><div><span className={`${styles.status} ${active ? styles.active : ''}`}>{statusLabel}</span><h3>{plan.name}</h3><small>Por {plan.createdByEmail ?? 'membro da organização'} · atualizado {formatDate(plan.updatedAt)}</small></div><strong>{progress.toLocaleString('pt-BR')}%</strong></header>
             <div className={styles.track} aria-label={`Progresso de ${plan.name}: ${progress}%`}><span style={{ width: `${Math.min(100, progress)}%` }} /></div>
             <dl>
               <div><dt>Geradas</dt><dd>{integer(plan.generatedPublications)} / {integer(plan.expectedPublications)}</dd></div>
@@ -133,9 +140,9 @@ export default function BulkPlanProgressList({ plans, location }: { plans: BulkP
               <strong>{active ? 'Atenção na programação' : 'Programação incompleta'}</strong>
               <p>{describeBulkPlanAttention(plan.attention, plan.format, plan.generatedPublications, plan.status)}</p>
             </aside>}
-            <footer><span>{horizonReady
-              ? `Próximas 48 horas prontas. Reposição automática${plan.nextHorizonRefreshAt ? ` a partir de ${formatDate(plan.nextHorizonRefreshAt)}` : ' conforme o horizonte avançar'}.`
-              : active ? 'Atualização automática enquanto a geração estiver ativa.' : 'Geração finalizada; os itens permanecem na fila operacional.'}</span>{location === 'queue' && <Link href="/postagem" prefetch={false}>Ver programação</Link>}</footer>
+            <footer><span>{active
+              ? 'Atualização automática enquanto a geração estiver ativa.'
+              : 'Geração finalizada; os itens permanecem na fila operacional.'}</span>{location === 'queue' && <Link href="/postagem" prefetch={false}>Ver programação</Link>}</footer>
           </article>;
         })}
       </div>

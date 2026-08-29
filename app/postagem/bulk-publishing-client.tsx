@@ -13,6 +13,7 @@ import {
   sortBulkProfilesByQueue,
   toggleBulkProfileSelection,
 } from '@/lib/publications/bulk-ui';
+import { MAX_BULK_DURATION_DAYS, MIN_BULK_INTERVAL_MINUTES } from '@/lib/publications/bulk-rotation';
 import type { ProfilePublicationMetrics } from '@/lib/publications/composer';
 import styles from './bulk-publishing.module.css';
 
@@ -138,6 +139,7 @@ type BulkPublishingClientProps = {
   profiles: BulkProfile[];
   groups: BulkProfileGroup[];
   onDirtyChange?: (dirty: boolean) => void;
+  onPlanConfirmed?: () => void;
 };
 
 const terminalStatuses = new Set(['completed', 'completed_with_errors', 'failed', 'cancelled']);
@@ -176,7 +178,7 @@ function progressPercent(progress: PlanProgress) {
   return Number((handled * BigInt(10000)) / expected) / 100;
 }
 
-export default function BulkPublishingClient({ canManage, profiles, groups, onDirtyChange }: BulkPublishingClientProps) {
+export default function BulkPublishingClient({ canManage, profiles, groups, onDirtyChange, onPlanConfirmed }: BulkPublishingClientProps) {
   const origins = useMemo<BulkOrigin[]>(() => [
     { type: 'ungrouped', groupId: null, name: 'Sem grupo' },
     ...groups.map((group) => ({ type: 'group' as const, groupId: group.id, name: group.name })),
@@ -351,6 +353,21 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
     mediaRequestRef.current.controller?.abort();
     coverRequestRef.current.controller?.abort();
   }, []);
+
+  // O criador do plano encadeia lotes: se estes perfis já têm um lote ativo do
+  // mesmo formato, o novo começa depois que o anterior termina, em vez de se
+  // sobrepor. Isso é correto, mas era invisível — e foi o que levou o usuário a
+  // reagendar por cima achando que o primeiro lote tinha falhado.
+  const stackedAfterExistingPlan = (() => {
+    if (!review || review.request.scheduleMode !== 'interval') return false;
+    const first = review.schedule.firstExecuteAt ? Date.parse(review.schedule.firstExecuteAt) : Number.NaN;
+    if (!Number.isFinite(first)) return false;
+    const interval = Number(review.request.intervalMinutes);
+    if (!Number.isFinite(interval) || interval <= 0) return false;
+    // Sem lote anterior, o primeiro horário é aproximadamente agora + intervalo.
+    // Uma folga de um intervalo inteiro evita falso positivo por latência.
+    return first > Date.now() + interval * 2 * 60_000;
+  })();
 
   function invalidateReview() {
     setReview(null);
@@ -552,6 +569,9 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
       if (!response.ok || !payload.planId) throw new Error(payload.error ?? 'Não foi possível confirmar o plano.');
       setMessage(payload.created === false ? 'Este plano já havia sido confirmado.' : 'Plano confirmado e enviado para geração incremental.');
       resetDraft(false);
+      // Avisa a página para recarregar o feed de programações: sem isso o lote
+      // recém-confirmado só aparecia na lista depois de um F5.
+      onPlanConfirmed?.();
       await loadProgress(payload.planId, true);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Não foi possível confirmar o plano.');
@@ -687,7 +707,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
                 <label className={styles.field}>Formato<select value={format} onChange={(event) => { invalidateReview(); setFormat(event.target.value as BulkFormat); }} disabled={!canManage}><option value="image">Imagem</option><option value="reel">Reel</option><option value="story">Story</option></select></label>
                 <label className={`${styles.field} ${styles.wideField}`}>Origem de mídia *<select value={originKey} onChange={(event) => { invalidateReview(); setOriginKey(event.target.value); }} disabled={!canManage}><option value="">Selecione uma origem</option>{origins.map((item) => <option key={`${item.type}:${item.groupId ?? ''}`} value={`${item.type}:${item.groupId ?? ''}`}>{item.name}</option>)}</select><small>Ao trocar a origem, a seleção anterior é substituída. Todas as mídias elegíveis serão usadas.</small></label>
                 <label className={`${styles.field} ${styles.wideField}`}>Esquema de horários<select value={scheduleMode} onChange={(event) => { invalidateReview(); setScheduleMode(event.target.value as BulkScheduleMode); }} disabled={!canManage}><option value="interval">Intervalo contínuo</option><option value="daily_time">Uma vez por dia em horário fixo</option></select><small>{scheduleMode === 'daily_time' ? 'Cada perfil receberá uma publicação por dia no horário de São Paulo.' : 'Os horários são calculados a partir do intervalo e da duração.'}</small></label>
-                {scheduleMode === 'interval' ? <><label className={styles.field}>Intervalo (minutos)<input type="number" min="1" step="1" value={intervalMinutes} onChange={(event) => { invalidateReview(); setIntervalMinutes(event.target.value); }} disabled={!canManage} /></label><label className={styles.field}>Duração (dias de 24h)<input type="number" min="1" step="1" value={durationDays} onChange={(event) => { invalidateReview(); setDurationDays(event.target.value); }} disabled={!canManage} /></label></> : <><label className={styles.field}>Horário diário<input type="time" value={dailyTime} onChange={(event) => { invalidateReview(); setDailyTime(event.target.value); }} disabled={!canManage} /></label><label className={styles.field}>Quantidade de dias<input type="number" min="1" step="1" value={durationDays} onChange={(event) => { invalidateReview(); setDurationDays(event.target.value); }} disabled={!canManage} /></label></>}
+                {scheduleMode === 'interval' ? <><label className={styles.field}>Intervalo (minutos)<input type="number" min={MIN_BULK_INTERVAL_MINUTES} step="1" value={intervalMinutes} onChange={(event) => { invalidateReview(); setIntervalMinutes(event.target.value); }} disabled={!canManage} /><small>Mínimo de {MIN_BULK_INTERVAL_MINUTES} minutos entre publicações do mesmo perfil.</small></label><label className={styles.field}>Duração (dias de 24h)<input type="number" min="1" max={MAX_BULK_DURATION_DAYS} step="1" value={durationDays} onChange={(event) => { invalidateReview(); setDurationDays(event.target.value); }} disabled={!canManage} /></label></> : <><label className={styles.field}>Horário diário<input type="time" value={dailyTime} onChange={(event) => { invalidateReview(); setDailyTime(event.target.value); }} disabled={!canManage} /></label><label className={styles.field}>Quantidade de dias<input type="number" min="1" max={MAX_BULK_DURATION_DAYS} step="1" value={durationDays} onChange={(event) => { invalidateReview(); setDurationDays(event.target.value); }} disabled={!canManage} /></label></>}
                 <label className={`${styles.field} ${styles.wideField}`}>Ordem da rotação<select value={orderMode} onChange={(event) => { invalidateReview(); setOrderMode(event.target.value as BulkOrderMode); }} disabled={!canManage}><option value="diversified">Diversificada e determinística</option><option value="same_order">Mesma ordem em todos os perfis</option></select></label>
                 <label className={`${styles.field} ${styles.wideField}`}>Legenda compartilhada<textarea maxLength={2200} value={caption} onChange={(event) => { invalidateReview(); setCaption(event.target.value); }} disabled={!canManage} placeholder="Opcional. Quebras de linha serão preservadas." /><small>{caption.length.toLocaleString('pt-BR')} / 2.200 unidades UTF-16</small></label>
               </div>
@@ -787,6 +807,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
             <div><dt>Revisão válida até</dt><dd>{formatDate(review.expiresAt)}</dd></div>
             <div><dt>Capa do Reel</dt><dd>{review.cover ? 'Personalizada' : 'Automática'}</dd></div>
           </dl>
+          {stackedAfterExistingPlan && <p className={styles.reviewNotice} role="status">Estes perfis já têm um lote deste formato agendado. O novo lote não se sobrepõe: ele começa em {formatDate(review.schedule.firstExecuteAt)}, depois que o atual terminar.</p>}
           {review.cover && <div className={styles.reviewCover}>{review.cover.thumbnailUrl && <img src={review.cover.thumbnailUrl} alt={review.cover.originalName} />}<div><span>Origem: {review.cover.originName}</span><strong>{review.cover.originalName}</strong></div></div>}
           <p id="bulk-review-description">A confirmação cria reservas atômicas por perfil e inicia a geração incremental. Nenhuma publicação individual é enviada pelo navegador.</p>
           <footer><button className={styles.subtleButton} type="button" onClick={() => setReview(null)} disabled={confirming}>Voltar e editar</button><button className="button button-secondary" type="button" onClick={() => void confirmPlan()} disabled={confirming}>{confirming ? 'Confirmando…' : 'Confirmar programação em massa'}</button></footer>

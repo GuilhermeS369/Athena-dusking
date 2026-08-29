@@ -14,12 +14,18 @@ do $$ begin
 end $$;
 select 'ok 3 - claim prioriza publicação atual';
 
+-- O teto literal de 25% para backlog histórico deixou de existir na migration
+-- 315 (stage_publications_without_internal_discard), que reescreveu o claim para
+-- nunca descartar item por atraso interno. O que garante que o backlog não
+-- atropela a publicação atual passou a ser a ordenação justa por perfil e por
+-- organização, verificada aqui no lugar da string removida.
 do $$ begin
-  if position('ceil(p_limit * 0.25)' in pg_get_functiondef('public.claim_publication_items(text,integer,integer)'::regprocedure)) = 0 then
-    raise exception 'Claim não limita recuperação histórica.';
+  if position('profile_position' in pg_get_functiondef('public.claim_publication_items(text,integer,integer)'::regprocedure)) = 0
+    or position('org_position' in pg_get_functiondef('public.claim_publication_items(text,integer,integer)'::regprocedure)) = 0 then
+    raise exception 'Claim não distribui de forma justa entre perfis e organizações.';
   end if;
 end $$;
-select 'ok 4 - recuperação histórica usa no máximo 25 por cento do claim';
+select 'ok 4 - claim distribui de forma justa entre perfis e organizações';
 
 select case when to_regprocedure('public.refresh_publication_queue_operational_snapshots()') is not null
   then 'ok 5 - recomposição assíncrona existe' else 'not ok 5 - recomposição ausente' end;
@@ -27,12 +33,19 @@ select case when to_regprocedure('public.refresh_publication_queue_operational_s
 select case when to_regprocedure('public.get_publication_queue_operational_snapshot(uuid)') is not null
   then 'ok 6 - leitura constante do snapshot existe' else 'not ok 6 - leitura ausente' end;
 
+-- Invertido pela migration 328: o horizonte móvel de 48h foi REMOVIDO. Um plano
+-- de 3 dias precisa gerar 3 dias e o gerador precisa poder ficar ocioso depois,
+-- em vez de reabastecer a fila de prioridade para sempre. O contrato agora é a
+-- ausência da janela, mais o rodízio entre planos que a 326 introduziu.
 do $$ begin
-  if position('interval ''48 hours''' in pg_get_functiondef('public.claim_bulk_rotation_generation_chunks(text,integer,integer,integer)'::regprocedure)) = 0 then
-    raise exception 'Claim compacto não limita horizonte.';
+  if position('interval ''48 hours''' in pg_get_functiondef('public.claim_bulk_rotation_generation_chunks(text,integer,integer,integer)'::regprocedure)) > 0 then
+    raise exception 'Claim compacto voltou a limitar o horizonte de geração.';
+  end if;
+  if position('starvation_band' in pg_get_functiondef('public.claim_bulk_rotation_generation_chunks(text,integer,integer,integer)'::regprocedure)) = 0 then
+    raise exception 'Claim compacto perdeu o rodízio justo entre planos.';
   end if;
 end $$;
-select 'ok 7 - claim compacto respeita horizonte de 48 horas';
+select 'ok 7 - claim compacto gera o plano inteiro e faz rodízio entre planos';
 
 do $$ begin
   if position('p_step_size integer DEFAULT 50' in pg_get_functiondef('public.process_bulk_rotation_generation_chunk(uuid,text,integer)'::regprocedure)) = 0 then

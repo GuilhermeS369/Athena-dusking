@@ -143,6 +143,9 @@ export default function PublishingClient({
   const [groupDraftItems, setGroupDraftItems] = useState<PublicationDraftItem[]>([]);
   const [singleProfileDraftItems, setSingleProfileDraftItems] = useState<PublicationDraftItem[]>([]);
   const [bulkDraftDirty, setBulkDraftDirty] = useState(false);
+  // Confirmar uma programação em massa não recarregava o feed abaixo: ele só
+  // buscava na montagem da página, então o lote novo "sumia" até um F5.
+  const [bulkFeedRefreshSignal, setBulkFeedRefreshSignal] = useState(0);
 
   const selectedGroup = groups.find((group) => group.id === groupId);
   const selectedProfile = profiles.find((profile) => profile.id === profileId);
@@ -352,6 +355,7 @@ export default function PublishingClient({
             profiles={profiles}
             groups={groups}
             onDirtyChange={setBulkDraftDirty}
+            onPlanConfirmed={() => setBulkFeedRefreshSignal((signal) => signal + 1)}
           />
         </div>
       </div>
@@ -366,7 +370,7 @@ export default function PublishingClient({
           <Link className="button queue-refresh-button" href="/queue" prefetch={false}>Abrir fila operacional</Link>
         </div>
       </section>
-      <BulkPlanProgressFeed location="postagem" />
+      <BulkPlanProgressFeed location="postagem" refreshSignal={bulkFeedRefreshSignal} />
     </main>
   );
 }
