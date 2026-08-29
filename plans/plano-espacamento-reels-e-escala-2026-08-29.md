@@ -87,6 +87,35 @@ Para o plano Medium isso muda a conta: subir de faixa com 73% da tabela sendo
 histórico é comprar memória para guardar arquivo morto. **B4 antes do upgrade
 rende mais do que o upgrade sozinho.**
 
+## RESULTADO DA FRENTE A — medido em produção, 29/08/2026 21h50 UTC
+
+A métrica principal do plano. Intervalos entre reels consecutivos do **mesmo
+perfil**, comparando as 3 horas depois da migration 330 com a janela de 24 h a
+48 h atrás (antes dela):
+
+| | Antes (24–48 h) | Depois (3 h) | Meta |
+|---|---:|---:|---|
+| Intervalos medidos | 30.727 | 3.903 | — |
+| **Mínimo absoluto** | **4,8 min** | **42,0 min** | acima de 30 |
+| **Abaixo de 30 min** | **1.683 (5,48%)** | **0 (0,00%)** | **0** |
+| Abaixo de 5 min | 2 | **0** | **0** |
+| Mediana | 59,8 min | 60,0 min | não mudar |
+| p90 | 107,6 min | 64,2 min | — |
+
+**Zero violações.** E a mediana ficou em 60,0 min: o intervalo escolhido pelo
+usuário foi preservado exatamente, que era a condição inegociável.
+
+O número mais revelador é o **p90 caindo de 107,6 para 64,2 min**. Ele diz que a
+compressão vinha de **variação de atraso**, não de regra de agendamento errada.
+Consertar a vazão (B3) removeu a variação — e a prova é que a guarda de
+espaçamento (A4) **não precisou adiar nenhum item**: zero adiamentos por
+`profile_min_interval` em todas as amostras da observação. A rede de segurança
+está no ar, mas a causa raiz secou antes de ela precisar agir.
+
+**Ressalva honesta:** a janela do "depois" é de 3 horas contra 24 h da linha de
+base. O plano manda repetir a medição em 48 h — só então o resultado está
+confirmado no mesmo tamanho de amostra.
+
 ## O que a medição do B5.1 provou
 
 | | valor |
