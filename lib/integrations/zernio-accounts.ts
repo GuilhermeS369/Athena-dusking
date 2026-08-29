@@ -118,7 +118,9 @@ async function loadConnectionHealth(client: ZernioClient, remoteAccountIds: stri
 }
 
 export async function listZernioInstagramAccountIdsForConnection(client: ZernioClient, zernioProfileId: string) {
-  const response = await client.listAccounts();
+  // Igual ao helper de snapshots: pede só o profile pedido, mas mantém o filtro
+  // local como rede de segurança caso a API ignore o parâmetro.
+  const response = await client.listAccounts({ profileId: zernioProfileId });
   return zernioAccountIds(instagramAccountsForProfiles(response.accounts ?? [], [zernioProfileId]));
 }
 
@@ -126,7 +128,10 @@ export async function listZernioInstagramAccountSnapshotsForConnection(
   client: ZernioClient,
   zernioProfileId: string,
 ): Promise<ZernioAccountIdentitySnapshot[]> {
-  const response = await client.listAccounts();
+  // Pede à Zernio só o profile de interesse em vez do inventário inteiro da
+  // chave. O filtro local por profile é mantido de propósito: se a API algum
+  // dia ignorar o parâmetro, o escopo continua garantido aqui.
+  const response = await client.listAccounts({ profileId: zernioProfileId });
   return instagramAccountsForProfiles(response.accounts ?? [], [zernioProfileId])
     .map(zernioAccountIdentitySnapshot)
     .filter((snapshot): snapshot is ZernioAccountIdentitySnapshot => Boolean(snapshot));

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 
 import { createZernioConnectionAttempt, markZernioConnectionAttemptFailed, markZernioConnectionAttemptProfilePrepared, markZernioConnectionAttemptRedirected } from '@/lib/integrations/zernio-attempts';
-import { listZernioInstagramAccountIds, listZernioInstagramAccountSnapshotsForConnection } from '@/lib/integrations/zernio-accounts';
+import { listZernioInstagramAccountIdsForConnection, listZernioInstagramAccountSnapshotsForConnection } from '@/lib/integrations/zernio-accounts';
 import { createZernioConnectionContext } from '@/lib/integrations/zernio-client';
 import { safeReturnTo } from '@/lib/integrations/meta-oauth';
 import { getOrganizationContext } from '@/lib/organizations/server';
@@ -59,17 +59,6 @@ export async function GET(request: Request) {
       );
     }
 
-    if (requestedGroupId) {
-      const { data: group } = await admin.from('profile_groups').select('id')
-        .eq('id', requestedGroupId).eq('organization_id', organizationId).is('deleted_at', null).maybeSingle();
-      if (!group) throw new Error('zernio_group_not_found');
-    }
-
-    const { connection, client } = await createZernioConnectionContext(organizationId, connectionId);
-    if (!connection.zernio_profile_id) {
-      throw new Error('A conexão não possui profile Zernio canônico. Prepare a chave novamente.');
-    }
-
     let requestedGroup: { id: string; name: string } | null = null;
     if (requestedGroupId) {
       const { data: group } = await admin.from('profile_groups').select('id, name')
@@ -78,13 +67,32 @@ export async function GET(request: Request) {
       requestedGroup = group;
     }
 
-    const remoteInventory = await client.listAccounts();
-    const remoteInstagramAccounts = (remoteInventory.accounts ?? []).filter((account) => account.platform === 'instagram');
-    const canonicalInstagramAccounts = remoteInstagramAccounts.filter((account) => {
-      const remoteProfileId = typeof account.profileId === 'string' ? account.profileId : account.profileId?._id;
-      return remoteProfileId === connection.zernio_profile_id;
-    });
-    if (connection.instagram_slot_limit != null && canonicalInstagramAccounts.length >= connection.instagram_slot_limit) {
+    const { connection, client } = await createZernioConnectionContext(organizationId, connectionId);
+    if (!connection.zernio_profile_id) {
+      throw new Error('A conexão não possui profile Zernio canônico. Prepare a chave novamente.');
+    }
+
+    // Barreira de capacidade antes do OAuth, com a MESMA fórmula que
+    // reserve_zernio_addition_finalization_slot aplica no fim: perfis locais
+    // ativos da conexão mais reservas ainda vigentes. Usar a mesma contagem das
+    // duas pontas garante que, se o /start deixa passar, a reserva final também
+    // deixa — e que aqui nada é barrado por engano.
+    //
+    // A checagem anterior lia o inventário remoto inteiro e contava só o profile
+    // canônico. No modelo de profile isolado por tentativa quase nenhuma conta
+    // fica no canônico, então ela nunca barrava ninguém: o operador só descobria
+    // a chave cheia depois de autorizar no Instagram, quando a Zernio recusava
+    // com "add a payment method". Agora a resposta é local e imediata.
+    const [{ count: localProfileCount }, { count: activeReservationCount }] = await Promise.all([
+      admin.from('instagram_profiles').select('id', { count: 'exact', head: true })
+        .eq('organization_id', organizationId).eq('provider', 'zernio')
+        .eq('zernio_connection_id', connection.id).is('deleted_at', null),
+      admin.from('zernio_connection_slot_reservations').select('id', { count: 'exact', head: true })
+        .eq('organization_id', organizationId).eq('zernio_connection_id', connection.id)
+        .is('released_at', null).gt('expires_at', new Date().toISOString()),
+    ]);
+    const occupiedSlots = (localProfileCount ?? 0) + (activeReservationCount ?? 0);
+    if (connection.instagram_slot_limit != null && occupiedSlots >= connection.instagram_slot_limit) {
       // A conta pode já existir remotamente após um callback, mas ainda estar
       // aguardando a propagação/reconciliação local. Nesse cenário um novo
       // OAuth só pioraria a divergência 1/2 local versus 2/2 remoto.
@@ -115,7 +123,7 @@ export async function GET(request: Request) {
         recovery.searchParams.set('returnTo', returnTo);
         return NextResponse.redirect(recovery);
       }
-      throw new Error(`O limite de ${connection.instagram_slot_limit} conta(s) nesta chave Zernio já foi atingido globalmente.`);
+      throw new Error(`Esta chave Zernio já está com ${occupiedSlots} de ${connection.instagram_slot_limit} slot(s) ocupados. Nenhuma autorização foi aberta; use uma linha do Bulk apontando para outra chave.`);
     }
 
     const attempt = await createZernioConnectionAttempt({
@@ -134,10 +142,12 @@ export async function GET(request: Request) {
     });
     attemptId = attempt.id;
 
-    const canonicalHasAccount = canonicalInstagramAccounts.some((account) => {
-      const remoteProfileId = typeof account.profileId === 'string' ? account.profileId : account.profileId?._id;
-      return remoteProfileId === connection.zernio_profile_id;
-    });
+    // Decide se o profile canônico pode ser reaproveitado por esta tentativa.
+    // Continua sendo leitura remota, e de propósito: uma resposta errada aqui
+    // entregaria o canônico a um attempt que espera profile vazio. A diferença
+    // é que agora pede só esse profile, em vez do inventário inteiro da chave.
+    const canonicalAccounts = await listZernioInstagramAccountIdsForConnection(client, connection.zernio_profile_id);
+    const canonicalHasAccount = canonicalAccounts.length > 0;
     const { data: claimedRows, error: claimError } = await admin.rpc('claim_zernio_attempt_remote_profile', {
       p_attempt_id: attempt.id,
       p_canonical_has_account: canonicalHasAccount,

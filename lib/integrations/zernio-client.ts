@@ -320,8 +320,12 @@ export function createZernioClient(apiKey: string) {
     async startConnect(platform: 'instagram', profileId: string, redirectUrl: string) {
       return request(`/v1/connect/${platform}`, { query: { profileId, redirect_url: redirectUrl } }) as Promise<{ authUrl?: string; state?: string }>;
     },
-    async listAccounts() {
-      return request('/v1/accounts') as Promise<{ accounts?: ZernioAccount[] }>;
+    // `profileId` restringe a leitura a um único profile remoto. Verificado
+    // contra a API em 29/08/2026: o filtro é aplicado de fato (`profile_id`,
+    // com underscore, é ignorado silenciosamente — não usar). Sem o parâmetro o
+    // comportamento é o de sempre: o inventário inteiro da chave.
+    async listAccounts(query: { profileId?: string } = {}) {
+      return request('/v1/accounts', { query }) as Promise<{ accounts?: ZernioAccount[] }>;
     },
     async accountsHealth() {
       return request('/v1/accounts/health') as Promise<{ accounts?: Array<ZernioAccount & { accountId?: string; status?: string; canPost?: boolean; issues?: unknown[] }> }>;
