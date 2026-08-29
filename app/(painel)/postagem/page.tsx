@@ -111,10 +111,20 @@ async function PublishingPageContent() {
       .eq('organization_id', organizationId)
       .is('deleted_at', null)
       .order('name', { ascending: true }),
-    supabase.rpc('get_posting_composer_profile_metrics', {
-      p_organization_id: organizationId,
-      p_slot_horizon_days: 90,
-    }),
+    // Mesma armadilha do teto de 1000 linhas do PostgREST logo acima, e ela
+    // mordeu aqui: com 1.150 perfis online a RPC devolvia exatamente 1.000
+    // linhas e os 150 perfis restantes ficavam sem métrica nenhuma, aparecendo
+    // como "0/0" no seletor mesmo tendo dezenas de publicações agendadas.
+    // A função agrega por profile_id mas não impõe ordem no resultado, e sem
+    // ordem determinística paginar traria linhas repetidas e outras faltando.
+    // O order explícito abaixo é o que torna a paginação correta.
+    fetchAllRows((from, to) => supabase
+      .rpc('get_posting_composer_profile_metrics', {
+        p_organization_id: organizationId,
+        p_slot_horizon_days: 90,
+      })
+      .order('profile_id', { ascending: true })
+      .range(from, to)),
   ]);
 
   const assetIds = (assetsResult.data ?? []).map((asset) => asset.id);
