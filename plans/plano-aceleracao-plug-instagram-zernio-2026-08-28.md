@@ -322,6 +322,48 @@ A mensagem exibida no celular passou a explicar o ocorrido, que nada ficou pendu
 
 **Aprendizado para a Fase 2:** a varredura de abandonadas cobre o resíduo desse caminho — o ramo terminal do callback não libera o profile isolado, e é a varredura que o devolve depois de 60 minutos.
 
+## Chaves lotadas aparecendo como vazias — 28/08 noite
+
+Operador reportou que `ImogeneStansky1272` aparecia como 0/2 no painel e era oferecida pelo Bulk, mas toda tentativa contra ela falhava com "add a payment method". A chave tinha **2 contas reais** na Zernio, ambas em profiles dedicados, e o Atena não conhecia nenhuma.
+
+**Causa:** `remote_instagram_account_count` contava apenas o profile canônico. No modelo de profile isolado por tentativa quase nenhuma conta fica no canônico, então a ocupação era subestimada e o Bulk seguia oferecendo vaga.
+
+**Escopo real, medido:** varredura das 366 chaves que o Bulk oferecia (uma leitura de API por chave, zero falhas) encontrou **2 chaves** nessa condição, com 3 vagas anunciadas que não existiam. As outras 364 estavam corretas.
+
+**Correção estrutural:** ocupação e atribuição passaram a usar números diferentes, porque são perguntas diferentes. A atribuição continua estrita por profile — é ela que impede vínculo cruzado entre chaves. A ocupação passou a contar todas as contas Instagram que a API key enxerga, que é exatamente o que a Zernio mede ao recusar. Commit `0a23c8b`, aplicado no worker da VPS.
+
+### O que as contas realmente eram
+
+A tentativa de importá-las foi **recusada pela guarda de identidade**: `A identidade Instagram já pertence a outro perfil ativo`. Investigando, não eram órfãs — eram **duplicatas**:
+
+| conta | gerenciada no Atena sob | duplicata estava em |
+|---|---|---|
+| `@mikaelvilar424` | `HakimHamrah9821` (account `6a920c8f…`) | `ImogeneStansky1272` (2 cópias) |
+| `@_mariangelavidal.168` | `LunaMerk8953` (account `6a8faa11…`) | `LevinaOberting356882` |
+
+A mesma conta Instagram tinha sido plugada numa segunda chave; a finalização foi corretamente recusada pela guarda, mas a conta ficou na chave excedente consumindo slot pago em silêncio. É a origem das 10 falhas históricas de `identidade já pertence a outro perfil ativo`.
+
+Importar seria errado. A ação correta era remover as duplicatas, o que foi feito.
+
+### Sobre a exclusão não ser seletiva
+
+O plano de 16/08 registra que o contrato oferece apenas `DELETE /v1/accounts/{accountId}`, sem operação por chave, e que naquele incidente uma exclusão derrubou a conta em duas chaves.
+
+**Medido agora:** aquilo valia porque era o **mesmo accountId** presente nas duas chaves — um objeto só. Quando os accountIds são distintos, a exclusão é seletiva: removendo `6a9212d1…` de `ImogeneStansky1272`, a outra cópia (`6a92127a…`, mesma identidade, mesma chave, outro profile) permaneceu intacta. Não há cascata por identidade do Instagram.
+
+A resposta do DELETE traz `gracePeriodEndsAt`, ou seja, a desconexão tem período de carência.
+
+**Preflight obrigatório usado antes de cada remoção**, derivado dessa semântica: a identidade tem perfil ativo sob outra conexão; o accountId alvo não é o que o Atena usa; e o accountId alvo **não existe na chave dona** — caso existisse, o DELETE seria global e derrubaria a conta boa.
+
+### Resultado
+
+| chave | antes | depois | vagas reais |
+|---|---|---|---|
+| `ImogeneStansky1272` | 2/2 (painel dizia 0/2) | 0/2 | 2 |
+| `LevinaOberting356882` | 2/2 (painel dizia 0/2) | 1/2 | 1 |
+
+`@mikaelvilar424`, `@_mariangelavidal.168` e `@_karinemenezes766` seguem `online` e intactas sob suas chaves corretas. Três slots pagos recuperados.
+
 ## Ordem de execução recomendada
 
 1. **Agora, sem código:** devolver `ZERNIO_SYNC_WORKER_POLL_INTERVAL_MS` para 5000 na VPS e reiniciar o worker. Restaura a cadência de ontem (~6,2s) e corta a espera pela metade. Verificar em seguida a linha `[zernio-sync-worker] iniciando` no log, que imprime a configuração efetiva.
