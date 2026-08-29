@@ -386,7 +386,19 @@ As três chaves têm `instagram_slot_limit = 1` mas **2 contas reais** cada.
 
 **Risco operacional já neutralizado:** a contagem de ocupação dessas chaves foi atualizada para o valor real, então elas aparecem como 2/1 e saíram do Bulk. Nenhuma chave da frota oferece hoje vaga que não existe.
 
-**Decisão pendente para as 3 órfãs:** importar exige antes registrar o profile remoto em `zernio_connection_remote_profiles`. Isso é factualmente correto — o profile só é visível pela API key daquela conexão —, mas escreve na tabela que sustenta a guarda de atribuição cruzada, então não deve ser feito sem decisão explícita. As alternativas são deixar como está (slot ocupado, invisível) ou remover da Zernio para liberar. O limite de 1 dessas chaves também parece mal configurado e merece revisão à parte.
+### Registro e importação das 3 órfãs — autorizado e concluído
+
+Preflight aplicado por conta, abortando sem tocar em nada se qualquer item falhasse: o profile não podia estar registrado para outra conexão; a própria chave precisava listar o profile em `/v1/profiles`; o `accountId` não podia existir no Atena; e a identidade não podia pertencer a outro perfil ativo.
+
+A listagem da Zernio confirmou que os três profiles foram criados pelo próprio Atena (`Vini farmando cash · <chave> · <sufixo>`), o que sustenta o registro como fato, não como suposição. Os três foram registrados como `dedicated/connected` e importados.
+
+**As três eram tombstones, não contas novas.** Foram criadas em 15/08, removidas do Atena depois e nunca removidas da Zernio — por isso seguiam ocupando slot. O `reconcile_zernio_connection_accounts` devolveu `updated`, reconectando o perfil antigo pela identidade imutável (o caminho da migration 164), em vez de criar linha nova. Foi por isso também que o preflight por `accountId` passou: o tombstone guardava outro identificador, e a RPC o reapontou.
+
+**As três voltaram como `offline`**, e a Zernio explica o motivo: `isActive=false`, `needsReconnection=true`, `Your instagram access token is no longer valid. Please reconnect your account.` Ou seja, ocupam slot pago mas não publicam sem reconexão.
+
+Estado final das três chaves: `local 2 | remoto 2 | limite 1 | vagas no Bulk: 0`.
+
+**Pendência para o dono:** essas chaves têm `instagram_slot_limit = 1` com 2 contas reais cada. Ou o limite está mal configurado, ou há uma conta a mais do que o plano permite. Não mexi na configuração.
 
 ## Ordem de execução recomendada
 
