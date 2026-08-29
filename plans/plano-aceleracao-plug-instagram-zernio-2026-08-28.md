@@ -412,7 +412,16 @@ A remoção seguiu exatamente a sequência da rota `DELETE /api/integrations/met
 
 As três contas boas seguem `online` e ativas. As três removidas saíram do Atena e da Zernio. Nenhuma chave está mais acima do limite, e local e remoto estão iguais nas três.
 
-**Pendência para o dono:** essas chaves seguem com `instagram_slot_limit = 1`. Se o plano da Zernio permite 2, o limite está subconfigurado e cada uma está desperdiçando uma vaga. Não mexi na configuração.
+### Limite dessas 3 chaves corrigido para 2
+
+O dono confirmou que toda conta Zernio permite 2 contas Instagram. Evidências reunidas antes de alterar:
+
+- 1.258 das 1.261 chaves já estavam em 2; só essas 3 estavam em 1, todas criadas em 12/08 na mesma organização;
+- as 3 seguraram **2 contas cada** até a limpeza de hoje, ou seja, a Zernio aceitou;
+- `GET /v1/billing` devolve dados idênticos para uma chave de limite 1 e uma de limite 2: mesmo plano (`Usage`, pago), mesmo `caps` (apenas teto de gasto do X, nada sobre contas) e mesmo `status`. A Zernio **não expõe limite de contas por chave** — `instagram_slot_limit` é configuração exclusivamente do Atena;
+- `provisionZernioConnection` já usa `default_instagram_slot_limit ?? 2`, e nenhuma organização tem esse padrão sobrescrito, então chaves novas nascem com 2.
+
+As três foram corrigidas para 2 e voltaram a oferecer 1 vaga real cada. **A frota inteira está agora consistente: 1.261 de 1.261 chaves com limite 2.**
 
 ## Ordem de execução recomendada
 
