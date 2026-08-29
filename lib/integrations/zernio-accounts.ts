@@ -3,6 +3,7 @@ import { withZernioConnectionOperationLease } from '@/lib/integrations/zernio-co
 import { createZernioConnectionContext, refreshZernioConnectionBilling, type ZernioAccount, type ZernioClient } from '@/lib/integrations/zernio-client';
 import { initializeProfileAnalyticsState } from '@/lib/integrations/zernio-analytics';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
 import { selectNewZernioAccountsForAttempt, selectZernioInstagramAccountsForSync, zernioAccountIdentitySnapshot, type ZernioAccountIdentitySnapshot } from './zernio-account-selection';
 
 export { selectNewZernioAccountsForAttempt, selectZernioInstagramAccountsForSync } from './zernio-account-selection';
@@ -414,9 +415,7 @@ export async function syncZernioInstagramAccounts(organizationId: string, userId
     const conflicts = reconciledRows.filter((profile) => profile.result_status === 'conflict');
     if (conflicts.length) {
       const conflictProfileIds = conflicts.map((conflict) => conflict.profile_id).filter((id): id is string => Boolean(id));
-      const { data: retainedProfiles, error: retainedProfilesError } = conflictProfileIds.length
-        ? await admin.from('instagram_profiles').select('id, username, zernio_account_id').in('id', conflictProfileIds)
-        : { data: [], error: null };
+      const { data: retainedProfiles, error: retainedProfilesError } = await fetchAllRowsByIds(conflictProfileIds, (chunk, from, to) => admin.from('instagram_profiles').select('id, username, zernio_account_id').in('id', chunk).order('id', { ascending: true }).range(from, to));
       if (retainedProfilesError) throw retainedProfilesError;
 
       const retainedIdByUsername = new Map((retainedProfiles ?? []).map((profile) => [

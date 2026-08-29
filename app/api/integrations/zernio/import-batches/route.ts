@@ -6,6 +6,8 @@ import { zernioApiKeyFingerprint } from '@/lib/integrations/zernio-connection-pr
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { decryptToken, encryptToken } from '@/lib/security/token-crypto';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,14 +58,19 @@ export async function POST(request: Request) {
   if (!draft.valid) return NextResponse.json({ error: 'Revise as duas colunas antes de salvar.', issues: draft.issues }, { status: 400 });
 
   const labels = draft.rows.map((row) => row.label);
-  const { data: existing } = await admin
+  const { data: existing } = await fetchAllRowsByIds(
+    labels,
+    (chunk, from, to) => admin
     .from('zernio_connections')
     .select('label')
-    .eq('organization_id', context.activeOrganization.id)
+    .eq('organization_id', context.activeOrganization!.id)
     .is('deleted_at', null)
-    .in('label', labels);
-  if ((existing ?? []).length > 0) {
-    return NextResponse.json({ error: 'Há nomes que já possuem uma conta Zernio ativa.', existingLabels: existing?.map((connection) => connection.label) ?? [] }, { status: 409 });
+    .in('label', chunk)
+    .order('label', { ascending: true })
+    .range(from, to),
+  );
+  if (existing.length > 0) {
+    return NextResponse.json({ error: 'Há nomes que já possuem uma conta Zernio ativa.', existingLabels: existing.map((connection) => connection.label) }, { status: 409 });
   }
 
   try {
@@ -71,14 +78,19 @@ export async function POST(request: Request) {
       ...row,
       apiKeyFingerprint: zernioApiKeyFingerprint(row.apiKey),
     }));
-    const { data: activeConnections, error: credentialsError } = await admin
+    // Varredura global (todas as organizações) para detectar API key duplicada.
+    // Truncada em 1.000, a checagem passa a ter falso negativo: duas organizações
+    // cadastram a mesma chave e sincronizam a mesma conta Zernio.
+    const { data: activeConnections, error: credentialsError } = await fetchAllRows<{ id: string; organization_id: string; label: string; encrypted_api_key: string; api_key_fingerprint: string | null }>((from, to) => admin
       .from('zernio_connections')
-      .select('organization_id, label, encrypted_api_key, api_key_fingerprint')
-      .is('deleted_at', null);
+      .select('id, organization_id, label, encrypted_api_key, api_key_fingerprint')
+      .is('deleted_at', null)
+      .order('id', { ascending: true })
+      .range(from, to));
     if (credentialsError) throw new Error('Não foi possível verificar se as API keys já estão cadastradas.');
 
     const activeFingerprintLabels = new Map<string, string>();
-    for (const connection of activeConnections ?? []) {
+    for (const connection of activeConnections) {
       let fingerprint = connection.api_key_fingerprint;
       if (!fingerprint) {
         try {

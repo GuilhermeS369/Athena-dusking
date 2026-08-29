@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 import { isTwitterModuleEnabled } from '@/lib/twitter/feature';
 
 export const dynamic='force-dynamic';
@@ -16,7 +17,7 @@ export default async function TwitterProfileDetailPage({params}:{params:Promise<
   if(error)throw new Error('Não foi possível carregar o perfil X.');if(!profile)notFound();
   const[epochs,connections,memberships,items,snapshots]=await Promise.all([
     admin.from('twitter_profile_connection_epochs').select('id,connection_id,started_at,ended_at,end_reason').eq('organization_id',organizationId).eq('profile_id',profile.id).order('started_at',{ascending:false}).limit(50),
-    admin.from('twitter_connections').select('id,label,status,last_sync_at,last_error_code,last_error_message').eq('organization_id',organizationId),
+    fetchAllRows((from,to)=>admin.from('twitter_connections').select('id,label,status,last_sync_at,last_error_code,last_error_message').eq('organization_id',organizationId).order('id').range(from,to)),
     admin.from('twitter_group_members').select('group_id').eq('organization_id',organizationId).eq('profile_id',profile.id),
     admin.from('twitter_publication_items').select('id,program_id,content,execute_at,status,amount_micros,attempt_count').eq('organization_id',organizationId).eq('profile_id',profile.id).order('execute_at',{ascending:false}).limit(50),
     admin.from('twitter_analytics_snapshots').select('id,resource_type,captured_at,provider_updated_at,metrics').eq('organization_id',organizationId).eq('profile_id',profile.id).order('captured_at',{ascending:false}).limit(50),

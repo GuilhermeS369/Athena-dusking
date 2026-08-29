@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import TwitterZernioClient from '@/app/x/twitter-zernio-client';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 import { isTwitterModuleEnabled } from '@/lib/twitter/feature';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,9 @@ export default async function TwitterZernioPage() {
   const organizationId = context.activeOrganization.id;
   const [connectionsResult, profilesResult, attemptsResult, settingsResult] = await Promise.all([
     admin.from('twitter_connections').select('id,identity_id,label,zernio_profile_id,status,analytics_enabled,inbox_enabled,last_verified_at,last_sync_at,last_error_message,created_at,twitter_slot_limit,remote_twitter_account_count,remote_inventory_checked_at').eq('organization_id', organizationId).is('deleted_at', null).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(101),
-    admin.from('twitter_profiles').select('current_connection_id').eq('organization_id', organizationId).is('deleted_at', null).not('current_connection_id', 'is', null),
+    // Uma linha por perfil conectado da organização: cortado em 1.000, o
+    // profileCounts abaixo subestimava a ocupação de cada conexão Zernio.
+    fetchAllRows((from, to) => admin.from('twitter_profiles').select('id,current_connection_id').eq('organization_id', organizationId).is('deleted_at', null).not('current_connection_id', 'is', null).order('id').range(from, to)),
     admin.from('twitter_connection_oauth_attempts').select('id,connection_id,expires_at').eq('organization_id', organizationId).eq('status', 'pending').gt('expires_at', new Date().toISOString()).order('expires_at', { ascending: true }),
     admin.from('twitter_organization_settings').select('default_initial_grant_micros,default_twitter_slot_limit').eq('organization_id', organizationId).maybeSingle(),
   ]);
@@ -32,7 +35,7 @@ export default async function TwitterZernioPage() {
   const walletsById = new Map((walletsResult.data ?? []).map((wallet) => [wallet.identity_id, wallet]));
   const grantsById = new Map((grantsResult.data ?? []).map((grant) => [grant.identity_id, grant]));
   const profileCounts = new Map<string, number>();
-  for (const profile of profilesResult.data ?? []) if (profile.current_connection_id) profileCounts.set(profile.current_connection_id, (profileCounts.get(profile.current_connection_id) ?? 0) + 1);
+  for (const profile of profilesResult.data) if (profile.current_connection_id) profileCounts.set(profile.current_connection_id, (profileCounts.get(profile.current_connection_id) ?? 0) + 1);
   const pendingCounts = new Map<string, number>();
   for (const attempt of attemptsResult.data ?? []) pendingCounts.set(attempt.connection_id, (pendingCounts.get(attempt.connection_id) ?? 0) + 1);
   const reservationsByConnection = new Map<string, Array<{ id: string; expires_at: string }>>();

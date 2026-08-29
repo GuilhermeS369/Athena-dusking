@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
 
 import {
   TWITTER_ANALYTICS_POST_READ_RESERVE_UNITS,
@@ -101,24 +102,30 @@ export async function prepareTwitterAnalyticsQuote(organizationId: string, input
   const profileTargets = request.targets.filter((target) => target.resourceType === 'profile');
   const postIds = [...new Set(postTargets.map((target) => target.resourceId))];
   const directProfileIds = [...new Set(profileTargets.map((target) => target.resourceId))];
-  const { data: items } = postIds.length ? await admin.from('twitter_publication_items').select('id,identity_id,connection_id,profile_id,status').eq('organization_id', organizationId).in('id', postIds).eq('status', 'published') : { data: [] };
-  if ((items ?? []).length !== postIds.length) throw new Error('Há posts indisponíveis para análise.');
-  const allProfileIds = [...new Set([...directProfileIds, ...(items ?? []).map((item) => item.profile_id)])];
-  const { data: profiles } = allProfileIds.length ? await admin.from('twitter_profiles').select('id,current_epoch_id,current_connection_id,can_fetch_analytics,analytics_enabled').eq('organization_id', organizationId).in('id', allProfileIds).is('deleted_at', null) : { data: [] };
-  if ((profiles ?? []).length !== allProfileIds.length) throw new Error('Há perfis indisponíveis para análise.');
-  const connectionIds = [...new Set([...(items ?? []).map((item) => item.connection_id), ...(profiles ?? []).map((profile) => profile.current_connection_id).filter((id): id is string => Boolean(id))])];
-  const { data: connections } = connectionIds.length ? await admin.from('twitter_connections').select('id,identity_id,analytics_enabled,status').eq('organization_id', organizationId).in('id', connectionIds).is('deleted_at', null) : { data: [] };
-  const profileById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
-  const connectionById = new Map((connections ?? []).map((connection) => [connection.id, connection]));
+  // A cota de targets é 1.000, mas postIds e directProfileIds são listas
+  // independentes: a união abaixo chega perto de 2.000 e era truncada pelo teto
+  // do PostgREST, fazendo a guarda de comprimento recusar a análise.
+  const { data: items } = await fetchAllRowsByIds(postIds, (chunk, from, to) => admin.from('twitter_publication_items').select('id,identity_id,connection_id,profile_id,status').eq('organization_id', organizationId).in('id', chunk).eq('status', 'published').order('id', { ascending: true }).range(from, to));
+  if (items.length !== postIds.length) throw new Error('Há posts indisponíveis para análise.');
+  const allProfileIds = [...new Set([...directProfileIds, ...items.map((item) => item.profile_id)])];
+  const { data: profiles } = await fetchAllRowsByIds(allProfileIds, (chunk, from, to) => admin.from('twitter_profiles').select('id,current_epoch_id,current_connection_id,can_fetch_analytics,analytics_enabled').eq('organization_id', organizationId).in('id', chunk).is('deleted_at', null).order('id', { ascending: true }).range(from, to));
+  if (profiles.length !== allProfileIds.length) throw new Error('Há perfis indisponíveis para análise.');
+  const connectionIds = [...new Set([...items.map((item) => item.connection_id), ...profiles.map((profile) => profile.current_connection_id).filter((id): id is string => Boolean(id))])];
+  const { data: connections } = await fetchAllRowsByIds(connectionIds, (chunk, from, to) => admin.from('twitter_connections').select('id,identity_id,analytics_enabled,status').eq('organization_id', organizationId).in('id', chunk).is('deleted_at', null).order('id', { ascending: true }).range(from, to));
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const connectionById = new Map(connections.map((connection) => [connection.id, connection]));
   const resources: ResolvedResource[] = [];
 
   if (postIds.length) {
-    const { data: attempts } = await admin.from('twitter_publication_attempts').select('item_id,post_id,status,created_at').in('item_id', postIds).eq('status', 'published').not('post_id', 'is', null).order('created_at', { ascending: false });
+    // Relação 1:N — até 1.000 itens com várias tentativas cada. Truncado, o
+    // .some() abaixo passava a acusar "Post sem ID Zernio confirmado" em posts
+    // que tinham ID. Ordem por id (chave primária) para paginar com segurança.
+    const { data: attempts } = await fetchAllRowsByIds(postIds, (chunk, from, to) => admin.from('twitter_publication_attempts').select('item_id,post_id,status,created_at').in('item_id', chunk).eq('status', 'published').not('post_id', 'is', null).order('id', { ascending: true }).range(from, to));
     for (const target of postTargets) {
-      const item = (items ?? []).find((candidate) => candidate.id === target.resourceId);
+      const item = items.find((candidate) => candidate.id === target.resourceId);
       const profile = item ? profileById.get(item.profile_id) : null;
       const connection = item ? connectionById.get(item.connection_id) : null;
-      if (!item || !attempts?.some((attempt) => attempt.item_id === item.id && attempt.post_id)) throw new Error('Post sem ID Zernio confirmado.');
+      if (!item || !attempts.some((attempt) => attempt.item_id === item.id && attempt.post_id)) throw new Error('Post sem ID Zernio confirmado.');
       if (!profile?.analytics_enabled || !profile.can_fetch_analytics || !connection?.analytics_enabled) throw Object.assign(new Error('O post pertence a um perfil com Analytics desabilitado ou indisponível.'), { status: 409 });
       resources.push({ ...target, identityId: item.identity_id, connectionId: item.connection_id, profileId: item.profile_id, amountMicros: twitterAnalyticsReservedAmountMicros('post', postCost).amountMicros, collectionKey: collectionKey(target) });
     }

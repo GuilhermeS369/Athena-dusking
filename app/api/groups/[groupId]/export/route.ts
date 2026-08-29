@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getOrganizationContext } from '@/lib/organizations/server';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 type ExportRow = {
@@ -27,6 +28,9 @@ export async function GET(
     return NextResponse.json({ error: 'Autenticação necessária.' }, { status: 401 });
   }
 
+  // Fixado fora do callback: dentro da closure o TypeScript perde o estreitamento
+  // de activeOrganization feito no guard acima.
+  const organizationId = context.activeOrganization.id;
   const supabase = await createSupabaseServerClient();
   const { data: group, error: groupError } = await supabase
     .from('profile_groups')
@@ -43,13 +47,18 @@ export async function GET(
     return NextResponse.json({ error: 'Grupo não encontrado.' }, { status: 404 });
   }
 
-  const { data, error } = await supabase
+  // Grupos podem ter mais linhas que o teto do PostgREST (1000). Sem paginar, o
+  // CSV sai truncado sem aviso nenhum e o operador o usa como fonte de verdade.
+  // A ordem (row_kind, username) já existia e é determinística, então paginar
+  // por range é seguro aqui.
+  const { data, error } = await fetchAllRows<ExportRow>((from, to) => supabase
     .from('group_profile_export_rows')
     .select('group_id, group_name, group_consumption_mode, row_kind, username, zernio_connection_label, profile_added_at, profile_status, fallen_at, fall_reason')
-    .eq('organization_id', context.activeOrganization.id)
+    .eq('organization_id', organizationId)
     .eq('group_id', groupId)
     .order('row_kind', { ascending: true })
-    .order('username', { ascending: true });
+    .order('username', { ascending: true })
+    .range(from, to));
 
   if (error) {
     return NextResponse.json({ error: 'Não foi possível preparar a exportação do grupo.' }, { status: 500 });
@@ -57,6 +66,6 @@ export async function GET(
 
   return NextResponse.json({
     group: { id: group.id, name: group.name },
-    rows: (data ?? []) as ExportRow[],
+    rows: data,
   });
 }

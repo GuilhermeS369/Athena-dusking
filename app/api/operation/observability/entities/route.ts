@@ -6,6 +6,7 @@ import {
 } from "@/lib/instagram/observability";
 import { getInstagramOperationContext } from "@/lib/instagram/request-context";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRowsByIds } from "@/lib/supabase/chunk";
 
 export const dynamic = "force-dynamic";
 
@@ -54,12 +55,18 @@ export async function GET(request: Request) {
         { status: 500 },
       );
     const ids = (data ?? []).map((row) => row.id);
-    const { data: members } = ids.length
-      ? await admin
-          .from("profile_group_members")
-          .select("group_id")
-          .in("group_id", ids)
-      : { data: [] };
+    // Relação 1:N: alguns grupos já somam mais de 1.000 vínculos. O profile_id
+    // entra no select apenas para dar ordem determinística à paginação.
+    const { data: members } = await fetchAllRowsByIds<{ group_id: string; profile_id: string }>(
+      ids,
+      (chunk, from, to) => admin
+        .from("profile_group_members")
+        .select("group_id,profile_id")
+        .in("group_id", chunk)
+        .order("group_id", { ascending: true })
+        .order("profile_id", { ascending: true })
+        .range(from, to),
+    );
     const counts = new Map<string, number>();
     for (const member of members ?? [])
       counts.set(member.group_id, (counts.get(member.group_id) ?? 0) + 1);

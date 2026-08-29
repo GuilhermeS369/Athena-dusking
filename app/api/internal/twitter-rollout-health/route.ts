@@ -98,7 +98,10 @@ export async function GET(request: Request) {
       admin.from('twitter_publication_items').select('execute_at').in('status',['ready','retry']).lte('execute_at',nowIso).gt('dispatch_deadline_at',nowIso).order('execute_at').limit(1).maybeSingle(),
       admin.from('twitter_dispatch_fences').select('owner_plane,fencing_token,lease_until,epoch,last_worker_id,updated_at').eq('stream','publication').maybeSingle(),
       admin.from('twitter_connection_dispatch_health').select('connection_id,current_limit,active_count,success_streak,throttled_until,rate_limit_count,rate_limit_24h,updated_at').order('rate_limit_count',{ascending:false}).limit(100),
-      admin.from('twitter_publication_attempts').select('item_id,created_at,external_started_at,finished_at').not('external_started_at','is',null).gte('created_at',sinceIso).order('created_at',{ascending:false}).limit(10000),
+      // .limit(10000) era clampado para 1.000 por max_rows. Aqui o corte é
+      // aceitável (é uma amostra de latência das tentativas mais recentes), mas
+      // o número precisa dizer a verdade sobre o que é lido.
+      admin.from('twitter_publication_attempts').select('item_id,created_at,external_started_at,finished_at').not('external_started_at','is',null).gte('created_at',sinceIso).order('created_at',{ascending:false}).limit(1000),
     ]);
 
     if (heartbeatsResult.error || breakersResult.error || connectHealthResult.error || connectErrorsResult.error || oldestDueResult.error || fenceResult.error || dispatchLimitsResult.error || latencyResult.error) throw new Error(heartbeatsResult.error?.message ?? breakersResult.error?.message ?? connectHealthResult.error?.message ?? connectErrorsResult.error?.message ?? oldestDueResult.error?.message ?? fenceResult.error?.message ?? dispatchLimitsResult.error?.message ?? latencyResult.error?.message ?? 'Telemetria X indisponível.');

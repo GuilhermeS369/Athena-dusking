@@ -3,6 +3,8 @@ import { notFound, redirect } from 'next/navigation';
 import TwitterQueueClient from '@/app/x/twitter-queue-client';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 import { isTwitterModuleEnabled } from '@/lib/twitter/feature';
 
 export const dynamic = 'force-dynamic';
@@ -16,16 +18,18 @@ export default async function TwitterQueuePage() {
   const organizationId = context.activeOrganization.id;
   const [programs, profiles, groups, memberships, summary] = await Promise.all([
     admin.rpc('twitter_program_queue_overview', { p_organization_id:organizationId }),
-    admin.from('twitter_profiles').select('id,username,display_name,avatar_url,status').eq('organization_id', organizationId).is('deleted_at', null).order('username'),
+    fetchAllRows((from, to) => admin.from('twitter_profiles').select('id,username,display_name,avatar_url,status').eq('organization_id', organizationId).is('deleted_at', null).order('username').order('id').range(from, to)),
     admin.from('twitter_groups').select('id,name').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
-    admin.from('twitter_group_members').select('group_id,profile_id').eq('organization_id', organizationId),
+    fetchAllRows((from, to) => admin.from('twitter_group_members').select('group_id,profile_id').eq('organization_id', organizationId).order('group_id').order('profile_id').range(from, to)),
     admin.rpc('twitter_queue_operational_summary', { p_organization_id: organizationId }),
   ]);
   if (programs.error || profiles.error || groups.error || memberships.error) throw new Error('Não foi possível carregar a fila X.');
   if (summary.error) console.warn('Resumo operacional novo da fila X indisponível; usando fallback compatível.', { code: summary.error.code });
   const programIds = (programs.data ?? []).map((program:{id:string}) => program.id);
   const [shortfalls, items] = programIds.length ? await Promise.all([
-    admin.from('twitter_program_shortfalls').select('program_id,profile_id,requested_count,funded_count,unfunded_count').in('program_id', programIds),
+    // Uma linha por (programa, perfil): com até 200 programas na visão geral e
+    // milhares de perfis, isto passa de 1.000 linhas com folga.
+    fetchAllRowsByIds(programIds, (chunk, from, to) => admin.from('twitter_program_shortfalls').select('program_id,profile_id,requested_count,funded_count,unfunded_count').in('program_id', chunk).order('program_id').order('profile_id').range(from, to)),
     admin.from('twitter_publication_items').select('id,program_id,profile_id,execute_at,content,category,amount_micros,status,attempt_count,next_attempt_at').eq('organization_id', organizationId).eq('program_id', programIds[0]).order('execute_at').order('id').limit(201),
   ]) : [{ data: [], error: null }, { data: [], error: null }];
   if (shortfalls.error || items.error) throw new Error('Não foi possível carregar os detalhes da fila X.');

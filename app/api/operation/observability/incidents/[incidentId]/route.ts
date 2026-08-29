@@ -8,6 +8,7 @@ import {
 } from "@/lib/instagram/observability";
 import { getInstagramOperationContext } from "@/lib/instagram/request-context";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRowsByIds } from "@/lib/supabase/chunk";
 
 export const dynamic = "force-dynamic";
 
@@ -64,14 +65,17 @@ export async function GET(
     ]);
 
   const profileIds = (profilesResult.data ?? []).map((row) => row.profile_id);
-  const { data: profileRows } = profileIds.length
-    ? await admin
+  const { data: profileRows } = await fetchAllRowsByIds(
+    profileIds,
+    (chunk, from, to) => admin
         .from("instagram_profiles_safe")
         .select("id,username,display_name,status,provider")
         .eq("organization_id", organizationId)
-        .in("id", profileIds)
-    : { data: [] };
-  const profileMap = new Map((profileRows ?? []).map((row) => [row.id, row]));
+        .in("id", chunk)
+        .order("id", { ascending: true })
+        .range(from, to),
+  );
+  const profileMap = new Map(profileRows.map((row) => [row.id, row]));
   const canInspect = auth.context.activeOrganization.role !== "viewer";
 
   return instagramObservedJson(startedAt, organizationId, "incident-detail", {

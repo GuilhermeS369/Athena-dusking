@@ -2,6 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import TwitterBulkClient from "@/app/x/twitter-bulk-client";
 import { getOrganizationContext } from "@/lib/organizations/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRowsByIds } from "@/lib/supabase/chunk";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { isTwitterModuleEnabled } from "@/lib/twitter/feature";
 
 export const dynamic = "force-dynamic";
@@ -34,16 +36,22 @@ export default async function TwitterPostPage() {
     mediaMembershipsResult,
     queueResult,
   ] = await Promise.all([
-    admin
-      .from("twitter_profiles")
-      .select(
-        "id,username,display_name,avatar_url,account_tier,current_connection_id",
-      )
-      .eq("organization_id", organizationId)
-      .eq("status", "active")
-      .eq("can_post", true)
-      .is("deleted_at", null)
-      .order("username"),
+    // Sem paginar, "selecionar todos" da programação em massa pegava apenas os
+    // 1.000 primeiros perfis por username (teto de linhas do PostgREST).
+    fetchAllRows((from, to) =>
+      admin
+        .from("twitter_profiles")
+        .select(
+          "id,username,display_name,avatar_url,account_tier,current_connection_id",
+        )
+        .eq("organization_id", organizationId)
+        .eq("status", "active")
+        .eq("can_post", true)
+        .is("deleted_at", null)
+        .order("username")
+        .order("id")
+        .range(from, to),
+    ),
     admin
       .from("twitter_media_assets")
       .select("id,original_name,media_kind,byte_size,storage_path,created_at")
@@ -58,17 +66,38 @@ export default async function TwitterPostPage() {
       .eq("organization_id", organizationId)
       .is("deleted_at", null)
       .order("name"),
-    admin
-      .from("twitter_group_members")
-      .select("group_id,profile_id")
-      .eq("organization_id", organizationId),
-    admin
-      .from("twitter_media_group_members")
-      .select("group_id,asset_id")
-      .eq("organization_id", organizationId),
-    admin.rpc("twitter_bulk_profile_queue_summary", {
-      p_organization_id: organizationId,
-    }),
+    // Vínculos crescem como perfis x grupos, então estouram o teto antes dos
+    // próprios perfis. A ordem explícita é obrigatória: sem ela, paginar por
+    // range traz linhas repetidas e deixa outras de fora.
+    fetchAllRows((from, to) =>
+      admin
+        .from("twitter_group_members")
+        .select("group_id,profile_id")
+        .eq("organization_id", organizationId)
+        .order("group_id")
+        .order("profile_id")
+        .range(from, to),
+    ),
+    fetchAllRows((from, to) =>
+      admin
+        .from("twitter_media_group_members")
+        .select("group_id,asset_id")
+        .eq("organization_id", organizationId)
+        .order("group_id")
+        .order("asset_id")
+        .range(from, to),
+    ),
+    // RPC "returns table" devolve uma linha por perfil e é cortada igual a um
+    // select: acima de 1.000 perfis os excedentes apareciam como 0/0/0/0 e o
+    // operador programava em cima achando que a fila deles estava vazia.
+    fetchAllRows<{ profile_id: string }>((from, to) =>
+      admin
+        .rpc("twitter_bulk_profile_queue_summary", {
+          p_organization_id: organizationId,
+        })
+        .order("profile_id")
+        .range(from, to),
+    ),
   ]);
   if (
     profilesResult.error ||
@@ -78,14 +107,19 @@ export default async function TwitterPostPage() {
     queueResult.error
   )
     throw new Error("Não foi possível abrir a postagem X.");
-  const formatQueueResult = await admin.rpc(
-    "twitter_bulk_profile_format_summary",
-    { p_organization_id: organizationId },
+  const formatQueueResult = await fetchAllRows<{ profile_id: string }>(
+    (from, to) =>
+      admin
+        .rpc("twitter_bulk_profile_format_summary", {
+          p_organization_id: organizationId,
+        })
+        .order("profile_id")
+        .range(from, to),
   );
   const effectiveQueueData = formatQueueResult.error
     ? queueResult.data
     : formatQueueResult.data;
-  const profiles = profilesResult.data ?? [];
+  const profiles = profilesResult.data;
   const connectionIds = [
     ...new Set(
       profiles
@@ -93,43 +127,48 @@ export default async function TwitterPostPage() {
         .filter((id): id is string => Boolean(id)),
     ),
   ];
-  const { data: connections, error: connectionError } = connectionIds.length
-    ? await admin
-        .from("twitter_connections")
-        .select("id,identity_id")
-        .eq("organization_id", organizationId)
-        .in("id", connectionIds)
-    : { data: [], error: null };
+  const { data: connections, error: connectionError } =
+    await fetchAllRowsByIds<{ id: string; identity_id: string }>(
+      connectionIds,
+      (chunk, from, to) =>
+        admin
+          .from("twitter_connections")
+          .select("id,identity_id")
+          .eq("organization_id", organizationId)
+          .in("id", chunk)
+          .order("id")
+          .range(from, to),
+    );
   if (connectionError)
     throw new Error("Não foi possível carregar as carteiras X.");
   const identityByConnection = new Map(
-    (connections ?? []).map((connection) => [
-      connection.id,
-      connection.identity_id,
-    ]),
+    connections.map((connection) => [connection.id, connection.identity_id]),
   );
   const identityIds = [
-    ...new Set((connections ?? []).map((connection) => connection.identity_id)),
+    ...new Set(connections.map((connection) => connection.identity_id)),
   ];
-  const { data: wallets, error: walletError } = identityIds.length
-    ? await admin
-        .from("twitter_wallets")
-        .select("identity_id,posted_balance_micros,reserved_micros")
-        .eq("organization_id", organizationId)
-        .in("identity_id", identityIds)
-    : { data: [], error: null };
+  const { data: wallets, error: walletError } = await fetchAllRowsByIds<{
+    identity_id: string;
+    posted_balance_micros: number | string;
+    reserved_micros: number | string;
+  }>(identityIds, (chunk, from, to) =>
+    admin
+      .from("twitter_wallets")
+      .select("identity_id,posted_balance_micros,reserved_micros")
+      .eq("organization_id", organizationId)
+      .in("identity_id", chunk)
+      .order("identity_id")
+      .range(from, to),
+  );
   if (walletError) throw new Error("Não foi possível carregar os saldos X.");
   const walletByIdentity = new Map(
-    (wallets ?? []).map((wallet) => [wallet.identity_id, wallet]),
+    wallets.map((wallet) => [wallet.identity_id, wallet]),
   );
   const queueByProfile = new Map(
-    (effectiveQueueData ?? []).map((row: { profile_id: string }) => [
-      row.profile_id,
-      row,
-    ]),
+    effectiveQueueData.map((row) => [row.profile_id, row]),
   );
   const groupIdsByProfile = new Map<string, string[]>();
-  for (const member of membershipsResult.data ?? [])
+  for (const member of membershipsResult.data)
     groupIdsByProfile.set(member.profile_id, [
       ...(groupIdsByProfile.get(member.profile_id) ?? []),
       member.group_id,
@@ -137,12 +176,12 @@ export default async function TwitterPostPage() {
   const groupIdsByAsset = new Map<string, string[]>();
   for (const member of mediaMembershipsResult.error
     ? []
-    : (mediaMembershipsResult.data ?? []))
+    : mediaMembershipsResult.data)
     groupIdsByAsset.set(member.asset_id, [
       ...(groupIdsByAsset.get(member.asset_id) ?? []),
       member.group_id,
     ]);
-  const assetRows=(assetsResult.data??[]).slice(0,30);
+  const assetRows = (assetsResult.data ?? []).slice(0, 30);
   const assets = await Promise.all(
     assetRows.map(async (asset) => {
       const { data: signed } = await admin.storage

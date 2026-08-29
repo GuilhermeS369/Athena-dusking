@@ -78,10 +78,13 @@ export async function GET(request: Request) {
   const organizationId = auth.context.activeOrganization.id;
   const admin = createSupabaseAdminClient();
   const [profilesResult, connectionsResult, groupsResult, membersResult] = await Promise.all([
-    admin.from('twitter_profiles').select('id,current_connection_id,username,display_name,avatar_url,can_fetch_analytics,analytics_enabled,status').eq('organization_id', organizationId).is('deleted_at', null).order('username'),
-    admin.from('twitter_connections').select('id,label,analytics_enabled,status').eq('organization_id', organizationId).is('deleted_at', null).order('label'),
+    // As consultas pesadas mais abaixo já usam allRows(), mas recebiam
+    // scopedProfileList derivado desta lista truncada — paginavam corretamente um
+    // universo errado. O escopo precisa nascer completo.
+    allRows((from, to) => admin.from('twitter_profiles').select('id,current_connection_id,username,display_name,avatar_url,can_fetch_analytics,analytics_enabled,status').eq('organization_id', organizationId).is('deleted_at', null).order('username').order('id').range(from, to)),
+    allRows((from, to) => admin.from('twitter_connections').select('id,label,analytics_enabled,status').eq('organization_id', organizationId).is('deleted_at', null).order('label').order('id').range(from, to)),
     admin.from('twitter_groups').select('id,name').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
-    admin.from('twitter_group_members').select('group_id,profile_id').eq('organization_id', organizationId),
+    allRows((from, to) => admin.from('twitter_group_members').select('group_id,profile_id').eq('organization_id', organizationId).order('group_id').order('profile_id').range(from, to)),
   ]);
   if (profilesResult.error || connectionsResult.error || groupsResult.error || membersResult.error) {
     return NextResponse.json({ error: 'Não foi possível carregar os filtros locais do X.' }, { status: 503 });

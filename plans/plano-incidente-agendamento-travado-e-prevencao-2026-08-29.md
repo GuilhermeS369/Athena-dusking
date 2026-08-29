@@ -384,7 +384,33 @@ Fecha a única pendência de tamanho que restava. Com o horizonte fora, a duraç
 
 Verificado após o deploy: os 10 planos históricos seguem na tabela, `local=329 remote=329`.
 
-### 7.6 Pendências que permanecem
+### 7.6 Gargalo seguinte, exposto pela remoção do horizonte: a preparação de mídia
+
+Poucas horas depois da 328, o sinal de pressão passou a acusar `overdueUnstarted: true` com **794 itens já vencidos** — todos parados em `preparation_status = 'pending'`. O claim de publicação exige `preparation_status = 'ready'` para item v2 sem `creation_id`, então eles nunca seriam publicados.
+
+**Causa:** `PUBLICATION_WORKER_PREPARATION_LIMIT` estava em **4** — quatro itens por ciclo, exatamente a mesma forma do `BULK_CHUNK_LIMIT = 1` da seção 6. Vazão medida: **960 itens/hora**, contra uma fila de **30.348 itens dentro da janela de 24 h** que a preparação enxerga. Trinta e uma horas de trabalho para uma janela de 24: nunca alcançaria, e o vencido só acumularia.
+
+Não era um bug novo. A vazão sempre foi essa; ficou visível porque, sem o horizonte, os itens passaram a existir todos de uma vez em vez de pingar 1 por perfil por hora.
+
+**Cuidado que mudou a abordagem:** a preparação roda **dentro do laço de despacho** (`preparePublicationQueueDirect` é chamada por `dispatchPublicationQueueDirect`, dentro de `runDispatchCycle`). Subir o limite para centenas travaria o despacho — o mesmo deadlock que a Fase 5 do plano de 28/08 corrigiu para o staging. Mitigante que tornou o ajuste seguro: no mesmo ciclo, `dispatchDueStagedPublications` (itens vencidos, via spool) roda **antes** da preparação.
+
+Por isso o ajuste foi gradual e medido, não um chute alto: `4 → 50`, com backup em `.env.worker.before-prep50`.
+
+| Métrica | Antes | Depois |
+|---|---:|---:|
+| Vazão da preparação | 960/hora | **7.912/hora** |
+| Itens vencidos | 794 | **365 e caindo a 3.062/hora** |
+| Fila dentro da janela de 24 h | 30.348 | drenando a 6.721/hora |
+| Publicações/hora | 1.943–2.079 | **2.596** |
+| Load da VPS | — | 0,26 |
+
+O despacho **não** foi prejudicado: publicou mais, porque passou a ter item preparado disponível. Os 157 `Spool corrompido` no log são históricos (última escrita 10:03 UTC, anterior à mudança), nenhum novo.
+
+Margem em regime permanente: itens vencem a ~2.600/hora e a preparação faz 7.912/hora — 3× de folga.
+
+- [ ] **7.6.1** Considerar mover a preparação para um laço próprio, como foi feito com o staging na Fase 5 do plano de 28/08. Enquanto ela dividir ciclo com o despacho, o limite fica preso a um teto baixo para não atrasar publicação — hoje 50 resolve, mas é um acoplamento que volta a incomodar se a frota crescer.
+
+### 7.7 Pendências que permanecem
 - **Contenção de emergência mudou de ferramenta.** Com tudo materializado, `advance_bulk_rotation_cursor_past_cutoff` (que pulava slots vencidos sem criar itens) perde relevância; a contenção passa a ser `ignore_overdue_unstarted_publications` (50 por chamada, manual). Em compensação, o cenário que a exigia — plano parado por horas gerando aos poucos — é justamente o que deixou de existir.
 - **Cancelar/limpar lote fica proporcionalmente mais lento**, por haver mais itens materializados. A `324` já resolve por blocos de 1.500; só leva mais tempo de parede.
 - **Modo diário não encadeia** ([174:91-101](../supabase/migrations/174_daily_bulk_schedule_starts_from_requested_calendar_time.sql) sobrescreve a base). Por decisão de produto isso **fica como está** — Story posta no horário pedido. A janela de 10 minutos é a proteção escolhida no lugar do encadeamento.

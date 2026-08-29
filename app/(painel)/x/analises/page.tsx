@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation';
 import { TwitterAnalyticsClient } from '@/app/x/twitter-analytics-client';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 import { isTwitterAnalyticsEnabled } from '@/lib/twitter/feature';
 
 export const dynamic = 'force-dynamic';
@@ -23,10 +25,12 @@ export default async function TwitterAnalyticsPage() {
   const admin = createSupabaseAdminClient();
   const organizationId = context.activeOrganization.id;
   const [profilesResult, groupsResult, membersResult, connectionsResult, snapshotsCountResult] = await Promise.all([
-    admin.from('twitter_profiles').select('id,username,display_name,avatar_url,status,account_tier,can_fetch_analytics,current_connection_id,last_synced_at').eq('organization_id', organizationId).is('deleted_at', null).order('username'),
+    // Listas que crescem com a frota: sem paginar, o PostgREST corta em 1.000 e
+    // os filtros de Análises escondem perfis sem qualquer aviso.
+    fetchAllRows((from, to) => admin.from('twitter_profiles').select('id,username,display_name,avatar_url,status,account_tier,can_fetch_analytics,current_connection_id,last_synced_at').eq('organization_id', organizationId).is('deleted_at', null).order('username').order('id').range(from, to)),
     admin.from('twitter_groups').select('id,name').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
-    admin.from('twitter_group_members').select('group_id,profile_id').eq('organization_id', organizationId),
-    admin.from('twitter_connections').select('id,identity_id,label,status,analytics_enabled,last_sync_at,last_error_message').eq('organization_id', organizationId).is('deleted_at', null).order('label'),
+    fetchAllRows((from, to) => admin.from('twitter_group_members').select('group_id,profile_id').eq('organization_id', organizationId).order('group_id').order('profile_id').range(from, to)),
+    fetchAllRows((from, to) => admin.from('twitter_connections').select('id,identity_id,label,status,analytics_enabled,last_sync_at,last_error_message').eq('organization_id', organizationId).is('deleted_at', null).order('label').order('id').range(from, to)),
     admin.from('twitter_analytics_snapshots').select('id', { count: 'exact', head: true }).eq('organization_id', organizationId),
   ]);
 
@@ -34,24 +38,20 @@ export default async function TwitterAnalyticsPage() {
     throw new Error('Não foi possível carregar os recursos locais de Análises X.');
   }
 
-  const connections = connectionsResult.data ?? [];
-  const profiles = profilesResult.data ?? [];
+  const connections = connectionsResult.data;
+  const profiles = profilesResult.data;
   const identityIds = connections.map((connection) => connection.identity_id);
   const profileIds = profiles.map((profile) => profile.id);
   const [walletsResult, followersResult] = await Promise.all([
-    identityIds.length
-      ? admin.from('twitter_wallets').select('identity_id,posted_balance_micros,reserved_micros').eq('organization_id', organizationId).in('identity_id', identityIds)
-      : Promise.resolve({ data: [], error: null }),
-    profileIds.length
-      ? (admin.from('twitter_profile_follower_daily_metrics' as never) as any).select('profile_id,snapshot_date,followers_count,captured_at').eq('organization_id', organizationId).eq('snapshot_date', saoPauloYesterday()).in('profile_id', profileIds)
-      : Promise.resolve({ data: [], error: null }),
+    fetchAllRowsByIds(identityIds, (chunk, from, to) => admin.from('twitter_wallets').select('identity_id,posted_balance_micros,reserved_micros').eq('organization_id', organizationId).in('identity_id', chunk).order('identity_id').range(from, to)),
+    fetchAllRowsByIds<{ profile_id: string; followers_count: number | string; captured_at: string; snapshot_date: string }>(profileIds, (chunk, from, to) => (admin.from('twitter_profile_follower_daily_metrics' as never) as any).select('profile_id,snapshot_date,followers_count,captured_at').eq('organization_id', organizationId).eq('snapshot_date', saoPauloYesterday()).in('profile_id', chunk).order('profile_id').range(from, to)),
   ]);
   if (walletsResult.error) throw new Error('Não foi possível carregar os saldos X.');
 
-  const members = membersResult.data ?? [];
-  const walletByIdentity = new Map((walletsResult.data ?? []).map((wallet) => [wallet.identity_id, wallet]));
+  const members = membersResult.data;
+  const walletByIdentity = new Map(walletsResult.data.map((wallet) => [wallet.identity_id, wallet]));
   const followersByProfile = new Map<string, { followers_count: number | string; captured_at: string; snapshot_date: string }>(
-    ((followersResult.error ? [] : followersResult.data ?? []) as Array<{ profile_id: string; followers_count: number | string; captured_at: string; snapshot_date: string }>).map((row) => [row.profile_id, row]),
+    (followersResult.error ? [] : followersResult.data).map((row) => [row.profile_id, row]),
   );
   const groupsByProfile = new Map<string, string[]>();
 

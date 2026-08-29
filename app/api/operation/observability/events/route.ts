@@ -17,6 +17,7 @@ import {
 } from "@/lib/instagram/observability";
 import { getInstagramOperationContext } from "@/lib/instagram/request-context";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 
 export const dynamic = "force-dynamic";
 
@@ -87,12 +88,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ events: [], clearedAt: null, hasMore: false, nextCursor: null });
   }
   if (groupId && url.searchParams.get("groupMode") === "current") {
-    const { data: members } = await admin
+    const { data: members } = await fetchAllRows<{ profile_id: string }>((from, to) => admin
       .from("profile_group_members")
       .select("profile_id")
       .eq("organization_id", organizationId)
-      .eq("group_id", groupId);
-    currentGroupProfileIds = (members ?? []).map((row) => row.profile_id);
+      .eq("group_id", groupId)
+      .order("profile_id", { ascending: true })
+      .range(from, to));
+    currentGroupProfileIds = members.map((row) => row.profile_id);
     if (!currentGroupProfileIds.length)
       return NextResponse.json({
         events: [],

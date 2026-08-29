@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { boundedTwitterLogLimit, decodeTwitterLogCursor, encodeTwitterLogCursor, safeTwitterLogSearch, TWITTER_INCIDENT_STATUSES, TWITTER_OBSERVABILITY_DOMAINS, TWITTER_OBSERVABILITY_SEVERITIES } from "@/lib/twitter/observability";
 import { getTwitterRequestContext } from "@/lib/twitter/request-context";
 
@@ -29,12 +30,14 @@ export async function GET(request: Request) {
   const admin = createSupabaseAdminClient();
   const entityIncidentSets: Set<string>[] = [];
   if (profileId) {
-    const { data } = await admin.from("twitter_observability_incident_profiles").select("incident_id").eq("profile_id", profileId).limit(5_000);
-    entityIncidentSets.push(new Set((data ?? []).map((row) => row.incident_id)));
+    // .limit(5_000) era clampado para 1.000 por max_rows e o filtro por perfil
+    // simplesmente perdia incidentes mais antigos.
+    const { data } = await fetchAllRows<{ incident_id: string }>((from, to) => admin.from("twitter_observability_incident_profiles").select("incident_id").eq("profile_id", profileId).order("incident_id").range(from, to));
+    entityIncidentSets.push(new Set(data.map((row) => row.incident_id)));
   }
   for (const [entityType, entityId] of [["connection", connectionId], ["program", programId]] as const) if (entityId) {
-    const { data } = await admin.from("twitter_observability_incident_entities").select("incident_id").eq("entity_type", entityType).eq("entity_id", entityId).limit(5_000);
-    entityIncidentSets.push(new Set((data ?? []).map((row) => row.incident_id)));
+    const { data } = await fetchAllRows<{ incident_id: string }>((from, to) => admin.from("twitter_observability_incident_entities").select("incident_id").eq("entity_type", entityType).eq("entity_id", entityId).order("incident_id").range(from, to));
+    entityIncidentSets.push(new Set(data.map((row) => row.incident_id)));
   }
   const incidentIds = entityIncidentSets.length ? [...entityIncidentSets[0]].filter((id) => entityIncidentSets.every((set) => set.has(id))) : null;
   if (incidentIds?.length === 0) return NextResponse.json({ incidents: [], hasMore: false, nextCursor: null });

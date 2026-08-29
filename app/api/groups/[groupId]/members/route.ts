@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 
 import { getOrganizationContext } from '@/lib/organizations/server';
+import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 type AddMembersPayload = {
@@ -38,18 +40,23 @@ export async function GET(
     return NextResponse.json({ error: 'Autenticação necessária.' }, { status: 401 });
   }
 
+  const organizationId = context.activeOrganization.id;
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
+  // Esta lista alimenta o "selecionar todos" do modal de grupos: truncada em
+  // 1.000, a seleção em massa e a remoção operavam sobre um subconjunto do grupo.
+  const { data, error } = await fetchAllRows((from, to) => supabase
     .from('profile_group_members')
     .select('profile_id')
     .eq('group_id', groupId)
-    .eq('organization_id', context.activeOrganization.id);
+    .eq('organization_id', organizationId)
+    .order('profile_id', { ascending: true })
+    .range(from, to));
 
   if (error) {
     return NextResponse.json({ error: 'Não foi possível carregar os perfis do grupo.' }, { status: 500 });
   }
 
-  return NextResponse.json({ profileIds: (data ?? []).map((item) => item.profile_id) });
+  return NextResponse.json({ profileIds: data.map((item) => item.profile_id) });
 }
 
 export async function POST(
@@ -91,25 +98,34 @@ export async function POST(
       return NextResponse.json({ error: 'Grupo não encontrado.' }, { status: 404 });
     }
 
-    const { data: assignedProfiles, error: membershipLookupError } = await supabase
-      .from('profile_group_members')
-      .select('profile_id, group_id, profile_groups!inner(name)')
-      .eq('organization_id', organizationId)
-      .in('profile_id', profileIds)
-      .neq('group_id', groupId);
+    // Um perfil pode estar em vários outros grupos, então a leitura é 1:N sobre
+    // uma lista de ids que pode passar de 1.000 numa adição em massa. A ordem por
+    // (profile_id, group_id) é o que torna a paginação por bloco confiável.
+    const { data: assignedProfiles, error: membershipLookupError } = await fetchAllRowsByIds<{ profile_id: string; group_id: string; profile_groups: { name: string } | { name: string }[] | null }>(
+      profileIds,
+      (chunk, from, to) => supabase
+        .from('profile_group_members')
+        .select('profile_id, group_id, profile_groups!inner(name)')
+        .eq('organization_id', organizationId)
+        .in('profile_id', chunk)
+        .neq('group_id', groupId)
+        .order('profile_id', { ascending: true })
+        .order('group_id', { ascending: true })
+        .range(from, to),
+    );
 
     if (membershipLookupError) {
       return NextResponse.json({ error: 'Não foi possível validar os vínculos dos perfis.' }, { status: 500 });
     }
 
-    if ((assignedProfiles ?? []).length > 0) {
-      const firstConflict = assignedProfiles![0] as { profile_id: string; profile_groups: { name: string } | { name: string }[] | null };
+    if (assignedProfiles.length > 0) {
+      const firstConflict = assignedProfiles[0];
       const conflictingGroup = Array.isArray(firstConflict.profile_groups)
         ? firstConflict.profile_groups[0]
         : firstConflict.profile_groups;
       return NextResponse.json({
         error: `Este perfil já pertence ao grupo “${conflictingGroup?.name ?? 'existente'}”. Remova-o de lá antes de adicioná-lo aqui.`,
-        conflictProfileIds: assignedProfiles!.map((item) => item.profile_id),
+        conflictProfileIds: assignedProfiles.map((item) => item.profile_id),
       }, { status: 409 });
     }
 

@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { fetchAllRows } from "@/lib/supabase/paginate";
+
 import { normalizeTwitterErrorMessage, sanitizeTwitterEvidence, type TwitterObservabilityDomain, type TwitterObservabilitySeverity } from "./observability";
 
 type TwitterObservabilityInput = {
@@ -71,9 +73,12 @@ export async function recordTwitterSystemEventForOrganizations(
   admin: SupabaseClient,
   input: Omit<TwitterObservabilityInput, "organizationId">,
 ) {
-  const { data, error } = await admin.from("twitter_connections").select("organization_id").neq("status", "deleted").is("deleted_at", null).limit(10_000);
+  // O .limit(10_000) era neutralizado por max_rows: só as 1.000 primeiras
+  // conexões eram lidas, e como a distinção de organização acontece aqui em
+  // memória, organizações inteiras nunca recebiam eventos de sistema.
+  const { data, error } = await fetchAllRows<{ id: string; organization_id: string }>((from, to) => admin.from("twitter_connections").select("id,organization_id").neq("status", "deleted").is("deleted_at", null).order("id").range(from, to));
   if (error) throw new Error(`Falha ao localizar organizações X: ${error.message}`);
-  const organizationIds = [...new Set((data ?? []).map((row) => row.organization_id))];
+  const organizationIds = [...new Set(data.map((row) => row.organization_id))];
   await Promise.all(organizationIds.map((organizationId) => safelyRecordTwitterObservabilityEvent(admin, { ...input, organizationId })));
   return organizationIds.length;
 }

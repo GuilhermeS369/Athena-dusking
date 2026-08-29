@@ -1,3 +1,4 @@
+import { fetchAllRows } from '@/lib/supabase/paginate';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 import { isDashboardV2Enabled } from '@/lib/dashboard/rollout';
@@ -81,6 +82,12 @@ export type DashboardData = {
   };
 };
 
+// Este é o caminho de emergência: só roda quando o V2 está desligado ou a RPC
+// agregada falha. Ele lê séries que crescem com perfil x dia, então mantém um
+// teto explícito e baixo de propósito — o objetivo aqui é degradar rápido, não
+// carregar tudo. O corte é reportado em log logo abaixo.
+const V1_SERIES_ROW_CAP = 1000;
+
 export async function getDashboardData(organizationId: string): Promise<DashboardData> {
   const supabase = await createSupabaseServerClient();
   const v2Enabled = isDashboardV2Enabled(organizationId);
@@ -102,22 +109,32 @@ export async function getDashboardData(organizationId: string): Promise<Dashboar
 
   const [summaryResult, profilesResult, groupsResult, groupMembersResult, snapshotsResult, dailyMetricsResult, followerResult, postsResult, publishedItemsResult, publicationRollupsResult] = await Promise.all([
     supabase.rpc('get_dashboard_analytics_summary', { p_organization_id: organizationId }).maybeSingle(),
-    supabase
+    // Passando de 1.000 perfis, a lista vinha cortada e TODO filtro, contagem e
+    // gráfico derivado dela ficava errado sem nenhum sinal.
+    fetchAllRows((from, to) => supabase
       .from('instagram_profiles_safe')
       .select('id, username, display_name, provider, status')
       .eq('organization_id', organizationId)
       .is('deleted_at', null)
-      .order('username', { ascending: true }),
+      .order('username', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to)),
     supabase
       .from('profile_groups')
       .select('id, name')
       .eq('organization_id', organizationId)
       .is('deleted_at', null)
       .order('name', { ascending: true }),
-    supabase
+    // Vínculos crescem como perfis x grupos e não tinham ORDER BY: paginar sem
+    // ordem determinística repetiria linhas e perderia outras, então a ordem é
+    // parte da correção, não um detalhe.
+    fetchAllRows((from, to) => supabase
       .from('profile_group_members')
       .select('group_id, profile_id')
-      .eq('organization_id', organizationId),
+      .eq('organization_id', organizationId)
+      .order('group_id', { ascending: true })
+      .order('profile_id', { ascending: true })
+      .range(from, to)),
     supabase
       .from('profile_analytics_snapshots')
       .select('profile_id, period_start, period_end, followers_count, followers_delta, impressions, reach, views, likes, comments, shares, saves, total_interactions, posts_count, engagement_rate, sync_status, synced_at')
@@ -125,7 +142,7 @@ export async function getDashboardData(organizationId: string): Promise<Dashboar
       .is('deleted_at', null)
       .gte('period_end', analyticsSinceDate)
       .order('period_end', { ascending: false })
-      .limit(1000),
+      .limit(V1_SERIES_ROW_CAP),
     supabase
       .from('profile_analytics_daily_metrics')
       .select('profile_id, metric_date, posts, impressions, reach, views, likes, comments, shares, saves, interactions')
@@ -136,15 +153,19 @@ export async function getDashboardData(organizationId: string): Promise<Dashboar
       // contingência, priorize os dias recentes para nunca ocultar "Hoje".
       // O caminho normal V2 agrega o período no banco e não possui este corte.
       .order('metric_date', { ascending: false })
-      .limit(1000),
+      .limit(V1_SERIES_ROW_CAP),
     supabase
       .from('profile_follower_daily_snapshots')
       .select('profile_id, snapshot_date, followers_count, followers_gained, followers_lost')
       .eq('organization_id', organizationId)
       .is('deleted_at', null)
       .gte('snapshot_date', analyticsSinceDate)
-      .order('snapshot_date', { ascending: true })
-      .limit(5000),
+      // Ordem invertida de propósito: ascendente, o corte de 1.000 linhas
+      // descartava justamente os dias mais recentes da série de seguidores. A
+      // ordem crescente que o consumidor espera é restaurada em memória.
+      .order('snapshot_date', { ascending: false })
+      .order('profile_id', { ascending: false })
+      .limit(V1_SERIES_ROW_CAP),
     supabase
       .from('profile_post_analytics_snapshots')
       .select('id, profile_id, platform_post_url, content, media_type, thumbnail_url, published_at, views, reach, likes, comments, shares, saves, total_interactions, engagement_rate, sync_status')
@@ -152,7 +173,7 @@ export async function getDashboardData(organizationId: string): Promise<Dashboar
       .is('deleted_at', null)
       .gte('published_at', analyticsSinceIso)
       .order('total_interactions', { ascending: false })
-      .limit(5000),
+      .limit(V1_SERIES_ROW_CAP),
     supabase
       .from('publication_items')
       .select('id, profile_id, published_at')
@@ -160,8 +181,12 @@ export async function getDashboardData(organizationId: string): Promise<Dashboar
       .eq('status', 'published')
       .not('published_at', 'is', null)
       .gte('published_at', analyticsSinceIso)
-      .order('published_at', { ascending: true })
-      .limit(10000),
+      // Mesma inversão da série de seguidores: ascendente, o corte guardava os
+      // 1.000 itens mais ANTIGOS do período e os contadores de publicados
+      // ficavam presos no passado.
+      .order('published_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(V1_SERIES_ROW_CAP),
     supabase.rpc('get_dashboard_publication_rollups', { p_organization_id: organizationId, p_days: 365 }),
   ]);
 
@@ -243,6 +268,28 @@ export async function getDashboardData(organizationId: string): Promise<Dashboar
     ...group,
     profile_ids: membersByGroup.get(group.id) ?? [],
   }));
+  // O caminho V1 não consegue ler séries que crescem com perfil x dia sem
+  // estourar o statement_timeout, então elas continuam limitadas — mas o corte
+  // precisa ser observável em vez de silencioso. O caminho V2 agrega no banco e
+  // não tem esse teto: quando esta lista aparecer, é sinal de ligar o V2.
+  const truncatedSeries = Object.entries({
+    snapshots: snapshotsResult.data?.length,
+    dailyMetrics: dailyMetricsResult.data?.length,
+    followerHistory: followerResult.data?.length,
+    posts: postsResult.data?.length,
+    publishedItems: publishedItemsResult.data?.length,
+    publicationRollups: publicationRollupsResult.data?.length,
+  })
+    .filter(([, length]) => (length ?? 0) >= V1_SERIES_ROW_CAP)
+    .map(([series]) => series);
+  if (truncatedSeries.length > 0) {
+    console.error('Dashboard V1 atingiu o teto de linhas do PostgREST; séries incompletas.', {
+      organizationId,
+      truncatedSeries,
+      rowCap: V1_SERIES_ROW_CAP,
+    });
+  }
+
   const snapshots = (snapshotsResult.data ?? []) as DashboardData['analytics']['snapshots'];
   const usableSnapshots = latestUsableSnapshotsByProfile(snapshots);
   const dailyMetrics = (dailyMetricsResult.data ?? [])
@@ -277,9 +324,11 @@ export async function getDashboardData(organizationId: string): Promise<Dashboar
       groups,
       snapshots: usableSnapshots,
       dailyMetrics,
-      followerHistory: (followerResult.data ?? []) as DashboardData['analytics']['followerHistory'],
+      // Lidos em ordem decrescente para preservar os dias recentes; o consumidor
+      // espera a série em ordem crescente.
+      followerHistory: ((followerResult.data ?? []) as DashboardData['analytics']['followerHistory']).slice().reverse(),
       posts: (postsResult.data ?? []) as DashboardData['analytics']['posts'],
-      publishedItems: (publishedItemsResult.data ?? []) as DashboardData['analytics']['publishedItems'],
+      publishedItems: ((publishedItemsResult.data ?? []) as DashboardData['analytics']['publishedItems']).slice().reverse(),
       publicationRollups: (publicationRollupsResult.data ?? []) as DashboardData['analytics']['publicationRollups'],
     },
   };

@@ -11,6 +11,7 @@ import { bulkPublishingEnabled } from '@/lib/publications/bulk-feature';
 import { BULK_ROTATION_ALGORITHM_VERSION } from '@/lib/publications/bulk-rotation';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,8 +47,11 @@ export async function POST(request: Request) {
 
   const supabase = await createSupabaseServerClient();
   if (compactRequest.reelCover.enabled) {
+    // Mesmo truncamento do /review: sem ler por blocos, mais de 1.000 perfis
+    // faziam a confirmação falhar culpando os perfis Zernio.
+    const organizationId = context.activeOrganization.id;
     const [{ data: selectedProfiles, error: profilesError }, { data: eligible, error: coverError }] = await Promise.all([
-      supabase.from('instagram_profiles').select('id, provider').eq('organization_id', context.activeOrganization.id).in('id', compactRequest.profileIds),
+      fetchAllRowsByIds(compactRequest.profileIds, (chunk, from, to) => supabase.from('instagram_profiles').select('id, provider').eq('organization_id', organizationId).in('id', chunk).order('id', { ascending: true }).range(from, to)),
       supabase.rpc('bulk_reel_cover_is_eligible', {
         p_organization_id: context.activeOrganization.id,
         p_media_asset_id: compactRequest.reelCover.mediaAssetId,
@@ -55,7 +59,7 @@ export async function POST(request: Request) {
         p_origin_group_id: compactRequest.reelCover.origin.groupId,
       }),
     ]);
-    if (profilesError || (selectedProfiles ?? []).length !== compactRequest.profileIds.length || (selectedProfiles ?? []).some((profile) => profile.provider !== 'zernio')) {
+    if (profilesError || selectedProfiles.length !== compactRequest.profileIds.length || selectedProfiles.some((profile) => profile.provider !== 'zernio')) {
       return NextResponse.json({ error: 'A capa personalizada está disponível apenas para perfis Zernio. Revise o plano novamente.' }, { status: 409 });
     }
     if (coverError || eligible !== true) return NextResponse.json({ error: 'A imagem de capa não está mais disponível. Revise o plano novamente.' }, { status: 409 });

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
 import { getTwitterRequestContext } from '@/lib/twitter/request-context';
 import { provisionTwitterZernioConnection } from '@/lib/twitter/zernio-connections';
 
@@ -34,14 +35,14 @@ export async function GET(request: Request) {
   const [{ data: wallets }, { data: grants }, { data: profiles }, { data: attempts }, { data: intents }] = await Promise.all([
     identities.length ? admin.from('twitter_wallets').select('identity_id, posted_balance_micros, reserved_micros, version').in('identity_id', identities) : Promise.resolve({ data: [] }),
     identities.length ? admin.from('twitter_wallet_grants').select('identity_id,amount_micros,created_at').in('identity_id', identities) : Promise.resolve({ data: [] }),
-    connectionIds.length ? admin.from('twitter_profiles').select('current_connection_id').eq('organization_id', organizationId).in('current_connection_id', connectionIds).is('deleted_at', null) : Promise.resolve({ data: [] }),
+    fetchAllRowsByIds(connectionIds, (chunk, from, to) => admin.from('twitter_profiles').select('id,current_connection_id').eq('organization_id', organizationId).in('current_connection_id', chunk).is('deleted_at', null).order('id').range(from, to)).then((result) => ({ data: result.data })),
     connectionIds.length ? admin.from('twitter_connection_oauth_attempts').select('id,connection_id,expires_at').eq('organization_id', organizationId).in('connection_id', connectionIds).eq('status', 'pending').gt('expires_at', new Date().toISOString()).order('expires_at', { ascending: true }) : Promise.resolve({ data: [] }),
     connectionIds.length ? admin.from('twitter_connection_intents').select('id,connection_id,expires_at').eq('organization_id', organizationId).in('connection_id', connectionIds).in('status', ['queued','preparing','ready','callback_received','reconciling']).gt('expires_at', new Date().toISOString()).order('expires_at', { ascending: true }) : Promise.resolve({ data: [] }),
   ]);
   const walletByIdentity = new Map((wallets ?? []).map((wallet) => [wallet.identity_id, wallet]));
   const grantByIdentity = new Map((grants ?? []).map((grant) => [grant.identity_id, grant]));
   const profileCounts = new Map<string, number>();
-  for (const profile of profiles ?? []) if (profile.current_connection_id) profileCounts.set(profile.current_connection_id, (profileCounts.get(profile.current_connection_id) ?? 0) + 1);
+  for (const profile of profiles) if (profile.current_connection_id) profileCounts.set(profile.current_connection_id, (profileCounts.get(profile.current_connection_id) ?? 0) + 1);
   const pendingCounts = new Map<string, number>();
   for (const attempt of attempts ?? []) pendingCounts.set(attempt.connection_id, (pendingCounts.get(attempt.connection_id) ?? 0) + 1);
   const reservationsByConnection = new Map<string, Array<{ id: string; expires_at: string }>>();

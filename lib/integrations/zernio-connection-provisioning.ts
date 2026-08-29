@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { createZernioClient, isZernioAuthenticationError, isZernioPlanLimitError } from '@/lib/integrations/zernio-client';
 import { decryptToken, encryptToken, tokenFingerprint } from '@/lib/security/token-crypto';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 
 type ProvisionZernioConnectionInput = {
   organizationId: string;
@@ -102,13 +103,17 @@ export async function provisionZernioConnection(input: ProvisionZernioConnection
     return { id: existing.id, status: 'online', warning: 'Já existia uma conta Zernio ativa com esse nome; a linha foi concluída sem duplicar o cadastro.' };
   }
 
-  const { data: activeCredentials, error: activeCredentialsError } = await admin
+  // Mesma varredura global do /import-batches: sem paginar, a colisão de API key
+  // deixa de ser detectada assim que o sistema passa de 1.000 conexões Zernio.
+  const { data: activeCredentials, error: activeCredentialsError } = await fetchAllRows<ActiveCredentialRow>((from, to) => admin
     .from('zernio_connections')
     .select('id, organization_id, label, encrypted_api_key, api_key_fingerprint')
-    .is('deleted_at', null);
+    .is('deleted_at', null)
+    .order('id', { ascending: true })
+    .range(from, to));
   if (activeCredentialsError) throw new Error('Não foi possível verificar se a API key já está cadastrada.');
 
-  const credentialCollision = ((activeCredentials ?? []) as ActiveCredentialRow[])
+  const credentialCollision = activeCredentials
     .find((connection) => storedCredentialFingerprint(connection) === apiKeyFingerprint);
   if (credentialCollision) {
     throw new ZernioDuplicateApiKeyError(

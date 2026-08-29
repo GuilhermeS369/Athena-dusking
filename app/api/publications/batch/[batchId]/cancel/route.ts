@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 
 const ACTIVE_MEDIA_STATUSES = ['waiting', 'ready', 'preparing', 'publishing'];
 type CancelScope = 'entire_batch' | 'visible_items';
@@ -31,7 +32,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ bat
   const cancelledItemIds = (cancelledRows ?? []).map((row: { cancelled_item_id: string }) => row.cancelled_item_id);
 
   const [{ data: items, error: itemsError }, { data: batchState, error: batchStateError }] = await Promise.all([
-    supabase.from('publication_items').select('id, publication_item_media(media_asset_id)').eq('organization_id', organizationId).eq('batch_id', batchId),
+    // Um lote de programação em massa chega a dezenas de milhares de itens: sem
+    // paginar, o resultado do cancelamento era montado sobre 1.000 deles.
+    fetchAllRows((from, to) => supabase.from('publication_items').select('id, publication_item_media(media_asset_id)').eq('organization_id', organizationId).eq('batch_id', batchId).order('id', { ascending: true }).range(from, to)),
     supabase.from('publication_batches').select('id, status, updated_at').eq('id', batchId).eq('organization_id', organizationId).single(),
   ]);
   if (itemsError || batchStateError || !batchState) return NextResponse.json({ error: 'As publicações foram canceladas, mas não foi possível carregar o resultado.' }, { status: 500 });

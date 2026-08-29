@@ -59,6 +59,22 @@ A parallel module (currently mid-rollout, gated by feature flags) mirrors the In
 - `lib/twitter/*` and `lib/integrations/zernio-*` hold the domain logic (pricing, media, bulk, analytics, fallback, OAuth turns, connection provisioning/import). Zernio-specific concerns (accounts, OAuth safety, slot reservations, group assignment, duplicate/removal handling) are split into many focused `zernio-*.ts` files under `lib/integrations/` — search there before assuming logic lives under `lib/twitter/`.
 - **Continuity docs are the source of truth for current rollout state** — read them before making changes in this area: [docs/x-twitter/README.md](docs/x-twitter/README.md) (current phase/status/checkpoints and an explicit "immediate prohibitions" list — e.g. don't re-run migrations 210–253, don't reset PM2 Instagram processes), [docs/x-twitter/DECISIONS.md](docs/x-twitter/DECISIONS.md), [docs/x-twitter/EXECUTION_LOG.md](docs/x-twitter/EXECUTION_LOG.md), [docs/x-twitter/RUNBOOK.md](docs/x-twitter/RUNBOOK.md) (required before any remote operation), [docs/x-twitter/REQUIREMENTS_MATRIX.md](docs/x-twitter/REQUIREMENTS_MATRIX.md), and the phase files under `docs/x-twitter/phases/`.
 
+### Row limit (PostgREST `max_rows`) — read before writing any Supabase query
+The project runs with `max_rows = 5000` (raised from 1000 in Aug 2026). The authoritative value lives in the Supabase dashboard under Settings → API; [supabase/config.toml](supabase/config.toml) only mirrors it for local dev and is **not** pushed by `supabase db push`, so change both together. In code the value is `POSTGREST_MAX_ROWS` in [lib/supabase/paginate.ts](lib/supabase/paginate.ts) — import it, never re-type the number.
+
+The cap applies to **every** Data API response, including `service_role` calls from workers and RPCs declared `returns table(...)`. There is no direct Postgres connection anywhere in the repo, so nothing escapes it. Two consequences, both silent — no error, no warning:
+- A `.select()` or set-returning `.rpc()` without `.range()` simply stops at the cap.
+- **`.limit(N)` above the cap is always a bug.** The server clamps it; the number just hides the cut.
+
+The raised cap is a safety net, not a fix: tables like `publication_items` hold 85k–110k rows per organization. Anything that scales must still paginate or aggregate.
+
+Rule for any query whose row count grows with the size of an organization (profiles, group members, queue items, media links, analytics series):
+- The consumer needs the whole set → wrap it in [`fetchAllRows`](lib/supabase/paginate.ts) with a **deterministic `.order()`** plus `.range(from, to)`. Without a total order, paging by range repeats some rows and drops others — a worse bug than the truncation it replaces. Pages stay at 1000 on purpose, below the server cap; `fetchAllRows` throws if you ask for more than `POSTGREST_MAX_ROWS`, because a page larger than the cap comes back clamped and the loop would mistake it for the end of the data.
+- It is a list for the client → use cursor pagination (`.limit(limit + 1)` + keyset cursor), as in [app/api/x/profiles/route.ts](app/api/x/profiles/route.ts) and [lib/profiles/catalog.ts](lib/profiles/catalog.ts).
+- It filters by a list of ids → use [`fetchAllRowsByIds`](lib/supabase/chunk.ts) / `runInIdChunks`. A `.in()` with 1000 UUIDs is both a truncation risk and a ~37 KB GET URL.
+
+[lib/supabase/row-limit-guard.test.ts](lib/supabase/row-limit-guard.test.ts) enforces both rules in `npm test`. When a bounded query trips it, add it to that file's `ALLOWLIST` **with the reason it is bounded** — the point is a conscious decision, not a banned pattern.
+
 ### Database migrations
 `supabase/migrations/` uses sequentially numbered SQL files (300+ and counting) — additive only in current practice (new numbered file per change, no editing old ones). Apply with the Supabase CLI (`npx supabase db push`) per [README.md](README.md). Never re-run a migration number that continuity docs mark as already applied remotely.
 

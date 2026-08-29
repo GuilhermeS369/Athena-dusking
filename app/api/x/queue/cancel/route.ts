@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 import { getTwitterRequestContext } from '@/lib/twitter/request-context';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -71,7 +72,11 @@ export async function POST(request: Request) {
   if (data) {
     const created=data as OperationRow;
     if(scope==='group'){
-      const {data:members,error:membersError}=await admin.from('twitter_group_members').select('profile_id').eq('organization_id',organizationId).eq('group_id',targetId);
+      // Este snapshot é congelado em twitter_queue_cancellation_targets e vira a
+      // lista definitiva da operação. Truncar em 1.000 (teto do PostgREST) faria o
+      // cancelamento terminar como 'completed' com o restante do grupo publicando e
+      // gastando saldo, sem nenhum sinal de erro para o operador.
+      const {data:members,error:membersError}=await fetchAllRows<{profile_id:string}>((from,to)=>admin.from('twitter_group_members').select('profile_id').eq('organization_id',organizationId).eq('group_id',targetId).order('profile_id',{ascending:true}).range(from,to));
       if(membersError){await admin.from('twitter_queue_cancellation_operations').update({status:'failed',progress:100,error_message:'Não foi possível congelar a composição do grupo X.',completed_at:new Date().toISOString()}).eq('id',created.id);return json({error:'Não foi possível congelar a composição do grupo X.'},{status:500});}
       if((members??[]).length){const {error:targetsError}=await admin.from('twitter_queue_cancellation_targets').upsert((members??[]).map(member=>({operation_id:created.id,profile_id:member.profile_id})),{onConflict:'operation_id,profile_id'});if(targetsError){await admin.from('twitter_queue_cancellation_operations').update({status:'failed',progress:100,error_message:'Não foi possível persistir o snapshot do grupo X.',completed_at:new Date().toISOString()}).eq('id',created.id);return json({error:'Não foi possível congelar a composição do grupo X.'},{status:500});}}
     }

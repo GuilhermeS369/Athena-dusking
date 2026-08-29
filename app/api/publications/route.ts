@@ -3,6 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 import { isPostingTimeSlot, MAX_PUBLICATION_CAPTION_LENGTH, validateMediaForFormat } from '@/lib/publications/composer';
 import { signMediaPreviewUrl } from '@/lib/storage/media-storage';
 
@@ -87,11 +89,13 @@ async function loadQueueProfiles(
   const uniqueProfileIds = [...new Set(profileIds)].filter(Boolean);
   if (uniqueProfileIds.length === 0) return new Map<string, PublicationQueueProfile>();
 
-  const { data: profiles, error: profilesError } = await supabase
+  const { data: profiles, error: profilesError } = await fetchAllRowsByIds(uniqueProfileIds, (chunk, from, to) => supabase
     .from('instagram_profiles_safe')
     .select('id, username, display_name, provider, zernio_account_id, zernio_connection_id')
     .eq('organization_id', organizationId)
-    .in('id', uniqueProfileIds);
+    .in('id', chunk)
+    .order('id', { ascending: true })
+    .range(from, to));
 
   if (profilesError) throw profilesError;
 
@@ -167,31 +171,40 @@ export async function GET(request: Request) {
 
   if (groupFilter) {
     if (groupFilter === 'none') {
-      const { data: allGroups, error: allGroupsError } = await supabase
-        .from('profile_groups')
-        .select('profile_group_members(profile_id)')
-        .eq('organization_id', context.activeOrganization.id)
-        .is('deleted_at', null);
+      // Antes isto lia profile_groups com profile_group_members embutido. O teto
+      // de linhas do PostgREST se aplica ao recurso de topo, e o comportamento em
+      // recursos embutidos depende da versão — ler os vínculos diretamente, com
+      // paginação explícita, elimina a dúvida e é mais barato.
+      const { data: groupedMembers, error: allGroupsError } = await fetchAllRows<{ profile_id: string }>((from, to) => supabase
+        .from('profile_group_members')
+        .select('profile_id, profile_groups!inner(id)')
+        .eq('organization_id', context.activeOrganization!.id)
+        .is('profile_groups.deleted_at', null)
+        .order('profile_id', { ascending: true })
+        .order('group_id', { ascending: true })
+        .range(from, to));
 
       if (allGroupsError) return NextResponse.json({ error: 'Não foi possível carregar o filtro de grupo.' }, { status: 500 });
 
-      excludedProfileIds = [...new Set((allGroups ?? []).flatMap((group) => (group.profile_group_members ?? []).map((member) => member.profile_id)))];
+      excludedProfileIds = [...new Set(groupedMembers.map((member) => member.profile_id))];
       if (profileFilter && excludedProfileIds.includes(profileFilter)) {
         return NextResponse.json({ batches: [], hasMore: false, nextCursor: null });
       }
     } else {
-      const { data: groupsForFilter, error: groupsForFilterError } = await supabase
-        .from('profile_groups')
-        .select('id, profile_group_members(profile_id)')
-        .eq('organization_id', context.activeOrganization.id)
-        .is('deleted_at', null)
-        .eq('id', groupFilter);
+      const { data: groupMembers, error: groupsForFilterError } = await fetchAllRows<{ profile_id: string }>((from, to) => supabase
+        .from('profile_group_members')
+        .select('profile_id, profile_groups!inner(id)')
+        .eq('organization_id', context.activeOrganization!.id)
+        .eq('group_id', groupFilter)
+        .is('profile_groups.deleted_at', null)
+        .order('profile_id', { ascending: true })
+        .range(from, to));
 
       if (groupsForFilterError) {
         return NextResponse.json({ error: 'Não foi possível carregar o filtro de grupo.' }, { status: 500 });
       }
 
-      const memberProfileIds = [...new Set((groupsForFilter ?? []).flatMap((group) => (group.profile_group_members ?? []).map((member) => member.profile_id)))];
+      const memberProfileIds = [...new Set(groupMembers.map((member) => member.profile_id))];
       if (memberProfileIds.length === 0 || (profileFilter && !memberProfileIds.includes(profileFilter))) {
         return NextResponse.json({ batches: [], hasMore: false, nextCursor: null });
       }
@@ -412,12 +425,16 @@ export async function POST(request: Request) {
   }
   const profileIds = [...new Set(expandedItems.map((item) => item.profileId!))];
   const mediaIds = [...new Set(expandedItems.flatMap((item) => item.mediaIds!))];
+  // A seleção pode passar de 1.000 perfis/mídias (o teto deste envio é
+  // maximumAsyncPublicationItems). Sem ler por blocos, o PostgREST devolve 1.000
+  // linhas, a comparação de comprimento abaixo falha e o agendamento é recusado
+  // com uma mensagem que não descreve o problema real.
   const [profilesResult, mediaResult] = await Promise.all([
-    supabase.from('instagram_profiles').select('id').eq('organization_id', organizationId).is('deleted_at', null).in('id', profileIds),
-    supabase.from('media_assets').select('id, kind, mime_type, original_name, storage_path').eq('organization_id', organizationId).is('deleted_at', null).is('deletion_requested_at', null).eq('status', 'ready').in('id', mediaIds),
+    fetchAllRowsByIds(profileIds, (chunk, from, to) => supabase.from('instagram_profiles').select('id').eq('organization_id', organizationId).is('deleted_at', null).in('id', chunk).order('id', { ascending: true }).range(from, to)),
+    fetchAllRowsByIds(mediaIds, (chunk, from, to) => supabase.from('media_assets').select('id, kind, mime_type, original_name, storage_path').eq('organization_id', organizationId).is('deleted_at', null).is('deletion_requested_at', null).eq('status', 'ready').in('id', chunk).order('id', { ascending: true }).range(from, to)),
   ]);
 
-  if (profilesResult.error || mediaResult.error || (profilesResult.data ?? []).length !== profileIds.length || (mediaResult.data ?? []).length !== mediaIds.length) {
+  if (profilesResult.error || mediaResult.error || profilesResult.data.length !== profileIds.length || mediaResult.data.length !== mediaIds.length) {
     return NextResponse.json({ error: 'Um ou mais perfis ou mídias não pertencem à organização ativa ou não estão prontos.' }, { status: 400 });
   }
 
@@ -541,11 +558,15 @@ export async function POST(request: Request) {
   }
 
   const result = queued as { batch: { id: string; name: string | null; status: string; scheduled_for: string | null; timezone: string; review_confirmed_at: string | null; created_at: string; updated_at: string }; itemIds: string[] };
-  const { data: createdItems, error: createdItemsError } = await supabase
+  // itemIds vem do lote recém-criado e pode chegar a maximumAsyncPublicationItems
+  // (50.000): a confirmação precisa ser lida por blocos.
+  const { data: createdItems, error: createdItemsError } = await fetchAllRowsByIds(result.itemIds, (chunk, from, to) => supabase
     .from('publication_items')
     .select('id, profile_id, format, status, execute_at, caption, attempt_count, next_attempt_at')
-    .in('id', result.itemIds);
-  if (createdItemsError || !createdItems) return NextResponse.json({ error: 'A publicação foi reservada, mas não foi possível carregar a confirmação.' }, { status: 500 });
+    .in('id', chunk)
+    .order('id', { ascending: true })
+    .range(from, to));
+  if (createdItemsError) return NextResponse.json({ error: 'A publicação foi reservada, mas não foi possível carregar a confirmação.' }, { status: 500 });
 
   const hasImmediateItems = expandedItems.some((item) => !item.executeAt && !item.scheduleTime);
   const dispatch = hasImmediateItems
