@@ -554,6 +554,11 @@ async function discardUnactivatableSpoolEntries(supabase, spool, itemIds) {
   // GET com ~18 KB. O CLAUDE.md alerta para isso a partir de 1.000 (~37 KB); 500
   // esta abaixo do alerta mas ainda e grande o bastante para depender de limite
   // de header do gateway. Em blocos de 200 (~7,4 KB) nao depende.
+  //
+  // O 200 e o mesmo DEFAULT_ID_CHUNK_SIZE de lib/supabase/chunk.ts, a que este
+  // worker nao consegue importar: ele roda como .mjs em node puro, e o helper e
+  // .ts (so os workers sob tsx conseguem). Se aquele numero mudar la, mude aqui
+  // junto - a duplicacao e forcada pelo runtime, nao por escolha.
   const byId = new Map();
   for (let from = 0; from < itemIds.length; from += 200) {
     const bloco = itemIds.slice(from, from + 200);
