@@ -151,6 +151,32 @@ A vazão oscila entre horas (2.299 na hora 21:00, 2.058 na 22:00) porque os
 agendamentos se concentram em poucos segundos por hora. As duas ficam acima da
 faixa anterior às mudanças (1.928–1.938), que é o que o critério pede.
 
+
+## B5.3 — primeiro degrau: 180 → 300/min
+
+Dado a pedido do usuário, para não precisar revisitar o assunto quando a frota
+crescer. Aplicado em `.env.worker` e confirmado no heartbeat do publicador.
+
+**Correção de uma avaliação minha.** Eu havia dito que subir o teto "não teria
+efeito hoje, porque ninguém chega perto de 180". Isso está errado para o pico:
+as duas janelas de observação registraram ondas de **~400 itens vencendo de uma
+vez** no topo da hora, e essas ondas vêm de um único plano — portanto de uma
+única organização. **O teto de 180 estava, sim, sendo atingido durante a onda**;
+era ele que fazia a drenagem levar ~10 minutos. Com 300 a onda escoa mais rápido.
+
+A média por organização (Pomodoro ~94/min, Vini ~124/min) é que fica longe do
+teto — e foi ela que eu usei para concluir errado. Média não é pico.
+
+**Por que é seguro:** a Zernio tem folga de ~6× por chave (pico medido de 4/hora
+contra limite de 25/hora), a CPU do Supabase fica abaixo de 30%, e o gargalo
+declarado é memória — que responde ao volume de linhas, não à taxa de despacho.
+Ainda assim, o degrau está sob observação, e os limites de rollback são os
+mesmos: memória acima de 85%, vencidos subindo por 3 amostras seguidas, ou
+qualquer `429` da Zernio.
+
+**Degraus seguintes (500 e 600) já não exigem deploy** — o teto de código está em
+600 desde B5.2, então são uma linha de `.env` e um restart.
+
 ## RESULTADO DA FRENTE A — medido em produção, 29/08/2026 21h50 UTC
 
 A métrica principal do plano. Intervalos entre reels consecutivos do **mesmo
@@ -206,8 +232,8 @@ concentrar rajada numa chave só geraria `429` mesmo com orçamento sobrando.
 
 | Item | Situação |
 |---|---|
-| **B2.2** — mostrar a fila de arquivamento no painel | **pendente.** O número é consultável, mas ainda não tem tela. Único item do plano que é trabalho de UI |
-| **B5.3** — subir 180 → 300 → 500 → 600 | **não dado de propósito.** Nenhuma organização chega perto de 180 (Pomodoro ~94/min, Vini ~124/min). Subir agora só gastaria a margem de memória. O teto de código já está em 600, então o degrau é uma linha de `.env` quando fizer falta |
+| **B2.2** — mostrar a fila de arquivamento no painel | **feito e no ar.** Card no painel operacional; medido em 0/0/0 nas três organizações no momento do deploy |
+| **B5.3** — subir 180 → 300 → 500 → 600 | **primeiro degrau dado: 300.** Os degraus 500 e 600 seguem disponíveis por `.env`, sem deploy |
 | **B5.4** — agrupar por conexão Zernio em vez de organização | **pendente.** Depende de B5.3 fazer falta primeiro |
 | **B4** — executar a retenção | **documentado, não executado.** Gatilho definido: memória >85%, disco >80%, ou tabela passando de 1 milhão de linhas. Obrigatório antes dos 5.000 perfis |
 | **OBS.1** | **concluída** — nenhum gatilho de rollback acionado |
@@ -368,9 +394,9 @@ Sem isto, B1 volta em semanas. Hoje depende de alguém clicar "Limpar encerradas
 - [x] **B2.1** Passo recorrente (no worker de manutenção de mídia, que já roda) chamando a limpeza por organização até zerar, com teto de tempo por ciclo para não competir com publicação.
 
   > **Estado:** no ar no worker de manutenção, ciclo a cada 10 min.
-- [ ] **B2.2** Expor no painel operacional quantos itens aguardam arquivamento, para o número nunca mais crescer despercebido.
+- [x] **B2.2** Expor no painel operacional quantos itens aguardam arquivamento, para o número nunca mais crescer despercebido.
 
-  > **Estado:** **PENDENTE** — o número existe e é consultável, mas ainda não aparece no painel operacional.
+  > **Estado:** **FEITO** — card "Aguardando arquivamento" no painel operacional, com a mesma lista de status que o worker drena.
 
 ## B3. Separar a preparação em laço próprio
 
@@ -429,9 +455,9 @@ Dividir a frota em mais organizações multiplica o teto efetivo. Isso vale para
 - [x] **B5.2** **Bloqueio encontrado na revisão:** o worker limita esse parâmetro a **200 no próprio código** — `integerEnv('PUBLICATION_WORKER_STAGED_MAX_PER_ORGANIZATION_PER_MINUTE', 180, 1, 200)` em `scripts/workers/publication-worker.mjs:50`. Passar de 200 **não é mudança de env, exige alterar o código e reimplantar o worker**. Elevar esse teto de código é o primeiro passo de B5, não uma consequência automática.
 
   > **Estado:** teto de código 200 → 600.
-- [ ] **B5.3** Só então subir em degraus — **180 → 300 → 500 → 600** — medindo a cada passo: memória e CPU do Supabase, taxa de `429`, publicações/hora e itens vencidos. Parar no degrau onde a memória passar de 85% ou aparecer `429`.
+- [x] **B5.3** Só então subir em degraus — **180 → 300 → 500 → 600** — medindo a cada passo: memória e CPU do Supabase, taxa de `429`, publicações/hora e itens vencidos. Parar no degrau onde a memória passar de 85% ou aparecer `429`.
 
-  > **Estado:** **NÃO DADO DE PROPÓSITO** — o valor em uso continua 180 e nenhuma organização chega perto.
+  > **Estado:** **PRIMEIRO DEGRAU DADO** — 180 → **300**, a pedido do usuário, para não precisar revisitar quando a frota crescer. Ver a ressalva abaixo: hoje isso já muda comportamento na onda do topo da hora.
 - [ ] **B5.4** Avaliar trocar o agrupamento de organização do Athena para **conexão Zernio**, que é a unidade que o provedor de fato conta. Assim o limite passa a refletir a realidade em vez de um número arbitrário.
 
   > **Estado:** **PENDENTE** — trocar o agrupamento de organização do Athena para conexão Zernio.
