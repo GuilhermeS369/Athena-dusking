@@ -80,3 +80,10 @@ export async function uploadMediaObject(
   const { error } = await supabase.storage.from('instagram-media').upload(storagePath, body, { contentType, upsert });
   return { error };
 }
+
+// Valor gravado em `media_assets.storage_backend` (migration 332): normaliza a
+// variável de ambiente para os dois valores aceitos pelo check da tabela, que é
+// o que a galeria usa para saber que o arquivo está no R2 e não no Supabase.
+export function mediaStorageBackendColumn(): 'supabase' | 'r2' {
+  return mediaStorageBackend() === 'r2' ? 'r2' : 'supabase';
+}

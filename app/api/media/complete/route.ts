@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { createR2SignedUrl, deleteFromR2, objectExistsInR2 } from '@/lib/storage/r2-client';
+import { mediaStorageBackendColumn } from '@/lib/storage/media-storage';
 
 const TYPES = new Map([['image/jpeg', 'image'], ['image/png', 'image'], ['image/webp', 'image'], ['video/mp4', 'video'], ['video/quicktime', 'video']]);
 function mediaStorageBackend() {
@@ -126,7 +127,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ asset: { ...renamedExisting, signed_url: signed.signedUrl, thumbnail_url: thumbnailSigned.signedUrl, group_ids: groupIds }, duplicated: true });
       }
     }
-    const { data: asset, error } = await supabase.from('media_assets').insert({ organization_id: organizationId, uploaded_by: context.user.id, storage_path: body.storagePath, thumbnail_storage_path: body.thumbnailStoragePath ?? null, original_name: body.originalName.slice(0, 255), mime_type: body.mimeType, kind, size_bytes: body.sizeBytes, checksum_sha256: checksum, status: 'ready' }).select('id, original_name, mime_type, kind, size_bytes, width, height, duration_ms, status, processing_error, storage_path, thumbnail_storage_path, first_published_at, created_at, updated_at').single();
+    const { data: asset, error } = await supabase.from('media_assets').insert({ organization_id: organizationId, uploaded_by: context.user.id, storage_path: body.storagePath, thumbnail_storage_path: body.thumbnailStoragePath ?? null, original_name: body.originalName.slice(0, 255), mime_type: body.mimeType, kind, size_bytes: body.sizeBytes, checksum_sha256: checksum, status: 'ready', storage_backend: mediaStorageBackendColumn() }).select('id, original_name, mime_type, kind, size_bytes, width, height, duration_ms, status, processing_error, storage_path, thumbnail_storage_path, first_published_at, created_at, updated_at').single();
     if (error || !asset) return NextResponse.json({ error: `O arquivo subiu, mas falhou ao registrar na galeria: ${error?.message ?? 'erro no banco'}.` }, { status: 400 });
     const [signed, thumbnailSigned] = await Promise.all([
       signPreviewUrl(supabase, body.storagePath),

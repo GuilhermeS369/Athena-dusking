@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { removeMediaObjects, signMediaPreviewUrl, uploadMediaObject } from '@/lib/storage/media-storage';
+import { mediaStorageBackendColumn, removeMediaObjects, signMediaPreviewUrl, uploadMediaObject } from '@/lib/storage/media-storage';
 import { objectExistsInR2 } from '@/lib/storage/r2-client';
 
 function mediaStorageBackend() {
@@ -468,6 +468,7 @@ export async function POST(request: Request) {
         checksum_sha256: checksum,
         thumbnail_storage_path: thumbnailStoragePath,
         status: 'ready',
+        storage_backend: mediaStorageBackendColumn(),
       })
       .select('id, original_name, mime_type, kind, size_bytes, width, height, duration_ms, status, processing_error, storage_path, thumbnail_storage_path, first_published_at, created_at, updated_at')
       .single();
