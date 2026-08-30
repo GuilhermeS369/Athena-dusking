@@ -46,6 +46,10 @@ const zernioBaseUrl = process.env.ZERNIO_API_BASE_URL ?? 'https://zernio.com/api
 const zernioRequestTimeoutMs = integerEnv('ZERNIO_REQUEST_TIMEOUT_MS', 45_000, 25_000, 90_000);
 const zernioCreateMinimumSpacingMs = integerEnv('PUBLICATION_WORKER_ZERNIO_CREATE_SPACING_MS', 75, 0, 2_000);
 const zernioCreateBackpressureSpacingMs = integerEnv('PUBLICATION_WORKER_ZERNIO_BACKPRESSURE_SPACING_MS', 200, 25, 5_000);
+// Era 5 minutos fixos. Ver o comentario de activateZernioBackpressure.
+const zernioBackpressureDurationMs = integerEnv('PUBLICATION_WORKER_ZERNIO_BACKPRESSURE_MS', 60_000, 5_000, 600_000);
+const zernioBackpressureFailureThreshold = integerEnv('PUBLICATION_WORKER_ZERNIO_BACKPRESSURE_THRESHOLD', 3, 1, 50);
+const zernioBackpressureFailureWindowMs = integerEnv('PUBLICATION_WORKER_ZERNIO_BACKPRESSURE_WINDOW_MS', 60_000, 5_000, 600_000);
 const mediaProbeTimeoutMs = integerEnv('PUBLICATION_MEDIA_URL_PROBE_TIMEOUT_MS', 12_000, 1_000, 30_000);
 const zernioMediaRetryWindowSeconds = integerEnv('PUBLICATION_ZERNIO_MEDIA_RETRY_WINDOW_SECONDS', 600, 180, 1_800);
 
@@ -55,6 +59,7 @@ const zernioTelemetry = new Map();
 const zernioTelemetryAnomalies = [];
 let nextZernioCreateStartAt = 0;
 let zernioBackpressureUntil = 0;
+let zernioRecentFailures = [];
 
 function integerEnv(name, fallback, minimum, maximum) {
   const parsed = Number.parseInt(process.env[name] || '', 10);
@@ -140,11 +145,55 @@ export async function paceZernioCreate(operation, options = {}) {
   return operation();
 }
 
-function activateZernioBackpressure(error) {
+// MEDIDO EM PRODUCAO (30/08/2026), 2h de telemetria: 6.777 requisicoes a Zernio,
+// das quais 44 falharam (35 network_error, 6 timeout, 3 http_error) - 0,5%, taxa
+// normal para HTTP. Mas a versao anterior desta funcao ligava o backpressure por
+// 5 MINUTOS a cada UMA dessas falhas, e o backpressure derruba o teto do portao
+// serializado de 800/min para 300/min.
+//
+// Com uma falha a cada 2,7 minutos e punicao de 5 minutos, o remedio ficou mais
+// caro que a doenca: o teto efetivo passava a maior parte do tempo na metade,
+// por causa de 0,5% de erro transitorio. Para 5.000 perfis (que exigem 500/min
+// numa janela de 10 min), a diferenca entre 800 e 300 e a diferenca entre caber
+// e nao caber.
+//
+// A protecao continua, proporcional ao que o erro realmente significa:
+//
+//   429  -> o provedor disse EXPLICITAMENTE "pare". Liga na hora, sem contar.
+//           Nao se negocia com rate limit declarado.
+//   resto -> timeout, erro de rede e 5xx podem ser blip transitorio, inclusive
+//           da nossa ponta. So ligam quando se repetem: N falhas dentro de uma
+//           janela curta. Se o problema for real e continuo, a janela reenche e
+//           o backpressure se renova sozinho - a punicao passa a acompanhar a
+//           TAXA de erro em vez de latir por um evento isolado.
+export function shouldActivateZernioBackpressure(error, recentFailures, threshold) {
+  if (!error) return false;
+  if (error?.httpStatus === 429) return true;
   const outcome = zernioOutcome(error);
-  if (outcome === 'timeout' || outcome === 'network_error' || error?.httpStatus === 429 || error?.httpStatus >= 500) {
-    zernioBackpressureUntil = Math.max(zernioBackpressureUntil, Date.now() + 5 * 60_000);
+  const transiente = outcome === 'timeout'
+    || outcome === 'network_error'
+    || (Number.isInteger(error?.httpStatus) && error.httpStatus >= 500);
+  if (!transiente) return false;
+  return recentFailures >= threshold;
+}
+
+function activateZernioBackpressure(error) {
+  const now = Date.now();
+  zernioRecentFailures = zernioRecentFailures.filter(
+    (at) => now - at < zernioBackpressureFailureWindowMs,
+  );
+  if (error?.httpStatus !== 429) zernioRecentFailures.push(now);
+
+  if (!shouldActivateZernioBackpressure(error, zernioRecentFailures.length, zernioBackpressureFailureThreshold)) {
+    return;
   }
+  zernioBackpressureUntil = Math.max(zernioBackpressureUntil, now + zernioBackpressureDurationMs);
+  zernioRecentFailures = [];
+  console.warn('[publication-worker] backpressure Zernio ativado', {
+    motivo: error?.httpStatus === 429 ? 'http_429_explicito' : 'falhas_transitorias_repetidas',
+    httpStatus: error?.httpStatus ?? null,
+    duracaoMs: zernioBackpressureDurationMs,
+  });
 }
 
 function zernioTelemetryBucket(durationMs) {

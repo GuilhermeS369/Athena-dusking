@@ -30,6 +30,7 @@ import {
   validatePreparedPublicationWorkItem,
   flushZernioRequestTelemetry,
   ignoreExpiredUnstartedPublications,
+  shouldActivateZernioBackpressure,
 } from './publication-direct-dispatch.mjs';
 
 test('limpeza automática não descarta backlog causado pela capacidade interna', async () => {
@@ -718,4 +719,41 @@ test('recupera download atualizando e repetindo o mesmo post Zernio', async () =
   assert.ok(providerCalls.every((call) => call.postId === 'post-original'));
   assert.equal(providerCalls[0].body.mediaItems[0].url, 'https://storage.example/org/video.mp4?token=fresco');
   assert.equal(rpcCalls.filter((call) => call.name === 'reserve_zernio_same_post_media_retry').length, 1);
+});
+
+// MEDIDO EM PRODUCAO (30/08/2026): 6.777 requisicoes a Zernio em 2h, 44 falhas
+// (0,5%). A versao anterior ligava backpressure de 5 MINUTOS a cada uma delas, e
+// backpressure derruba o teto de criacao de 800/min para 300/min. Com uma falha
+// a cada 2,7 min, o teto vivia na metade por causa de erro transitorio normal.
+test('429 liga o backpressure na hora, sem precisar se repetir', () => {
+  // O provedor disse explicitamente "pare". Nao se conta, nao se negocia.
+  assert.equal(shouldActivateZernioBackpressure({ httpStatus: 429 }, 0, 3), true);
+  assert.equal(shouldActivateZernioBackpressure({ httpStatus: 429 }, 99, 3), true);
+});
+
+test('falha transitoria isolada NAO liga o backpressure', () => {
+  const timeout = { name: 'TimeoutError' };
+  const rede = new Error('socket hang up');
+  const servidor = { httpStatus: 503 };
+  assert.equal(shouldActivateZernioBackpressure(timeout, 1, 3), false);
+  assert.equal(shouldActivateZernioBackpressure(rede, 2, 3), false);
+  assert.equal(shouldActivateZernioBackpressure(servidor, 1, 3), false);
+});
+
+test('falha transitoria repetida dentro da janela liga', () => {
+  // Problema continuo continua sendo tratado como problema: a janela reenche e
+  // o backpressure se renova, acompanhando a TAXA de erro.
+  assert.equal(shouldActivateZernioBackpressure({ name: 'TimeoutError' }, 3, 3), true);
+  assert.equal(shouldActivateZernioBackpressure(new Error('ECONNRESET'), 10, 3), true);
+});
+
+test('erro do cliente (4xx que nao seja 429) nunca liga backpressure', () => {
+  // 400/404 sao problema do nosso payload, nao do provedor sobrecarregado.
+  // Reduzir a vazao global por causa deles seria punir todo mundo por um item.
+  assert.equal(shouldActivateZernioBackpressure({ httpStatus: 400 }, 99, 3), false);
+  assert.equal(shouldActivateZernioBackpressure({ httpStatus: 404 }, 99, 3), false);
+});
+
+test('sucesso nao liga nada', () => {
+  assert.equal(shouldActivateZernioBackpressure(null, 99, 3), false);
 });
