@@ -57,7 +57,12 @@ const reconciliationOnly = process.env.PUBLICATION_WORKER_RECONCILIATION_ONLY ==
 const stagingEnabled = process.env.PUBLICATION_WORKER_STAGING_ENABLED === 'true';
 const stagingWindowSeconds = integerEnv('PUBLICATION_WORKER_STAGING_WINDOW_SECONDS', 600, 60, 3600);
 const stagingLimit = integerEnv('PUBLICATION_WORKER_STAGING_LIMIT', 100, 1, 500);
-const stagingConcurrency = integerEnv('PUBLICATION_WORKER_STAGING_CONCURRENCY', 4, 1, 20);
+// O 4 foi escolhido quando a VPS tinha 1 nucleo. Hoje tem 2 (8 GB), e com 8 a
+// medicao de 30/08/2026 deu, na espera dentro da nossa fila:
+//   p90 969s -> 450s   |   mediana 33s -> 23s   |   vazao p90 111 -> 114/min
+// com a maquina em 0,75 de load e 1 GB de 7 GB de memoria. O padrao muda no
+// codigo, e nao so no .env da VPS, para um deploy limpo nao devolver o gargalo.
+const stagingConcurrency = integerEnv('PUBLICATION_WORKER_STAGING_CONCURRENCY', 8, 1, 20);
 const stagingLeaseSeconds = integerEnv('PUBLICATION_WORKER_STAGING_LEASE_SECONDS', 1200, 120, 7200);
 // MEDIDO EM PRODUCAO (30/08/2026). Com 60.000 ms, "existe publicacao vencendo em
 // breve" era quase sempre verdade sob carga normal, e o staging so rodava 1 ciclo
