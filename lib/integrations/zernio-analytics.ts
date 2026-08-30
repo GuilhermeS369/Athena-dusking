@@ -11,7 +11,7 @@ import {
   type ZernioFollowerHistoryResponse,
   type ZernioInstagramAccountInsightsResponse,
 } from '@/lib/integrations/zernio-client';
-import { latestFollowerRow, normalizeAnalyticsSourceClasses, normalizeFollowerRows, numberValue, shouldRetryDailyAggregation, type AnalyticsSourceClass } from '@/lib/integrations/zernio-analytics-normalizers';
+import { latestFollowerRow, normalizeAnalyticsSourceClasses, normalizedDailyMetrics, normalizeFollowerRows, numberValue, shouldRetryDailyAggregation, type AnalyticsSourceClass } from '@/lib/integrations/zernio-analytics-normalizers';
 import { currentFollowersFromAccount, currentFollowersFromFollowerStats } from '@/lib/integrations/zernio-analytics-normalizers';
 
 export type AnalyticsStatus = 'pending' | 'synced' | 'partial' | 'no_data' | 'not_configured' | 'unavailable_plan' | 'permission_missing' | 'rate_limited' | 'failed';
@@ -28,6 +28,9 @@ type SyncProfileAnalyticsOptions = {
   organizationId: string;
   force?: boolean;
   sourceClasses?: AnalyticsSourceClass[];
+  // Sobrescreve a janela da coleta diária (1 a 89 dias, limite da Zernio).
+  // Existe para o reparo pontual de lacunas; o ciclo operacional não passa.
+  dailyRangeDays?: number;
   onStep?: (event: AnalyticsStepTelemetry) => void;
 };
 
@@ -47,6 +50,12 @@ const ANALYTICS_COOLDOWN_MS = 30 * 60 * 1000;
 // revisita os últimos quatro dias: hoje é parcial e os dias anteriores podem
 // sofrer atraso de consolidação no provedor.
 const DEFAULT_RANGE_DAYS = 4;
+// Janela usada só na PRIMEIRA coleta diária de um perfil. Uma conta importada
+// costuma ter histórico anterior à importação do lado da Zernio, e a janela de
+// quatro dias o perderia para sempre: nenhum ciclo posterior volta lá.
+// Amostra de 84 perfis (30/08/2026) comparando Zernio × banco: 9 tinham dias
+// faltando, e parte deles era exatamente dia anterior à criação do perfil.
+const FIRST_COLLECTION_RANGE_DAYS = 30;
 const insightMetrics = [
   'reach',
   'views',
@@ -130,42 +139,6 @@ function platformPostUrl(post: ZernioAnalyticsPost) {
     ?? null;
 }
 
-function normalizedDailyMetrics(payload: unknown, profile: ProfileRecord, coverageStatus: 'complete' | 'partial') {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return [];
-  const dailyData = (payload as { dailyData?: unknown }).dailyData;
-  if (!Array.isArray(dailyData)) return [];
-  const rows = new Map<string, Record<string, unknown>>();
-  for (const raw of dailyData) {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
-    const row = raw as Record<string, unknown>;
-    const date = typeof row.date === 'string' ? row.date.slice(0, 10) : '';
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-    const metrics = row.metrics && typeof row.metrics === 'object' && !Array.isArray(row.metrics) ? row.metrics as Record<string, unknown> : {};
-    const likes = numberValue(metrics.likes);
-    const comments = numberValue(metrics.comments);
-    const shares = numberValue(metrics.shares);
-    const saves = numberValue(metrics.saves);
-    rows.set(date, {
-      organization_id: profile.organization_id,
-      profile_id: profile.id,
-      provider: profile.provider,
-      metric_date: date,
-      posts: numberValue(row.postCount),
-      impressions: numberValue(metrics.impressions),
-      reach: numberValue(metrics.reach),
-      views: numberValue(metrics.views),
-      likes,
-      comments,
-      shares,
-      saves,
-      interactions: likes + comments + shares + saves,
-      coverage_status: coverageStatus,
-      source_payload: raw,
-      normalized_at: new Date().toISOString(),
-    });
-  }
-  return Array.from(rows.values());
-}
 
 // O perfil publicou de fato na janela coletada?
 //
@@ -190,6 +163,18 @@ async function hasPublishedInWindow(admin: ReturnType<typeof createSupabaseAdmin
     .gte('published_at', `${periodStart}T00:00:00-03:00`)
     .limit(1);
   return (data?.length ?? 0) > 0;
+}
+
+// `daily_synced_at` só é gravado quando a classe `daily` roda; nulo significa
+// que este perfil nunca teve coleta diária nenhuma.
+async function isFirstDailyCollection(admin: ReturnType<typeof createSupabaseAdminClient>, profile: ProfileRecord) {
+  const { data } = await admin
+    .from('profile_analytics_current')
+    .select('daily_synced_at')
+    .eq('organization_id', profile.organization_id)
+    .eq('profile_id', profile.id)
+    .maybeSingle();
+  return !data?.daily_synced_at;
 }
 
 async function createRun(admin: ReturnType<typeof createSupabaseAdminClient>, profile: ProfileRecord, syncKind: string, periodStart: string, periodEnd: string) {
@@ -296,6 +281,9 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
   };
   const periodEnd = saoPauloDate(0);
   const periodStart = saoPauloDate(DEFAULT_RANGE_DAYS - 1);
+  const requestedDailyRangeDays = Number.isInteger(options.dailyRangeDays)
+    ? Math.min(Math.max(options.dailyRangeDays!, 1), 89)
+    : null;
 
   const profileStartedAt = performance.now();
   const { data: profile, error: profileError } = await admin
@@ -420,8 +408,14 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
       partialSources.push(name);
       return null;
     });
+    // A janela diária é a curta, exceto quando este perfil nunca teve coleta
+    // diária: aí vale buscar o histórico que a Zernio já tinha antes da conta
+    // ser importada, porque nenhum ciclo posterior volta lá.
+    const dailyRangeDays = requestedDailyRangeDays
+      ?? (collectDaily && await isFirstDailyCollection(admin, typedProfile) ? FIRST_COLLECTION_RANGE_DAYS : DEFAULT_RANGE_DAYS);
+    const dailyPeriodStart = dailyRangeDays === DEFAULT_RANGE_DAYS ? periodStart : saoPauloDate(dailyRangeDays - 1);
     const dailyMetrics = collectDaily
-      ? await optionalSource('daily_metrics', timed('zernio_daily_metrics', () => client.getDailyMetrics({ platform: 'instagram', accountId: zernioAccountId, fromDate: periodStart, toDate: periodEnd, source: 'all' })))
+      ? await optionalSource('daily_metrics', timed('zernio_daily_metrics', () => client.getDailyMetrics({ platform: 'instagram', accountId: zernioAccountId, fromDate: dailyPeriodStart, toDate: periodEnd, source: 'all' })))
       : null;
 
     // A nossa chamada é o gatilho da coleta da Zernio: ela detecta a conta
@@ -684,7 +678,7 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
       if (error) throw error;
     }
 
-    await finishRun(admin, runId, syncStatus, { sourceClasses, followerRows: followerRows.length, postRows: postRows.length, dailyRows: dailyRows.length, dailyAggregationPending, unavailableMetrics: insights?.unavailableMetrics ?? [], hasInsightMetrics: Boolean(insights && hasInsightMetrics(insights)), partialSources });
+    await finishRun(admin, runId, syncStatus, { sourceClasses, followerRows: followerRows.length, postRows: postRows.length, dailyRows: dailyRows.length, dailyRangeDays, dailyAggregationPending, unavailableMetrics: insights?.unavailableMetrics ?? [], hasInsightMetrics: Boolean(insights && hasInsightMetrics(insights)), partialSources });
     return {
       status: syncStatus,
       skipped: false,

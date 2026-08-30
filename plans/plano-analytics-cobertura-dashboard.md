@@ -131,7 +131,7 @@ E os 43 não são a defasagem normal: são um lote de reconciliação (criados e
 |---|---|---|---|
 | P0 | Desacoplar analytics do atraso de publicação | Alta | ✅ implementado · aguardando deploy |
 | P1 | Segunda passada quando a Zernio devolve vazio | Alta | ✅ implementado · aguardando deploy |
-| P2 | Backfill de dias perdidos | Média | ⬜ não iniciado |
+| P2 | Backfill de dias perdidos | Média | ✅ resolvido menor que o proposto (medição refutou a premissa) |
 | P3 | Semântica honesta do aviso de cobertura | Média | ✅ implementado · **exige migração 339** |
 | P4 | Observabilidade do vazio/retry | Média | 🟡 parcial (metadados do item já gravam `dailyAggregationPending`) |
 | ~~P5~~ | ~~Contas que a Zernio não reconhece~~ | — | ❌ descartado — hipótese refutada, ver seção abaixo |
@@ -183,11 +183,27 @@ O critério passou a ser a verdade que o Athena tem em mãos: **o perfil conclui
 **Efeito esperado:** recupera os ~89% medidos em minutos, sem clique manual.
 **Custo:** só repetem os perfis que voltaram vazios — ~340 no pior caso de hoje.
 
-### P2 — Backfill de dias perdidos
+### P2 — Backfill de dias perdidos ✅ (menor do que eu tinha proposto)
 
-A janela de coleta é de 4 dias (`DEFAULT_RANGE_DAYS` em [zernio-analytics.ts:49](../lib/integrations/zernio-analytics.ts#L49)). Serve para o dia a dia, mas **nunca repõe** um dia perdido depois disso — a tabela só tem dados a partir de 15/08. A Zernio aceita janela larga sem custo perceptível (20→30/08 respondeu em 406 ms).
+**A premissa original não se sustentou.** Eu tinha escrito que "existe dado histórico real na Zernio que a janela de 4 dias nunca vai buscar" e proposto um ciclo largo diário por perfil. Medindo antes de construir, numa amostra de 84 perfis comparando a Zernio (janela 01/07→30/08) com o banco:
 
-**Proposta:** um ciclo largo (14 dias) por perfil por dia, além do ciclo curto.
+```
+sem lacuna nenhuma:              75 perfis
+com lacuna:                       9 perfis  (9 dias no total, 1 dia cada)
+```
+
+Cerca de 0,1 dia por perfil — algo como 116 dias na organização inteira, contra ~16 mil linhas possíveis. **O ciclo de 4 dias é adequado enquanto a coleta roda.** As lacunas vêm de dois lugares, e nenhum justifica lógica permanente por ciclo:
+
+1. **dias em que a coleta ficou bloqueada** — 5 das 9 lacunas caem em 2026-08-20. Causa raiz tratada no P0;
+2. **dias anteriores à importação do perfil** — a Zernio já tinha histórico antes de a conta entrar no Athena, e a janela curta o perdia para sempre.
+
+**O que foi feito, na medida do problema:**
+
+- **(2) virou código**: a *primeira* coleta diária de um perfil usa janela de 30 dias (`FIRST_COLLECTION_RANGE_DAYS`), detectada por `daily_synced_at is null` — coluna que já existia, sem migração. Os ciclos seguintes voltam aos 4 dias.
+- **(1) virou reparo pontual**, não feature: [scripts/workers/backfill-profile-analytics-daily.ts](../scripts/workers/backfill-profile-analytics-daily.ts). Simulação por padrão, `--apply` para gravar, e só insere datas ausentes — nunca sobrescreve linha existente.
+- `normalizedDailyMetrics` saiu de `zernio-analytics.ts` para o módulo puro de normalizadores, para o script reaproveitar sem arrastar banco e rede junto. Ganhou teste próprio.
+
+**O que eu deliberadamente não construí:** coluna de controle de backfill, ciclo largo recorrente e job dedicado. Seria infraestrutura permanente para recuperar ~1% das linhas, com a causa recorrente já resolvida na origem.
 
 ### P3 — Semântica honesta do aviso de cobertura ✅
 

@@ -21,6 +21,50 @@ export function numberValue(value: unknown) {
   return 0;
 }
 
+// Converte a resposta de /v1/analytics/daily-metrics nas linhas de
+// profile_analytics_daily_metrics. Vive aqui, sem dependência de banco ou de
+// rede, para poder ser reaproveitada por scripts de reparo e coberta por teste.
+export function normalizedDailyMetrics(
+  payload: unknown,
+  profile: { id: string; organization_id: string; provider: string },
+  coverageStatus: 'complete' | 'partial',
+) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return [];
+  const dailyData = (payload as { dailyData?: unknown }).dailyData;
+  if (!Array.isArray(dailyData)) return [];
+  const rows = new Map<string, Record<string, unknown>>();
+  for (const raw of dailyData) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const row = raw as Record<string, unknown>;
+    const date = typeof row.date === 'string' ? row.date.slice(0, 10) : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const metrics = row.metrics && typeof row.metrics === 'object' && !Array.isArray(row.metrics) ? row.metrics as Record<string, unknown> : {};
+    const likes = numberValue(metrics.likes);
+    const comments = numberValue(metrics.comments);
+    const shares = numberValue(metrics.shares);
+    const saves = numberValue(metrics.saves);
+    rows.set(date, {
+      organization_id: profile.organization_id,
+      profile_id: profile.id,
+      provider: profile.provider,
+      metric_date: date,
+      posts: numberValue(row.postCount),
+      impressions: numberValue(metrics.impressions),
+      reach: numberValue(metrics.reach),
+      views: numberValue(metrics.views),
+      likes,
+      comments,
+      shares,
+      saves,
+      interactions: likes + comments + shares + saves,
+      coverage_status: coverageStatus,
+      source_payload: raw,
+      normalized_at: new Date().toISOString(),
+    });
+  }
+  return Array.from(rows.values());
+}
+
 // A Zernio agrega as métricas diárias de forma assíncrona: a nossa chamada é o
 // gatilho da coleta dela no Instagram, e a resposta dessa mesma chamada traz o
 // agregado anterior — vazio para uma conta ainda não agregada. Sem distinguir
