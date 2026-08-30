@@ -235,7 +235,7 @@ concentrar rajada numa chave só geraria `429` mesmo com orçamento sobrando.
 | **B2.2** — mostrar a fila de arquivamento no painel | **feito e no ar.** Card no painel operacional; medido em 0/0/0 nas três organizações no momento do deploy |
 | **B5.3** — subir 180 → 300 → 500 → 600 | **primeiro degrau dado: 300.** Os degraus 500 e 600 seguem disponíveis por `.env`, sem deploy |
 | **B5.4** — agrupar por conexão Zernio em vez de organização | **pendente.** Depende de B5.3 fazer falta primeiro |
-| **B4** — executar a retenção | **documentado, não executado.** Gatilho definido: memória >85%, disco >80%, ou tabela passando de 1 milhão de linhas. Obrigatório antes dos 5.000 perfis |
+| **B4** — retenção | **implementado e no ar, desligado por padrão.** Migration 333 + teste 13/13. Ao implementar apareceu que 8 FKs em cascata destruiriam `publication_item_media` (474 mil linhas) num "mover" ingênuo — corrigido copiando a mídia antes do delete. Liga quando o gatilho disparar |
 | **OBS.1** | **concluída** — nenhum gatilho de rollback acionado |
 
 ---

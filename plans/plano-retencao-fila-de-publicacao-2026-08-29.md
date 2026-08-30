@@ -112,6 +112,59 @@ fria de arquivo morto entrega quase o mesmo ganho sem tocar em nada disso. Se um
 dia o volume justificar, particionar a tabela **fria** é seguro e reversível —
 começar por ali, nunca pela quente.
 
+
+## Achado que mudou o desenho — a cascata (30/08/2026)
+
+Ao implementar, apareceu um problema que o plano original não previa e que teria
+causado **perda de histórico silenciosa**:
+
+**Oito chaves estrangeiras apontam para `publication_items` com
+`on delete cascade`.** Um "mover" ingênuo — insert no frio, delete no quente —
+apagaria junto:
+
+| Tabela | Linhas | Importa? |
+|---|---:|---|
+| `publication_item_media` | **474.070** | **SIM** — é o registro de qual mídia foi publicada |
+| `publication_item_events` | 1.033.978 | não — já é podada aos 14 dias |
+| `publication_profile_daily_reservations` | — | não — reserva diária, já expirada |
+| `publication_schedule_randomizations` | — | não — log de sorteio de horário |
+| `publication_dispatch_rate_reservations` | — | não — expira em minutos |
+| ledger de circuito / saúde de entrega | — | não — telemetria |
+| `publication_failure_acknowledgements` | 351 | não — o alerta morre com o arquivamento |
+
+**Correção aplicada:** a mídia é copiada para o frio **antes** do delete. O teste
+que prova isso é o mais importante do arquivo — se alguém inverter a ordem um
+dia, ele quebra.
+
+## Decisões que a implementação obrigou a tomar
+
+**As tabelas frias não têm chave estrangeira.** Um arquivo não pode restringir a
+operação viva: se um `media_asset` for apagado, o frio guarda o id órfão, que é
+justamente o registro histórico que se quer manter.
+
+**O contador `totals.archived` não passou a somar a tabela fria.** Ele existe no
+tipo mas **não é renderizado em tela nenhuma**, e a função que o calcula é a
+leitura mais cara do painel. Encarecê-la por um número que ninguém mostra seria
+troca ruim. O número que aparece de verdade é o card "Aguardando arquivamento"
+do painel operacional (B2.2), que mede a fila quente.
+
+**A UI nunca pede itens arquivados.** `/api/publications` aceita
+`archived=only|include`, mas nenhuma tela envia o parâmetro — todas caem no
+padrão `exclude`. Por isso mover linhas para o frio **não quebra nenhuma tela**.
+
+## Estado: pronto e DESLIGADO
+
+Migration 333 aplicada em produção (criar tabela e função é inerte). O passo no
+worker existe mas nasce desligado (`MEDIA_MAINTENANCE_COLD_STORAGE_ENABLED=false`).
+
+**Ligar quando:** memória do Supabase acima de 85% de forma sustentada, disco
+acima de 80%, **ou** `publication_items` passando de 1 milhão de linhas.
+
+O upgrade para 4 GB (30/08) afastou o gatilho de memória, mas **não** o de
+tamanho: um plano de 7 dias para 5.000 perfis materializa ~840 mil itens de uma
+vez e, sobre as 462 mil atuais, estoura 1,3 milhão num salto só. Continua
+obrigatório antes de escalar a frota.
+
 ## O que NÃO fazer
 
 - **Não tornar parciais os quatro índices sem filtro.** Eles servem às telas de
