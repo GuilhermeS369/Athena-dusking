@@ -2,18 +2,22 @@
 //
 // Reparo pontual de lacunas em profile_analytics_daily_metrics.
 //
-// POR QUE ISSO EXISTE, E POR QUE NÃO VIROU FEATURE. O ciclo operacional coleta
-// só os últimos quatro dias. Quando a coleta fica bloqueada por mais tempo que
-// isso — foi o que acontecia enquanto o analytics cedia a qualquer atraso de
-// publicação — o dia perdido nunca mais é buscado, porque nenhum ciclo volta lá.
+// POR QUE ISSO EXISTE. O ciclo operacional coleta só os últimos quatro dias.
+// Quando a coleta fica bloqueada por mais tempo que isso — foi o que acontecia
+// enquanto o analytics cedia a qualquer atraso de publicação — o dia perdido
+// nunca mais é buscado, porque nenhum ciclo volta lá. Este script compara o que
+// a Zernio tem com o que está no banco e insere só as datas ausentes.
 //
-// Medido em 30/08/2026, amostra de 84 perfis comparando a Zernio com o banco:
-// 75 não tinham lacuna nenhuma e 9 tinham exatamente 1 dia faltando cada. Ou
-// seja: ~0,1 dia por perfil, algo como 116 dias na organização inteira. Isso é
-// pequeno demais para justificar uma coluna nova e lógica permanente por ciclo;
-// é reparo de uma vez. A causa recorrente foi tratada na origem (o analytics
-// não para mais) e o caso "histórico anterior à importação" passou a ser coberto
-// pela janela larga da primeira coleta, em lib/integrations/zernio-analytics.ts.
+// QUAL ERA O TAMANHO DO PROBLEMA (30/08/2026, organização com 1.088 perfis
+// coletáveis): 7 linhas. Uma primeira medição minha sugeriu ~166 dias faltando,
+// mas era artefato de paginação não determinística no próprio script — ordenar
+// profile_analytics_daily_metrics só por metric_date devolveu 7.151 linhas com
+// 6.942 distintas, e cada linha perdida virava um "dia faltando" inexistente.
+// Corrigida a ordenação (chave primária completa), a organização inteira fica em
+// zero lacunas. Ou seja: com a coleta rodando, a janela de quatro dias basta.
+//
+// Use depois de um período em que a coleta ficou parada, ou ao importar contas
+// com histórico anterior de mais de três dias. Não precisa de agendamento.
 //
 // Uso:
 //   npx tsx scripts/workers/backfill-profile-analytics-daily.ts --organization=<uuid>
@@ -74,10 +78,19 @@ async function main() {
 
   // Paginação explícita: as duas tabelas crescem com o tamanho da organização e
   // o PostgREST corta silenciosamente no teto de linhas (ver CLAUDE.md).
-  async function allRows<T>(table: string, columns: string, order: string, build: (query: any) => any): Promise<T[]> {
+  //
+  // A ordenação precisa ser TOTAL. Ordenar profile_analytics_daily_metrics só
+  // por metric_date parece funcionar e não é: medido em 30/08/2026 na janela de
+  // 30 dias, as páginas devolveram 7.151 linhas com apenas 6.942 distintas —
+  // 209 repetidas e outras 209 nunca vistas. O efeito aqui seria pior que uma
+  // simples contagem errada: linha existente que a paginação perde vira "dia
+  // faltando" e o script sai reparando o que já estava reparado.
+  async function allRows<T>(table: string, columns: string, orders: string[], build: (query: any) => any): Promise<T[]> {
     const rows: T[] = [];
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await build(admin.from(table).select(columns)).order(order, { ascending: true }).range(from, from + 999);
+      let query = build(admin.from(table).select(columns));
+      for (const column of orders) query = query.order(column, { ascending: true });
+      const { data, error } = await query.range(from, from + 999);
       if (error) throw error;
       rows.push(...(data as T[]));
       if ((data as T[]).length < 1000) break;
@@ -100,14 +113,15 @@ async function main() {
   const profiles = (await allRows<ProfileRow>(
     'instagram_profiles',
     'id,username,organization_id,provider,zernio_account_id,zernio_connection_id',
-    'id',
+    ['id'],
     (query) => query.eq('organization_id', organizationId).is('deleted_at', null),
   )).filter((profile) => profile.zernio_account_id && profile.zernio_connection_id).slice(0, limit);
 
   const existing = await allRows<{ profile_id: string; metric_date: string }>(
     'profile_analytics_daily_metrics',
     'profile_id,metric_date',
-    'metric_date',
+    // Chave primária da tabela, menos a organização já filtrada acima.
+    ['metric_date', 'profile_id', 'provider'],
     (query) => query.eq('organization_id', organizationId).gte('metric_date', periodStart).lte('metric_date', periodEnd),
   );
   const knownDates = new Map<string, Set<string>>();

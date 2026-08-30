@@ -131,7 +131,7 @@ E os 43 não são a defasagem normal: são um lote de reconciliação (criados e
 |---|---|---|---|
 | P0 | Desacoplar analytics do atraso de publicação | Alta | ✅ implementado · aguardando deploy |
 | P1 | Segunda passada quando a Zernio devolve vazio | Alta | ✅ implementado · aguardando deploy |
-| P2 | Backfill de dias perdidos | Média | ✅ resolvido menor que o proposto (medição refutou a premissa) |
+| P2 | Backfill de dias perdidos | Média | ✅ premissa refutada; ficou só o script de reparo sob demanda |
 | P3 | Semântica honesta do aviso de cobertura | Média | ✅ implementado · **exige migração 339** |
 | P4 | Observabilidade do vazio/retry | Média | 🟡 parcial (metadados do item já gravam `dailyAggregationPending`) |
 | ~~P5~~ | ~~Contas que a Zernio não reconhece~~ | — | ❌ descartado — hipótese refutada, ver seção abaixo |
@@ -183,27 +183,42 @@ O critério passou a ser a verdade que o Athena tem em mãos: **o perfil conclui
 **Efeito esperado:** recupera os ~89% medidos em minutos, sem clique manual.
 **Custo:** só repetem os perfis que voltaram vazios — ~340 no pior caso de hoje.
 
-### P2 — Backfill de dias perdidos ✅ (menor do que eu tinha proposto)
+### P2 — Backfill de dias perdidos ✅ (a premissa era um bug meu)
 
-**A premissa original não se sustentou.** Eu tinha escrito que "existe dado histórico real na Zernio que a janela de 4 dias nunca vai buscar" e proposto um ciclo largo diário por perfil. Medindo antes de construir, numa amostra de 84 perfis comparando a Zernio (janela 01/07→30/08) com o banco:
+Este item terminou refutando a si mesmo, duas vezes. Vale registrar o caminho inteiro porque o erro é fácil de repetir.
+
+**Proposta original:** "existe dado histórico real na Zernio que a janela de 4 dias nunca vai buscar" → um ciclo largo diário por perfil.
+
+**Primeira medição (contaminada):** amostra de 84 perfis apontou 9 com lacuna. Escrevi um script de reparo, rodei em 1.088 perfis, e ele relatou 160 perfis / 166 dias faltando. Rodando de novo logo depois, ainda acusava 124 perfis — reparo que não reparava.
+
+**A causa era minha.** O script paginava `profile_analytics_daily_metrics` ordenando **só por `metric_date`**, que não é ordem total. Medido:
 
 ```
-sem lacuna nenhuma:              75 perfis
-com lacuna:                       9 perfis  (9 dias no total, 1 dia cada)
+linhas reais na janela de 30 dias:          7.151
+paginando por metric_date:      7.151 lidas, 6.942 distintas
+paginando por (metric_date, profile_id, provider):  7.151 / 7.151
 ```
 
-Cerca de 0,1 dia por perfil — algo como 116 dias na organização inteira, contra ~16 mil linhas possíveis. **O ciclo de 4 dias é adequado enquanto a coleta roda.** As lacunas vêm de dois lugares, e nenhum justifica lógica permanente por ciclo:
+209 linhas repetidas e 209 nunca vistas — e **cada linha existente que a paginação perdia virava um "dia faltando" inexistente**. É exatamente a armadilha descrita no CLAUDE.md. O guard automatizado ([row-limit-guard.test.ts](../lib/supabase/row-limit-guard.test.ts)) não pegou porque varre apenas `app/` e `lib/`, e o script mora em `scripts/`.
 
-1. **dias em que a coleta ficou bloqueada** — 5 das 9 lacunas caem em 2026-08-20. Causa raiz tratada no P0;
-2. **dias anteriores à importação do perfil** — a Zernio já tinha histórico antes de a conta entrar no Athena, e a janela curta o perdia para sempre.
+**Medição correta**, com consulta por perfil (resultado pequeno, imune à paginação), em 30 perfis criados entre 12 e 25/08:
 
-**O que foi feito, na medida do problema:**
+```
+banco cobre tudo que a Zernio tem:  30
+com dia faltando:                    0
+```
 
-- **(2) virou código**: a *primeira* coleta diária de um perfil usa janela de 30 dias (`FIRST_COLLECTION_RANGE_DAYS`), detectada por `daily_synced_at is null` — coluna que já existia, sem migração. Os ciclos seguintes voltam aos 4 dias.
-- **(1) virou reparo pontual**, não feature: [scripts/workers/backfill-profile-analytics-daily.ts](../scripts/workers/backfill-profile-analytics-daily.ts). Simulação por padrão, `--apply` para gravar, e só insere datas ausentes — nunca sobrescreve linha existente.
-- `normalizedDailyMetrics` saiu de `zernio-analytics.ts` para o módulo puro de normalizadores, para o script reaproveitar sem arrastar banco e rede junto. Ganhou teste próprio.
+E o reparo, depois da correção: **0 lacunas em 1.088 perfis**. As linhas realmente gravadas pelo `--apply` foram **7**, todas fora da janela operacional de quatro dias.
 
-**O que eu deliberadamente não construí:** coluna de controle de backfill, ciclo largo recorrente e job dedicado. Seria infraestrutura permanente para recuperar ~1% das linhas, com a causa recorrente já resolvida na origem.
+**Conclusão: com a coleta rodando, a janela de 4 dias basta.** O P2 não precisava existir como feature.
+
+**O que ficou:**
+
+- [scripts/workers/backfill-profile-analytics-daily.ts](../scripts/workers/backfill-profile-analytics-daily.ts) — reparo sob demanda, simulação por padrão, insere só datas ausentes. Útil depois de um período com a coleta parada. Não precisa de agendamento;
+- `normalizedDailyMetrics` movido para o módulo puro de normalizadores, com teste próprio;
+- as 7 linhas que faltavam, gravadas.
+
+**O que foi revertido:** a janela larga na primeira coleta (`FIRST_COLLECTION_RANGE_DAYS`). Ela custava uma consulta extra por perfil por ciclo para atender um caso que a medição limpa não encontrou — e o ciclo de 4 dias já cobre até 3 dias antes da importação. Se um dia forem importadas contas com histórico mais antigo, o script cobre sob demanda.
 
 ### P3 — Semântica honesta do aviso de cobertura ✅
 
@@ -294,6 +309,7 @@ A migração sozinha é inofensiva para a versão em produção da aplicação: 
 | Data | O que mudou |
 |---|---|
 | 2026-08-30 | Documento criado com diagnóstico e plano P0–P4. Nenhum código alterado. |
+| 2026-08-30 | P2: script de reparo criado, bug de paginação não determinística encontrado no próprio script (7.151 lidas / 6.942 distintas), corrigido, e a premissa do item refutada — 0 lacunas reais. Janela larga na primeira coleta revertida por falta de justificativa. 7 linhas gravadas. |
 | 2026-08-30 | Medida a distribuição de atraso (26.025 itens): limiar de 900s ainda degradaria 71% do tempo → limiar do analytics fixado em 1200s e degradação por porcentagem. P0 implementado. |
 | 2026-08-30 | P1 implementado. Discriminador trocado de "posts do ciclo" para "publicou na janela" após medir que a Zernio devolve vazio nas duas chamadas durante o priming. |
 | 2026-08-30 | Descoberto o bucket P5 (contas que a Zernio não reconhece, ~36 perfis). |

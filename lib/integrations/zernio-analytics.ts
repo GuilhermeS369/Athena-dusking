@@ -28,9 +28,6 @@ type SyncProfileAnalyticsOptions = {
   organizationId: string;
   force?: boolean;
   sourceClasses?: AnalyticsSourceClass[];
-  // Sobrescreve a janela da coleta diária (1 a 89 dias, limite da Zernio).
-  // Existe para o reparo pontual de lacunas; o ciclo operacional não passa.
-  dailyRangeDays?: number;
   onStep?: (event: AnalyticsStepTelemetry) => void;
 };
 
@@ -50,12 +47,6 @@ const ANALYTICS_COOLDOWN_MS = 30 * 60 * 1000;
 // revisita os últimos quatro dias: hoje é parcial e os dias anteriores podem
 // sofrer atraso de consolidação no provedor.
 const DEFAULT_RANGE_DAYS = 4;
-// Janela usada só na PRIMEIRA coleta diária de um perfil. Uma conta importada
-// costuma ter histórico anterior à importação do lado da Zernio, e a janela de
-// quatro dias o perderia para sempre: nenhum ciclo posterior volta lá.
-// Amostra de 84 perfis (30/08/2026) comparando Zernio × banco: 9 tinham dias
-// faltando, e parte deles era exatamente dia anterior à criação do perfil.
-const FIRST_COLLECTION_RANGE_DAYS = 30;
 const insightMetrics = [
   'reach',
   'views',
@@ -165,18 +156,6 @@ async function hasPublishedInWindow(admin: ReturnType<typeof createSupabaseAdmin
   return (data?.length ?? 0) > 0;
 }
 
-// `daily_synced_at` só é gravado quando a classe `daily` roda; nulo significa
-// que este perfil nunca teve coleta diária nenhuma.
-async function isFirstDailyCollection(admin: ReturnType<typeof createSupabaseAdminClient>, profile: ProfileRecord) {
-  const { data } = await admin
-    .from('profile_analytics_current')
-    .select('daily_synced_at')
-    .eq('organization_id', profile.organization_id)
-    .eq('profile_id', profile.id)
-    .maybeSingle();
-  return !data?.daily_synced_at;
-}
-
 async function createRun(admin: ReturnType<typeof createSupabaseAdminClient>, profile: ProfileRecord, syncKind: string, periodStart: string, periodEnd: string) {
   const { data } = await admin
     .from('profile_analytics_sync_runs')
@@ -281,9 +260,6 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
   };
   const periodEnd = saoPauloDate(0);
   const periodStart = saoPauloDate(DEFAULT_RANGE_DAYS - 1);
-  const requestedDailyRangeDays = Number.isInteger(options.dailyRangeDays)
-    ? Math.min(Math.max(options.dailyRangeDays!, 1), 89)
-    : null;
 
   const profileStartedAt = performance.now();
   const { data: profile, error: profileError } = await admin
@@ -408,14 +384,8 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
       partialSources.push(name);
       return null;
     });
-    // A janela diária é a curta, exceto quando este perfil nunca teve coleta
-    // diária: aí vale buscar o histórico que a Zernio já tinha antes da conta
-    // ser importada, porque nenhum ciclo posterior volta lá.
-    const dailyRangeDays = requestedDailyRangeDays
-      ?? (collectDaily && await isFirstDailyCollection(admin, typedProfile) ? FIRST_COLLECTION_RANGE_DAYS : DEFAULT_RANGE_DAYS);
-    const dailyPeriodStart = dailyRangeDays === DEFAULT_RANGE_DAYS ? periodStart : saoPauloDate(dailyRangeDays - 1);
     const dailyMetrics = collectDaily
-      ? await optionalSource('daily_metrics', timed('zernio_daily_metrics', () => client.getDailyMetrics({ platform: 'instagram', accountId: zernioAccountId, fromDate: dailyPeriodStart, toDate: periodEnd, source: 'all' })))
+      ? await optionalSource('daily_metrics', timed('zernio_daily_metrics', () => client.getDailyMetrics({ platform: 'instagram', accountId: zernioAccountId, fromDate: periodStart, toDate: periodEnd, source: 'all' })))
       : null;
 
     // A nossa chamada é o gatilho da coleta da Zernio: ela detecta a conta
@@ -678,7 +648,7 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
       if (error) throw error;
     }
 
-    await finishRun(admin, runId, syncStatus, { sourceClasses, followerRows: followerRows.length, postRows: postRows.length, dailyRows: dailyRows.length, dailyRangeDays, dailyAggregationPending, unavailableMetrics: insights?.unavailableMetrics ?? [], hasInsightMetrics: Boolean(insights && hasInsightMetrics(insights)), partialSources });
+    await finishRun(admin, runId, syncStatus, { sourceClasses, followerRows: followerRows.length, postRows: postRows.length, dailyRows: dailyRows.length, dailyAggregationPending, unavailableMetrics: insights?.unavailableMetrics ?? [], hasInsightMetrics: Boolean(insights && hasInsightMetrics(insights)), partialSources });
     return {
       status: syncStatus,
       skipped: false,
