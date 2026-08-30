@@ -1,6 +1,6 @@
 # Plano — Cobertura de métricas da dashboard (Analytics / Zernio)
 
-> **Status geral:** P0, P1 e P3 implementados (não commitados, não deployados) · P2 e P4 pendentes · P5 descartado
+> **Status geral:** P0, P1 e P3 implementados e **commitados** · migração 339 **aplicada em produção** · aplicação ainda **não deployada** (Vercel + VPS) · P2 e P4 pendentes · P5 descartado
 > **Início:** 2026-08-30 · **Organização de referência:** Pomodoro (`58785306-4dfb-432f-8de0-f0b33f91f3de`)
 > **Sessão dona deste plano:** `pomodoro-13`
 > **Limite de escopo:** nada aqui altera fila de publicação. A sessão **"Agendador travado e fila parada"** (`local_01880d74`) está trabalhando nas filas de postagem — este plano só *lê* o sinal de pressão dela, nunca o produz.
@@ -238,10 +238,18 @@ Registrar por ciclo: perfis com `dailyData` vazio, itens que entraram em retry, 
 
 ## 6. Deploy e coordenação
 
-P0 e P1 estão no working tree, **não commitados e não deployados**. Para entrarem em vigor:
+**Já feito:**
 
-- a rota `/api/internal/profile-analytics-refresh-dispatch` precisa de deploy na Vercel;
-- o worker `athena-vps-profile-analytics-direct-1` (e o `athena-vps-profile-analytics-1`) precisam de restart na VPS com o código novo.
+- commit `2c123e6` — P0, P1 e P3 (código, testes, plano, migração 339 e seu pgTAP);
+- commit `00306c6` — versiona as migrations 335-338, que estavam aplicadas em produção e fora do git;
+- migração 339 **aplicada no banco em nuvem** (`supabase db push`, 30/08). Verificada em produção: a RPC devolve `profiles_pending_collection` 10 (hoje), 13 (7 dias) e 14 (30 dias), batendo com o cálculo independente feito pela API.
+
+**Ainda falta para o P0/P1 entrarem em vigor:**
+
+- deploy da rota `/api/internal/profile-analytics-refresh-dispatch` na Vercel;
+- restart dos workers `athena-vps-profile-analytics-direct-1` e `athena-vps-profile-analytics-1` na VPS com o código novo.
+
+A migração sozinha é inofensiva para a versão em produção da aplicação: o cliente antigo não lê os campos novos e continua exibindo o texto anterior.
 
 **Pedido da sessão da fila (30/08, ~16:15 UTC):** segurar o analytics contínuo até ~17:30 UTC, para não contaminar a janela de medição do efeito de `PUBLICATION_WORKER_STAGED_DISPATCH_CONCURRENCY=64`. É preferência, não bloqueio — mas como o deploy é ação manual, basta não subir antes disso.
 
@@ -259,4 +267,5 @@ P0 e P1 estão no working tree, **não commitados e não deployados**. Para entr
 | 2026-08-30 | Limiar recalibrado de 1200s para **600s** após a sessão da fila medir a janela pós-correção (max=597s): 1200s nunca dispararia. |
 | 2026-08-30 | P5 descartado: `overview.totalPosts` é escopado pela janela da consulta; a Zernio tem a analytics dessas contas. Elas apenas pararam de ser agendadas. |
 | 2026-08-30 | P3 implementado, incluindo a migração 339 (não aplicada). Suíte completa: 362 testes, 0 falhas. |
+| 2026-08-30 | Migração 339 validada em banco local descartável (Docker), coberta por pgTAP próprio, aplicada em produção e conferida contra dado real. Commits `2c123e6` e `00306c6`. |
 | 2026-08-30 | Cobertura de "Hoje" subiu sozinha de 598/1105 (15h) para 1051/1103 (16h40) **conforme a fila normalizou** — confirmação empírica de que o buraco era vazão de coleta, não dado ausente. Atribuição: o intervalo acumula três mudanças da sessão da fila (correção do staging, limite 44→100, concorrência 32→64) e a drenagem do arquivo frio; **não dá para isolar qual delas destravou** — registrar como "fila normalizada", nunca como efeito de um commit específico. |
