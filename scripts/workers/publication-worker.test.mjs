@@ -10,6 +10,7 @@ import {
   shouldStagingYieldToPressure,
   stagingHasSafeWindow,
   shouldPreparationYieldToDispatch,
+  shouldYieldToDueWindow,
 } from './publication-worker.mjs';
 
 test('ciclo ocioso não exige evento operacional por polling', () => {
@@ -263,4 +264,27 @@ test('envelope antigo sem formato cai no comportamento conservador de um por per
     { itemId: 'v2', organizationId: 'a', profileId: 'p1', executeAt: '2026-08-29T21:29:01Z' },
   ], new Map(), now, 10, 100);
   assert.deepEqual(result.selected.map((item) => item.itemId), ['v1']);
+});
+
+// MEDIDO EM PRODUCAO (30/08/2026): o heartbeat mostrava o staging com
+// `skipped: 'publication_due_within_guard'` e `claimed: 0`, enquanto o contador
+// do teto de pressao critica ficava em 0 - prova de que quem barrava era o guard
+// de 60 s, que nao tinha teto de cessao. O staging so rodava nos intervalos
+// entre ondas, serializando um pipeline que deveria trabalhar adiantado.
+test('o staging cede ao despacho, mas nunca de forma indefinida', () => {
+  // Sem publicacao proxima, roda sempre.
+  assert.equal(shouldYieldToDueWindow(false, 0, 3), false);
+  assert.equal(shouldYieldToDueWindow(false, 99, 3), false);
+
+  // Com publicacao proxima, cede ate o teto.
+  assert.equal(shouldYieldToDueWindow(true, 0, 3), true);
+  assert.equal(shouldYieldToDueWindow(true, 2, 3), true);
+
+  // Atingido o teto, roda de qualquer forma: staging parado esvazia o spool e
+  // deixa o despacho sem o que publicar, que e o oposto do que o guard queria.
+  assert.equal(shouldYieldToDueWindow(true, 3, 3), false);
+  assert.equal(shouldYieldToDueWindow(true, 50, 3), false);
+
+  // Teto zero desliga a cessao por completo.
+  assert.equal(shouldYieldToDueWindow(true, 0, 0), false);
 });

@@ -110,6 +110,21 @@ let cachedStagingPressure = {
 // Marca quando a série atual de "staging cedeu ao atraso crítico" começou; null quando o
 // staging não está cedendo. Alimenta shouldForceStagingThroughCriticalDelay (ver acima).
 let criticalDelayYieldStreakStartedAt = null;
+// MEDIDO EM PRODUCAO (30/08/2026): o heartbeat mostrava
+// `dispatch.staging.skipped = 'publication_due_within_guard'` com `claimed: 0`,
+// enquanto o contador do teto de pressao critica ficava em 0 - ou seja, quem
+// barrava o staging era ESTE guard, que nao tinha teto nenhum.
+//
+// Efeito: o staging prepara envelopes com 10 min de antecedencia, mas era
+// bloqueado sempre que havia algo vencendo nos proximos 60 s. Durante uma onda
+// ha sempre. O pipeline serializava - prepara, publica, prepara, publica - em
+// vez de preparar adiantado enquanto publica. Resultado medido: pico de 140/min
+// contra mediana de 49/min, e ondas levando ~10 min para drenar quando a conta
+// dizia 3 min.
+//
+// Mesmo remedio aplicado a preparacao: ceder e certo, ceder para sempre nao e.
+const stagingMaxConsecutiveSkips = integerEnv('PUBLICATION_WORKER_STAGING_MAX_CONSECUTIVE_SKIPS', 3, 0, 100);
+let stagingConsecutiveSkips = 0;
 const stagingCriticalDelayForceAfterMs = integerEnv(
   'PUBLICATION_WORKER_STAGING_CRITICAL_DELAY_FORCE_AFTER_MS',
   300000,
@@ -228,6 +243,8 @@ async function heartbeat(supabase, status, metadata = {}, lastErrorMessage = nul
       stagingLimit,
       stagingConcurrency,
       stagingDueGuardMs,
+      stagingMaxConsecutiveSkips,
+      stagingConsecutiveSkips,
       stagingPressureCheckIntervalMs,
       stagingCooperativeCancelCheckIntervalMs,
       stagedDispatchLimit,
@@ -472,13 +489,21 @@ async function stageUpcomingPublications(supabase, spool, correlationId, options
 // ~4.000 publicações/hora sempre existe algo vencendo dentro da janela e a
 // preparação ficaria com `claimed: 0` em todos os ciclos — pior do que antes de
 // separar os laços, já que antes ela ao menos rodava junto com o despacho.
+export function shouldYieldToDueWindow(
+  publicationDueWithinGuard,
+  consecutiveSkips,
+  maxConsecutiveSkips,
+) {
+  if (!publicationDueWithinGuard) return false;
+  return consecutiveSkips < maxConsecutiveSkips;
+}
+
 export function shouldPreparationYieldToDispatch(
   publicationDueWithinGuard,
   consecutiveSkips,
   maxConsecutiveSkips = preparationMaxConsecutiveSkips,
 ) {
-  if (!publicationDueWithinGuard) return false;
-  return consecutiveSkips < maxConsecutiveSkips;
+  return shouldYieldToDueWindow(publicationDueWithinGuard, consecutiveSkips, maxConsecutiveSkips);
 }
 
 export async function stagingHasSafeWindow(spool, now = Date.now(), dueGuardMs = stagingDueGuardMs) {
@@ -582,9 +607,18 @@ async function runDispatchCycle(supabase, correlationId, spool = null) {
 async function runStagingCycle(supabase, spool) {
   const now = Date.now();
 
-  if (!(await stagingHasSafeWindow(spool, now))) {
-    return { claimed: 0, persisted: 0, failed: 0, skipped: 'publication_due_within_guard' };
+  const publicationDueWithinGuard = !(await stagingHasSafeWindow(spool, now));
+  if (shouldYieldToDueWindow(publicationDueWithinGuard, stagingConsecutiveSkips, stagingMaxConsecutiveSkips)) {
+    stagingConsecutiveSkips += 1;
+    return {
+      claimed: 0,
+      persisted: 0,
+      failed: 0,
+      skipped: 'publication_due_within_guard',
+      consecutiveSkips: stagingConsecutiveSkips,
+    };
   }
+  stagingConsecutiveSkips = 0;
   if (!stagingController.canRun(now)) {
     return { claimed: 0, persisted: 0, failed: 0, skipped: 'adaptive_cooldown' };
   }
