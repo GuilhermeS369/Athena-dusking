@@ -105,6 +105,24 @@ Heartbeat capturado ao vivo em `athena-vps-profile-analytics-1`:
 - **Views zeradas nos posts recentes.** Postando de hora em hora, os ~24 primeiros tiles do perfil são as últimas 24h e aparecem com 0 views; os mais antigos têm 46, 56, 171, 206. É o Instagram que leva horas para popular views de reels. Bate com o que a Zernio devolve para hoje (`14 posts, reach 52, views 69, likes 0`). **Consequência prática: o dado de "hoje" é real, porém quase zero — a janela útil de análise é D-1 para trás.**
 - **Perfis que pararam de ser agendados** (15 criados entre 01 e 04/08, sem publicação desde 20–25/08): entram no denominador mas não têm o que exibir na janela recente. Ver a seção do P5 descartado.
 
+### 2.6 `published_at` é confirmação, não postagem — e por que isso **não** afeta esta trilha
+
+A sessão da fila descobriu que `publication_items.published_at` marca o momento em que o publicador **confirma** o post (ciclo posterior via `getPost`), não o momento em que ele foi criado no provedor — esse é o `provider_creation_started_at`. A defasagem entre os dois é real e foi medida aqui, em 103.551 itens publicados desde 24/08:
+
+```
+criação → confirmação: p50=74s · p90=194s · p99=248s
+```
+
+O risco seria de borda: usar `published_at` como proxy de "quando o post foi ao ar" pode jogar um item para o dia civil seguinte e desalinhá-lo da janela da Zernio — a mesma classe de erro do `fromDate/toDate` que produziu o falso P5. Medindo o efeito real:
+
+```
+itens que mudam de dia civil por causa da defasagem: 43 de 103.551 (0,042%)
+```
+
+E os 43 não são a defasagem normal: são um lote de reconciliação (criados em 25/08, todos confirmados no mesmo segundo em 27/08 13:49). Com postagem de hora em hora, a defasagem de 74–248s praticamente nunca cruza a meia-noite.
+
+**Decisão:** manter `published_at` no CTE `published` da RPC. Trocar por `provider_creation_started_at` mudaria KPIs já existentes (posts por dia, top posts) para corrigir 0,042% de atribuição — e o campo `published_at` é justamente o que o usuário entende por "publicado". Fica registrado para quem for construir lógica de janela no futuro: para "quando foi ao ar", o campo certo é `provider_creation_started_at`.
+
 ---
 
 ## 3. Plano
