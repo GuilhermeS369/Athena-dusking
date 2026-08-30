@@ -549,19 +549,29 @@ export async function stagingHasSafeWindow(spool, now = Date.now(), dueGuardMs =
 // morta nao perde publicacao nenhuma.
 async function discardUnactivatableSpoolEntries(supabase, spool, itemIds) {
   if (!itemIds.length) return 0;
-  const { data, error } = await supabase
-    .from('publication_items')
-    .select('id, status, archived_at, dispatch_staged_until')
-    .in('id', itemIds);
-  if (error) {
-    console.error('[publication-worker] não foi possível verificar entradas de spool não ativadas', {
-      workerId,
-      message: errorMessage(error),
-    });
-    return 0;
+  // Em blocos, e nao num `.in()` unico: o lote de despacho vai ate
+  // PUBLICATION_WORKER_STAGED_DISPATCH_LIMIT (500), e 500 UUIDs viram uma URL de
+  // GET com ~18 KB. O CLAUDE.md alerta para isso a partir de 1.000 (~37 KB); 500
+  // esta abaixo do alerta mas ainda e grande o bastante para depender de limite
+  // de header do gateway. Em blocos de 200 (~7,4 KB) nao depende.
+  const byId = new Map();
+  for (let from = 0; from < itemIds.length; from += 200) {
+    const bloco = itemIds.slice(from, from + 200);
+    const { data, error } = await supabase
+      .from('publication_items')
+      .select('id, status, archived_at, dispatch_staged_until')
+      .in('id', bloco);
+    if (error) {
+      console.error('[publication-worker] não foi possível verificar entradas de spool não ativadas', {
+        workerId,
+        message: errorMessage(error),
+        bloco: bloco.length,
+      });
+      return 0;
+    }
+    for (const row of data ?? []) byId.set(row.id, row);
   }
   const now = Date.now();
-  const byId = new Map((data ?? []).map((row) => [row.id, row]));
   let discarded = 0;
   for (const itemId of itemIds) {
     const row = byId.get(itemId);
