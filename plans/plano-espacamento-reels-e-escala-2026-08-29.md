@@ -177,6 +177,38 @@ qualquer `429` da Zernio.
 **Degraus seguintes (500 e 600) já não exigem deploy** — o teto de código está em
 600 desde B5.2, então são uma linha de `.env` e um restart.
 
+
+## OBS — terceira janela: teto de 300/min e arquivo frio
+
+**13 amostras, 61 minutos (00:40 → 01:41 UTC de 30/08/2026).**
+
+| Critério | Medido | Resultado |
+|---|---|---|
+| Publicações/hora | **2.235** na hora 00:00, contra 1.928–1.938 antes das mudanças | **passou** |
+| Vencidos | picos de 463, 321 e 164, sempre zerando na amostra seguinte | **passou** |
+| Fila de preparação | pico de **2.870** → 1.055 → **0** em 10 min (~17 mil/hora) | **passou** |
+| Adiamentos | **0** em todas as amostras | **passou** |
+| Itens presos | **0** em todas as amostras | **passou** |
+| Erro novo no publicador | **27.264 linhas**, congelado nas 13 amostras | **passou** |
+| Reinícios | 140 → 143 — foram os **meus** três restarts do worker de manutenção | **passou** |
+| VPS | load 0,00–0,63 · memória 35–38% | **passou** |
+
+O pico de preparação de 2.870 aconteceu junto com a geração de 12.771 itens
+novos, e foi absorvido em 10 minutos. É a melhor prova até agora de que o laço
+próprio de preparação (B3) aguenta a escala pretendida: 17 mil/hora contra os
+5.000/hora estimados para 5.000 perfis.
+
+### Sobre o teto de 300: sem dano, e sem ganho mensurável ainda
+
+Honestamente: **não dá para dizer que o degrau melhorou alguma coisa.** A onda
+drenou em ~10 minutos, igual às janelas anteriores com 180. Isso indica que o
+gargalo da drenagem **não é o teto** — um pico de 463 itens escoa em 2,6 min a
+180/min e em 1,5 min a 300/min, e nenhum dos dois explica os 10 minutos
+observados.
+
+O que o degrau entrega é **remover o penhasco futuro**, que era o pedido. Não
+houve degradação alguma, então fica.
+
 ## RESULTADO DA FRENTE A — medido em produção, 29/08/2026 21h50 UTC
 
 A métrica principal do plano. Intervalos entre reels consecutivos do **mesmo
@@ -235,7 +267,7 @@ concentrar rajada numa chave só geraria `429` mesmo com orçamento sobrando.
 | **B2.2** — mostrar a fila de arquivamento no painel | **feito e no ar.** Card no painel operacional; medido em 0/0/0 nas três organizações no momento do deploy |
 | **B5.3** — subir 180 → 300 → 500 → 600 | **primeiro degrau dado: 300.** Os degraus 500 e 600 seguem disponíveis por `.env`, sem deploy |
 | **B5.4** — agrupar por conexão Zernio em vez de organização | **pendente.** Depende de B5.3 fazer falta primeiro |
-| **B4** — retenção | **implementado e no ar, desligado por padrão.** Migration 333 + teste 13/13. Ao implementar apareceu que 8 FKs em cascata destruiriam `publication_item_media` (474 mil linhas) num "mover" ingênuo — corrigido copiando a mídia antes do delete. Liga quando o gatilho disparar |
+| **B4** — retenção | **implementado, LIGADO e drenando.** Migration 333 + teste 13/13. Ao implementar apareceu que 8 FKs em cascata destruiriam `publication_item_media` (474 mil linhas) num "mover" ingênuo — corrigido copiando a mídia antes do delete. Ligado em 30/08 a pedido do usuário: 4.361 itens já movidos com as mídias junto, ~10 mil/hora |
 | **OBS.1** | **concluída** — nenhum gatilho de rollback acionado |
 
 ---

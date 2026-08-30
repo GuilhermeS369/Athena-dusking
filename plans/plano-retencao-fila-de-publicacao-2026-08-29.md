@@ -165,6 +165,51 @@ tamanho: um plano de 7 dias para 5.000 perfis materializa ~840 mil itens de uma
 vez e, sobre as 462 mil atuais, estoura 1,3 milhão num salto só. Continua
 obrigatório antes de escalar a frota.
 
+
+## Ligado em 30/08/2026 — e o que apareceu ao ligar
+
+A decisão de esperar o gatilho foi revista: capacidade desligada não melhora
+nada, e ligar **agora** é mais seguro do que ligar depois. Motivo concreto: dos
+344 mil arquivados, só **25.155 tinham mais de 7 dias**. Os outros ~320 mil foram
+arquivados no mesmo dia (pelo B1), então ficam elegíveis aos poucos, ao longo de
+uma semana. Ligar hoje começa uma drenagem gradual; ligar em dezembro seria
+encarar tudo de uma vez.
+
+### O timeout, e a causa que era maior que o recurso
+
+A primeira execução morreu com `canceling statement due to statement timeout`.
+Não era o arquivo frio: apagar uma linha de `publication_items` obriga o Postgres
+a resolver cada chave estrangeira que aponta para ela, e **duas tabelas grandes
+não tinham índice** na coluna referenciadora:
+
+| Tabela | Linhas varridas por item apagado |
+|---|---:|
+| `instagram_observability_events` | 613.611 |
+| `profile_post_analytics_snapshots` | 150.352 |
+
+**~764 mil linhas varridas para apagar UMA publicação.** Isso encarecia toda
+exclusão de item no sistema, em qualquer caminho — o arquivo frio só foi o
+primeiro a bater no teto de tempo e tornar o problema visível. Corrigido na
+migration 334, com índices parciais (as colunas são anuláveis).
+
+### Custo real, medido depois dos índices
+
+| Lote | Tempo |
+|---|---:|
+| 1 item | 960 ms |
+| 10 itens | 1.699 ms |
+| **50 itens** | **4.019 ms** ← escolhido |
+| 100 itens | 7.973 ms ← na beira do limite de 8 s |
+
+São ~900 ms fixos mais ~80 ms por item, porque cada delete resolve 14 chaves
+estrangeiras. O lote de 500 do desenho original levaria ~40 s.
+
+### Estado
+
+4.361 itens movidos, **4.363 linhas de mídia** junto (mais mídias que itens
+porque carrossel tem várias posições por item — a proporção correta). Ritmo de
+~10 mil/hora, zero erro novo. Restam 20.794 elegíveis.
+
 ## O que NÃO fazer
 
 - **Não tornar parciais os quatro índices sem filtro.** Eles servem às telas de
