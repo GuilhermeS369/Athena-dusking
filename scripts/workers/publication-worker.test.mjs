@@ -140,6 +140,29 @@ test('staging cede ao atraso crítico quando há itens já aceitos competindo po
   }), true);
 });
 
+// O CASO QUE FALTAVA. Os testes cobriam os dois cenarios limpos e deixaram de
+// fora o misto - que e o unico que acontece de verdade em producao. Medido em
+// 30/08/2026: overdueAccepted E overdueUnstarted verdadeiros ao mesmo tempo, com
+// o teto de seguranca sendo acionado de novo e de novo.
+test('staging não cede quando há atraso de itens não iniciados, mesmo havendo aceitos', () => {
+  assert.equal(shouldStagingYieldToPressure({
+    criticalDelay: true, overdueAccepted: true, overdueUnstarted: true,
+  }, { resolvesUnstarted: true }), false);
+});
+
+// A MESMA regra, para a GERACAO, tem de dar o resultado OPOSTO. A geracao cria
+// trabalho futuro e nao destrava item atrasado nenhum; se ela parasse de ceder,
+// voltaria a competir com as publicacoes do momento presente - o problema que
+// originou toda esta frente de trabalho.
+test('a geração continua cedendo ao atraso crítico, porque não é ela que o resolve', () => {
+  assert.equal(shouldStagingYieldToPressure({
+    criticalDelay: true, overdueAccepted: true, overdueUnstarted: true,
+  }), true);
+  assert.equal(shouldStagingYieldToPressure({
+    criticalDelay: true, overdueAccepted: true, overdueUnstarted: true,
+  }, { resolvesUnstarted: false }), true);
+});
+
 test('staging não cede quando não há atraso crítico', () => {
   assert.equal(shouldStagingYieldToPressure({ criticalDelay: false, overdueAccepted: false }), false);
   assert.equal(shouldStagingYieldToPressure(null), false);

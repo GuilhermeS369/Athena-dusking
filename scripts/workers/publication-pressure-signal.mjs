@@ -27,10 +27,34 @@ export async function loadPublicationPressureSignal(supabase, criticalDelaySecon
 // única fase capaz de resolvê-lo; ceder incondicionalmente cria um laço fechado (nunca roda
 // porque o atraso nunca some, e o atraso nunca some porque nunca roda). Sinal antigo/ambíguo
 // (overdueAccepted desconhecido) mantém o comportamento anterior.
-export function shouldYieldToPublicationPressure(pressure) {
+// `resolvesUnstarted` diz se QUEM PERGUNTA e a fase capaz de destravar itens
+// atrasados e nao iniciados:
+//   * staging  -> true  (e ele quem prepara o envelope; sem isso o item nunca sai)
+//   * geracao  -> false (cria trabalho FUTURO; nao resolve atraso nenhum, e
+//                        competir com a publicacao do momento presente e
+//                        exatamente o que nao se quer)
+// A regra e a mesma; o papel de cada consumidor e que muda.
+export function shouldYieldToPublicationPressure(pressure, { resolvesUnstarted = false } = {}) {
   if (!pressure || pressure.criticalDelay !== true) return false;
   if (pressure.overdueAccepted === null || pressure.overdueAccepted === undefined) return true;
-  return pressure.overdueAccepted === true;
+  if (pressure.overdueAccepted !== true) return false;
+  // MEDIDO EM PRODUCAO (30/08/2026): o log mostrou `overdueAccepted: true` E
+  // `overdueUnstarted: true` ao mesmo tempo, com oldestDueAt de 17 a 23 minutos
+  // atras, e o teto de seguranca sendo acionado repetidamente
+  // (forcedThroughCriticalDelayCount saiu de 0). Consequencia medida na noite:
+  // espera na fila p99 de 949s para 2.327s.
+  //
+  // A versao anterior so olhava `overdueAccepted`, e portanto cedia sempre que
+  // houvesse QUALQUER item aceito atrasado - mesmo havendo itens NAO INICIADOS
+  // atrasados junto. Mas item nao iniciado so sai do lugar pelo staging: ceder
+  // ali alimenta o proprio atraso, que e o laco fechado que este arquivo diz,
+  // no comentario acima, existir para evitar. O comentario dizia "SO de itens
+  // nao iniciados"; o codigo nunca checou o "so".
+  //
+  // Ceder continua certo quando o atraso e PURAMENTE de itens ja aceitos: ai o
+  // gargalo e o provedor, e preparar mais envelopes nao ajuda ninguem.
+  if (resolvesUnstarted && pressure.overdueUnstarted === true) return false;
+  return true;
 }
 
 // Rede de segurança independente da distinção acima: se um consumidor ficar preso cedendo ao

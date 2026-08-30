@@ -640,7 +640,10 @@ async function runStagingCycle(supabase, spool) {
       console.error('[publication-worker] falha ao consultar pressão crítica de publicação', errorMessage(pressureError));
     }
   }
-  if (cachedStagingPressure.criticalDelay && shouldStagingYieldToPressure(cachedStagingPressure)) {
+  // resolvesUnstarted: o staging E a fase que destrava item atrasado e nao
+  // iniciado. Ceder por causa deles alimentaria o proprio atraso.
+  if (cachedStagingPressure.criticalDelay
+    && shouldStagingYieldToPressure(cachedStagingPressure, { resolvesUnstarted: true })) {
     const forceThrough = shouldForceStagingThroughCriticalDelay(
       criticalDelayYieldStreakStartedAt, now, stagingCriticalDelayForceAfterMs,
     );
