@@ -189,7 +189,11 @@ function activateZernioBackpressure(error) {
   }
   zernioBackpressureUntil = Math.max(zernioBackpressureUntil, now + zernioBackpressureDurationMs);
   zernioRecentFailures = [];
-  console.warn('[publication-worker] backpressure Zernio ativado', {
+  // console.info, nao console.warn: warn vai para o log de ERRO do PM2, e o
+  // tamanho desse log e o sinal de saude usado para decidir rollback. Ativacao
+  // de backpressure e informacao operacional esperada, nao falha - poluir o
+  // canal de erro com ela cega justamente o alarme que importa.
+  console.info('[publication-worker] backpressure Zernio ativado', {
     motivo: error?.httpStatus === 429 ? 'http_429_explicito' : 'falhas_transitorias_repetidas',
     httpStatus: error?.httpStatus ?? null,
     duracaoMs: zernioBackpressureDurationMs,
