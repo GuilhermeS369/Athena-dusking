@@ -36,8 +36,15 @@ const archiveBudgetMs = integerEnv('MEDIA_MAINTENANCE_ARCHIVE_BUDGET_MS', 20000,
 // de 1 milhao de linhas. Ligar antes disso gasta I/O sem necessidade.
 const coldStorageEnabled = (process.env.MEDIA_MAINTENANCE_COLD_STORAGE_ENABLED || 'false') === 'true';
 const coldStorageIntervalMs = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_INTERVAL_MS', 3600000, 300000, 21600000);
-const coldStorageBudgetMs = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_BUDGET_MS', 15000, 1000, 120000);
+const coldStorageBudgetMs = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_BUDGET_MS', 30000, 1000, 120000);
 const coldStorageRetentionDays = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_RETENTION_DAYS', 7, 7, 90);
+// MEDIDO EM PRODUCAO (30/08/2026), depois dos indices da migration 334:
+//   1 item .... 960ms   |  50 itens .. 4.019ms  (seguro)
+//  10 itens .. 1.699ms  | 100 itens .. 7.973ms  (na beira do timeout de 8s)
+// Sao ~900ms fixos mais ~80ms por item, porque cada delete resolve 14 chaves
+// estrangeiras. Lote de 500 levaria ~40s e estourava o statement timeout - foi
+// exatamente o que aconteceu na primeira tentativa.
+const coldStorageBatch = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_BATCH', 50, 1, 100);
 
 let lastArchiveAt = 0;
 let lastColdStorageAt = 0;
@@ -180,7 +187,7 @@ async function moveArchivedItemsToColdStorage(supabase) {
       const { data, error: moveError } = await supabase.rpc('move_archived_publication_items_to_cold_storage', {
         p_organization_id: organization.id,
         p_retention_days: coldStorageRetentionDays,
-        p_limit: 500,
+        p_limit: coldStorageBatch,
       });
       if (moveError) {
         // A divergencia de colunas entre a tabela quente e a fria chega aqui.
