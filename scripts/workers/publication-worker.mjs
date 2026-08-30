@@ -534,6 +534,54 @@ export async function stagingHasSafeWindow(spool, now = Date.now(), dueGuardMs =
   return nearDue.length === 0;
 }
 
+// Entrada de spool so vale enquanto o lease de staging dela vale. Sem isto, um
+// item cujo lease expirou fica no spool PARA SEMPRE: e escolhido a cada ciclo,
+// a ativacao o recusa, e nada nunca o remove.
+//
+// MEDIDO EM PRODUCAO (30/08/2026): o log repetia
+//   due: 43, selected: 5, activated: 0
+// dezenas de vezes seguidas. Os 43 tinham 100% dos leases de staging expirados,
+// um deles com execute_at de 29 HORAS antes e status ja `ignored` no banco. Eram
+// zumbis girando em falso desde o dia anterior.
+//
+// O banco e a fonte da verdade: se o item ainda precisa sair, o staging o
+// reivindica de novo (o lease expirado o torna reclamavel). Remover a entrada
+// morta nao perde publicacao nenhuma.
+async function discardUnactivatableSpoolEntries(supabase, spool, itemIds) {
+  if (!itemIds.length) return 0;
+  const { data, error } = await supabase
+    .from('publication_items')
+    .select('id, status, archived_at, dispatch_staged_until')
+    .in('id', itemIds);
+  if (error) {
+    console.error('[publication-worker] não foi possível verificar entradas de spool não ativadas', {
+      workerId,
+      message: errorMessage(error),
+    });
+    return 0;
+  }
+  const now = Date.now();
+  const byId = new Map((data ?? []).map((row) => [row.id, row]));
+  let discarded = 0;
+  for (const itemId of itemIds) {
+    const row = byId.get(itemId);
+    // Linha sumiu do banco, ja foi arquivada, chegou a estado terminal, ou o
+    // lease de staging expirou — nos quatro casos a entrada nao serve mais.
+    const morta = !row
+      || row.archived_at != null
+      || ['published', 'cancelled', 'ignored', 'removed'].includes(row.status)
+      || !row.dispatch_staged_until
+      || Date.parse(row.dispatch_staged_until) <= now;
+    if (!morta) continue;
+    await spool.remove(itemId);
+    discarded += 1;
+  }
+  if (discarded > 0) {
+    console.info('[publication-worker] entradas de spool descartadas', { workerId, discarded });
+  }
+  return discarded;
+}
+
 async function dispatchDueStagedPublications(supabase, spool, correlationId) {
   const now = Date.now();
   const allDue = await spool.listDue(now, 5000);
@@ -558,6 +606,11 @@ async function dispatchDueStagedPublications(supabase, spool, correlationId) {
   if (error) throw error;
   const claimedById = new Map((data ?? []).map((item) => [item.id, item]));
   const activated = due.filter((entry) => claimedById.has(entry.itemId));
+  await discardUnactivatableSpoolEntries(
+    supabase,
+    spool,
+    due.filter((entry) => !claimedById.has(entry.itemId)).map((entry) => entry.itemId),
+  );
   const settled = await mapWithConcurrency(activated, stagedDispatchConcurrency, async (envelope) => {
     const item = { ...claimedById.get(envelope.itemId), correlation_id: correlationId };
     const result = await processClaimedItem(item, workerId, envelope);
