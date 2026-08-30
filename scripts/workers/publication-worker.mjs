@@ -59,7 +59,16 @@ const stagingWindowSeconds = integerEnv('PUBLICATION_WORKER_STAGING_WINDOW_SECON
 const stagingLimit = integerEnv('PUBLICATION_WORKER_STAGING_LIMIT', 100, 1, 500);
 const stagingConcurrency = integerEnv('PUBLICATION_WORKER_STAGING_CONCURRENCY', 4, 1, 20);
 const stagingLeaseSeconds = integerEnv('PUBLICATION_WORKER_STAGING_LEASE_SECONDS', 1200, 120, 7200);
-const stagingDueGuardMs = integerEnv('PUBLICATION_WORKER_STAGING_DUE_GUARD_MS', 60000, 5000, 300000);
+// MEDIDO EM PRODUCAO (30/08/2026). Com 60.000 ms, "existe publicacao vencendo em
+// breve" era quase sempre verdade sob carga normal, e o staging so rodava 1 ciclo
+// a cada 4 (o teto de cessoes o forcava). Com 5.000 ms o mesmo heartbeat passou a
+// mostrar `claimed: 25, persisted: 20, skipped: null` - trabalho de verdade, pela
+// primeira vez em todas as amostras coletadas nesta investigacao.
+//
+// O valor de 60 s foi escolhido quando a VPS tinha 1 nucleo; hoje tem 2. E ceder
+// sob pressao continua existindo pela guarda `critical_publication_delay_accepted`,
+// que e a legitima e tem teto de 5 min.
+const stagingDueGuardMs = integerEnv('PUBLICATION_WORKER_STAGING_DUE_GUARD_MS', 5000, 1000, 300000);
 const stagedDispatchLimit = integerEnv('PUBLICATION_WORKER_STAGED_DISPATCH_LIMIT', 500, 1, 500);
 const stagedDispatchConcurrency = integerEnv('PUBLICATION_WORKER_STAGED_DISPATCH_CONCURRENCY', 32, 1, 64);
 const stagedDispatchLeaseSeconds = integerEnv('PUBLICATION_WORKER_STAGED_DISPATCH_LEASE_SECONDS', 900, 30, 900);
