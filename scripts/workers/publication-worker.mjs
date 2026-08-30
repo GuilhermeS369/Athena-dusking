@@ -608,9 +608,44 @@ async function discardUnactivatableSpoolEntries(supabase, spool, itemIds) {
   return discarded;
 }
 
+// INSTRUMENTACAO DO LACO DE DESPACHO (30/08/2026).
+//
+// Por que existe: as ondas GRANDES criam a ~75 posts/min enquanto as PEQUENAS
+// criam a ~800/min, na mesma maquina, no mesmo minuto, contra a mesma Zernio.
+// Cada criacao custa 6,5s medidos, e com concorrencia 49 isso deveria dar
+// ~450/min. Existe um fator de ~6 escondido no laco que quatro experimentos de
+// tentativa-e-erro nao acharam (staging, concorrencia do staged dispatch, teto
+// por organizacao e cessao do guard foram todos refutados por medicao).
+//
+// Medir pelo RESULTADO nao funciona aqui: o sistema recebe atividade humana
+// concorrente (agendamento em massa, cancelamento, sincronizacao de perfis) que
+// muda os tempos e some com a atribuicao de causa. Medindo POR DENTRO, cada
+// ciclo diz onde o proprio tempo foi, sem depender do que mais acontecia.
+//
+// Custo: um Date.now() por fase e uma ordenacao de array por ciclo. Desprezivel
+// perto dos 6,5s de uma unica chamada ao provedor.
+function resumoDeTempos(amostras) {
+  if (!amostras.length) return null;
+  const ordenado = [...amostras].sort((a, b) => a - b);
+  const emP = (p) => ordenado[Math.min(ordenado.length - 1, Math.floor(ordenado.length * p))];
+  return {
+    n: ordenado.length,
+    p50: Math.round(emP(0.5)),
+    p90: Math.round(emP(0.9)),
+    max: Math.round(ordenado[ordenado.length - 1]),
+    somaMs: Math.round(ordenado.reduce((a, b) => a + b, 0)),
+  };
+}
+
 async function dispatchDueStagedPublications(supabase, spool, correlationId) {
+  const cicloIniciadoEm = Date.now();
+  const fases = {};
+  const marcar = (nome, desde) => { fases[nome] = Date.now() - desde; };
+
   const now = Date.now();
   const allDue = await spool.listDue(now, 5000);
+  marcar('lerSpool', now);
+  const selecaoIniciadaEm = Date.now();
   const windowed = selectWithinOrganizationDispatchWindow(
     allDue,
     stagedOrganizationDispatches,
@@ -619,33 +654,66 @@ async function dispatchDueStagedPublications(supabase, spool, correlationId) {
     stagedMaxPerOrganizationPerMinute,
   );
   const due = windowed.selected;
+  marcar('selecionar', selecaoIniciadaEm);
   stagedOrganizationDispatches.clear();
   for (const [organizationId, timestamps] of windowed.nextHistory.entries()) {
     stagedOrganizationDispatches.set(organizationId, timestamps);
   }
   if (due.length === 0) return { due: allDue.length, selected: 0, activated: 0, processed: [] };
+  const ativacaoIniciadaEm = Date.now();
   const { data, error } = await supabase.rpc('activate_staged_publication_items', {
     p_worker_id: workerId,
     p_item_ids: due.map((entry) => entry.itemId),
     p_lease_seconds: stagedDispatchLeaseSeconds,
   });
   if (error) throw error;
+  marcar('ativarNoBanco', ativacaoIniciadaEm);
   const claimedById = new Map((data ?? []).map((item) => [item.id, item]));
   const activated = due.filter((entry) => claimedById.has(entry.itemId));
+  const descarteIniciadoEm = Date.now();
   await discardUnactivatableSpoolEntries(
     supabase,
     spool,
     due.filter((entry) => !claimedById.has(entry.itemId)).map((entry) => entry.itemId),
   );
+  marcar('descartarMortos', descarteIniciadoEm);
+
+  // Por item: quanto tempo cada um passou DENTRO de processClaimedItem (que
+  // inclui reserva de capacidade, chamada ao provedor e escrita de volta), e
+  // quanto ficou esperando slot de concorrencia antes de comecar.
+  const processamentoIniciadoEm = Date.now();
+  const duracaoPorItem = [];
+  const esperaPorSlot = [];
   const settled = await mapWithConcurrency(activated, stagedDispatchConcurrency, async (envelope) => {
+    const comecouEm = Date.now();
+    esperaPorSlot.push(comecouEm - processamentoIniciadoEm);
     const item = { ...claimedById.get(envelope.itemId), correlation_id: correlationId };
-    const result = await processClaimedItem(item, workerId, envelope);
-    await spool.remove(envelope.itemId);
-    return result;
+    try {
+      const result = await processClaimedItem(item, workerId, envelope);
+      await spool.remove(envelope.itemId);
+      return result;
+    } finally {
+      duracaoPorItem.push(Date.now() - comecouEm);
+    }
   });
+  marcar('processarItens', processamentoIniciadoEm);
   const processed = settled.map((entry, index) => entry.status === 'fulfilled'
     ? entry.value
     : { itemId: activated[index].itemId, state: 'error', error: errorMessage(entry.reason) });
+  // So loga quando houve trabalho de verdade: em vale de agendamento isso rodaria
+  // a cada 5s sem dizer nada.
+  if (activated.length > 0) {
+    console.info('[publication-worker] tempos do ciclo de despacho', {
+      workerId,
+      itens: activated.length,
+      concorrencia: stagedDispatchConcurrency,
+      cicloMs: Date.now() - cicloIniciadoEm,
+      fasesMs: fases,
+      porItemMs: resumoDeTempos(duracaoPorItem),
+      esperaPorSlotMs: resumoDeTempos(esperaPorSlot),
+    });
+  }
+
   return { due: allDue.length, selected: due.length, activated: activated.length, processed };
 }
 
