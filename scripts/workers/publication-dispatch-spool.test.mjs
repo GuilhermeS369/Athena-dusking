@@ -87,3 +87,45 @@ test('spool recupera 1.000 envelopes persistidos após reinício, sem esperar le
     console.info('[spool restart 1000] tempos', { writeElapsedMs, initializeElapsedMs, listElapsedMs, listDueElapsedMs });
   });
 });
+
+// A corrida ficou visivel em 30/08/2026: com o staging deixando de ceder
+// indefinidamente ao despacho, os dois lacos passaram a rodar de fato ao mesmo
+// tempo e o despacho removia arquivos entre o `readdir` e a leitura da
+// listagem. O ciclo inteiro morria com "Spool corrompido" - por concorrencia
+// normal, nao por corrupcao. O erro ja existia antes; so nao aparecia porque os
+// lacos quase nunca se cruzavam.
+test('arquivo removido entre o readdir e a leitura nao derruba a listagem', async () => {
+  await withSpool(async (spool, directory) => {
+    const vivo = '00000000-0000-4000-8000-0000000000a1';
+    const removido = '00000000-0000-4000-8000-0000000000a2';
+    await spool.put(envelope(vivo, '2026-08-30T04:00:00.000Z'));
+    await spool.put(envelope(removido, '2026-08-30T04:00:00.000Z'));
+
+    // Simula o despacho publicando e removendo um dos dois no meio da listagem.
+    const original = fs.readFile;
+    let primeira = true;
+    fs.readFile = async (...args) => {
+      if (primeira) {
+        primeira = false;
+        await fs.unlink(path.join(directory, `${removido}.json`)).catch(() => {});
+      }
+      return original(...args);
+    };
+    try {
+      const envelopes = await spool.list();
+      assert.ok(envelopes.length >= 1, 'a listagem devolve o que sobrou em vez de estourar');
+      assert.equal(envelopes.some((entry) => entry.itemId === removido), false);
+    } finally {
+      fs.readFile = original;
+    }
+  });
+});
+
+// Corrupcao de verdade continua estourando: o remedio acima nao pode virar um
+// silenciador de erro real.
+test('JSON invalido continua sendo tratado como spool corrompido', async () => {
+  await withSpool(async (spool, directory) => {
+    await fs.writeFile(path.join(directory, '00000000-0000-4000-8000-0000000000a3.json'), '{ nao e json valido');
+    await assert.rejects(() => spool.list(), /Spool corrompido/);
+  });
+});

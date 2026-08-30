@@ -71,6 +71,20 @@ export class PublicationDispatchSpool {
         assertEnvelope(envelope);
         envelopes.push(envelope);
       } catch (error) {
+        // ENOENT aqui NAO e corrupcao: e concorrencia normal. Entre o `readdir`
+        // acima e esta leitura, o laco de despacho pode ter publicado o item e
+        // removido o arquivo. `get()` ja tratava esse caso devolvendo null; a
+        // listagem nao tratava, e derrubava o ciclo inteiro com "Spool
+        // corrompido".
+        //
+        // A corrida ficou visivel em 30/08/2026, quando o staging deixou de
+        // ceder indefinidamente ao despacho e os dois passaram a rodar de fato
+        // ao mesmo tempo. O erro estava aqui antes disso - so nao aparecia
+        // porque os lacos quase nunca se cruzavam.
+        //
+        // Qualquer OUTRO erro (JSON invalido, envelope fora de forma) continua
+        // sendo corrupcao de verdade e continua estourando.
+        if (error?.code === 'ENOENT') continue;
         error.message = `Spool corrompido em ${entry.name}: ${error.message}`;
         throw error;
       }
