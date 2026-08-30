@@ -30,7 +30,17 @@ const archiveIntervalMs = integerEnv('MEDIA_MAINTENANCE_ARCHIVE_INTERVAL_MS', 60
 // Orcamento por ciclo, para o arquivamento nunca competir com a publicacao.
 const archiveBudgetMs = integerEnv('MEDIA_MAINTENANCE_ARCHIVE_BUDGET_MS', 20000, 1000, 120000);
 
+// B4 (arquivo frio). DESLIGADO POR PADRAO, de proposito: a capacidade fica
+// pronta, mas so entra em acao quando o gatilho documentado disparar - memoria
+// do Supabase acima de 85%, disco acima de 80%, ou publication_items passando
+// de 1 milhao de linhas. Ligar antes disso gasta I/O sem necessidade.
+const coldStorageEnabled = (process.env.MEDIA_MAINTENANCE_COLD_STORAGE_ENABLED || 'false') === 'true';
+const coldStorageIntervalMs = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_INTERVAL_MS', 3600000, 300000, 21600000);
+const coldStorageBudgetMs = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_BUDGET_MS', 15000, 1000, 120000);
+const coldStorageRetentionDays = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_RETENTION_DAYS', 7, 7, 90);
+
 let lastArchiveAt = 0;
+let lastColdStorageAt = 0;
 
 let stopping = false;
 let lastHeartbeatAt = 0;
@@ -152,6 +162,48 @@ async function archiveFinishedItems(supabase) {
   return { archived, organizationsTouched, exhaustedBudget, durationMs: Date.now() - startedAt };
 }
 
+// Move para o arquivo frio o que ja passou da retencao. A funcao no banco tem
+// piso de 7 dias e copia publication_item_media ANTES do delete, porque a FK
+// original e `on delete cascade` e o delete apagaria o registro de qual midia
+// foi publicada.
+async function moveArchivedItemsToColdStorage(supabase) {
+  const startedAt = Date.now();
+  const { data: organizations, error } = await supabase.from('organizations').select('id, name');
+  if (error) throw error;
+
+  let movedItems = 0;
+  let movedMedia = 0;
+  let exhaustedBudget = false;
+
+  for (const organization of organizations || []) {
+    while (Date.now() - startedAt < coldStorageBudgetMs) {
+      const { data, error: moveError } = await supabase.rpc('move_archived_publication_items_to_cold_storage', {
+        p_organization_id: organization.id,
+        p_retention_days: coldStorageRetentionDays,
+        p_limit: 500,
+      });
+      if (moveError) {
+        // A divergencia de colunas entre a tabela quente e a fria chega aqui.
+        // E erro de manutencao, nao de dado: precisa aparecer inteiro no log.
+        console.error('[media-maintenance-worker] falha ao mover para o arquivo frio', {
+          organization: organization.name,
+          message: moveError.message,
+        });
+        break;
+      }
+      movedItems += data?.movedItems || 0;
+      movedMedia += data?.movedMedia || 0;
+      if (!data?.hasMore) break;
+    }
+    if (Date.now() - startedAt >= coldStorageBudgetMs) {
+      exhaustedBudget = true;
+      break;
+    }
+  }
+
+  return { movedItems, movedMedia, exhaustedBudget, durationMs: Date.now() - startedAt };
+}
+
 async function tick() {
   if (!workerSecret) throw new Error('MEDIA_DELETION_WORKER_SECRET, PUBLICATION_WORKER_SECRET ou CRON_SECRET é obrigatório.');
 
@@ -197,6 +249,18 @@ async function main() {
         });
         if (archive && archive.archived > 0) {
           console.info('[media-maintenance-worker] encerrados arquivados', archive);
+        }
+      }
+
+      let coldStorage = null;
+      if (coldStorageEnabled && Date.now() - lastColdStorageAt >= coldStorageIntervalMs) {
+        lastColdStorageAt = Date.now();
+        coldStorage = await moveArchivedItemsToColdStorage(supabase).catch((error) => {
+          console.error('[media-maintenance-worker] falha no arquivo frio', error);
+          return null;
+        });
+        if (coldStorage && coldStorage.movedItems > 0) {
+          console.info('[media-maintenance-worker] itens movidos para o arquivo frio', coldStorage);
         }
       }
 
