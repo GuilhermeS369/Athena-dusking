@@ -34,7 +34,11 @@ test('dashboard V2 e refresh manual não reutilizam resposta analítica obsoleta
   assert.match(client, /cache: 'no-store'/);
   assert.match(client, /analyticsRevision/);
   assert.match(client, /pendingRefreshMessageRef/);
-  assert.match(client, /Cobertura parcial/);
+  // O aviso de cobertura deixou de ser uma fração única e passou a separar
+  // "publicou e não coletamos" de "não publicou" e "hoje ainda maturando"
+  // (lib/dashboard/coverage-notes.ts). O texto antigo continua existindo lá
+  // como fallback enquanto a migração 339 não estiver aplicada.
+  assert.match(client, /dashboardCoverageNotes/);
   assert.match(server, /order\('metric_date', \{ ascending: false \}\)/);
   assert.match(server, /priorize os dias recentes/);
 });

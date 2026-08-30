@@ -50,7 +50,15 @@ const supabase = createClient(requiredEnv('NEXT_PUBLIC_SUPABASE_URL'), requiredE
 let stopping = false;
 let lastHeartbeatAt = 0;
 let lastPressureCheckAt = 0;
-let cachedPublicationPressure = { criticalDelay: false, oldestDueAt: null as string | null, checkedAt: null as string | null };
+type PressureDecision = Awaited<ReturnType<typeof import('../../lib/integrations/analytics-pressure.ts').resolveAnalyticsPressure>>;
+let cachedPressureDecision: PressureDecision = {
+  mode: 'full',
+  reason: null,
+  concurrency,
+  limit,
+  criticalDelaySeconds: 0,
+  pressure: null,
+};
 process.on('SIGINT', () => { stopping = true; });
 process.on('SIGTERM', () => { stopping = true; });
 
@@ -116,23 +124,18 @@ async function tick() {
   if (!enabled) return { observed: true, chunks: 0, hasMore: false };
 
   if (Date.now() - lastPressureCheckAt >= 60_000) {
-    const { data: pressure, error: pressureError } = await supabase.rpc(
-      'get_publication_generation_pressure_signal',
-      { p_critical_delay_seconds: 60 },
-    );
-    if (pressureError) throw pressureError;
-    cachedPublicationPressure = {
-      criticalDelay: pressure?.criticalDelay === true,
-      oldestDueAt: typeof pressure?.oldestDueAt === 'string' ? pressure.oldestDueAt : null,
-      checkedAt: typeof pressure?.checkedAt === 'string' ? pressure.checkedAt : new Date().toISOString(),
-    };
+    // Atraso de publicação passa a degradar o ciclo, não interrompê-lo: com o
+    // limiar antigo de 60s o analytics ficava parado quase o tempo inteiro.
+    // Ver lib/integrations/analytics-pressure.ts.
+    const { resolveAnalyticsPressure } = await import('../../lib/integrations/analytics-pressure.ts');
+    cachedPressureDecision = await resolveAnalyticsPressure(supabase, { concurrency, limit });
     lastPressureCheckAt = Date.now();
   }
-  if (cachedPublicationPressure.criticalDelay) {
+  if (cachedPressureDecision.mode === 'paused') {
     return {
       paused: true,
-      reason: 'critical_publication_delay',
-      publicationPressure: cachedPublicationPressure,
+      reason: cachedPressureDecision.reason,
+      publicationPressure: cachedPressureDecision,
       chunks: 0,
       hasMore: false,
     };
@@ -144,8 +147,8 @@ async function tick() {
   const legacy = await dispatchProfileAnalyticsRefreshJobs({
     workerId,
     organizationIds,
-    limit,
-    concurrency,
+    limit: cachedPressureDecision.limit,
+    concurrency: cachedPressureDecision.concurrency,
     leaseSeconds,
     shadowEnabled: false,
   });
@@ -187,6 +190,13 @@ async function tick() {
     liveCurrent,
     liveDaily,
     livePosts,
+    publicationPressure: {
+      mode: cachedPressureDecision.mode,
+      reason: cachedPressureDecision.reason,
+      concurrency: cachedPressureDecision.concurrency,
+      limit: cachedPressureDecision.limit,
+      oldestDueAt: cachedPressureDecision.pressure?.oldestDueAt ?? null,
+    },
     hasMore: legacy.hasMore || liveCurrent.hasMore || liveDaily.hasMore || livePosts.hasMore,
   };
 }

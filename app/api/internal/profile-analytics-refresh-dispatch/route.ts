@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 
+import { resolveAnalyticsPressure } from '@/lib/integrations/analytics-pressure';
 import { dispatchProfileAnalyticsRefreshJobs } from '@/lib/integrations/profile-analytics-refresh-worker';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
@@ -58,23 +59,25 @@ export async function POST(request: Request) {
 
   try {
     const admin = createSupabaseAdminClient();
-    const { data: pressure, error: pressureError } = await admin.rpc(
-      'get_publication_generation_pressure_signal',
-      { p_critical_delay_seconds: 60 },
-    );
-    if (pressureError) throw pressureError;
-    if (pressure?.criticalDelay === true) {
+    // O analytics não cede mais a fila inteira por atraso de publicação: com o
+    // limiar antigo de 60s ele passava ~99,5% do tempo pausado. Ver
+    // lib/integrations/analytics-pressure.ts.
+    const pressureDecision = await resolveAnalyticsPressure(admin, {
+      concurrency: Number.isInteger(body.concurrency) ? body.concurrency! : 10,
+      limit: Number.isInteger(body.limit) ? body.limit! : 20,
+    });
+    if (pressureDecision.mode === 'paused') {
       return NextResponse.json({
         paused: true,
-        reason: 'critical_publication_delay',
-        pressure,
+        reason: pressureDecision.reason,
+        pressure: pressureDecision.pressure,
       }, { status: 202, headers: { 'Cache-Control': 'no-store' } });
     }
     const excludedOrganizationIds = await activeDirectVpsOrganizations();
     const result = await dispatchProfileAnalyticsRefreshJobs({
       workerId: body.workerId,
-      limit: body.limit,
-      concurrency: body.concurrency,
+      limit: pressureDecision.limit,
+      concurrency: pressureDecision.concurrency,
       leaseSeconds: body.leaseSeconds,
       shadowEnabled: body.shadowEnabled,
       shadowLimit: body.shadowLimit,
@@ -84,6 +87,14 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({
       ...result,
+      publicationPressure: {
+        mode: pressureDecision.mode,
+        reason: pressureDecision.reason,
+        concurrency: pressureDecision.concurrency,
+        limit: pressureDecision.limit,
+        criticalDelaySeconds: pressureDecision.criticalDelaySeconds,
+        oldestDueAt: pressureDecision.pressure?.oldestDueAt ?? null,
+      },
       vpsFirst: {
         excludedOrganizationIds,
         fallbackActive: excludedOrganizationIds.length === 0,

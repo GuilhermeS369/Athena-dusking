@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 
 import type { DashboardData } from '@/lib/dashboard/server';
-import { buildDailyMetricTimeSeries, dailyMetricRanking, dailyMetricValue, dashboardPeriodRange, filterDailyMetricsForPeriod, sumDailyMetrics, type DashboardMetric } from '@/lib/dashboard/analytics-period';
+import { buildDailyMetricTimeSeries, dailyMetricRanking, dailyMetricValue, dashboardPeriodRange, filterDailyMetricsForPeriod, saoPauloDateKey, sumDailyMetrics, type DashboardMetric } from '@/lib/dashboard/analytics-period';
+import { dashboardCoverageNotes } from '@/lib/dashboard/coverage-notes';
 import type { DashboardV2Analytics, DashboardV2Section, DashboardV2TopPost } from '@/lib/dashboard/v2-types';
 import twitterStyles from './x/twitter-dashboard.module.css';
 
@@ -321,12 +322,14 @@ export default function DashboardClient({
   const effectiveTopPost = effectiveTopPosts[0];
   const effectiveStatusRollups = v2Analytics?.publication_status;
   const effectiveFormatRollups = v2Analytics?.publication_format;
-  const v2CoverageWarning = v2Analytics && (
-    v2Analytics.coverage.profiles_with_metrics < v2Analytics.coverage.selected_profiles
-    || v2Analytics.coverage.last_metric_date !== periodRange.endDate
-  )
-    ? `Cobertura parcial: ${v2Analytics.coverage.profiles_with_metrics}/${v2Analytics.coverage.selected_profiles} perfis com métricas; última data disponível ${v2Analytics.coverage.last_metric_date ?? 'indisponível'}.`
-    : '';
+  // Uma fração única ("598/1105") tratava "publicou e não coletamos", "não
+  // publicou nada" e "hoje ainda está maturando" como o mesmo alarme.
+  // Ver lib/dashboard/coverage-notes.ts.
+  const v2CoverageNotes = useMemo(() => dashboardCoverageNotes({
+    coverage: v2Analytics?.coverage,
+    periodEndDate: periodRange.endDate,
+    todayDate: saoPauloDateKey(),
+  }), [periodRange.endDate, v2Analytics]);
 
   return (
     <section className="analytics-page">
@@ -345,7 +348,9 @@ export default function DashboardClient({
       {selectedPlatform === 'instagram' && data.version === 'v1' && <div className="analytics-refresh-status" role="alert">Analytics em modo de contingência. Os dias mais recentes permanecem visíveis, mas períodos extensos podem ter cobertura parcial.</div>}
       {selectedPlatform === 'instagram' && data.version === 'v2' && v2Loading && <div className="analytics-refresh-status" role="status">Carregando agregados do filtro…</div>}
       {selectedPlatform === 'instagram' && data.version === 'v2' && v2Error && <div className="analytics-refresh-status" role="alert">{v2Error} O resumo operacional continua disponível.</div>}
-      {selectedPlatform === 'instagram' && data.version === 'v2' && v2CoverageWarning && <div className="analytics-refresh-status" role="status">{v2CoverageWarning}</div>}
+      {selectedPlatform === 'instagram' && data.version === 'v2' && v2CoverageNotes.map((note) => (
+        <div key={note.message} className="analytics-refresh-status" role={note.tone === 'alert' ? 'alert' : 'status'}>{note.message}</div>
+      ))}
 
       <section className="analytics-filter-panel analytics-filter-panel-compact panel" aria-label="Filtros de analytics">
         <label>Plataforma<select value={selectedPlatform} onChange={(event) => { setSelectedPlatform(event.target.value); setSelectedProfileId('all'); setSelectedGroupId('all'); setTwitterConnectionId('all'); }}><option value="instagram">Instagram</option>{twitterEnabled?<option value="twitter">X / Twitter</option>:null}</select></label>

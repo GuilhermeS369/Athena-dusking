@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { currentFollowersFromAccount, currentFollowersFromFollowerStats, latestFollowerRow, normalizeAnalyticsSourceClasses, normalizeFollowerRows, numberValue } from './zernio-analytics-normalizers.ts';
+import { currentFollowersFromAccount, currentFollowersFromFollowerStats, latestFollowerRow, normalizeAnalyticsSourceClasses, normalizeFollowerRows, numberValue, shouldRetryDailyAggregation } from './zernio-analytics-normalizers.ts';
 
 test('normaliza métricas negativas do provedor para zero antes da persistência', () => {
   assert.equal(numberValue(-1), 0);
@@ -73,3 +73,31 @@ test('extrai o total atual de seguidores do fallback de follower-stats por accou
   }, 'principal'), 777);
 });
 
+
+test('vazio da coleta diária vira nova tentativa quando o perfil publicou na janela', () => {
+  // Cenário medido em 30/08/2026: a conta publicou, a Zernio respondeu
+  // `dailyData: []` para a chamada que disparou a agregação dela, e minutos
+  // depois a mesma chamada devolvia os dias.
+  assert.equal(shouldRetryDailyAggregation({
+    collectDaily: true,
+    payloadReceived: true,
+    dailyRowCount: 0,
+    expectsDailyMetrics: true,
+  }), true);
+});
+
+test('perfil sem publicação na janela não entra em loop de tentativa por falta de métrica', () => {
+  assert.equal(shouldRetryDailyAggregation({
+    collectDaily: true,
+    payloadReceived: true,
+    dailyRowCount: 0,
+    expectsDailyMetrics: false,
+  }), false);
+});
+
+test('coleta diária com linhas, ciclo sem daily e falha de payload não reagendam', () => {
+  assert.equal(shouldRetryDailyAggregation({ collectDaily: true, payloadReceived: true, dailyRowCount: 3, expectsDailyMetrics: true }), false);
+  assert.equal(shouldRetryDailyAggregation({ collectDaily: false, payloadReceived: true, dailyRowCount: 0, expectsDailyMetrics: true }), false);
+  // Falha de rede já é classificada como fonte parcial e tem retry próprio.
+  assert.equal(shouldRetryDailyAggregation({ collectDaily: true, payloadReceived: false, dailyRowCount: 0, expectsDailyMetrics: true }), false);
+});

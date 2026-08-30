@@ -21,6 +21,27 @@ export function numberValue(value: unknown) {
   return 0;
 }
 
+// A Zernio agrega as métricas diárias de forma assíncrona: a nossa chamada é o
+// gatilho da coleta dela no Instagram, e a resposta dessa mesma chamada traz o
+// agregado anterior — vazio para uma conta ainda não agregada. Sem distinguir
+// esse vazio de "conta sem nada publicado", o ciclo grava o vazio como sucesso
+// e o perfil fica sem linha diária até o refresh seguinte.
+export function shouldRetryDailyAggregation(input: {
+  collectDaily: boolean;
+  payloadReceived: boolean;
+  dailyRowCount: number;
+  expectsDailyMetrics: boolean;
+}) {
+  // Sem a classe `daily` no ciclo, ou sem resposta da Zernio (falha já tratada
+  // como fonte parcial), não há o que reagendar aqui.
+  if (!input.collectDaily || !input.payloadReceived) return false;
+  // Veio dado: nada pendente.
+  if (input.dailyRowCount > 0) return false;
+  // Conta que não publicou nada na janela realmente não tem o que agregar;
+  // repetir só queimaria tentativa.
+  return input.expectsDailyMetrics;
+}
+
 export function normalizeAnalyticsSourceClasses(sourceClasses?: AnalyticsSourceClass[]) {
   const requested = sourceClasses?.length ? sourceClasses : ALL_ANALYTICS_SOURCE_CLASSES;
   return ALL_ANALYTICS_SOURCE_CLASSES.filter((sourceClass) => requested.includes(sourceClass));

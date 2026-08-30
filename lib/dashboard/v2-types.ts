@@ -82,6 +82,10 @@ export type DashboardV2Analytics = {
     partial_profiles: number;
     first_metric_date: string | null;
     last_metric_date: string | null;
+    // Opcionais até a migração 339 ser aplicada remotamente; ver
+    // lib/dashboard/coverage-notes.ts.
+    profiles_with_publications?: number;
+    profiles_pending_collection?: number;
   };
 };
 

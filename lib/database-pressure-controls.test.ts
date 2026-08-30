@@ -22,6 +22,10 @@ const analyticsRouteUrl = new URL(
   "../app/api/internal/profile-analytics-refresh-dispatch/route.ts",
   import.meta.url,
 );
+const analyticsPressureUrl = new URL(
+  "../lib/integrations/analytics-pressure.ts",
+  import.meta.url,
+);
 const queueActionsRouteUrl = new URL(
   "../app/api/publications/queue-actions/route.ts",
   import.meta.url,
@@ -69,16 +73,36 @@ test("manutenção Zernio preserva contratos e limita o lote efetivo", async () 
   assert.match(migration, /for update of item skip locked/gi);
 });
 
-test("analytics direto e fallback pausam quando a publicação está atrasada", async () => {
-  const [worker, route] = await Promise.all([
+// Até 30/08/2026 o analytics parava por completo diante de qualquer item de
+// publicação vencido há mais de 60s. Medição da janela 03:00–14:00 UTC daquele
+// dia (26.025 itens): 657 dos 660 minutos tinham ao menos um item vencido, ou
+// seja, a coleta ficava bloqueada ~99,5% do tempo — um job de 200 perfis levou
+// 9h36 entre a primeira e a última coleta sem registrar uma única falha. O
+// contrato passou a ser degradar a concorrência em vez de parar; a pausa total
+// continua disponível como válvula de escape por env.
+test("analytics degrada a concorrência sob pressão de publicação, em vez de parar", async () => {
+  const [worker, route, pressure] = await Promise.all([
     readFile(analyticsWorkerUrl, "utf8"),
     readFile(analyticsRouteUrl, "utf8"),
+    readFile(analyticsPressureUrl, "utf8"),
   ]);
 
-  assert.match(worker, /get_publication_generation_pressure_signal/);
+  // A leitura do sinal é centralizada — nenhum dos dois consumidores repete a
+  // regra nem volta a usar o limiar de 60s da fila.
+  assert.match(worker, /resolveAnalyticsPressure/);
   assert.match(worker, /Date\.now\(\) - lastPressureCheckAt >= 60_000/);
-  assert.match(worker, /reason: 'critical_publication_delay'/);
-  assert.match(route, /get_publication_generation_pressure_signal/);
+  assert.match(route, /resolveAnalyticsPressure/);
+  assert.doesNotMatch(worker, /p_critical_delay_seconds/);
+  assert.doesNotMatch(route, /p_critical_delay_seconds/);
+
+  assert.match(pressure, /get_publication_generation_pressure_signal/);
+  // 600s: com a fila saudável o pior atraso medido foi 597s, então degradar
+  // significa "pior do que qualquer coisa já vista sã". Abaixo disso o sinal é
+  // verdadeiro em operação normal; muito acima, nunca dispara.
+  assert.match(pressure, /PROFILE_ANALYTICS_PRESSURE_CRITICAL_DELAY_SECONDS', 600/);
+  assert.match(pressure, /mode: 'degraded'/);
+  // Válvula de escape preservada: pausa total sob env explícita.
+  assert.match(pressure, /PROFILE_ANALYTICS_PRESSURE_PAUSE_ENABLED/);
   assert.match(route, /status: 202/);
 });
 

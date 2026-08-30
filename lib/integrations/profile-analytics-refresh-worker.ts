@@ -390,6 +390,7 @@ export async function dispatchProfileAnalyticsV2LiveItems(options: ProfileAnalyt
         const classified = resultClassification(result);
         const metadata = {
           analyticsStatus: result.status,
+          dailyAggregationPending: 'dailyAggregationPending' in result ? result.dailyAggregationPending === true : false,
           sourceClasses: [item.source_class],
           steps: telemetry.map((event) => event.step),
         };
@@ -605,6 +606,21 @@ class ZernioConnectionThrottle {
 }
 
 function resultClassification(result: Awaited<ReturnType<typeof syncProfileAnalytics>>): { outcome: AnalyticsItemOutcome; classification?: AnalyticsErrorClassification } {
+  // A Zernio agrega as métricas diárias de forma assíncrona e responde à
+  // chamada que dispara essa agregação com `dailyData` vazio. Encerrar o item
+  // aqui deixaria o perfil sem linha diária até o próximo ciclo; reagendar
+  // custa uma repetição e resolve na segunda passada.
+  if ('dailyAggregationPending' in result && result.dailyAggregationPending === true) {
+    return {
+      outcome: 'error',
+      classification: {
+        errorClass: 'unavailable',
+        code: 'zernio_daily_aggregation_pending',
+        message: 'A Zernio ainda estava agregando as métricas diárias; nova tentativa agendada.',
+        retryable: true,
+      },
+    };
+  }
   if (result.status === 'synced') return { outcome: 'synced' };
   if (result.status === 'partial') return { outcome: 'partial' };
   if (result.status === 'no_data') return { outcome: 'no_data' };
@@ -647,7 +663,10 @@ async function processOneItem(job: ClaimedAnalyticsJob, workerId: string, leaseS
       item,
       workerId,
       ...classified,
-      metadata: { analyticsStatus: result.status },
+      metadata: {
+        analyticsStatus: result.status,
+        dailyAggregationPending: 'dailyAggregationPending' in result ? result.dailyAggregationPending === true : false,
+      },
     });
     telemetry.push({ step: 'item_complete', outcome: classified.outcome === 'error' ? 'error' : classified.outcome === 'partial' ? 'partial' : classified.outcome === 'skipped' ? 'skipped' : 'success', durationMs: performance.now() - completeStartedAt, errorClass: classified.classification?.errorClass, errorCode: classified.classification?.code });
     await persistStepTelemetry({ job, profileId: item.profile_id, workerId, events: telemetry });

@@ -11,7 +11,7 @@ import {
   type ZernioFollowerHistoryResponse,
   type ZernioInstagramAccountInsightsResponse,
 } from '@/lib/integrations/zernio-client';
-import { latestFollowerRow, normalizeAnalyticsSourceClasses, normalizeFollowerRows, numberValue, type AnalyticsSourceClass } from '@/lib/integrations/zernio-analytics-normalizers';
+import { latestFollowerRow, normalizeAnalyticsSourceClasses, normalizeFollowerRows, numberValue, shouldRetryDailyAggregation, type AnalyticsSourceClass } from '@/lib/integrations/zernio-analytics-normalizers';
 import { currentFollowersFromAccount, currentFollowersFromFollowerStats } from '@/lib/integrations/zernio-analytics-normalizers';
 
 export type AnalyticsStatus = 'pending' | 'synced' | 'partial' | 'no_data' | 'not_configured' | 'unavailable_plan' | 'permission_missing' | 'rate_limited' | 'failed';
@@ -165,6 +165,31 @@ function normalizedDailyMetrics(payload: unknown, profile: ProfileRecord, covera
     });
   }
   return Array.from(rows.values());
+}
+
+// O perfil publicou de fato na janela coletada?
+//
+// A contagem de posts do próprio ciclo não serve como critério: quando a Zernio
+// está com a conta desatualizada, ela devolve vazio **nas duas** chamadas
+// (posts e diária) — medido em 30/08/2026, @gercina.virgens292 gravou
+// `posts_count: 0` às 14:01 e, na mesma janela, a Zernio já reportava 26 posts
+// pouco depois. Usar o zero do ciclo como "conta sem nada" desligaria a nova
+// tentativa exatamente nos perfis que precisam dela.
+//
+// A verdade que o Athena tem em mãos é a própria publicação concluída. Consulta
+// de existência, coberta pelo índice parcial
+// `publication_items_org_profile_published_idx` criado pela migração 057 para
+// este mesmo domínio — leitura, nunca escrita, na fila de publicação.
+async function hasPublishedInWindow(admin: ReturnType<typeof createSupabaseAdminClient>, profile: ProfileRecord, periodStart: string) {
+  const { data } = await admin
+    .from('publication_items')
+    .select('id')
+    .eq('organization_id', profile.organization_id)
+    .eq('profile_id', profile.id)
+    .eq('status', 'published')
+    .gte('published_at', `${periodStart}T00:00:00-03:00`)
+    .limit(1);
+  return (data?.length ?? 0) > 0;
 }
 
 async function createRun(admin: ReturnType<typeof createSupabaseAdminClient>, profile: ProfileRecord, syncKind: string, periodStart: string, periodEnd: string) {
@@ -399,6 +424,27 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
       ? await optionalSource('daily_metrics', timed('zernio_daily_metrics', () => client.getDailyMetrics({ platform: 'instagram', accountId: zernioAccountId, fromDate: periodStart, toDate: periodEnd, source: 'all' })))
       : null;
 
+    // A nossa chamada é o gatilho da coleta da Zernio: ela detecta a conta
+    // desatualizada, dispara o sync com o Instagram de forma assíncrona e
+    // responde a esta mesma requisição com o agregado que já tinha — para uma
+    // conta ainda não agregada, `dailyData` volta vazio. Gravar esse vazio como
+    // sucesso congelava o perfil até o ciclo seguinte (medido em 30/08/2026:
+    // 342 de 1103 perfis sem nenhuma linha diária, e 89% deles respondendo com
+    // dado numa segunda chamada minutos depois).
+    const dailyRows = collectDaily ? normalizedDailyMetrics(dailyMetrics, typedProfile, 'complete') : [];
+    // Só cobra a fila quando a resposta diária veio vazia: nos demais casos o
+    // próprio payload da Zernio já provou que a conta tem atividade.
+    const expectsDailyMetrics = collectDaily && dailyMetrics !== null && dailyRows.length === 0
+      ? postRows.length > 0 || await hasPublishedInWindow(admin, typedProfile, periodStart)
+      : postRows.length > 0;
+    const dailyAggregationPending = shouldRetryDailyAggregation({
+      collectDaily,
+      payloadReceived: dailyMetrics !== null,
+      dailyRowCount: dailyRows.length,
+      expectsDailyMetrics,
+    });
+    if (dailyAggregationPending) partialSources.push('daily_metrics_pending');
+
     const newestFollower = latestFollowerRow(followerRows);
     const oldestFollower = followerRows[0];
     const liveFollowersCount = currentFollowersFromAccount(liveAccountPayload) ?? newestFollower?.followers_count ?? 0;
@@ -408,9 +454,12 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
     const reach = insights ? metricTotal(insights, 'reach') : 0;
     const engagementRate = reach > 0 ? Number(((totalInteractions / reach) * 100).toFixed(4)) : 0;
     const unavailable = insights?.unavailableMetrics?.map((metric) => `${metric.metric}: ${metric.reason}`).join(' · ') ?? null;
+    // Uma resposta diária vazia não conta como dado utilizável: antes disso,
+    // um ciclo só de `daily` terminava como `synced` sem ter gravado uma linha
+    // sequer.
     const hasUsableData = (collectCurrent && (Boolean(insights && hasInsightMetrics(insights)) || followerRows.length > 0 || liveAccountPayload !== null))
       || (collectPosts && postRows.length > 0)
-      || (collectDaily && dailyMetrics !== null);
+      || dailyRows.length > 0;
     const syncStatus: AnalyticsStatus = hasUsableData
       ? partialSources.length > 0 ? 'partial' : 'synced'
       : 'no_data';
@@ -542,9 +591,9 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
       if (error) throw error;
     });
 
-    const dailyCacheRows = collectDaily
-      ? normalizedDailyMetrics(dailyMetrics, typedProfile, syncStatus === 'partial' ? 'partial' : 'complete')
-      : [];
+    const dailyCacheRows = syncStatus === 'partial'
+      ? dailyRows.map((row) => ({ ...row, coverage_status: 'partial' }))
+      : dailyRows;
     if (dailyCacheRows.length > 0) {
       await timed('daily_metrics_persist', async () => {
         const { error } = await admin.from('profile_analytics_daily_metrics')
@@ -635,15 +684,18 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
       if (error) throw error;
     }
 
-    await finishRun(admin, runId, syncStatus, { sourceClasses, followerRows: followerRows.length, postRows: postRows.length, unavailableMetrics: insights?.unavailableMetrics ?? [], hasInsightMetrics: Boolean(insights && hasInsightMetrics(insights)), partialSources });
+    await finishRun(admin, runId, syncStatus, { sourceClasses, followerRows: followerRows.length, postRows: postRows.length, dailyRows: dailyRows.length, dailyAggregationPending, unavailableMetrics: insights?.unavailableMetrics ?? [], hasInsightMetrics: Boolean(insights && hasInsightMetrics(insights)), partialSources });
     return {
       status: syncStatus,
       skipped: false,
-      message: syncStatus === 'synced'
-        ? 'Analytics sincronizado com sucesso.'
-        : syncStatus === 'partial'
-          ? `Analytics sincronizado parcialmente; fontes pendentes: ${partialSources.join(', ')}.`
-          : 'A Zernio respondeu sem métricas para esta janela.',
+      dailyAggregationPending,
+      message: dailyAggregationPending
+        ? 'A Zernio ainda estava agregando as métricas diárias desta conta.'
+        : syncStatus === 'synced'
+          ? 'Analytics sincronizado com sucesso.'
+          : syncStatus === 'partial'
+            ? `Analytics sincronizado parcialmente; fontes pendentes: ${partialSources.join(', ')}.`
+            : 'A Zernio respondeu sem métricas para esta janela.',
     };
   } catch (error) {
     const normalized = normalizeError(error);
