@@ -147,6 +147,10 @@ let criticalDelayYieldStreakStartedAt = null;
 // regra. A guarda de pressao critica, ja corrigida, continua sendo a protecao
 // de verdade contra staging competindo em hora ruim.
 const stagingMaxConsecutiveSkips = integerEnv('PUBLICATION_WORKER_STAGING_MAX_CONSECUTIVE_SKIPS', 1, 0, 100);
+// Desligado por padrao: ver o comentario extenso em runStagingCycle. O staging
+// nao consome capacidade do provedor, entao ceder a pressao dele so esvazia o
+// spool. Ligue de volta se aparecer contencao de banco ou de CPU.
+const stagingPressureYieldEnabled = (process.env.PUBLICATION_WORKER_STAGING_PRESSURE_YIELD || 'false') === 'true';
 let stagingConsecutiveSkips = 0;
 const stagingCriticalDelayForceAfterMs = integerEnv(
   'PUBLICATION_WORKER_STAGING_CRITICAL_DELAY_FORCE_AFTER_MS',
@@ -801,9 +805,28 @@ async function runStagingCycle(supabase, spool) {
       console.error('[publication-worker] falha ao consultar pressão crítica de publicação', errorMessage(pressureError));
     }
   }
-  // resolvesUnstarted: o staging E a fase que destrava item atrasado e nao
-  // iniciado. Ceder por causa deles alimentaria o proprio atraso.
-  if (cachedStagingPressure.criticalDelay
+  // MEDIDO EM PRODUCAO (30/08/2026, 19h48): amostrando o heartbeat a cada 12s, o
+  // staging aparecia com `claimed: 0` em TODAS as amostras, alternando entre tres
+  // motivos - adaptive_cooldown, critical_publication_delay_accepted e
+  // publication_due_within_guard. Consequencia: o spool nunca enche, e o laco de
+  // despacho pega no maximo 34 itens numa onda de 450, com 64 vagas de
+  // concorrencia OCIOSAS (espera por slot medida: 3ms).
+  //
+  // A guarda que mais bloqueia e a de pressao - e a regra que eu mesmo escrevi
+  // hoje de manha. Ela manda ceder quando o atraso e puramente de itens JA
+  // ACEITOS pelo provedor. Durante uma onda isso e SEMPRE verdade: os itens sao
+  // criados e esperam ~75s pela confirmacao. Entao o staging para durante a onda
+  // inteira, que e exatamente quando ele precisa encher o spool para a proxima.
+  //
+  // O raciocinio estava errado para ESTE consumidor. O staging NAO chama a API de
+  // publicacao da Zernio - ele le o banco e resolve URLs de midia. Ceder
+  // capacidade de provedor que ele nao consome nao protege ninguem; so garante
+  // que a proxima onda comece com o spool vazio.
+  //
+  // `stagingPressureYieldEnabled` deixa isso reversivel sem deploy: se a medicao
+  // mostrar contencao de banco ou de CPU com o staging solto, basta ligar.
+  if (stagingPressureYieldEnabled
+    && cachedStagingPressure.criticalDelay
     && shouldStagingYieldToPressure(cachedStagingPressure, { resolvesUnstarted: true })) {
     const forceThrough = shouldForceStagingThroughCriticalDelay(
       criticalDelayYieldStreakStartedAt, now, stagingCriticalDelayForceAfterMs,
