@@ -555,10 +555,21 @@ async function discardUnactivatableSpoolEntries(supabase, spool, itemIds) {
   // esta abaixo do alerta mas ainda e grande o bastante para depender de limite
   // de header do gateway. Em blocos de 200 (~7,4 KB) nao depende.
   //
-  // O 200 e o mesmo DEFAULT_ID_CHUNK_SIZE de lib/supabase/chunk.ts, a que este
-  // worker nao consegue importar: ele roda como .mjs em node puro, e o helper e
-  // .ts (so os workers sob tsx conseguem). Se aquele numero mudar la, mude aqui
-  // junto - a duplicacao e forcada pelo runtime, nao por escolha.
+  // O 200 e o mesmo DEFAULT_ID_CHUNK_SIZE de lib/supabase/chunk.ts. A duplicacao
+  // e DELIBERADA, e o motivo nao e "porque e .mjs" - a VPS roda Node v22.23.2 e o
+  // type stripping nativo importaria o .ts sem problema hoje.
+  //
+  // O motivo e o contrato: este worker nao tem HOJE nenhuma dependencia de
+  // TypeScript (so builtins do Node, @supabase/supabase-js e .mjs locais), e o
+  // package.json declara `engines: node >=18.0.0`. Importar o helper criaria um
+  // requisito novo de Node >= 22.6 para o publicador rodar, e o modo de falha e
+  // o pior possivel: o worker nao sobe, e publicacao para. Trocar isso por
+  // apagar uma constante e mau negocio.
+  //
+  // Se um dia o engines subir para >= 22.6, ou se este worker passar a rodar sob
+  // tsx, a duplicacao deixa de ter razao de ser: importe o helper e apague o
+  // numero. Ate la, se DEFAULT_ID_CHUNK_SIZE mudar la, mude aqui junto (existe
+  // nota reciproca no chunk.ts apontando para ca).
   const byId = new Map();
   for (let from = 0; from < itemIds.length; from += 200) {
     const bloco = itemIds.slice(from, from + 200);
