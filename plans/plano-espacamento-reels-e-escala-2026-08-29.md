@@ -585,3 +585,88 @@ Nenhuma etapa é considerada concluída antes disto. Vale depois de **cada** blo
 - **Não mexer no intervalo que o usuário escolheu.** O intervalo é o produto — é o que rende views, e é testado deliberadamente (45, 90, 30 min). O espalhamento de A5 desloca apenas o **ponto de partida** de cada perfil dentro de uma janela; o intervalo entre os posts de um mesmo perfil continua exatamente o que foi pedido.
 - **Não espalhar além de 10 minutos.** Os perfis precisam postar no mesmo horário; a janela é para não disputarem o mesmo segundo, não para diluir o horário.
 - **Não deixar a janela como regra fixa do sistema.** Ela é parâmetro configurável, ao lado do intervalo, sob controle de quem agenda.
+
+---
+
+# INVESTIGAÇÃO DO GARGALO DE DRENAGEM — 30/08/2026
+
+Continuação, no dia seguinte. O objetivo passou a ser responder com número se a
+frota aguenta 5.000 perfis. **Três conclusões minhas foram refutadas no caminho**,
+e ficam registradas junto das corretas — o erro é a parte mais útil aqui.
+
+## Erro de instrumentação nº 1: `published_at` não é o horário da publicação
+
+Passei horas otimizando "taxa de drenagem" medida por `published_at`. Só que o
+publicador **não bloqueia** esperando a confirmação: ele cria o post, devolve
+`state: 'processing'`, e a confirmação chega num ciclo posterior via `getPost`.
+
+`published_at` marca a **confirmação**, não a publicação. Separando as duas coisas
+(defasagem medida: p50 81s, p90 203s):
+
+| Onda | Itens | Criação (postagem real) | Confirmação |
+|---|---:|---:|---:|
+| 189 itens | 189 | **465/min** | 50/min |
+| 200 itens | 200 | 140/min | 67/min |
+| 453 itens | 453 | 81/min | 63/min |
+| 486 itens | 486 | 51/min | 44/min |
+
+**Quem for dimensionar frota precisa usar `provider_creation_started_at`.**
+
+## Erro de instrumentação nº 2: minhas medições tinham o bug de paginação
+
+Meus scripts paginavam `publication_items` com `order=execute_at` — e o ponto de
+uma onda é justamente que centenas de itens compartilham o MESMO `execute_at`.
+Sem desempate, a ordem entre páginas é indefinida:
+
+| Ordenação | Lidas | Distintas | Repetidas | Perdidas |
+|---|---:|---:|---:|---:|
+| `execute_at` | 11.332 | 11.241 | **91** | **91** |
+| `execute_at,id` | 11.332 | 11.332 | 0 | 0 |
+
+0,8% de corrupção, e ela derrubou dois números que eu já tinha reportado:
+"onda das 17:03 drenou a 93/min" (real: 495 itens em 11,6 min = **43/min** — a
+paginação perdia linhas, fazendo a onda parecer menor E mais rápida) e
+"o sistema demonstrou 742/min de criação" (real: **465/min**).
+
+Achado pela sessão que ampliou `lib/supabase/row-limit-guard.test.ts`. O guard
+passou a cobrir `scripts/` e `.mjs` justamente por causa disto.
+
+## Correção da afirmação "o teto por organização nunca é tocado"
+
+Está escrito acima, na seção da fase 6, que o teto de 180/min nunca chegava a ser
+atingido. **Errado**, e o erro foi de método: eu media publicações CONFIRMADAS por
+minuto e concluía que o teto não pegava. O teto age na **seleção**. Captura ao
+vivo durante a onda das 17:03:
+
+```
+17:03:17 | 449 vencidos
+17:03:49 | claimed: 300 | staged(due/sel/act): 449/300/300
+```
+
+**449 vencidos, 300 selecionados** — o teto satura. E o padrão de criação por
+tamanho de onda desenha a mesma fronteira: ondas abaixo de ~300 itens criam a
+140–465/min; acima de 300, despencam para 51–81/min.
+
+## O que foi corrigido hoje, com efeito medido
+
+| Correção | Efeito |
+|---|---|
+| Guard de 60s do staging sem teto de cessão | p90 do atraso 1.130s → 380s |
+| Janela do guard 60s → 5s | staging passou a reivindicar trabalho de verdade |
+| Regra de pressão que nunca checava `overdueUnstarted` | p99 2.327s → 1.149s |
+| Concorrência do staging 4 → 8 | p90 da espera 969s → 450s |
+| `LIMIT` de despacho 44 → 100 | onda comparável: 42/min → 69/min |
+| Entrada de spool com lease expirado girando para sempre | `due: 43, selected: 5, activated: 0` repetido por 29h |
+| Backpressure Zernio de 5 min por erro isolado | 1 ativação/hora contra ~10; taxa de erro inalterada em 0,74% |
+
+**Não teve efeito:** concorrência do staged dispatch 32 → 64 (62/min contra
+69/min, ruído). O caminho estava ocioso; quem trabalha nas ondas é o despacho
+direto. Fica registrado como resultado negativo para ninguém repetir.
+
+## O que ainda não sei
+
+Cada criação Zernio custa **6,5s** (média de 3.278 chamadas). Com concorrência de
+49 isso daria ~450/min, mas ondas grandes criam a 51–81/min. **Existe um fator de
+3 a 5 que não expliquei.** O teto por organização (300) é a hipótese em teste —
+subido para 600, medição em andamento.
+
