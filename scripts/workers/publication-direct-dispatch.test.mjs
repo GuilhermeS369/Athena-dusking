@@ -757,3 +757,36 @@ test('erro do cliente (4xx que nao seja 429) nunca liga backpressure', () => {
 test('sucesso nao liga nada', () => {
   assert.equal(shouldActivateZernioBackpressure(null, 99, 3), false);
 });
+
+// PROVA MEDIDA (30/08/2026): com a regra antiga (metade a cada UM erro), e a taxa
+// de erro real da Zernio em ~1%, o controlador convergia matematicamente para ~23
+// itens por ciclo e nao passava disso - independente da capacidade. Bate com o
+// medido: `used: 30`, ciclos de 9 a 16, e 64 vagas de concorrencia ociosas.
+test('erro de rede isolado num lote grande NAO derruba o limite pela metade', () => {
+  // 1 timeout em 50 itens = 2% do lote, abaixo do limiar de 10%. Segura, nao cai.
+  const lote = Array.from({ length: 50 }, (_, i) => (
+    i === 0 ? { state: 'failed', error: 'network timeout' } : { state: 'published' }
+  ));
+  assert.equal(nextAdaptiveDispatchLimit(50, 100, lote, 50), 50);
+});
+
+test('erro de rede em fracao relevante do lote derruba pela metade', () => {
+  // 6 de 50 = 12%, acima do limiar. Isso e problema de verdade.
+  const lote = Array.from({ length: 50 }, (_, i) => (
+    i < 6 ? { state: 'failed', error: 'network error' } : { state: 'published' }
+  ));
+  assert.equal(nextAdaptiveDispatchLimit(50, 100, lote, 50), 25);
+});
+
+test('429 continua derrubando na hora, mesmo sozinho num lote grande', () => {
+  // O provedor disse explicitamente "pare". Nao entra na conta de fracao.
+  const lote = Array.from({ length: 50 }, (_, i) => (
+    i === 0 ? { state: 'failed', errorCode: 'http_429' } : { state: 'published' }
+  ));
+  assert.equal(nextAdaptiveDispatchLimit(50, 100, lote, 50), 25);
+});
+
+test('lote limpo continua crescendo 20%', () => {
+  const lote = Array.from({ length: 50 }, () => ({ state: 'published' }));
+  assert.equal(nextAdaptiveDispatchLimit(50, 100, lote, 50), 60);
+});

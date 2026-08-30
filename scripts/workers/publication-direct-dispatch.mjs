@@ -2015,18 +2015,82 @@ export async function processClaimedItem(item, workerId, options = {}) {
   }
 }
 
-export function nextAdaptiveDispatchLimit(currentLimit, configuredMaximum, processed = [], claimed = 0) {
+// PROVA MEDIDA (30/08/2026) de que a versao anterior se auto-estrangulava.
+//
+// A regra era: +20% quando o lote enche, METADE quando UM UNICO item do lote da
+// timeout ou erro de rede. Com a taxa de erro real da Zernio medida em ~1%
+// (30 erros de rede em 2.958 requisicoes), a chance de um lote de tamanho L ter
+// pelo menos um erro e 1-(0,99)^L. O equilibrio onde o crescimento empata com as
+// quedas sai de:
+//
+//   (1-P)·log(1,2) + P·log(0,5) = 0  =>  P = 20,8%
+//   1-(0,99)^L = 0,208               =>  L ~= 23
+//
+// Ou seja: o controlador convergia para ~23 itens por ciclo E NAO PASSAVA DISSO,
+// independente da capacidade da maquina, do banco ou do provedor. Bate com o
+// medido em producao: `used: 30`, ciclos de 9 a 16 itens, picos de 34 e 49, e
+// 64 vagas de concorrencia ociosas com espera por slot de 3ms.
+//
+// Tambem explica por que duas ondas do MESMO minuto renderam 41/min (447 itens)
+// e 702/min (187 itens): nao era o tamanho da onda, era onde o controlador
+// estava quando ela chegou.
+//
+// A correcao: a queda passa a responder a TAXA de pressao, nao a um evento
+// isolado. Metade so quando a pressao atinge uma fracao relevante do lote; abaixo
+// disso o controlador SEGURA (nao cresce, nao cai), que preserva a reacao ao
+// ruido sem colapsar por causa dele. Pressao de verdade continua derrubando pela
+// metade na mesma velocidade de antes.
+//
+// E o mesmo remedio aplicado hoje ao backpressure da Zernio, pelo mesmo motivo:
+// penalidade desproporcional disparada por evento estatisticamente rotineiro.
+export function nextAdaptiveDispatchLimit(currentLimit, configuredMaximum, processed = [], claimed = 0, options = {}) {
   const maximum = Math.min(Math.max(Number(configuredMaximum) || 1, 1), 100);
   const current = Math.min(Math.max(Number(currentLimit) || 1, 1), maximum);
-  const pressureCount = processed.filter((item) => {
+  // Duas familias de sinal, com pesos diferentes - mesma distincao usada no
+  // backpressure da Zernio:
+  //
+  //   EXPLICITO (429, rate limit, too many, retry-after, ou providerPressure):
+  //     o provedor disse "pare". Um so ja derruba pela metade. Nao se negocia.
+  //   TRANSITORIO (timeout, erro de rede): pode ser blip da nossa ponta. So
+  //     derruba quando atinge fracao relevante do lote.
+  const explicito = (item) => {
     if (item?.providerPressure === true) return true;
     const signal = `${item?.state ?? ''} ${item?.errorCode ?? ''} ${item?.error ?? ''}`.toLowerCase();
-    return /rate.?limit|too.?many|429|retry.?after|timeout|network/.test(signal);
-  }).length;
-  if (pressureCount > 0) return Math.max(1, Math.floor(current / 2));
+    return /rate.?limit|too.?many|429|retry.?after/.test(signal);
+  };
+  const transitorio = (item) => {
+    const signal = `${item?.state ?? ''} ${item?.errorCode ?? ''} ${item?.error ?? ''}`.toLowerCase();
+    return /timeout|network/.test(signal);
+  };
+  const pressaoExplicita = processed.filter(explicito).length;
+  const pressaoTransitoria = processed.filter((item) => !explicito(item) && transitorio(item)).length;
+  const pressureCount = pressaoExplicita + pressaoTransitoria;
+
+  const razaoDeColapso = Number.isFinite(options.collapseRatio)
+    ? options.collapseRatio
+    : adaptiveCollapsePressureRatio;
+  // Sem lote, qualquer pressao conta como total - nao ha denominador para diluir.
+  const razaoTransitoria = claimed > 0
+    ? pressaoTransitoria / claimed
+    : (pressaoTransitoria > 0 ? 1 : 0);
+
+  if (pressaoExplicita > 0) return Math.max(1, Math.floor(current / 2));
+  if (razaoTransitoria >= razaoDeColapso) return Math.max(1, Math.floor(current / 2));
+  // Ruido de rede abaixo do limiar: segura o crescimento sem punir. Era ele que
+  // derrubava o controlador para 23.
+  if (pressureCount > 0) return current;
   if (claimed >= current) return Math.min(maximum, current + Math.max(1, Math.ceil(current * 0.2)));
   return current;
 }
+
+// Fracao do lote que precisa dar sinal de pressao para o limite cair pela metade.
+// Ver a prova no comentario de nextAdaptiveDispatchLimit. Configuravel para poder
+// voltar ao comportamento antigo sem deploy: 0 faz qualquer erro derrubar, como
+// era antes.
+const adaptiveCollapsePressureRatio = (() => {
+  const bruto = Number.parseFloat(process.env.PUBLICATION_WORKER_ADAPTIVE_COLLAPSE_RATIO || '');
+  return Number.isFinite(bruto) && bruto >= 0 && bruto <= 1 ? bruto : 0.1;
+})();
 
 const adaptiveDispatchLimits = new Map();
 
