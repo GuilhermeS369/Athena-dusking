@@ -137,7 +137,16 @@ let criticalDelayYieldStreakStartedAt = null;
 // dizia 3 min.
 //
 // Mesmo remedio aplicado a preparacao: ceder e certo, ceder para sempre nao e.
-const stagingMaxConsecutiveSkips = integerEnv('PUBLICATION_WORKER_STAGING_MAX_CONSECUTIVE_SKIPS', 3, 0, 100);
+// MEDIDO EM 30/08/2026: com 3, o staging cedia 3 ciclos e rodava 1 - operava a
+// 25% do tempo. As ondas drenavam a 49/min de mediana enquanto o sistema ja
+// demonstrara 200 publicacoes num unico minuto: a capacidade existia e nao era
+// usada durante a drenagem.
+//
+// Com 1, ele cede uma vez e roda na seguinte. A cessao continua existindo (o
+// despacho ganha a vez quando ha publicacao a menos de 5s), mas deixa de ser a
+// regra. A guarda de pressao critica, ja corrigida, continua sendo a protecao
+// de verdade contra staging competindo em hora ruim.
+const stagingMaxConsecutiveSkips = integerEnv('PUBLICATION_WORKER_STAGING_MAX_CONSECUTIVE_SKIPS', 1, 0, 100);
 let stagingConsecutiveSkips = 0;
 const stagingCriticalDelayForceAfterMs = integerEnv(
   'PUBLICATION_WORKER_STAGING_CRITICAL_DELAY_FORCE_AFTER_MS',
