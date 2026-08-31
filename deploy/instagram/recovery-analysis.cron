@@ -1,0 +1,8 @@
+# Analise diaria da tela de Recuperacao (Instagram).
+#
+# 09:10 UTC = 06:10 em Sao Paulo. CONFERIR, antes de ativar, o horario real em
+# que a coleta diaria de analytics termina (docs/vps-worker-runbook.md) e mover
+# este horario para DEPOIS dela: rodar antes produz um snapshot sobre dados
+# incompletos. Mitigacao parcial ja embutida na regua: o dia mais recente do
+# conjunto e sempre descartado, entao um dia parcial nao entra na conta.
+10 9 * * * flock -n /run/lock/athena-recovery-analysis.lock /opt/athena-worker/bin/recovery-analysis-daily.sh >> /var/log/athena-recovery-analysis.log 2>&1

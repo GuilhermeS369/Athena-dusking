@@ -13,8 +13,8 @@ for concluída **e validada**.
 | 1 — Banco: schema (`347`) | ✅ concluída · pgTAP 16/16 |
 | 2 — Banco: a régua (`348`) | ✅ concluída · pgTAP 24/24 · **2 itens presos em produção** |
 | 3 — Banco: esteira e acompanhamento (`349` + `350`) | ✅ concluída · pgTAP 21/21 e 11/11 |
-| 4 — Disparo (rota interna + cron na VPS) | ⏳ em andamento |
-| 5 — Leitura (libs e rotas GET) | ⬜ |
+| 4 — Disparo (rota interna + cron na VPS) | ✅ concluída |
+| 5 — Leitura (libs e rotas GET) | ⏳ em andamento |
 | 6 — Ações (rotas POST/PATCH) | ⬜ |
 | 7 — Tela (`/recuperacao`) | ⬜ |
 | 8 — Fechamento (lint, tsc, aceitação) | ⬜ |
@@ -35,6 +35,8 @@ real, e não devem ser marcados antes disso:
 | 2026-08-31 | 2 | `348_recovery_compute.sql` (a régua) aplicada e `supabase/tests/348_recovery_compute.test.sql` **24/24 verde**. Suíte completa segue em 45 falhas — igual ao baseline. |
 | 2026-08-31 | — | **347 e 348 aplicadas em produção** via `supabase db push` e commitadas em `89398c9`. |
 | 2026-08-31 | 3 | `349_recovery_cohort.sql` (esteira) **21/21** e `350_recovery_reads.sql` (leitura) **11/11**. Aplicadas em produção. Suíte completa segue em 45 falhas. |
+| 2026-08-31 | 3 | Migrations 349 e 350 aplicadas em produção e commitadas em `962b6ac`. |
+| 2026-08-31 | 4 | Rota interna de despacho, script e cron da VPS, e rota `Recalcular`. RPCs exercitadas **pelo PostgREST** com os números conferidos à mão. `tsc --noEmit` limpo, `npm test` 395/395. |
 
 ---
 
@@ -757,11 +759,26 @@ função. Verificado que `auth.uid()` lê GUC de sessão e sobrevive ao `definer
 `entered_by` continuam sendo o operador real.
 
 ### Etapa 4 — Disparo
-- [ ] `app/api/internal/recovery-analysis-dispatch/route.ts` com segredo, portão de pressão e laço de
-      chunks com orçamento.
-- [ ] `deploy/instagram/recovery-analysis-daily.sh` + `.cron`, no molde do de observabilidade.
-- [ ] Definir o horário **depois** de conferir quando a coleta diária termina.
-- [ ] `POST /api/recovery/runs` (botão Recalcular; o cliente repete enquanto `remaining > 0`).
+- [x] **2026-08-31** — [app/api/internal/recovery-analysis-dispatch/route.ts](app/api/internal/recovery-analysis-dispatch/route.ts):
+      segredo com `timingSafeEqual`, portão de pressão de publicação (a análise cede a vez), **uma
+      organização por invocação**, laço de chunks dentro de um orçamento de 45 s, e
+      `refresh_recovery_cohort_observations` + `prune_recovery_analysis_runs` ao terminar. `GET`
+      delega para `POST` (o cron da Vercel manda GET; o da VPS manda POST).
+- [x] **2026-08-31** — [deploy/instagram/recovery-analysis-daily.sh](deploy/instagram/recovery-analysis-daily.sh)
+      + [.cron](deploy/instagram/recovery-analysis.cron), no molde do de observabilidade: `flock`,
+      laço até `done: true`, teto de 40 tentativas para um bug de `remaining` nunca virar laço eterno,
+      e saída limpa quando a rota responde `paused` por pressão de publicação.
+- [x] **2026-08-31** — [app/api/recovery/recompute/route.ts](app/api/recovery/recompute/route.ts):
+      `begin` pela sessão do operador (para `requested_by` ser o usuário real) e execução pelo cliente
+      administrativo (a sessão pode se perder no polling) — mesmo desenho de
+      `app/api/publications/cancel/route.ts`. Cooldown de 10 min para **iniciar**, nunca para retomar.
+- [x] **2026-08-31** — Verificação: as quatro RPCs exercitadas **pelo PostgREST** (o caminho exato das
+      rotas, onde um nome de parâmetro errado aparece), com os números conferidos à mão —
+      `M = 40`, portão `24` (= 40 × 0,60), `eligible25 = 1`, `eligible40 = 2`.
+- [ ] **Definir o horário do cron depois de conferir quando a coleta diária de analytics termina**
+      ([docs/vps-worker-runbook.md](docs/vps-worker-runbook.md)). O arquivo está com `10 9 * * *`
+      (06h10 em São Paulo) como palpite, com o aviso escrito no próprio `.cron`.
+- [ ] Instalar o script e o cron na VPS.
 
 ### Etapa 5 — Leitura
 - [ ] `lib/recovery/ruler.ts` e `lib/recovery/verdict.ts` + testes em `npm test`.
@@ -782,7 +799,10 @@ função. Verificado que `auth.uid()` lê GUC de sessão e sobrevive ao `definer
 - [ ] Toggle "Recuperação" em [app/grupos/groups-client.tsx](app/grupos/groups-client.tsx).
 
 ### Etapa 8 — Fechamento
-- [ ] `npm test`, `npx tsc --noEmit`, `npm run lint`.
+- [ ] `npm test` e `npx tsc --noEmit`. **`npm run lint` não é executável neste repositório**: não há
+      config de ESLint nem a dependência, e `next lint` abre um prompt de setup interativo. Condição
+      pré-existente — os portões reais são o `tsc`, o `npm test` (que inclui a guarda de paginação) e
+      a suíte pgTAP.
 - [ ] Aceitação da régua (ver Verificação).
 - [ ] Registrar no plano do repositório o que foi aplicado em produção e quando.
 
