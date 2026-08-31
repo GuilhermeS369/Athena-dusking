@@ -40,6 +40,8 @@ real, e não devem ser marcados antes disso:
 | 2026-08-31 | 5 e 6 | Libs (`ruler`, `verdict` com 9 testes, `snapshot`) e as sete rotas de leitura e ação. Relações registradas na guarda de paginação. `tsc` limpo, `npm test` **404/404**. |
 | 2026-08-31 | 7 | Tela `/recuperacao` completa, toggle na tela de Grupos, ícone e item de menu. Inspecionada no navegador com dados realistas; dois defeitos de layout corrigidos. `next build` compila. |
 | 2026-08-31 | 8 | Fechamento: `tsc` limpo, `npm test` 404/404, `next build` ✓, os quatro testes pgTAP verdes e a suíte completa em 45 falhas (baseline). **347–350 aplicadas em produção.** |
+| 2026-08-31 | 7 | Interruptor de recuperação em `/grupos` **refeito** depois de o operador ver o resultado: era uma caixa com borda no meio do card, virou switch de uma linha. Conferido no navegador nos três estados. |
+| 2026-08-31 | — | **Deploy de produção na Vercel.** `/recuperacao` responde na URL de produção. Branch publicada no GitHub. |
 
 ---
 
@@ -886,8 +888,15 @@ Tudo abaixo precisa do banco real ou de acesso à VPS. Nada é código pendente.
 4. **Definir o horário do cron** depois de conferir quando a coleta diária de analytics termina
    ([docs/vps-worker-runbook.md](docs/vps-worker-runbook.md)) e **instalar** o `.sh` e o `.cron` na
    VPS.
-5. **Verificar a tela no painel autenticado** e o toggle em `/grupos` — compilam e passam no `tsc`,
-   mas não foi possível autenticar daqui.
+5. **Verificar a tela no painel autenticado** — compila, passa no `tsc` e está no ar em produção,
+   mas não foi possível autenticar daqui para ver a tela dentro do painel. O interruptor em
+   `/grupos` foi conferido no navegador nos três estados (desligado, ligado, e a pill de esteira).
+
+### Observação fora do escopo
+
+Em telas estreitas (~560 px), o botão de exportar do card de grupo estica para a largura toda da
+linha de ações, em vez de ficar no quadrado de 44 px. É **anterior** a este trabalho — nada aqui
+tocou `.actions` nem `.exportButton` — e ficou registrado só para não parecer efeito da recuperação.
 6. *(Opcional)* Captura automática do marco de mídia na rota da Galeria. O registro manual já cobre.
 
 ---
