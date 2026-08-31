@@ -53,7 +53,9 @@ export type RecoveryMilestone = {
   id: string;
   happenedOn: string;
   mediaCount: number;
-  batchKind: 'common' | 'reprocessed';
+  /** 'unknown' quando o marco foi capturado automaticamente: o sistema não tem
+   *  como distinguir mídia reprocessada de mídia fresca. */
+  batchKind: 'common' | 'reprocessed' | 'unknown';
   note: string | null;
 };
 

@@ -11,6 +11,37 @@ const MAX_SYNC_ASSIGNMENT_EDGES = 5000;
 const MAX_ASYNC_ASSETS = 50000;
 const MAX_ASYNC_GROUPS = 1000;
 
+
+/**
+ * Grava o marco de troca de mídia da tela de Recuperação.
+ *
+ * Fica aqui, depois da atribuição já aceita, e **nunca** dentro do job SQL: a
+ * atribuição é um caminho compartilhado com a Galeria que já funciona, e o
+ * marco é registro, não regra. Se falhar, a atribuição continua valendo — o
+ * erro vai para o log e ninguém fica sem mídia por causa de um marcador.
+ *
+ * `remove` não gera marco: tirar mídia de um grupo não é uma troca de leva.
+ */
+async function recordRecoveryMilestones(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  organizationId: string,
+  groupIds: string[],
+  mediaCount: number,
+  action: Action,
+) {
+  if (action === 'remove' || !groupIds.length || mediaCount <= 0) return;
+  const { error } = await supabase.rpc('record_auto_media_milestones', {
+    p_organization_id: organizationId,
+    p_group_ids: groupIds,
+    p_media_count: mediaCount,
+  });
+  if (error) {
+    console.error('recovery_auto_milestone_failed', {
+      organizationId, groupIds, mediaCount, error: error.message,
+    });
+  }
+}
+
 export async function POST(request: Request) {
   const context = await getOrganizationContext();
   const organization = context.organizations.find((item) => item.id === context.activeOrganization?.id);
@@ -43,6 +74,7 @@ export async function POST(request: Request) {
     }
 
     const job = ((jobRows ?? []) as BulkGroupJobResult[])[0];
+    await recordRecoveryMilestones(supabase, context.activeOrganization.id, groupIds, assetIds.length, action);
     return NextResponse.json({ queued: true, job: job ? { id: job.job_id, totalCount: job.total_count } : null, affected: assetIds.length }, { status: 202 });
   }
 
@@ -56,5 +88,6 @@ export async function POST(request: Request) {
     const status = ['22023', '42501'].includes(error.code ?? '') ? 400 : 500;
     return NextResponse.json({ error: error.message || 'Não foi possível atualizar os grupos das mídias.' }, { status });
   }
+  await recordRecoveryMilestones(supabase, context.activeOrganization.id, groupIds, assetIds.length, action);
   return NextResponse.json({ assignments: assignments ?? [], affected: assetIds.length });
 }

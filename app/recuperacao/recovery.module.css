@@ -265,6 +265,13 @@
 }
 .reasonNeverStarted { background: rgba(159, 76, 255, .14); color: #d3b4ff; }
 .reasonCollapsed { background: rgba(231, 183, 78, .16); color: var(--rec-warn); }
+/* A linha esmaecida nao pode ficar so esmaecida: sem dizer POR QUE, ela parece
+ * um perfil que a tela se recusa a deixar marcar sem motivo. */
+.onlyAt40 {
+  display: inline-block; margin-left: 6px; padding: 2px 7px;
+  border: 1px dashed var(--rec-tick); border-radius: var(--rec-chip-radius);
+  color: var(--text-subtle); font-size: 9.5px; font-weight: 850; white-space: nowrap;
+}
 
 .judgedMetric { display: grid; gap: 1px; }
 .judgedMetric span { color: var(--text-subtle); font-size: 10px; }
@@ -337,7 +344,7 @@
 
 .selectionRow {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
-  max-width: var(--rec-max-width); margin: var(--rec-gap) auto 0;
+  max-width: var(--rec-max-width); margin: 0 auto var(--rec-gap);
   padding: 11px 13px; border: 1px solid var(--rec-line);
   border-radius: var(--rec-inner-radius); background: var(--rec-surface-soft);
   font-size: 12px;

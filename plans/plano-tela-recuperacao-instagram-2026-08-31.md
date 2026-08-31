@@ -47,6 +47,8 @@ Este arquivo é o registro vivo.
 | 2026-08-31 | — | `351_recovery_window_floor.sql`: piso da janela de 7 para 3 dias — o piso de 7 era palpite meu e bloqueava reproduzir a janela da análise. |
 | 2026-08-31 | 6 e 7 | **Três buracos funcionais fechados:** UI de registro do marco de mídia (a rota existia, a tela não), cancelamento da fila por esteira, e **cron diário na Vercel**. Modal conferido no navegador; um defeito de alinhamento de campos corrigido. |
 | 2026-08-31 | — | Segundo deploy de produção. Endpoint do cron verificado ao vivo: 401 sem segredo, e com segredo **cedeu a vez** à fila de publicação sob pressão — o portão funcionando. |
+| 2026-08-31 | 6 | **Marco de mídia passou a ser automático** (`352`): a atribuição de mídia a um grupo grava o marco sozinha. Botão manual removido da tela. pgTAP 7/7. |
+| 2026-08-31 | 7 | Duas correções apontadas pelo operador na tela: linhas fora do corte de 25% **deixaram de bloquear a seleção** (só ficam esmaecidas, com etiqueta "só a 40%"), e a caixa de seleção **descolou** da tabela. |
 
 ---
 
@@ -827,9 +829,20 @@ função. Verificado que `auth.uid()` lê GUC de sessão e sobrevive ao `definer
 - [x] **2026-08-31** — **UI de registro do marco na tela** (botão no cabeçalho + modal com grupo,
       data, quantidade, tipo comum/reprocessada e nota). Era um buraco real: a rota existia, a tela
       não, então o pico nunca seria recontado e o gráfico ficaria sem marco.
-- [ ] *(Opcional)* Captura **automática** na camada de rota da Galeria
-      ([app/api/media/groups/bulk/route.ts](app/api/media/groups/bulk/route.ts)) — o registro manual
-      cobre; a automática é conveniência contra o esquecimento.
+- [x] **2026-08-31** — **Captura automática** na camada de rota
+      ([app/api/media/groups/bulk/route.ts](app/api/media/groups/bulk/route.ts)), nunca dentro do job
+      SQL: atribuiu mídia a um grupo que a Recuperação enxerga, o marco é gravado. Levas do mesmo dia
+      **somam** em vez de virar marcadores repetidos. Falhar o marco não derruba a atribuição.
+      O botão manual saiu da tela; a rota `POST /api/recovery/milestones` continua existindo para
+      correção. pgTAP **7/7**.
+
+**Uma coisa que a automação NÃO consegue saber, e por isso não inventa.** O tipo da leva (comum ou
+reprocessada) fica `unknown` na captura automática: um vídeo reprocessado entra como asset novo, com
+checksum novo, indistinguível de mídia fresca. Gravar `'common'` por padrão seria fabricar
+exatamente o dado que a análise de 31/08 apontou como faltando — e que separa "melhorou porque foi
+reprocessada" de "melhorou porque era nova". O rótulo do marcador mostra só a quantidade quando o
+tipo é desconhecido. **Decidir onde capturar isso é o único item de produto em aberto** (a Galeria,
+no momento da atribuição, é o lugar natural).
 
 ### Etapa 7 — Tela
 - [x] **2026-08-31** — `<symbol id="icon-recovery">` em [app/layout.tsx](app/layout.tsx), item em
@@ -957,8 +970,8 @@ que ele acabou de ligar, sem entender por quê.
 Em telas estreitas (~560 px), o botão de exportar do card de grupo estica para a largura toda da
 linha de ações, em vez de ficar no quadrado de 44 px. É **anterior** a este trabalho — nada aqui
 tocou `.actions` nem `.exportButton` — e ficou registrado só para não parecer efeito da recuperação.
-6. *(Opcional)* Captura **automática** do marco de mídia na rota da Galeria. O registro manual já
-   está na tela e cobre o caso.
+6. ~~Captura automática do marco~~ — **feita**. Sobrou só decidir **onde marcar "leva
+   reprocessada"**, que a automação não tem como inferir.
 
 ---
 

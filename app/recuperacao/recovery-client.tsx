@@ -62,6 +62,19 @@ function formatDay(value: string | null | undefined) {
   return `${day}/${month}${year ? '' : ''}`;
 }
 
+/**
+ * A captura automática não tem como saber se a leva é comum ou reprocessada —
+ * um vídeo reprocessado entra como asset novo, indistinguível de mídia fresca.
+ * Nesse caso o rótulo diz só a quantidade, em vez de afirmar um tipo que
+ * ninguém informou.
+ */
+function milestoneLabel(milestone: RecoveryMilestone) {
+  const count = `${milestone.mediaCount} ${milestone.mediaCount === 1 ? 'mídia' : 'mídias'}`;
+  if (milestone.batchKind === 'reprocessed') return `${count} · reprocessada`;
+  if (milestone.batchKind === 'common') return `${count} · comum`;
+  return count;
+}
+
 function daysBetween(from: string | null | undefined) {
   if (!from) return null;
   const start = Date.parse(`${from.slice(0, 10)}T00:00:00Z`);
@@ -123,8 +136,7 @@ function Sparkline({
         return (
           <polygon key={milestone.id} className={styles.groupSparkMarker}
             points={`${x - 3.5},${height - 1} ${x + 3.5},${height - 1} ${x},${height - 6}`}>
-            <title>{`Troca de mídia em ${formatDay(milestone.happenedOn)} · ${milestone.mediaCount} ${
-              milestone.batchKind === 'reprocessed' ? 'reprocessadas' : 'comuns'}`}</title>
+            <title>{`Troca de mídia em ${formatDay(milestone.happenedOn)} · ${milestoneLabel(milestone)}`}</title>
           </polygon>
         );
       })}
@@ -204,7 +216,7 @@ function CohortChart({ series }: { series: CohortSeries }) {
             <g key={milestone.id}>
               <line className={styles.chartMarker} x1={x} x2={x} y1={top} y2={height - bottom} />
               <text className={styles.chartMarkerLabel} x={x + 4} y={top + 9}>
-                {`${milestone.mediaCount} ${milestone.batchKind === 'reprocessed' ? 'reproc.' : 'comuns'}`}
+                {milestoneLabel(milestone)}
               </text>
             </g>
           );
@@ -256,14 +268,6 @@ export default function RecoveryClient({
   const [selection, setSelection] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'error' | 'neutral'; text: string } | null>(null);
-  const [milestoneOpen, setMilestoneOpen] = useState(false);
-  const [milestoneForm, setMilestoneForm] = useState({
-    groupId: '',
-    happenedOn: new Date().toISOString().slice(0, 10),
-    mediaCount: '',
-    batchKind: 'reprocessed' as 'common' | 'reprocessed',
-    note: '',
-  });
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletePreview, setDeletePreview] = useState<Record<string, unknown> | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
@@ -367,6 +371,11 @@ export default function RecoveryClient({
   const eligibleNow = adjustment === 0.25 ? totals?.eligible25 ?? 0 : totals?.eligible40 ?? 0;
   const neverStartedNow = adjustment === 0.25 ? totals?.neverStarted25 ?? 0 : totals?.neverStarted40 ?? 0;
 
+  const outOfCutCount = useMemo(
+    () => visibleCandidates.filter((candidate) => isOutOfCut(candidate)).length,
+    [visibleCandidates, isOutOfCut],
+  );
+
   const selectableIds = useMemo(
     () => inCutCandidates.filter((candidate) => !candidate.alreadyInRecovery).map((c) => c.profileId),
     [inCutCandidates],
@@ -388,14 +397,6 @@ export default function RecoveryClient({
       : current.filter((id) => !selectableIds.includes(id))));
   };
   const clearSelection = () => setSelection([]);
-
-  // Trocar o ajuste pode deixar selecionado um perfil que saiu da régua. Manter
-  // a seleção seria agir sobre algo que a tela não está mais mostrando.
-  useEffect(() => {
-    setSelection((current) => current.filter(
-      (id) => !candidates.some((candidate) => candidate.profileId === id && isOutOfCut(candidate)),
-    ));
-  }, [adjustment, candidates, isOutOfCut]);
 
   /* --- Ações -------------------------------------------------------- */
 
@@ -507,44 +508,6 @@ export default function RecoveryClient({
       });
     } catch (error) {
       setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Falha ao cancelar.' });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  /**
-   * Registrar a troca de mídia não é burocracia: o pico do grupo — que decide
-   * se o Filtro 2 opina — passa a ser contado a partir do último marco, e é ele
-   * que marca o eixo do gráfico de acompanhamento. A análise de 31/08 registrou
-   * que essa data não existia em lugar nenhum do banco e teve de ser
-   * reconstruída pela curva de views.
-   */
-  const saveMilestone = async () => {
-    if (!milestoneForm.groupId) return;
-    setBusy('milestone');
-    try {
-      const response = await fetch('/api/recovery/milestones', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          groupId: milestoneForm.groupId,
-          happenedOn: milestoneForm.happenedOn,
-          mediaCount: Number(milestoneForm.mediaCount || 0),
-          batchKind: milestoneForm.batchKind,
-          note: milestoneForm.note || null,
-        }),
-      });
-      const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? 'Falha ao registrar o marco.');
-      setMilestoneOpen(false);
-      setMilestoneForm((current) => ({ ...current, mediaCount: '', note: '' }));
-      await refreshOverview();
-      setMessage({
-        tone: 'success',
-        text: 'Marco registrado. O pico do grupo passa a ser contado a partir dele na próxima análise — rode Recalcular para valer agora.',
-      });
-    } catch (error) {
-      setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Falha ao registrar.' });
     } finally {
       setBusy(null);
     }
@@ -714,22 +677,10 @@ export default function RecoveryClient({
           </div>
           <div className="profiles-header-actions">
             {canManage ? (
-              <>
-                <button type="button" className="button button-ghost" disabled={busy !== null}
-                  onClick={() => {
-                    setMilestoneForm((current) => ({
-                      ...current,
-                      groupId: current.groupId || activeGroup?.groupId || groups[0]?.groupId || '',
-                    }));
-                    setMilestoneOpen(true);
-                  }}>
-                  Registrar troca de mídia
-                </button>
-                <button type="button" className="button button-primary" onClick={recompute}
-                  disabled={busy !== null}>
-                  {busy === 'recompute' ? 'Recalculando…' : 'Recalcular'}
-                </button>
-              </>
+              <button type="button" className="button button-primary" onClick={recompute}
+                disabled={busy !== null}>
+                {busy === 'recompute' ? 'Recalculando…' : 'Recalcular'}
+              </button>
             ) : null}
           </div>
         </header>
@@ -881,7 +832,9 @@ export default function RecoveryClient({
                       Selecionar os {numberFormat.format(selectableIds.length)} desta lista
                     </label>
                     <span className={styles.selectionHint}>
-                      Perfis já na esteira não entram na seleção.
+                      {outOfCutCount > 0
+                        ? `${outOfCutCount} ${outOfCutCount === 1 ? 'perfil está' : 'perfis estão'} esmaecidos porque só entram com a régua a 40% — dá para marcar um a um mesmo assim.`
+                        : 'Perfis já na esteira não entram na seleção.'}
                     </span>
                   </div>
                 ) : null}
@@ -975,78 +928,6 @@ export default function RecoveryClient({
             </p>
           </>
         )}
-
-        {milestoneOpen ? (
-          <div className="modal-backdrop" role="presentation"
-            onMouseDown={() => { if (!busy) setMilestoneOpen(false); }}>
-            <section className={`panel bulk-modal ${styles.modal}`} role="dialog" aria-modal="true"
-              aria-labelledby="recovery-milestone-title" onMouseDown={(event) => event.stopPropagation()}>
-              <div>
-                <span className="section-kicker">Marco</span>
-                <h2 id="recovery-milestone-title">Registrar troca de mídia</h2>
-              </div>
-              <p className={styles.modalNote}>
-                O pico do grupo — que decide se o Nível 2 opina — passa a ser contado a partir do
-                último marco. Sem ele, um dia excepcional de semanas atrás mantém o grupo “em queda”
-                para sempre. É também o que marca o eixo do gráfico de acompanhamento.
-              </p>
-              <label className={styles.modalField}>
-                Grupo
-                <select value={milestoneForm.groupId}
-                  onChange={(event) => setMilestoneForm((c) => ({ ...c, groupId: event.target.value }))}>
-                  {groups.map((group) => (
-                    <optgroup key={group.groupId} label={group.groupName}>
-                      <option value={group.groupId}>{group.groupName}</option>
-                      {group.recoveryGroupId ? (
-                        <option value={group.recoveryGroupId}>{group.recoveryGroupName}</option>
-                      ) : null}
-                    </optgroup>
-                  ))}
-                </select>
-              </label>
-              <label className={styles.modalField}>
-                Data da troca
-                <input type="date" value={milestoneForm.happenedOn}
-                  onChange={(event) => setMilestoneForm((c) => ({ ...c, happenedOn: event.target.value }))} />
-              </label>
-              <label className={styles.modalField}>
-                Quantas mídias entraram
-                <input type="number" min={0} value={milestoneForm.mediaCount}
-                  onChange={(event) => setMilestoneForm((c) => ({ ...c, mediaCount: event.target.value }))} />
-              </label>
-              <label className={styles.modalField}>
-                Tipo da leva
-                <select value={milestoneForm.batchKind}
-                  onChange={(event) => setMilestoneForm((c) => ({
-                    ...c, batchKind: event.target.value as 'common' | 'reprocessed',
-                  }))}>
-                  <option value="reprocessed">Reprocessada</option>
-                  <option value="common">Comum</option>
-                </select>
-              </label>
-              <p className={styles.modalNote}>
-                Sem esse campo não dá para separar “melhorou porque foi reprocessada” de “melhorou
-                porque era nova”.
-              </p>
-              <label className={styles.modalField}>
-                Nota (opcional)
-                <input value={milestoneForm.note}
-                  onChange={(event) => setMilestoneForm((c) => ({ ...c, note: event.target.value }))} />
-              </label>
-              <div className={styles.modalActions}>
-                <button type="button" className="button button-primary"
-                  disabled={busy !== null || !milestoneForm.groupId || !milestoneForm.happenedOn}
-                  onClick={saveMilestone}>
-                  {busy === 'milestone' ? 'Registrando…' : 'Registrar'}
-                </button>
-                <button type="button" className="button button-ghost" disabled={busy !== null}
-                  onClick={() => setMilestoneOpen(false)}>
-                  Cancelar
-                </button>
-              </div>
-            </section>
-          </div>
-        ) : null}
 
         {deleteOpen ? (
           <div className="modal-backdrop" role="presentation"
@@ -1214,7 +1095,12 @@ function CandidatesTable({
                     <td className={styles.checkboxCell}>
                       <span className={styles.checkbox}>
                         <input type="checkbox" checked={selected}
-                          disabled={candidate.alreadyInRecovery || outOfCut}
+                          disabled={candidate.alreadyInRecovery}
+                          title={candidate.alreadyInRecovery
+                            ? 'Este perfil já está na esteira de recuperação.'
+                            : outOfCut
+                              ? 'Fora do corte de 25%. Dá para marcar mesmo assim — a régua é recomendação, não trava.'
+                              : undefined}
                           onChange={(event) => onToggle(candidate.profileId, event.target.checked)}
                           aria-label={`Selecionar @${candidate.username}`} />
                       </span>
@@ -1237,6 +1123,7 @@ function CandidatesTable({
                       collapsed ? styles.reasonCollapsed : styles.reasonNeverStarted}`}>
                       {RECOVERY_REASON_LABELS[candidate.reason]}
                     </span>
+                    {outOfCut ? <span className={styles.onlyAt40}>só a 40%</span> : null}
                   </td>
                   <td className={styles.numberCell} data-label="Métrica julgada">
                     {/* Cada nível é julgado por uma métrica diferente. Mostrar
