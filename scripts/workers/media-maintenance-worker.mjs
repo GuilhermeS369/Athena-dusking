@@ -130,6 +130,14 @@ async function heartbeat(supabase, status, metadata = {}, lastErrorMessage = nul
 // chamada (teto imposto pela migration 302 como controle de pressao) — pedir
 // mais e cortado em silencio. Por isso o laco chama varias vezes dentro de um
 // orcamento de tempo, em vez de tentar um lote grande.
+//
+// Desde a migration 335 a RPC so arquiva falha TERMINAL (next_attempt_at nulo
+// ou attempt_count >= 5, mais janela de acomodacao de 15 min). Antes dela este
+// laco arquivava qualquer item em 'failed' a cada 10 minutos, inclusive os que
+// tinham retry marcado: com archived_at preenchido, claim_publication_items
+// nunca mais reivindicava o item e a publicacao sumia em silencio — a mesma
+// rotina ainda gravava o acknowledgement, entao nem no KPI de erros aparecia.
+// Nao volte a passar um predicado mais largo daqui.
 async function archiveFinishedItems(supabase) {
   const startedAt = Date.now();
   const { data: organizations, error } = await supabase.from('organizations').select('id, name');
@@ -211,6 +219,33 @@ async function moveArchivedItemsToColdStorage(supabase) {
   return { movedItems, movedMedia, exhaustedBudget, durationMs: Date.now() - startedAt };
 }
 
+// Limpeza das reservas de despacho vencidas. Saiu do caminho critico na migration
+// 341: antes, `reserve_publication_dispatch_capacity` fazia um delete da tabela
+// inteira DENTRO do advisory lock por organizacao, em toda publicacao - trabalho
+// O(tabela) num lock que ja e o teto de vazao da fila.
+//
+// Aqui o atraso e inofensivo: as leituras da funcao passaram a exigir
+// `expires_at > now`, entao linha vencida ja nao conta para nada. O unico custo
+// de nao limpar e tabela maior que o necessario.
+async function limparReservasVencidas(supabase) {
+  let removidas = 0;
+  for (let volta = 0; volta < 20; volta += 1) {
+    const { data, error } = await supabase.rpc('purge_expired_publication_dispatch_reservations', {
+      p_limit: 5000,
+    });
+    if (error) {
+      console.error('[media-maintenance-worker] falha ao limpar reservas vencidas', {
+        message: error.message,
+      });
+      break;
+    }
+    const nesta = Number(data) || 0;
+    removidas += nesta;
+    if (nesta < 5000) break;
+  }
+  return removidas;
+}
+
 async function tick() {
   if (!workerSecret) throw new Error('MEDIA_DELETION_WORKER_SECRET, PUBLICATION_WORKER_SECRET ou CRON_SECRET é obrigatório.');
 
@@ -268,6 +303,19 @@ async function main() {
         });
         if (coldStorage && coldStorage.movedItems > 0) {
           console.info('[media-maintenance-worker] itens movidos para o arquivo frio', coldStorage);
+        }
+      }
+
+      // Mesma cadencia do arquivamento: e manutencao, nao caminho critico.
+      if (archiveEnabled && archive !== null) {
+        const reservasRemovidas = await limparReservasVencidas(supabase).catch((error) => {
+          console.error('[media-maintenance-worker] limpeza de reservas falhou', error);
+          return 0;
+        });
+        if (reservasRemovidas > 0) {
+          console.info('[media-maintenance-worker] reservas de despacho vencidas removidas', {
+            itens: reservasRemovidas,
+          });
         }
       }
 
