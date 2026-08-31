@@ -719,6 +719,27 @@ async function dispatchDueStagedPublications(supabase, spool, correlationId) {
   const processamentoIniciadoEm = Date.now();
   const duracaoPorItem = [];
   const esperaPorSlot = [];
+  // CAUSA RAIZ DAS ONDAS DE 10 MINUTOS, medida em 31/08/2026.
+  //
+  // A reserva no BANCO (`dispatch_staged_until`, lease de 1200s) e o ARQUIVO no
+  // spool nao sao atomicos, e se desencontravam aqui: o arquivo era removido ao
+  // fim do processamento MESMO QUANDO o item nao avancou - por exemplo quando a
+  // reserva de capacidade negava e o item voltava para `waiting`.
+  //
+  // O resultado era um limbo: o banco dizia "este item pertence ao spool", entao
+  // o caminho DIRETO o ignorava (`dispatch_staged_until` no futuro); e o spool
+  // nao tinha mais o arquivo, entao o caminho do SPOOL tambem nao o via. O item
+  // ficava invisivel para os dois ate a reserva expirar.
+  //
+  // Medido: de 199 itens vencidos e reservados, 199 estavam SEM arquivo, com
+  // 136 a 601 segundos restantes de reserva - exatamente a duracao das ondas que
+  // nenhuma outra hipotese explicou.
+  //
+  // Correcao: item que nao avancou tem a RESERVA LIBERADA, voltando ao caminho
+  // normal de claim, que respeita `next_attempt_at`. Manter o arquivo em vez
+  // disso seria pior: viraria o mesmo giro em falso que a limpeza de entradas
+  // mortas ja precisou resolver.
+  const naoAvancaram = [];
   const settled = await mapWithConcurrency(activated, stagedDispatchConcurrency, async (envelope) => {
     const comecouEm = Date.now();
     esperaPorSlot.push(comecouEm - processamentoIniciadoEm);
@@ -726,12 +747,37 @@ async function dispatchDueStagedPublications(supabase, spool, correlationId) {
     try {
       const result = await processClaimedItem(item, workerId, envelope);
       await spool.remove(envelope.itemId);
+      // `deferred` cobre negativa da reserva de capacidade, espacamento por perfil
+      // e limite diario: nesses casos o item continua devendo publicacao.
+      if (result?.state === 'deferred') naoAvancaram.push(envelope.itemId);
       return result;
+    } catch (erro) {
+      // Falha inesperada tambem deixa o item devendo. Sem liberar, ele sumiria
+      // pelo resto do lease.
+      await spool.remove(envelope.itemId).catch(() => {});
+      naoAvancaram.push(envelope.itemId);
+      throw erro;
     } finally {
       duracaoPorItem.push(Date.now() - comecouEm);
     }
   });
   marcar('processarItens', processamentoIniciadoEm);
+
+  if (naoAvancaram.length > 0) {
+    const { error: erroLiberacao } = await supabase.rpc('release_publication_dispatch_staging', {
+      p_worker_id: workerId,
+      p_item_ids: naoAvancaram,
+    });
+    if (erroLiberacao) {
+      console.error('[publication-worker] falha ao liberar reserva de item nao despachado', {
+        workerId, itens: naoAvancaram.length, message: errorMessage(erroLiberacao),
+      });
+    } else {
+      console.info('[publication-worker] reservas liberadas de itens nao despachados', {
+        workerId, itens: naoAvancaram.length,
+      });
+    }
+  }
   const processed = settled.map((entry, index) => entry.status === 'fulfilled'
     ? entry.value
     : { itemId: activated[index].itemId, state: 'error', error: errorMessage(entry.reason) });

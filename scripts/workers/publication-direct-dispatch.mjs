@@ -2113,11 +2113,22 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   const leaseSeconds = Number.isInteger(options.leaseSeconds) ? Math.min(Math.max(options.leaseSeconds, 30), 900) : 180;
   const recoveryLimit = Number.isInteger(options.recoveryLimit) ? Math.min(Math.max(options.recoveryLimit, 0), limit) : 0;
   const supabase = createSupabase();
+  // INSTRUMENTACAO POR FASE (31/08/2026). Este caminho era o unico ponto cego:
+  // o caminho do spool ja tinha medicao, mas as ondas grandes passam por AQUI, e
+  // sem numero por fase eu vinha adivinhando qual etapa consumia o tempo. Com 398
+  // itens disponiveis e limite de 78, uma vazao de 33 criacoes/min implica ciclo
+  // de ~2,4 minutos - e nada no despacho em si justifica isso.
+  const cicloIniciadoEm = Date.now();
+  const fases = {};
+  let marcoAnterior = cicloIniciadoEm;
+  const marcar = (nome) => { const agora = Date.now(); fases[nome] = agora - marcoAnterior; marcoAnterior = agora; };
+
   // Compatibilidade de telemetria: desde a 315, atraso causado pelo Athena
   // nunca é transformado automaticamente em estado terminal.
   const expired = reconciliationOnly
     ? { ignored: 0, pages: 0, cutoff: null, failed: false }
     : await ignoreExpiredUnstartedPublications(supabase);
+  marcar('ignorarVencidos');
   // `skipPreparation` existe para quando a preparacao roda em laco proprio no
   // publication-worker: sem isso ela continuaria consumindo tempo do ciclo de
   // despacho, que e exatamente o acoplamento que a separacao veio desfazer.
@@ -2135,14 +2146,17 @@ export async function dispatchPublicationQueueDirect(options = {}) {
     windowHours: 24,
     correlationId: options.correlationId,
   });
+  marcar('preparacao');
   const recovery = reconciliationOnly
     ? { scanned: 0, rescheduled: 0, requiresAttention: 0, bulkSlotsAtRisk: 0, overdueAlerts: 0 }
     : await recoverMissedPublicationSchedules({ workerId, correlationId: options.correlationId });
+  marcar('recuperarPerdidos');
   const recoveryItems = reconciliationOnly ? [] : await claimCoordinatedBulkSlotRecoveryItems(
     workerId,
     recoveryLimit,
     leaseSeconds,
   );
+  marcar('reivindicarRecuperacao');
   const remainingRegularCapacity = Math.max(0, limit - recoveryItems.length);
   let regularItems = [];
   if (remainingRegularCapacity > 0) {
@@ -2157,21 +2171,46 @@ export async function dispatchPublicationQueueDirect(options = {}) {
     if (claimError) throw claimError;
     regularItems = claimed ?? [];
   }
+  marcar('claimNoBanco');
   const items = [...regularItems, ...recoveryItems].map((item) => ({ ...item, correlation_id: options.correlationId ?? null }));
-  const settled = await Promise.allSettled(items.map((item) => processClaimedItem(item, workerId)));
+  const duracaoPorItem = [];
+  const settled = await Promise.allSettled(items.map(async (item) => {
+    const comecouEm = Date.now();
+    try { return await processClaimedItem(item, workerId); }
+    finally { duracaoPorItem.push(Date.now() - comecouEm); }
+  }));
+  marcar('processarItens');
   const processed = settled.map((entry, index) => entry.status === 'fulfilled'
     ? entry.value
     : { itemId: items[index].id, state: 'error', error: errorInfo(entry.reason).message ?? 'Falha desconhecida no processamento paralelo.' });
   // Consolida cada lote uma vez, fora das transacoes individuais. Tambem drena
   // resultados deixados por um ciclo anterior interrompido.
   const batchRuntime = await reconcilePublicationBatchRuntime(Math.min(500, Math.max(100, items.length)));
+  marcar('reconciliarLotes');
   const nextLimit = reconciliationOnly
     ? effectiveMaximum
     : nextAdaptiveDispatchLimit(limit, effectiveMaximum, processed, items.length);
   if (!reconciliationOnly) adaptiveDispatchLimits.set(workerId, nextLimit);
   // A reciclagem vem após o dispatch: lentidão da Zernio não adia claims/publicações desta rodada.
   const finalizedSlotRecoveries = reconciliationOnly ? 0 : await finalizeCoordinatedBulkSlotRecoveryItems(workerId);
+  marcar('finalizarRecuperacao');
   const recycling = reconciliationOnly ? [] : await processZernioProfileRecyclingJobs(workerId, Math.min(limit, 20));
+  marcar('reciclagemZernio');
+
+  const resumoPorItem = (() => {
+    if (!duracaoPorItem.length) return null;
+    const o = [...duracaoPorItem].sort((a, b) => a - b);
+    const q = (p) => o[Math.min(o.length - 1, Math.floor(o.length * p))];
+    return { n: o.length, p50: Math.round(q(0.5)), p90: Math.round(q(0.9)), max: Math.round(o[o.length - 1]) };
+  })();
+  console.info('[publication-worker] tempos do ciclo DIRETO', {
+    workerId,
+    itens: items.length,
+    limiteAdaptativo: limit,
+    cicloMs: Date.now() - cicloIniciadoEm,
+    fasesMs: fases,
+    porItemMs: resumoPorItem,
+  });
 
   console.info('Dispatcher direto de publicação concluído.', {
     workerId,
