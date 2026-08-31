@@ -44,7 +44,21 @@ const metaRequestTimeoutMs = 25_000;
 const maxConcurrentMetaRequests = integerEnv('PUBLICATION_WORKER_META_CONCURRENCY', 5, 1, 20);
 const zernioBaseUrl = process.env.ZERNIO_API_BASE_URL ?? 'https://zernio.com/api';
 const zernioRequestTimeoutMs = integerEnv('ZERNIO_REQUEST_TIMEOUT_MS', 45_000, 25_000, 90_000);
-const zernioCreateMinimumSpacingMs = integerEnv('PUBLICATION_WORKER_ZERNIO_CREATE_SPACING_MS', 75, 0, 2_000);
+// TETO Nº 1 da fila, e o unico que ainda morde. `paceZernioCreate` serializa as
+// criacoes: cada uma comeca ao menos `spacingMs` depois da anterior, no processo
+// inteiro.
+//
+//   75 ms -> 13,3/s ->   800/min   <- medimos 736/min = 92% do teto
+//   40 ms -> 25,0/s -> 1.500/min
+//
+// A folga do PROVEDOR existe e e grande: o limite real da Zernio e 25 posts/hora
+// por conta, e o pico medido foi 4/hora - 16% do teto dela, sobrando ~6x. O que
+// sobe aqui e a concorrencia contra o nosso proprio banco, nao contra a Zernio.
+//
+// Continua sendo um portao POR PROCESSO: se um dia 1.500/min nao bastar, a saida
+// e mais de um publicador (workerId distinto), nao baixar isso indefinidamente.
+// Ver docs/fila-de-publicacao-mapa-de-controles.md, secao 4.
+const zernioCreateMinimumSpacingMs = integerEnv('PUBLICATION_WORKER_ZERNIO_CREATE_SPACING_MS', 40, 0, 2_000);
 const zernioCreateBackpressureSpacingMs = integerEnv('PUBLICATION_WORKER_ZERNIO_BACKPRESSURE_SPACING_MS', 200, 25, 5_000);
 // Era 5 minutos fixos. Ver o comentario de activateZernioBackpressure.
 const zernioBackpressureDurationMs = integerEnv('PUBLICATION_WORKER_ZERNIO_BACKPRESSURE_MS', 60_000, 5_000, 600_000);
