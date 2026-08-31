@@ -16,8 +16,8 @@ for concluída **e validada**.
 | 4 — Disparo (rota interna + cron na VPS) | ✅ concluída |
 | 5 — Leitura (libs e rotas GET) | ✅ concluída |
 | 6 — Ações (rotas POST/PATCH) | ✅ concluída |
-| 7 — Tela (`/recuperacao`) | ⏳ em andamento |
-| 8 — Fechamento (lint, tsc, aceitação) | ⬜ |
+| 7 — Tela (`/recuperacao`) | ✅ concluída |
+| 8 — Fechamento (tsc, testes, aceitação) | ⏳ em andamento |
 
 **Presos em produção, não em código** — os dois vão ficar abertos até alguém rodar contra o banco
 real, e não devem ser marcados antes disso:
@@ -38,6 +38,7 @@ real, e não devem ser marcados antes disso:
 | 2026-08-31 | 3 | Migrations 349 e 350 aplicadas em produção e commitadas em `962b6ac`. |
 | 2026-08-31 | 4 | Rota interna de despacho, script e cron da VPS, e rota `Recalcular`. RPCs exercitadas **pelo PostgREST** com os números conferidos à mão. `tsc --noEmit` limpo, `npm test` 395/395. |
 | 2026-08-31 | 5 e 6 | Libs (`ruler`, `verdict` com 9 testes, `snapshot`) e as sete rotas de leitura e ação. Relações registradas na guarda de paginação. `tsc` limpo, `npm test` **404/404**. |
+| 2026-08-31 | 7 | Tela `/recuperacao` completa, toggle na tela de Grupos, ícone e item de menu. Inspecionada no navegador com dados realistas; dois defeitos de layout corrigidos. `next build` compila. |
 
 ---
 
@@ -811,10 +812,36 @@ função. Verificado que `auth.uid()` lê GUC de sessão e sobrevive ao `definer
       já cobre o caso; a captura automática é conveniência.
 
 ### Etapa 7 — Tela
-- [ ] Ícone + item em `instagramNavigation`.
-- [ ] `page.tsx`, `recovery-client.tsx`, `recovery.module.css` com o bloco de knobs.
-- [ ] Faixa da régua, cards com sparkline e marcos, três abas.
-- [ ] Toggle "Recuperação" em [app/grupos/groups-client.tsx](app/grupos/groups-client.tsx).
+- [x] **2026-08-31** — `<symbol id="icon-recovery">` em [app/layout.tsx](app/layout.tsx), item em
+      `instagramNavigation` entre Grupos e Agenda, e `.recovery-page` no gradiente de fundo.
+- [x] **2026-08-31** — [app/(painel)/recuperacao/page.tsx](app/(painel)/recuperacao/page.tsx),
+      [app/recuperacao/recovery-client.tsx](app/recuperacao/recovery-client.tsx) e
+      [recovery.module.css](app/recuperacao/recovery.module.css) — todos os ajustes num bloco `.page`
+      no topo do módulo; o resto do arquivo só consome as variáveis.
+- [x] **2026-08-31** — Faixa da régua com os **dois totais lado a lado**, cards com sparkline + linha
+      do limiar + marcadores de troca de mídia, e as três abas.
+- [x] **2026-08-31** — Toggle "Recuperação" em [app/grupos/groups-client.tsx](app/grupos/groups-client.tsx),
+      com aviso no lugar do toggle quando o grupo **é** uma esteira.
+
+**Inspeção visual feita**, com uma página temporária de preview (fora do painel, alimentada com os
+números reais da análise de 31/08) — a página do painel exige sessão e não há como autenticar daqui.
+A página temporária foi removida depois. Dois defeitos reais apareceram e foram corrigidos:
+1. `margin-left: auto` no filtro "Coleta", dentro de um flex com `wrap`, jogava o item para uma
+   segunda linha **e** o empurrava para a direita, deixando um vão enorme no toolbar. Agora as quatro
+   etiquetas ficam na mesma linha.
+2. A coluna de perfil truncava o `@usuário` cedo demais, obrigando a passar o mouse em cada linha
+   para saber de quem se tratava. Ganhou largura mínima.
+
+Confirmado na inspeção: a métrica julgada muda de rótulo por nível (`vs` para quem nunca engrenou,
+`recente` para quem desabou); as linhas que só entram a 40% ficam esmaecidas **e com checkbox
+desabilitado** no ajuste de 25%; o card do LAURINHA mostra a tarja "Nível 2 desligado" junto de
+`saúde 51%`, coerentes entre si (era exatamente aqui que o plano original errava, trocando pico por
+limiar); e a linha da esteira lê
+`@mysticglow82931 · 0,08 → 18,40 · índice 0,3% → 66% · 21% (14 posts)`.
+
+**Não verificado no navegador:** a tela dentro do painel autenticado e o toggle na tela de Grupos —
+ambos exigem sessão real. Compilam (`next build` ✓) e passam no `tsc`, mas o comportamento precisa de
+um olhar seu.
 
 ### Etapa 8 — Fechamento
 - [ ] `npm test` e `npx tsc --noEmit`. **`npm run lint` não é executável neste repositório**: não há
