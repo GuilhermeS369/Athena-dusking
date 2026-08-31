@@ -854,13 +854,30 @@ um olhar seu.
       `supabase db push`, confirmadas no `migration list` com `remote` preenchido.
 - [ ] Aceitação da régua contra a análise de 31/08 (ver Verificação). **Depende de produção.**
 
+## Procedimento de ativação (definido pelo operador em 2026-08-31)
+
+**Um grupo por vez, e a análise roda a cada ativação.** Nenhum grupo está ligado; o primeiro será o
+**LAURINHA**. A cada grupo que entrar:
+
+1. Ligar o interruptor "Recuperação" no card do grupo em `/grupos`.
+2. Abrir `/recuperacao` e clicar em **Recalcular** — a régua precisa rodar para aquele grupo, porque
+   ela compara cada perfil com a mediana do **próprio grupo**. Um grupo ligado sem análise aparece na
+   tela sem candidatos, o que parece "não tem ninguém" quando na verdade é "ainda não foi medido".
+3. Conferir o card: mediana, recente, pico, saúde e o status. Se vier `gate_blocked`, o Nível 2 está
+   desligado ali de propósito e só o Nível 1 opina — o que é esperado no LAURINHA enquanto a mediana
+   recente estiver abaixo de 60% do pico.
+
+**O cooldown do Recalcular não atrapalha esse fluxo.** Ele é de 10 minutos, mas a rota o ignora quando
+existe grupo ligado que a última execução não cobriu — ligar um grupo é exatamente o evento que torna a
+análise anterior incompleta, e recusar o recálculo ali deixaria o operador olhando uma tela sem o grupo
+que ele acabou de ligar, sem entender por quê.
+
 ## O que falta, e por que não dá para fechar daqui
 
 Tudo abaixo precisa do banco real ou de acesso à VPS. Nada é código pendente.
 
-1. **Ligar a recuperação nos grupos.** Nenhum grupo tem `recovery_enabled = true` ainda, então a tela
-   abre vazia até alguém ligar o interruptor em `/grupos`. É de propósito: a régua compara cada perfil
-   com a mediana do próprio grupo, e ligar grupo a grupo é o filtro.
+1. **Ligar a recuperação nos grupos** — decisão do operador, um grupo por vez, começando pelo
+   LAURINHA. Ver "Procedimento de ativação" acima.
 2. **Medir a duração de um chunk no GG LEXY real** (~457 perfis × 30 dias) contra o teto de ~8 s,
    **antes** de ligar qualquer cron.
 3. **Aceitação contra 31/08** — rodar com a janela de 25 a 31/08 e os dois desvios desligados por

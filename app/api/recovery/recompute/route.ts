@@ -41,6 +41,37 @@ type RunRow = {
 const runColumns =
   "id, status, created_at, finished_at, groups_total, groups_processed, groups_failed, candidates_total, latest_metric_date";
 
+/**
+ * Existe algum grupo com recuperação ligada que a execução `runId` não cobriu?
+ *
+ * É como a rota sabe que o escopo mudou desde a última análise — tipicamente
+ * porque o operador acabou de ligar o interruptor num grupo novo.
+ */
+async function hasGroupOutsideRun(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  organizationId: string,
+  runId: string,
+) {
+  const [groupsResult, statsResult] = await Promise.all([
+    supabase
+      .from('profile_groups')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('recovery_enabled', true)
+      .is('recovery_source_group_id', null)
+      .is('deleted_at', null)
+      .limit(500),
+    supabase
+      .from('recovery_group_stats')
+      .select('group_id')
+      .eq('run_id', runId)
+      .limit(500),
+  ]);
+  if (groupsResult.error || statsResult.error) return false;
+  const analysed = new Set((statsResult.data ?? []).map((row) => row.group_id));
+  return (groupsResult.data ?? []).some((group) => !analysed.has(group.id));
+}
+
 export async function GET() {
   const context = await getOrganizationContext();
   if (!context.user || !context.activeOrganization) {
@@ -92,11 +123,18 @@ export async function POST() {
   if (!resuming && latest) {
     const minutesSince = (Date.now() - new Date(latest.created_at).getTime()) / 60_000;
     if (minutesSince < COOLDOWN_MINUTES) {
-      return noStoreJson({
-        error: `A análise foi refeita há menos de ${COOLDOWN_MINUTES} minutos. Aguarde para recalcular.`,
-        run: latest,
-        retryAfterMinutes: Math.ceil(COOLDOWN_MINUTES - minutesSince),
-      }, { status: 429 });
+      // O cooldown não vale quando a régua mudou de escopo. Ligar a recuperação
+      // num grupo é exatamente o evento que torna a última análise incompleta:
+      // recusar o recálculo aqui deixaria o operador olhando uma tela que não
+      // inclui o grupo que ele acabou de ligar, sem entender por quê.
+      const scopeChanged = await hasGroupOutsideRun(supabase, organizationId, latest.id);
+      if (!scopeChanged) {
+        return noStoreJson({
+          error: `A análise foi refeita há menos de ${COOLDOWN_MINUTES} minutos. Aguarde para recalcular.`,
+          run: latest,
+          retryAfterMinutes: Math.ceil(COOLDOWN_MINUTES - minutesSince),
+        }, { status: 429 });
+      }
     }
   }
 
