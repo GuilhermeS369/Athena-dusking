@@ -17,7 +17,7 @@ for concluída **e validada**.
 | 5 — Leitura (libs e rotas GET) | ✅ concluída |
 | 6 — Ações (rotas POST/PATCH) | ✅ concluída |
 | 7 — Tela (`/recuperacao`) | ✅ concluída |
-| 8 — Fechamento (tsc, testes, aceitação) | ⏳ em andamento |
+| 8 — Fechamento (tsc, testes, aceitação) | ✅ o que dá para fechar daqui |
 
 **Presos em produção, não em código** — os dois vão ficar abertos até alguém rodar contra o banco
 real, e não devem ser marcados antes disso:
@@ -39,6 +39,7 @@ real, e não devem ser marcados antes disso:
 | 2026-08-31 | 4 | Rota interna de despacho, script e cron da VPS, e rota `Recalcular`. RPCs exercitadas **pelo PostgREST** com os números conferidos à mão. `tsc --noEmit` limpo, `npm test` 395/395. |
 | 2026-08-31 | 5 e 6 | Libs (`ruler`, `verdict` com 9 testes, `snapshot`) e as sete rotas de leitura e ação. Relações registradas na guarda de paginação. `tsc` limpo, `npm test` **404/404**. |
 | 2026-08-31 | 7 | Tela `/recuperacao` completa, toggle na tela de Grupos, ícone e item de menu. Inspecionada no navegador com dados realistas; dois defeitos de layout corrigidos. `next build` compila. |
+| 2026-08-31 | 8 | Fechamento: `tsc` limpo, `npm test` 404/404, `next build` ✓, os quatro testes pgTAP verdes e a suíte completa em 45 falhas (baseline). **347–350 aplicadas em produção.** |
 
 ---
 
@@ -844,12 +845,33 @@ ambos exigem sessão real. Compilam (`next build` ✓) e passam no `tsc`, mas o 
 um olhar seu.
 
 ### Etapa 8 — Fechamento
-- [ ] `npm test` e `npx tsc --noEmit`. **`npm run lint` não é executável neste repositório**: não há
-      config de ESLint nem a dependência, e `next lint` abre um prompt de setup interativo. Condição
-      pré-existente — os portões reais são o `tsc`, o `npm test` (que inclui a guarda de paginação) e
-      a suíte pgTAP.
-- [ ] Aceitação da régua (ver Verificação).
-- [ ] Registrar no plano do repositório o que foi aplicado em produção e quando.
+- [x] **2026-08-31** — `npx tsc --noEmit` limpo, `npm test` **404/404**, `next build` compila,
+      os quatro testes pgTAP novos verdes, suíte completa em 45 falhas (o baseline pré-existente).
+      **`npm run lint` não é executável neste repositório**: não há config de ESLint nem a
+      dependência, e `next lint` abre um prompt de setup interativo. Condição pré-existente — os
+      portões reais são o `tsc`, o `npm test` (que inclui a guarda de paginação) e a suíte pgTAP.
+- [x] **2026-08-31** — Migrations **347, 348, 349 e 350 aplicadas em produção** via
+      `supabase db push`, confirmadas no `migration list` com `remote` preenchido.
+- [ ] Aceitação da régua contra a análise de 31/08 (ver Verificação). **Depende de produção.**
+
+## O que falta, e por que não dá para fechar daqui
+
+Tudo abaixo precisa do banco real ou de acesso à VPS. Nada é código pendente.
+
+1. **Ligar a recuperação nos grupos.** Nenhum grupo tem `recovery_enabled = true` ainda, então a tela
+   abre vazia até alguém ligar o interruptor em `/grupos`. É de propósito: a régua compara cada perfil
+   com a mediana do próprio grupo, e ligar grupo a grupo é o filtro.
+2. **Medir a duração de um chunk no GG LEXY real** (~457 perfis × 30 dias) contra o teto de ~8 s,
+   **antes** de ligar qualquer cron.
+3. **Aceitação contra 31/08** — rodar com a janela de 25 a 31/08 e os dois desvios desligados por
+   parâmetro, conferir 33 / 55 / 39 e as medianas, e só depois rodar com os desvios ligados,
+   registrando a diferença.
+4. **Definir o horário do cron** depois de conferir quando a coleta diária de analytics termina
+   ([docs/vps-worker-runbook.md](docs/vps-worker-runbook.md)) e **instalar** o `.sh` e o `.cron` na
+   VPS.
+5. **Verificar a tela no painel autenticado** e o toggle em `/grupos` — compilam e passam no `tsc`,
+   mas não foi possível autenticar daqui.
+6. *(Opcional)* Captura automática do marco de mídia na rota da Galeria. O registro manual já cobre.
 
 ---
 
