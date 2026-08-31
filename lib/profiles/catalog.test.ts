@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   decodeInstagramProfilesCursor,
   encodeInstagramProfilesCursor,
+  isCalendarDay,
   normalizeInstagramProfilesFilters,
   normalizeInstagramProfilesLimit,
 } from './catalog.ts';
@@ -36,11 +37,34 @@ test('limite do catálogo fica entre 1 e 100', () => {
 });
 
 test('filtros do catálogo são normalizados e valores desconhecidos voltam ao padrão', () => {
-  assert.deepEqual(normalizeInstagramProfilesFilters({ query: '  @Conta  ', groupId: 'x', status: 'online', situation: 'error', publication: 'posted', sort: 'followers' }), {
-    query: '@Conta', groupId: null, status: 'online', situation: 'error', publication: 'posted', sort: 'followers',
+  assert.deepEqual(normalizeInstagramProfilesFilters({ query: '  @Conta  ', groupId: 'x', status: 'online', situation: 'error', publication: 'posted', sort: 'followers', createdOn: '2026-08-27' }), {
+    query: '@Conta', groupId: null, status: 'online', situation: 'error', publication: 'posted', sort: 'followers', createdOn: '2026-08-27',
   });
-  assert.deepEqual(normalizeInstagramProfilesFilters({ status: 'desconhecido' as never, situation: 'x' as never, sort: 'aleatorio' as never }), {
-    query: '', groupId: null, status: 'all', situation: 'all', publication: 'all', sort: 'recent',
+  assert.deepEqual(normalizeInstagramProfilesFilters({ status: 'desconhecido' as never, situation: 'x' as never, sort: 'aleatorio' as never, createdOn: '27/08/2026' as never }), {
+    query: '', groupId: null, status: 'all', situation: 'all', publication: 'all', sort: 'recent', createdOn: null,
   });
   assert.equal(normalizeInstagramProfilesFilters({ sort: 'views' }).sort, 'views');
+});
+
+test('data de adição só aceita dia que existe no calendário', () => {
+  assert.equal(isCalendarDay('2026-08-27'), true);
+  assert.equal(isCalendarDay('2024-02-29'), true);
+
+  // O regex sozinho deixaria passar; o Postgres recusaria no meio da consulta.
+  // 2026 não é bissexto, então 29/02 é tão inexistente quanto 30/02.
+  assert.equal(isCalendarDay('2026-02-29'), false);
+  assert.equal(isCalendarDay('2026-02-30'), false);
+  assert.equal(isCalendarDay('2026-13-01'), false);
+
+  assert.equal(isCalendarDay('27/08/2026'), false);
+  assert.equal(isCalendarDay('2026-8-7'), false);
+  assert.equal(isCalendarDay(''), false);
+  assert.equal(isCalendarDay(null), false);
+  assert.equal(isCalendarDay(20260827), false);
+});
+
+test('data inválida vira ausência de filtro em vez de erro', () => {
+  assert.equal(normalizeInstagramProfilesFilters({ createdOn: '2026-02-30' }).createdOn, null);
+  assert.equal(normalizeInstagramProfilesFilters({}).createdOn, null);
+  assert.equal(normalizeInstagramProfilesFilters({ createdOn: '2026-08-27' }).createdOn, '2026-08-27');
 });

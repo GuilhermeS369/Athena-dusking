@@ -13,7 +13,8 @@ select extensions.has_function(
 );
 select extensions.has_function(
   'public', 'list_instagram_profiles_catalog_ids',
-  array['uuid','integer','text','uuid','text','text','text'],
+  -- A migration 344 acrescentou p_created_on ao final da assinatura.
+  array['uuid','integer','text','uuid','text','text','text','date'],
   'RPC de ids do filtro existe'
 );
 select extensions.ok(

@@ -51,6 +51,7 @@ export async function GET(request: Request) {
     situation: url.searchParams.get('situation') as never,
     publication: url.searchParams.get('publication') as never,
     sort: url.searchParams.get('sort') as never,
+    createdOn: url.searchParams.get('createdOn'),
   });
   const startedAt = performance.now();
   try {

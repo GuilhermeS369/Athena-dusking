@@ -124,6 +124,12 @@ type AuthMirrorLinkState = {
 
 const PROFILES_VIEW_STORAGE_KEY = 'athena:perfis:view';
 
+// Teto do seletor de data. Perfil nenhum foi adicionado no futuro, e o "hoje" que
+// vale é o da organização — em São Paulo, depois das 21h o UTC já virou amanhã.
+function todayInOrganizationTimeZone() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+}
+
 const profileStatusLabels: Record<Profile['status'], string> = {
   online: 'Online',
   offline: 'Offline',
@@ -387,6 +393,9 @@ export default function ProfilesClient({
   const [selectedPublicationView, setSelectedPublicationView] = useState<'all' | 'posted'>('all');
   const [selection, setSelection] = useState<ProfileSelectionState>(EMPTY_PROFILE_SELECTION);
   const [selectedSort, setSelectedSort] = useState<InstagramProfileSort>('recent');
+  // Dia de adição no fuso da organização, em YYYY-MM-DD — o mesmo formato que o
+  // <input type="date"> emite e que o RPC recebe, sem conversão no meio.
+  const [selectedCreatedOn, setSelectedCreatedOn] = useState('');
   // Lista e o padrao: e o modo que aguenta operar centenas de perfis. Cards fica
   // como alternativa para quem quer ver as metricas de cada conta lado a lado.
   const [viewMode, setViewMode] = useState<'cards' | 'list'>('list');
@@ -422,6 +431,7 @@ export default function ProfilesClient({
     situation: selectedSituation,
     publication: selectedPublicationView,
     sort: selectedSort,
+    createdOn: selectedCreatedOn || null,
   };
   const groupAssignmentSuffix = connectionResult.groupAssignment === 'assigned'
     ? ` Perfil(is) adicionado(s) ao grupo “${connectionResult.groupName ?? 'selecionado'}”.`
@@ -497,6 +507,7 @@ export default function ProfilesClient({
     if (selectedSituation !== 'all') params.set('situation', selectedSituation);
     if (selectedPublicationView !== 'all') params.set('publication', selectedPublicationView);
     if (selectedSort !== 'recent') params.set('sort', selectedSort);
+    if (selectedCreatedOn) params.set('createdOn', selectedCreatedOn);
 
     setCatalogLoading(true);
     setCatalogError('');
@@ -514,7 +525,7 @@ export default function ProfilesClient({
         if (!controller.signal.aborted) setCatalogLoading(false);
       });
     return () => controller.abort();
-  }, [catalogCursor, catalogReloadKey, debouncedSearch, initialCatalog.limit, selectedGroupId, selectedPublicationView, selectedSituation, selectedSort, selectedStatus]);
+  }, [catalogCursor, catalogReloadKey, debouncedSearch, initialCatalog.limit, selectedCreatedOn, selectedGroupId, selectedPublicationView, selectedSituation, selectedSort, selectedStatus]);
 
   useEffect(() => {
     if (connectionResult.connected || connectionResult.error) setConnectModalOpen(true);
@@ -1124,6 +1135,29 @@ export default function ProfilesClient({
                 <option value="reauthorization_required">Reautorizar</option>
                 <option value="no_data">Sem dados</option>
               </select>
+            </label>
+            <label htmlFor="profile-created-on-filter">
+              Adicionadas em
+              <span className={styles.dateField}>
+                <input
+                  id="profile-created-on-filter"
+                  type="date"
+                  value={selectedCreatedOn}
+                  max={todayInOrganizationTimeZone()}
+                  onChange={(event) => { resetCatalogPagination(); setSelectedCreatedOn(event.target.value); }}
+                />
+                {selectedCreatedOn && (
+                  <button
+                    className={styles.dateClear}
+                    type="button"
+                    aria-label="Limpar filtro de data de adição"
+                    title="Limpar data"
+                    onClick={() => { resetCatalogPagination(); setSelectedCreatedOn(''); }}
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
             </label>
             <label htmlFor="profile-search-filter">
               Buscar

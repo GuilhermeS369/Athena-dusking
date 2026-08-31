@@ -4,6 +4,7 @@ export const INSTAGRAM_PROFILES_PAGE_SIZE = 40;
 export const INSTAGRAM_PROFILES_MAX_PAGE_SIZE = 100;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export type InstagramProfileStatus = 'no_data' | 'online' | 'offline' | 'reauthorization_required';
 export type InstagramProfileSituation = 'all' | 'online' | 'error' | 'paused';
@@ -74,6 +75,8 @@ export type InstagramProfilesCatalogFilters = {
   situation: InstagramProfileSituation;
   publication: InstagramProfilePublicationFilter;
   sort: InstagramProfileSort;
+  /** Dia de adicao no fuso da organizacao (America/Sao_Paulo), em YYYY-MM-DD. */
+  createdOn: string | null;
 };
 
 // A metrica entra no cursor porque a ordenacao por seguidores/views usa a chave
@@ -115,6 +118,17 @@ export function normalizeInstagramProfilesLimit(value: number) {
   return Math.min(INSTAGRAM_PROFILES_MAX_PAGE_SIZE, Math.max(1, value));
 }
 
+/**
+ * Aceita apenas YYYY-MM-DD que exista de fato no calendario. O regex sozinho
+ * deixaria passar 2026-02-31, que o Postgres recusaria com erro de sintaxe de
+ * data no meio da consulta do catalogo.
+ */
+export function isCalendarDay(value: unknown): value is string {
+  if (typeof value !== 'string' || !ISO_DATE_PATTERN.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 export function normalizeInstagramProfilesFilters(input: Partial<InstagramProfilesCatalogFilters>): InstagramProfilesCatalogFilters {
   const query = typeof input.query === 'string' ? input.query.trim().slice(0, 120) : '';
   const groupId = typeof input.groupId === 'string' && UUID_PATTERN.test(input.groupId) ? input.groupId : null;
@@ -127,6 +141,7 @@ export function normalizeInstagramProfilesFilters(input: Partial<InstagramProfil
     situation: typeof input.situation === 'string' && situations.has(input.situation) ? input.situation as InstagramProfileSituation : 'all',
     publication: input.publication === 'posted' ? 'posted' : 'all',
     sort: typeof input.sort === 'string' && (INSTAGRAM_PROFILE_SORTS as string[]).includes(input.sort) ? input.sort as InstagramProfileSort : 'recent',
+    createdOn: isCalendarDay(input.createdOn) ? input.createdOn : null,
   };
 }
 
@@ -192,6 +207,7 @@ export async function getInstagramProfilesCatalogPage(input: {
     p_status: filters.status === 'all' ? null : filters.status,
     p_situation: filters.situation === 'all' ? null : filters.situation,
     p_publication: filters.publication,
+    p_created_on: filters.createdOn,
   };
   const [pageResult, summaryResult] = await Promise.all([
     input.supabase.rpc('list_instagram_profiles_catalog_page', {

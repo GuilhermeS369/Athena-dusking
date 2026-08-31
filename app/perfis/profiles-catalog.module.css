@@ -181,6 +181,72 @@
   font-size: 12px;
 }
 
+/* Filtro por data de adição ------------------------------------------------- */
+
+.dateField {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+/* color-scheme: dark é o que faz o Chrome pintar o próprio calendário em escuro.
+   Sem ele o seletor abre branco no meio de uma tela preta. */
+.dateField input {
+  width: 100%;
+  color-scheme: dark;
+}
+
+/* O botão de limpar ocupa a direita do campo, então o valor precisa parar antes
+   dele — senão a data fica por baixo do ×. */
+.dateField:has(.dateClear) input {
+  padding-right: 56px;
+}
+
+/* Com color-scheme: dark o Chrome já desenha o ícone do calendário em claro;
+   inverter aqui o pintaria de preto de volta e ele sumiria no campo escuro. Só
+   o contraste em repouso é baixo demais. */
+.dateField input::-webkit-calendar-picker-indicator {
+  opacity: .6;
+  cursor: pointer;
+  transition: opacity .16s ease;
+}
+
+.dateField input:hover::-webkit-calendar-picker-indicator,
+.dateField input:focus::-webkit-calendar-picker-indicator {
+  opacity: .95;
+}
+
+.dateClear {
+  position: absolute;
+  top: 50%;
+  right: 30px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 6px;
+  background: #2a2535;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .16s ease, color .16s ease;
+}
+
+.dateClear:hover {
+  background: #3b3348;
+  color: var(--text);
+}
+
+.dateClear:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px #9f4cff22;
+}
+
 /* Modo lista --------------------------------------------------------------- */
 
 .listPanel {

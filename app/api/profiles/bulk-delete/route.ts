@@ -37,6 +37,7 @@ type BulkDeleteBody = {
     status?: unknown;
     situation?: unknown;
     publication?: unknown;
+    createdOn?: unknown;
   };
 };
 
@@ -75,6 +76,7 @@ export async function POST(request: Request) {
       status: body.filters?.status as never,
       situation: body.filters?.situation as never,
       publication: body.filters?.publication as never,
+      createdOn: typeof body.filters?.createdOn === 'string' ? body.filters.createdOn : null,
     });
     const rpcFilters = {
       p_organization_id: organizationId,
@@ -83,6 +85,7 @@ export async function POST(request: Request) {
       p_status: filters.status === 'all' ? null : filters.status,
       p_situation: filters.situation === 'all' ? null : filters.situation,
       p_publication: filters.publication,
+      p_created_on: filters.createdOn,
     };
 
     // Recusar acima do teto em vez de cortar: uma exclusão truncada em silêncio
