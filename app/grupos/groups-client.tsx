@@ -548,25 +548,6 @@ export default function GroupsClient({
               <span className={styles.memberCount}>{memberProfiles.length} {memberProfiles.length === 1 ? 'perfil' : 'perfis'}</span>
             </div>
           </div>
-          {group.recovery_source_group_id
-            ? <p className={styles.recoveryNote}>
-                Esteira de recuperação. Ela não é analisada como origem — é a coorte em observação.
-              </p>
-            : canManage && <label className={styles.recoveryToggle}>
-                <input
-                  type="checkbox"
-                  checked={group.recovery_enabled}
-                  disabled={recoveryBusyId === group.id}
-                  onChange={(event) => toggleRecovery(group, event.target.checked)}
-                />
-                <span>
-                  <strong>Recuperação</strong>
-                  {/* A régua compara cada perfil com a mediana do PRÓPRIO grupo,
-                      então ligar grupo a grupo é o filtro certo: um grupo com
-                      poucos julgáveis não deve entrar. */}
-                  <em>Libera este grupo para a análise da tela de Recuperação.</em>
-                </span>
-              </label>}
           {group.description && <p className={styles.description}>{group.description}</p>}
           {group.default_caption && <p className={styles.caption}>“{group.default_caption}”</p>}
           <div className={styles.membersPreview}>
@@ -578,6 +559,23 @@ export default function GroupsClient({
               <span>{memberProfiles.slice(0, 2).map((profile) => `@${profile.username}`).join(', ')}{memberProfiles.length > 2 ? ' e mais' : ''}</span>
             </> : <span className={styles.emptyMembers}>Nenhum perfil adicionado</span>}
           </div>
+          {group.recovery_source_group_id
+            ? <span className={styles.recoveryLane} title="Esta é a esteira de recuperação de outro grupo. Ela não é analisada como origem — é a coorte em observação.">
+                Esteira de recuperação
+              </span>
+            : canManage && <label
+                className={styles.recoverySwitch}
+                title="Libera este grupo para a análise da tela de Recuperação. A régua compara cada perfil com a mediana do próprio grupo, por isso o interruptor é por grupo."
+              >
+                <input
+                  type="checkbox"
+                  checked={group.recovery_enabled}
+                  disabled={recoveryBusyId === group.id}
+                  onChange={(event) => toggleRecovery(group, event.target.checked)}
+                />
+                <span className={styles.recoveryTrack} aria-hidden="true" />
+                Recuperação
+              </label>}
           <div className={styles.actions}>
             <button className={styles.exportButton} type="button" aria-label={`Exportar perfis do grupo ${group.name}`} title="Exportar perfis" disabled={exportingGroupId !== null} onClick={() => exportGroup(group)}>
               <span aria-hidden="true">{exportingGroupId === group.id ? '…' : '⇩'}</span>

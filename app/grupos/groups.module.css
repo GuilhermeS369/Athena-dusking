@@ -109,37 +109,63 @@ p.modalMessage { width: 100%; margin: -8px 0 16px; }
   .moveGroupSelect { max-width: none; width: 100%; }
 }
 
-/* Interruptor da analise de recuperacao. Ligar grupo a grupo e o filtro: a
- * regua compara cada perfil com a mediana do proprio grupo, entao um grupo com
- * poucos julgaveis nao deve entrar. */
-.recoveryToggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid #2e2a36;
-  border-radius: 12px;
-  background: rgba(16, 15, 22, .92);
-  cursor: pointer;
-}
-.recoveryToggle input {
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  accent-color: var(--purple-bright);
-  cursor: pointer;
-}
-.recoveryToggle span { display: grid; gap: 2px; }
-.recoveryToggle strong { color: var(--text); font-size: 12px; font-weight: 800; }
-.recoveryToggle em { color: var(--text-subtle); font-size: 11px; font-style: normal; line-height: 1.5; }
-.recoveryToggle:has(input:checked) { border-color: #6b4b92; background: linear-gradient(135deg, #1d1530, #15121d); }
-
-.recoveryNote {
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px dashed #4c4159;
-  border-radius: 12px;
+/* Interruptor da analise de recuperacao.
+ *
+ * Uma linha so, sem caixa: o card e feito de pills de 999px e linhas curtas, e
+ * um bloco com borda no meio dele quebra o ritmo e rouba altura de um card que
+ * ja tem min-height apertado. Fica logo acima da divisoria de acoes.
+ *
+ * Ligar grupo a grupo e o filtro de verdade: a regua compara cada perfil com a
+ * mediana do PROPRIO grupo, entao um grupo com poucos julgaveis nao deve entrar.
+ */
+.recoverySwitch {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 9px;
   color: var(--text-subtle);
+  cursor: pointer;
   font-size: 11px;
-  line-height: 1.5;
+  font-weight: 750;
+  user-select: none;
+}
+.recoverySwitch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.recoveryTrack {
+  position: relative;
+  width: 34px;
+  height: 19px;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #16141d;
+  transition: background .18s ease, border-color .18s ease;
+}
+.recoveryTrack::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #6a6478;
+  transition: left .18s ease, background .18s ease;
+}
+.recoverySwitch:hover .recoveryTrack { border-color: #8562aa; }
+.recoverySwitch input:checked + .recoveryTrack { border-color: var(--purple-bright); background: var(--purple-soft); }
+.recoverySwitch input:checked + .recoveryTrack::after { left: 17px; background: #e7d0ff; }
+.recoverySwitch input:focus-visible + .recoveryTrack { box-shadow: 0 0 0 3px #9f4cff55; }
+.recoverySwitch input:disabled + .recoveryTrack { cursor: wait; opacity: .55; }
+.recoverySwitch:has(input:checked) { color: #d8bdff; }
+
+/* O grupo que E uma esteira nao ganha interruptor: ele e a coorte em
+ * observacao, nao um conjunto de candidatos. */
+.recoveryLane {
+  align-self: flex-start;
+  padding: 5px 11px;
+  border: 1px dashed #5b4a71;
+  border-radius: 999px;
+  color: #c9a6ff;
+  font-size: 11px;
+  font-weight: 750;
 }
