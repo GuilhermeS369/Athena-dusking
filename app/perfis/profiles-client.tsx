@@ -387,7 +387,9 @@ export default function ProfilesClient({
   const [selectedPublicationView, setSelectedPublicationView] = useState<'all' | 'posted'>('all');
   const [selection, setSelection] = useState<ProfileSelectionState>(EMPTY_PROFILE_SELECTION);
   const [selectedSort, setSelectedSort] = useState<InstagramProfileSort>('recent');
-  const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
+  // Lista e o padrao: e o modo que aguenta operar centenas de perfis. Cards fica
+  // como alternativa para quem quer ver as metricas de cada conta lado a lado.
+  const [viewMode, setViewMode] = useState<'cards' | 'list'>('list');
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeletePreview, setBulkDeletePreview] = useState<ProfileRemovalPreview | null>(null);
   const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState('');
@@ -1140,8 +1142,8 @@ export default function ProfilesClient({
               <button className={selectedPublicationView === 'posted' ? 'profiles-posted-toggle-button-active' : ''} type="button" aria-pressed={selectedPublicationView === 'posted'} onClick={() => { resetCatalogPagination(); setSelectedPublicationView('posted'); }}>Postadas {profileCounters.publishedItems}</button>
             </div>
             <div className="profiles-posted-toggle" role="group" aria-label="Modo de exibição">
-              <button className={viewMode === 'cards' ? 'profiles-posted-toggle-button-active' : ''} type="button" aria-pressed={viewMode === 'cards'} onClick={() => changeViewMode('cards')}>Cards</button>
               <button className={viewMode === 'list' ? 'profiles-posted-toggle-button-active' : ''} type="button" aria-pressed={viewMode === 'list'} onClick={() => changeViewMode('list')}>Lista</button>
+              <button className={viewMode === 'cards' ? 'profiles-posted-toggle-button-active' : ''} type="button" aria-pressed={viewMode === 'cards'} onClick={() => changeViewMode('cards')}>Cards</button>
             </div>
             <span aria-live="polite">{catalogLoading ? 'Carregando…' : `${profiles.length} de ${profileCounters.filteredTotal} ${profileCounters.filteredTotal === 1 ? 'perfil' : 'perfis'}`}</span>
             </div>
@@ -1241,13 +1243,25 @@ export default function ProfilesClient({
                             )}
                           </td>
                           <td>
-                            <Link className={styles.listIdentity} href={`/perfis/${profile.id}`}>
-                              <ProfileAvatar profile={profile} />
-                              <span>
-                                <strong>@{profile.username}</strong>
-                                <small>{profile.display_name ?? 'Perfil profissional'}</small>
-                              </span>
-                            </Link>
+                            <div className={styles.listIdentity}>
+                              <Link className={styles.listIdentityLink} href={`/perfis/${profile.id}`}>
+                                <ProfileAvatar profile={profile} />
+                                <span>
+                                  <strong>@{profile.username}</strong>
+                                  <small>{profile.display_name ?? 'Perfil profissional'}</small>
+                                </span>
+                              </Link>
+                              <a
+                                className={styles.listInstagramLink}
+                                href={instagramProfileUrl(profile.username)}
+                                target="_blank"
+                                rel="noreferrer"
+                                title={`Abrir @${profile.username} no Instagram`}
+                              >
+                                <span aria-hidden="true">↗</span>
+                                <span className="visually-hidden">Abrir @{profile.username} no Instagram</span>
+                              </a>
+                            </div>
                           </td>
                           <td>{profile.group_name ?? 'Sem grupo'}</td>
                           <td>{profile.provider === 'zernio' ? (profile.zernio_connection_label ?? 'Não identificada') : 'Meta oficial'}</td>
@@ -1258,13 +1272,20 @@ export default function ProfilesClient({
                           <td>
                             <div className={styles.listActions}>
                               {canManage && (
-                                <button className="button button-ghost profile-sync-button" type="button" onClick={() => syncProfile(profile.id)} disabled={checkingProfileId !== null}>
+                                <button
+                                  className={`button button-ghost profile-sync-button ${styles.listIconButton}`}
+                                  type="button"
+                                  title={`Sincronizar @${profile.username}`}
+                                  aria-label={`Sincronizar @${profile.username}`}
+                                  onClick={() => syncProfile(profile.id)}
+                                  disabled={checkingProfileId !== null}
+                                >
                                   <SyncIcon className="button-icon button-icon-sync" />
-                                  {checkingProfileId === profile.id ? 'Sincronizando…' : 'Sincronizar'}
+                                  <span className="visually-hidden">{checkingProfileId === profile.id ? 'Sincronizando…' : 'Sincronizar'}</span>
                                 </button>
                               )}
                               {canManage && (
-                                <button className="button button-danger profile-delete-icon-button" type="button" aria-label={`Excluir perfil @${profile.username}`} onClick={() => requestDeleteProfile(profile)} disabled={deletingProfileId !== null}>
+                                <button className="button button-danger profile-delete-icon-button" type="button" title={`Excluir perfil @${profile.username}`} aria-label={`Excluir perfil @${profile.username}`} onClick={() => requestDeleteProfile(profile)} disabled={deletingProfileId !== null}>
                                   <TrashIcon className="button-icon" />
                                   <span className="visually-hidden">Excluir perfil</span>
                                 </button>

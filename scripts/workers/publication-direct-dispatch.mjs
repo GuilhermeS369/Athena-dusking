@@ -1747,28 +1747,64 @@ export async function processZernioProfileRecyclingJobs(workerId, limit = 10) {
   // O soft-delete local nao libera a vaga sozinho: a ocupacao da chave e
   // greatest(remote_instagram_account_count, perfis locais) e o valor remoto so
   // muda quando alguem re-lista /v1/accounts. Sem este passo a vaga so reaparece
-  // no proximo "Sincronizar" manual. Uma chamada por conexao, nao por job.
-  const freedConnectionIds = new Set(jobs
-    .filter((job, index) => job.zernio_connection_id
-      && ['remote_deleted', 'already_disconnected_404'].includes(results[index]?.outcome))
-    .map((job) => `${job.organization_id}:${job.zernio_connection_id}`));
-  for (const pair of freedConnectionIds) {
-    const [organizationId, connectionId] = pair.split(':');
-    await refreshZernioRemoteInventoryCount(organizationId, connectionId);
+  // no proximo "Sincronizar" manual.
+  //
+  // A contagem nao e decrementada: ela vem da propria Zernio na releitura. Isso
+  // e o que da a certeza de que a conta saiu, e torna o passo idempotente — uma
+  // releitura a mais nunca escreve um numero errado. Uma chamada por conexao,
+  // nao por job.
+  const removedByConnection = new Map();
+  jobs.forEach((job, index) => {
+    if (!job.zernio_connection_id) return;
+    if (!['remote_deleted', 'already_disconnected_404'].includes(results[index]?.outcome)) return;
+    const key = `${job.organization_id}:${job.zernio_connection_id}`;
+    const removed = removedByConnection.get(key) ?? new Set();
+    if (job.zernio_account_id) removed.add(String(job.zernio_account_id).trim());
+    removedByConnection.set(key, removed);
+  });
+  for (const [key, removedAccountIds] of removedByConnection) {
+    const separator = key.indexOf(':');
+    await refreshZernioRemoteInventoryCount(
+      key.slice(0, separator),
+      key.slice(separator + 1),
+      removedAccountIds,
+    );
   }
 
   return results;
 }
 
-// Espelha lib/integrations/zernio-accounts.ts:refreshZernioRemoteInventorySnapshot.
+// Espelha lib/integrations/zernio-accounts.ts:refreshZernioRemoteInventorySnapshot,
+// com a confirmacao pos-DELETE que os scripts de remocao ja praticam: a mesma
+// listagem que produz a contagem tambem prova que a conta sumiu.
+//
 // A remocao remota ja aconteceu quando isto roda, entao uma falha aqui nao pode
-// invalidar o job: o portao de frescor de 30 minutos faz o valor velho expirar.
-async function refreshZernioRemoteInventoryCount(organizationId, connectionId) {
+// invalidar o job: o portao de frescor de 30 minutos faz o valor velho expirar
+// e o proximo ciclo tenta de novo.
+async function refreshZernioRemoteInventoryCount(organizationId, connectionId, removedAccountIds = new Set()) {
   const supabase = createSupabase();
   try {
     const client = await createZernioClientForConnection(organizationId, connectionId, { operation: 'list_accounts' });
     const response = await client.listAccounts();
-    const count = (response?.accounts ?? []).filter((account) => account.platform === 'instagram').length;
+    const accounts = response?.accounts ?? [];
+    const count = accounts.filter((account) => account.platform === 'instagram').length;
+
+    // Contradicao: a Zernio confirmou a remocao e continua listando a conta. Nao
+    // ha o que corrigir daqui — a contagem lida continua sendo a verdade —, mas
+    // o caso precisa ficar visivel em vez de virar uma vaga fantasma.
+    const remoteIds = new Set(accounts
+      .map((account) => account.accountId ?? account._id ?? account.id)
+      .filter(Boolean)
+      .map((value) => String(value).trim()));
+    const stillPresent = [...removedAccountIds].filter((accountId) => remoteIds.has(accountId));
+    if (stillPresent.length) {
+      console.error('Conta removida na Zernio continua aparecendo no inventario da chave.', {
+        organizationId,
+        connectionId,
+        stillPresent,
+      });
+    }
+
     const { error } = await supabase
       .from('zernio_connections')
       .update({
@@ -1780,6 +1816,12 @@ async function refreshZernioRemoteInventoryCount(organizationId, connectionId) {
       .eq('id', connectionId)
       .eq('organization_id', organizationId);
     if (error) throw error;
+    console.info('Inventario Zernio atualizado apos reciclagem.', {
+      organizationId,
+      connectionId,
+      remoteInstagramAccountCount: count,
+      confirmedRemovals: removedAccountIds.size - stillPresent.length,
+    });
     return count;
   } catch (error) {
     console.error('Nao foi possivel atualizar o inventario Zernio apos a reciclagem.', {

@@ -57,12 +57,22 @@ Usuários podem cadastrar listas de chaves em `/x/zernio`, escolhendo saldo inic
 
 ## Proibições imediatas
 
+Esta lista vale para **trabalho no módulo X/Twitter**. Ela existe para proteger o
+rollout do X de efeitos colaterais, não para congelar o resto do sistema: uma
+tarefa que só toca Instagram segue as regras do Instagram
+([docs/vps-worker-runbook.md](../vps-worker-runbook.md) para a VPS).
+
 - Não rodar `git reset --hard`, checkout destrutivo ou limpeza recursiva.
 - Não reaplicar migrações 210–253: elas já constam no remoto.
 - Não repetir o provisionamento apenas para conferir estado nem expor a chave fornecida no chat; ela já foi persistida cifrada.
 - Não criar um segundo profile Zernio: o único profile existente foi confirmado como exclusivamente Twitter.
 - Não publicar secrets ou conteúdo de `.env*`.
-- Não reiniciar processos PM2 do Instagram.
+- Não reiniciar processos PM2 do Instagram **enquanto se mexe no X**. O objetivo
+  sempre foi evitar que uma operação do X derrubasse a publicação do Instagram;
+  quando a mudança é do próprio Instagram, reiniciar o processo dela é o
+  procedimento normal e está descrito em
+  [docs/vps-worker-runbook.md](../vps-worker-runbook.md). Reiniciado em
+  2026-08-31 para publicar a liberação automática de vaga Zernio.
 - Não repetir os três requests Analytics HTTP 202. As 27 reads tardias já foram debitadas coletivamente uma vez; não repetir a reconciliação financeira.
 
 ## Ambientes preparados

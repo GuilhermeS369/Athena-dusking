@@ -198,7 +198,7 @@
 
 .listTable {
   width: 100%;
-  min-width: 940px;
+  min-width: 820px;
   border-collapse: collapse;
   font-size: 12px;
 }
@@ -207,14 +207,14 @@
    fica com ~150px e corta o @usuário depois de oito caracteres. */
 .listTable th:nth-child(2),
 .listTable td:nth-child(2) {
-  min-width: 230px;
+  min-width: 210px;
 }
 
 .listTable thead th {
   position: sticky;
   top: 0;
   z-index: 1;
-  padding: 12px 14px;
+  padding: 12px 10px;
   border-bottom: 1px solid var(--border);
   background: #16151d;
   color: var(--text-subtle);
@@ -227,7 +227,7 @@
 }
 
 .listTable tbody td {
-  padding: 10px 14px;
+  padding: 10px 10px;
   border-bottom: 1px solid #221f2a;
   color: var(--text-muted);
   vertical-align: middle;
@@ -271,6 +271,13 @@
 }
 
 .listIdentity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.listIdentityLink {
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -279,20 +286,48 @@
   text-decoration: none;
 }
 
-.listIdentity > span {
+.listIdentityLink > span {
   display: grid;
   min-width: 0;
   gap: 2px;
 }
 
-.listIdentity strong {
+/* Atalho para a conta no Instagram. Fica fora do <Link> interno de propósito:
+   <a> dentro de <a> é marcação inválida e o navegador desmonta o aninhamento. */
+.listInstagramLink {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-subtle);
+  font-size: 12px;
+  text-decoration: none;
+  transition: color .16s ease, border-color .16s ease, background .16s ease;
+}
+
+.listInstagramLink:hover {
+  border-color: #4a3560;
+  background: #1b1723;
+  color: #d8b9ff;
+}
+
+.listInstagramLink:focus-visible {
+  outline: none;
+  border-color: var(--purple-bright);
+  box-shadow: 0 0 0 3px #9f4cff22;
+}
+
+.listIdentityLink strong {
   overflow: hidden;
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.listIdentity small {
+.listIdentityLink small {
   overflow: hidden;
   color: var(--text-subtle);
   font-size: 11px;
@@ -300,24 +335,24 @@
   white-space: nowrap;
 }
 
-.listIdentity:hover strong {
+.listIdentityLink:hover strong {
   color: #d8b9ff;
 }
 
 /* O avatar do card tem 58px de moldura; na lista a densidade pede 30px. */
-.listIdentity :global(.profile-avatar-frame) {
+.listIdentityLink :global(.profile-avatar-frame) {
   flex: 0 0 auto;
   width: 32px;
   height: 32px;
   border-width: 1px;
 }
 
-.listIdentity :global(.profile-avatar) {
+.listIdentityLink :global(.profile-avatar) {
   width: 26px;
   height: 26px;
 }
 
-.listIdentity :global(.profile-avatar-online-dot) {
+.listIdentityLink :global(.profile-avatar-online-dot) {
   right: 0;
   bottom: 0;
   width: 8px;
@@ -361,6 +396,17 @@
   padding: 0 11px;
   border-radius: 9px;
   font-size: 11px;
+}
+
+/* Só ícone: o rótulo textual do "Sincronizar" custava ~90px por linha e empurrava
+   a tabela para além do espaço disponível, obrigando a rolar de lado para chegar
+   às ações. O nome continua no title e no rótulo acessível. */
+.listIconButton {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
 }
 
 /* Progresso da exclusão ----------------------------------------------------- */
