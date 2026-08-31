@@ -55,7 +55,11 @@ export async function GET(request: Request) {
     .select(selectFields)
     .eq('organization_id', context.activeOrganization.id)
     .in('status', ['failed', 'preparing', 'publishing', 'removed'])
-    .or('last_error_code.is.null,last_error_code.neq.zernio_account_disconnected')
+  // Remoções automáticas não são item de atenção: elas já têm o próprio painel.
+  // Desde a migration 347 o motivo acompanha o sinal do incidente, então são dois
+  // códigos automáticos em vez de um. A exclusão pedida pelo operador fica de
+  // fora desta supressão de propósito — é ação deliberada e merece aparecer.
+    .or('last_error_code.is.null,and(last_error_code.neq.zernio_account_disconnected,last_error_code.neq.zernio_duplicate_identity_removed)')
     .order('updated_at', { ascending: false })
     .order('id', { ascending: false })
     .limit(limit + 1);
