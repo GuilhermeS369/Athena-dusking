@@ -24,7 +24,7 @@ export async function GET() {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from('profile_groups')
-    .select('id, name, description, consumption_mode, default_caption, created_at, updated_at')
+    .select('id, name, description, consumption_mode, default_caption, recovery_enabled, recovery_source_group_id, created_at, updated_at')
     .eq('organization_id', context.activeOrganization.id)
     .is('deleted_at', null)
     .order('updated_at', { ascending: false });
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
         default_caption: defaultCaption || null,
         created_by: context.user.id,
       })
-      .select('id, name, description, consumption_mode, default_caption, created_at, updated_at')
+      .select('id, name, description, consumption_mode, default_caption, recovery_enabled, recovery_source_group_id, created_at, updated_at')
       .single();
 
     if (error) {

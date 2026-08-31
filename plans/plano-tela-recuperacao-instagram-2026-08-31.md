@@ -14,9 +14,9 @@ for concluída **e validada**.
 | 2 — Banco: a régua (`348`) | ✅ concluída · pgTAP 24/24 · **2 itens presos em produção** |
 | 3 — Banco: esteira e acompanhamento (`349` + `350`) | ✅ concluída · pgTAP 21/21 e 11/11 |
 | 4 — Disparo (rota interna + cron na VPS) | ✅ concluída |
-| 5 — Leitura (libs e rotas GET) | ⏳ em andamento |
-| 6 — Ações (rotas POST/PATCH) | ⬜ |
-| 7 — Tela (`/recuperacao`) | ⬜ |
+| 5 — Leitura (libs e rotas GET) | ✅ concluída |
+| 6 — Ações (rotas POST/PATCH) | ✅ concluída |
+| 7 — Tela (`/recuperacao`) | ⏳ em andamento |
 | 8 — Fechamento (lint, tsc, aceitação) | ⬜ |
 
 **Presos em produção, não em código** — os dois vão ficar abertos até alguém rodar contra o banco
@@ -37,6 +37,7 @@ real, e não devem ser marcados antes disso:
 | 2026-08-31 | 3 | `349_recovery_cohort.sql` (esteira) **21/21** e `350_recovery_reads.sql` (leitura) **11/11**. Aplicadas em produção. Suíte completa segue em 45 falhas. |
 | 2026-08-31 | 3 | Migrations 349 e 350 aplicadas em produção e commitadas em `962b6ac`. |
 | 2026-08-31 | 4 | Rota interna de despacho, script e cron da VPS, e rota `Recalcular`. RPCs exercitadas **pelo PostgREST** com os números conferidos à mão. `tsc --noEmit` limpo, `npm test` 395/395. |
+| 2026-08-31 | 5 e 6 | Libs (`ruler`, `verdict` com 9 testes, `snapshot`) e as sete rotas de leitura e ação. Relações registradas na guarda de paginação. `tsc` limpo, `npm test` **404/404**. |
 
 ---
 
@@ -781,16 +782,33 @@ função. Verificado que `auth.uid()` lê GUC de sessão e sobrevive ao `definer
 - [ ] Instalar o script e o cron na VPS.
 
 ### Etapa 5 — Leitura
-- [ ] `lib/recovery/ruler.ts` e `lib/recovery/verdict.ts` + testes em `npm test`.
-- [ ] `lib/recovery/snapshot.ts` (tipos e normalização, molde de `lib/profiles/catalog.ts`).
-- [ ] `GET /api/recovery/overview`, `/candidates`, `/cohort`.
-- [ ] Registrar as duas relações em `row-limit-guard.test.ts`.
+- [x] **2026-08-31** — [lib/recovery/ruler.ts](lib/recovery/ruler.ts): ajustes, rótulos e status, com
+      o aviso de que **a fonte de verdade é a linha da execução**, não o arquivo — cada snapshot
+      carrega a régua com que foi produzido.
+- [x] **2026-08-31** — [lib/recovery/verdict.ts](lib/recovery/verdict.ts) + **9 testes**, cobrindo as
+      fronteiras exatas 0,40 e 0,25, a ordem "não sei antes de ruim" (índice péssimo sem referência
+      vira `no_reference`, não condenação), índice não finito, e a taxa de zerados sempre carregando
+      o denominador.
+- [x] **2026-08-31** — [lib/recovery/snapshot.ts](lib/recovery/snapshot.ts): tipos e normalização
+      para camelCase, com `judgedIndex` explicitando qual razão cada nível usa.
+- [x] **2026-08-31** — `GET /api/recovery/overview`, `/candidates`, `/cohort`.
+- [x] **2026-08-31** — `recovery_candidates` e `recovery_cohort_observations` registradas em
+      `SCALING_RELATIONS` e `RELATION_KEYS` de
+      [lib/supabase/row-limit-guard.test.ts](lib/supabase/row-limit-guard.test.ts).
 
 ### Etapa 6 — Ações
-- [ ] `POST /api/recovery/cohort` e `/cohort/return`.
-- [ ] `exit_decision = 'deleted'` também para exclusões feitas direto da aba Elegíveis.
-- [ ] `POST /api/recovery/milestones` + captura na camada de rota da Galeria.
-- [ ] `PATCH /api/groups/[groupId]/recovery` (rota nova) + colunas no `select` de grupos.
+- [x] **2026-08-31** — `POST /api/recovery/cohort` (teto de 200 perfis por operação — acima disso o
+      experimento fica ilegível) e `POST /api/recovery/cohort/return`.
+- [x] **2026-08-31** — `POST /api/recovery/deletions`, rota própria chamada **depois** de
+      `/api/profiles/bulk-delete` confirmar. Fica fora da rota de exclusão de propósito: aquele é um
+      caminho compartilhado com `/perfis` que já funciona, e falhar o registro não pode parecer
+      exclusão falha.
+- [x] **2026-08-31** — `GET`/`POST /api/recovery/milestones`.
+- [x] **2026-08-31** — `PATCH /api/groups/[groupId]/recovery` (rota nova, pelo motivo registrado no
+      próprio arquivo) + colunas novas no `select` de grupos nas três leituras.
+- [ ] Captura automática do marco na camada de rota da Galeria
+      ([app/api/media/groups/bulk/route.ts](app/api/media/groups/bulk/route.ts)) — o registro manual
+      já cobre o caso; a captura automática é conveniência.
 
 ### Etapa 7 — Tela
 - [ ] Ícone + item em `instagramNavigation`.

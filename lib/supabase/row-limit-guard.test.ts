@@ -86,6 +86,14 @@ const SCALING_RELATIONS = [
   'profile_analytics_sync_runs',
   'profile_analytics_refresh_job_items',
 
+  // Tela de Recuperação (Instagram): candidatos crescem com o número de perfis
+  // da organização vezes as execuções guardadas, e a observação da coorte é uma
+  // linha por membro por dia. Hoje a leitura é toda por RPC com teto explícito,
+  // então nada aqui acusa — o registro existe para o dia em que alguém escrever
+  // um `.select()` direto.
+  'recovery_candidates',
+  'recovery_cohort_observations',
+
   // Analytics e cadastros do módulo X, pelo mesmo critério.
   'twitter_profile_follower_daily_metrics',
   'twitter_post_analytics_current',
@@ -129,6 +137,8 @@ const RELATION_KEYS = new Map<string, string[]>([
   ['profile_post_analytics_snapshots', ['id']],
   ['profile_analytics_sync_runs', ['id']],
   ['profile_analytics_refresh_job_items', ['job_id', 'profile_id']],
+  ['recovery_candidates', ['run_id', 'profile_id']],
+  ['recovery_cohort_observations', ['cohort_member_id', 'observed_on']],
   ['twitter_profile_follower_daily_metrics', ['profile_id', 'metric_date']],
   ['twitter_post_analytics_current', ['publication_item_id']],
   ['twitter_analytics_snapshots', ['id']],

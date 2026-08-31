@@ -18,7 +18,7 @@ export default async function GroupsPage() {
   const [groupsResult, profilesResult, membershipsResult, fallenCountsResult] = await Promise.all([
     supabase
       .from('profile_groups')
-      .select('id, name, description, consumption_mode, default_caption, created_at, updated_at')
+      .select('id, name, description, consumption_mode, default_caption, recovery_enabled, recovery_source_group_id, created_at, updated_at')
       .eq('organization_id', organizationId)
       .is('deleted_at', null)
       .order('name', { ascending: true }),

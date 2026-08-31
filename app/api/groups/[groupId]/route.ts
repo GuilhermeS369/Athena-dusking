@@ -55,7 +55,7 @@ export async function PATCH(
       .eq('id', groupId)
       .eq('organization_id', context.activeOrganization.id)
       .is('deleted_at', null)
-      .select('id, name, description, consumption_mode, default_caption, created_at, updated_at')
+      .select('id, name, description, consumption_mode, default_caption, recovery_enabled, recovery_source_group_id, created_at, updated_at')
       .maybeSingle();
 
     if (error || !data) {
