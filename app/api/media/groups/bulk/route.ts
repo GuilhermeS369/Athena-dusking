@@ -26,18 +26,20 @@ async function recordRecoveryMilestones(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   organizationId: string,
   groupIds: string[],
-  mediaCount: number,
+  assetIds: string[],
   action: Action,
 ) {
-  if (action === 'remove' || !groupIds.length || mediaCount <= 0) return;
+  if (action === 'remove' || !groupIds.length || !assetIds.length) return;
+  // Manda os ids, não a contagem: é das mídias da leva que sai o tipo (comum,
+  // reprocessada ou mista), inferido do nome do arquivo no upload.
   const { error } = await supabase.rpc('record_auto_media_milestones', {
     p_organization_id: organizationId,
     p_group_ids: groupIds,
-    p_media_count: mediaCount,
+    p_media_asset_ids: assetIds,
   });
   if (error) {
     console.error('recovery_auto_milestone_failed', {
-      organizationId, groupIds, mediaCount, error: error.message,
+      organizationId, groupIds, assetCount: assetIds.length, error: error.message,
     });
   }
 }
@@ -74,7 +76,7 @@ export async function POST(request: Request) {
     }
 
     const job = ((jobRows ?? []) as BulkGroupJobResult[])[0];
-    await recordRecoveryMilestones(supabase, context.activeOrganization.id, groupIds, assetIds.length, action);
+    await recordRecoveryMilestones(supabase, context.activeOrganization.id, groupIds, assetIds, action);
     return NextResponse.json({ queued: true, job: job ? { id: job.job_id, totalCount: job.total_count } : null, affected: assetIds.length }, { status: 202 });
   }
 
@@ -88,6 +90,6 @@ export async function POST(request: Request) {
     const status = ['22023', '42501'].includes(error.code ?? '') ? 400 : 500;
     return NextResponse.json({ error: error.message || 'Não foi possível atualizar os grupos das mídias.' }, { status });
   }
-  await recordRecoveryMilestones(supabase, context.activeOrganization.id, groupIds, assetIds.length, action);
+  await recordRecoveryMilestones(supabase, context.activeOrganization.id, groupIds, assetIds, action);
   return NextResponse.json({ assignments: assignments ?? [], affected: assetIds.length });
 }

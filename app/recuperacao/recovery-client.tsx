@@ -63,15 +63,15 @@ function formatDay(value: string | null | undefined) {
 }
 
 /**
- * A captura automática não tem como saber se a leva é comum ou reprocessada —
- * um vídeo reprocessado entra como asset novo, indistinguível de mídia fresca.
- * Nesse caso o rótulo diz só a quantidade, em vez de afirmar um tipo que
- * ninguém informou.
+ * O tipo da leva é inferido do nome do arquivo no upload. 'mixed' é um estado
+ * real e vale dizer: uma leva que junta reprocessado e comum não é legível para
+ * o experimento, e esconder isso atrás de um dos dois rótulos seria pior.
  */
 function milestoneLabel(milestone: RecoveryMilestone) {
   const count = `${milestone.mediaCount} ${milestone.mediaCount === 1 ? 'mídia' : 'mídias'}`;
   if (milestone.batchKind === 'reprocessed') return `${count} · reprocessada`;
   if (milestone.batchKind === 'common') return `${count} · comum`;
+  if (milestone.batchKind === 'mixed') return `${count} · leva mista`;
   return count;
 }
 

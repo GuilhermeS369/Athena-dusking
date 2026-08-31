@@ -49,6 +49,7 @@ Este arquivo é o registro vivo.
 | 2026-08-31 | — | Segundo deploy de produção. Endpoint do cron verificado ao vivo: 401 sem segredo, e com segredo **cedeu a vez** à fila de publicação sob pressão — o portão funcionando. |
 | 2026-08-31 | 6 | **Marco de mídia passou a ser automático** (`352`): a atribuição de mídia a um grupo grava o marco sozinha. Botão manual removido da tela. pgTAP 7/7. |
 | 2026-08-31 | 7 | Duas correções apontadas pelo operador na tela: linhas fora do corte de 25% **deixaram de bloquear a seleção** (só ficam esmaecidas, com etiqueta "só a 40%"), e a caixa de seleção **descolou** da tabela. |
+| 2026-08-31 | 6 | **Comum vs reprocessada resolvido sem tela nova** (`354`): inferido do nome do arquivo, que já traz a marca da ferramenta. Backfill: 205 reprocessadas e 712 comuns, zero sem classificação. |
 
 ---
 
@@ -836,13 +837,36 @@ função. Verificado que `auth.uid()` lê GUC de sessão e sobrevive ao `definer
       O botão manual saiu da tela; a rota `POST /api/recovery/milestones` continua existindo para
       correção. pgTAP **7/7**.
 
-**Uma coisa que a automação NÃO consegue saber, e por isso não inventa.** O tipo da leva (comum ou
-reprocessada) fica `unknown` na captura automática: um vídeo reprocessado entra como asset novo, com
-checksum novo, indistinguível de mídia fresca. Gravar `'common'` por padrão seria fabricar
-exatamente o dado que a análise de 31/08 apontou como faltando — e que separa "melhorou porque foi
-reprocessada" de "melhorou porque era nova". O rótulo do marcador mostra só a quantidade quando o
-tipo é desconhecido. **Decidir onde capturar isso é o único item de produto em aberto** (a Galeria,
-no momento da atribuição, é o lugar natural).
+### Comum vs reprocessada: resolvido pelo nome do arquivo
+
+Eu tinha deixado esse campo como `unknown`, achando que o sistema não teria como saber. **Tinha.**
+Um levantamento do acervo real (917 mídias, 31/08) mostrou que a marca já está no nome, porque ela sai
+da ferramenta que gera o vídeo e não da memória de quem sobe:
+
+| formato | qtd |
+|---|---|
+| `video_final_#_#_camuflado.mp4` | 156 |
+| `video_conjunto_#_#_camuflado.mp4` | 45 |
+| `V#_espelhado.mp4` | 4 |
+
+O restante é saída crua de baixador (`conta_#_#_#.mp4`) — mídia fresca. Então a classificação é
+**inferida**, não pedida: nenhuma tela nova, nenhum clique novo, e o histórico inteiro foi
+reclassificado de uma vez. Lista canônica de marcadores em
+[lib/media/content-origin.ts](lib/media/content-origin.ts) (6 testes); backfill e derivação do tipo da
+leva na migration `354`. Resultado em produção: **205 reprocessadas, 712 comuns, zero sem
+classificação.**
+
+Uma leva que mistura os dois tipos vira `mixed`, e isso é deliberado: um marco misto não é legível
+para o experimento, e escolher um dos dois lados no par ou ímpar esconderia isso.
+
+**Achado operacional que muda a leitura do experimento:** todos os 205 arquivos reprocessados são de
+**04 a 07/08**. As 690 mídias de 15 a 31/08 são cruas. Ou seja, **a troca de mídia do LAURINHA em
+30/08 foi com mídia comum, não reprocessada** — se a esteira usar esse mesmo pool, o que está sendo
+testado é "mídia nova", não "reprocessamento".
+
+**Risco conhecido, registrado de propósito:** nomes sem marca nenhuma (`V63.mp4`, `v2.mp4`,
+`seguidor novo recebe.mp4`, os seis `[ANTIGO]_…`) entram como comuns. Inventar regra para eles traria
+falso positivo em troca; o rótulo do marco aparece na tela, então um erro fica visível.
 
 ### Etapa 7 — Tela
 - [x] **2026-08-31** — `<symbol id="icon-recovery">` em [app/layout.tsx](app/layout.tsx), item em
@@ -970,8 +994,8 @@ que ele acabou de ligar, sem entender por quê.
 Em telas estreitas (~560 px), o botão de exportar do card de grupo estica para a largura toda da
 linha de ações, em vez de ficar no quadrado de 44 px. É **anterior** a este trabalho — nada aqui
 tocou `.actions` nem `.exportButton` — e ficou registrado só para não parecer efeito da recuperação.
-6. ~~Captura automática do marco~~ — **feita**. Sobrou só decidir **onde marcar "leva
-   reprocessada"**, que a automação não tem como inferir.
+6. ~~Captura automática do marco~~ e ~~marcar "leva reprocessada"~~ — **feitos**. A marca é
+   inferida do nome do arquivo; ver a seção acima.
 
 ---
 
