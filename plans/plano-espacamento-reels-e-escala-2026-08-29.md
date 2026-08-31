@@ -670,3 +670,47 @@ Cada criação Zernio custa **6,5s** (média de 3.278 chamadas). Com concorrênc
 3 a 5 que não expliquei.** O teto por organização (300) é a hipótese em teste —
 subido para 600, medição em andamento.
 
+---
+
+# DESFECHO — 31/08/2026, 04:05 UTC
+
+## A causa raiz, depois de sete hipóteses refutadas
+
+Um `setInterval` dentro do ciclo de staging abortava o ciclo em andamento a cada
+2 segundos sempre que houvesse publicação vencendo. **Durante uma onda, sempre
+há.** Os números batiam exatamente: `claimed: 100, persisted: 32-37,
+duracaoMs: 2237-2771` — reivindicava 100, gravava ~30, liberava 70, repetia.
+
+Consequência: o spool chegava na onda com um terço dela preparada; o resto caía
+no caminho lento. Era a quarta instância do mesmo anti-padrão (guarda que cede a
+condição permanentemente verdadeira), depois de preparação, guarda de entrada do
+staging e guarda de pressão.
+
+## Resultado
+
+| Onda | Itens | Duração | Taxa |
+|---|---:|---:|---:|
+| 20:33 (início) | 452 | 10,0 min | 45/min |
+| 00:33 | 449 | 10,2 min | 33/min |
+| 02:33 (lease 660s) | 451 | 5,5 min | 81/min |
+| **04:03 (cancelador desligado)** | **434** | **0,6 min** | **736/min** |
+
+**16× mais rápido.** A 5.000 perfis são necessários 500/min: a conta agora fecha.
+
+## O que NÃO funcionou, e por quê
+
+Sete experimentos de capacidade foram refutados por medição — concorrência,
+tetos, controladores adaptativos, backpressure. **Todos aumentavam capacidade, e
+a fila nunca esteve esperando capacidade.** Estava esperando guardas cederem.
+
+Duas lições de método, ambas custaram horas:
+
+1. **Duração constante independente do tamanho não é limite de vazão, é
+   relógio.** As ondas mediram 10,0 a 10,8 min com 189 a 512 itens. Eu anotei
+   essa observação e a tratei como curiosidade em vez de pista.
+2. **Ler o código acha o que medir de fora não acha.** As quatro guardas estavam
+   escritas; nenhuma aparecia em métrica externa. A varredura custou 20 minutos;
+   a tentativa e erro custou uma noite.
+
+Documentação completa, incluindo como aumentar a velocidade a partir daqui:
+[docs/fila-de-publicacao-mapa-de-controles.md](../docs/fila-de-publicacao-mapa-de-controles.md).
