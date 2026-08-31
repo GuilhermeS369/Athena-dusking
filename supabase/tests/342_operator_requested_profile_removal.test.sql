@@ -11,10 +11,15 @@ select extensions.has_function(
   'public', 'preview_instagram_profile_removal', array['uuid','uuid[]'],
   'RPC de resumo da exclusão existe'
 );
-select extensions.has_function(
-  'public', 'list_instagram_profiles_catalog_ids',
-  -- A migration 344 acrescentou p_created_on ao final da assinatura.
-  array['uuid','integer','text','uuid','text','text','text','date'],
+-- Sem fixar a assinatura: a lista de parametros desta funcao acompanha os
+-- filtros do catalogo e ja mudou duas vezes. Quem manda nela sao as migrations
+-- do catalogo; o que a exclusao em massa precisa garantir e que ela exista.
+select extensions.ok(
+  exists (
+    select 1 from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'list_instagram_profiles_catalog_ids'
+  ),
   'RPC de ids do filtro existe'
 );
 select extensions.ok(

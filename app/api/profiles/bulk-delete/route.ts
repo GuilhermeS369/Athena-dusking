@@ -37,7 +37,7 @@ type BulkDeleteBody = {
     status?: unknown;
     situation?: unknown;
     publication?: unknown;
-    createdOn?: unknown;
+    created?: { from?: unknown; to?: unknown };
   };
 };
 
@@ -76,7 +76,10 @@ export async function POST(request: Request) {
       status: body.filters?.status as never,
       situation: body.filters?.situation as never,
       publication: body.filters?.publication as never,
-      createdOn: typeof body.filters?.createdOn === 'string' ? body.filters.createdOn : null,
+      created: {
+        from: typeof body.filters?.created?.from === 'string' ? body.filters.created.from : null,
+        to: typeof body.filters?.created?.to === 'string' ? body.filters.created.to : null,
+      },
     });
     const rpcFilters = {
       p_organization_id: organizationId,
@@ -85,7 +88,8 @@ export async function POST(request: Request) {
       p_status: filters.status === 'all' ? null : filters.status,
       p_situation: filters.situation === 'all' ? null : filters.situation,
       p_publication: filters.publication,
-      p_created_on: filters.createdOn,
+      p_created_from: filters.created.from,
+      p_created_to: filters.created.to,
     };
 
     // Recusar acima do teto em vez de cortar: uma exclusão truncada em silêncio

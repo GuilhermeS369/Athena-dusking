@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import DateRangePicker from './date-range-picker';
 import styles from './profiles-catalog.module.css';
 import { buildBulkZernioRows, resolveZernioBulkTarget, sortZernioConnectionsByProfileCount } from '@/lib/integrations/zernio-bulk';
 import {
@@ -22,6 +23,7 @@ import {
   type ProfileRemovalPreview,
   type ProfileSelectionState,
 } from '@/lib/profiles/bulk-removal';
+import { EMPTY_DATE_RANGE, todayInOrganizationTimeZone, type DateRange } from '@/lib/profiles/date-range';
 import type {
   InstagramProfileAnalyticsSummary,
   InstagramProfileCatalogItem,
@@ -124,11 +126,6 @@ type AuthMirrorLinkState = {
 
 const PROFILES_VIEW_STORAGE_KEY = 'athena:perfis:view';
 
-// Teto do seletor de data. Perfil nenhum foi adicionado no futuro, e o "hoje" que
-// vale é o da organização — em São Paulo, depois das 21h o UTC já virou amanhã.
-function todayInOrganizationTimeZone() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
-}
 
 const profileStatusLabels: Record<Profile['status'], string> = {
   online: 'Online',
@@ -393,9 +390,9 @@ export default function ProfilesClient({
   const [selectedPublicationView, setSelectedPublicationView] = useState<'all' | 'posted'>('all');
   const [selection, setSelection] = useState<ProfileSelectionState>(EMPTY_PROFILE_SELECTION);
   const [selectedSort, setSelectedSort] = useState<InstagramProfileSort>('recent');
-  // Dia de adição no fuso da organização, em YYYY-MM-DD — o mesmo formato que o
-  // <input type="date"> emite e que o RPC recebe, sem conversão no meio.
-  const [selectedCreatedOn, setSelectedCreatedOn] = useState('');
+  // Intervalo de adição no fuso da organização, em YYYY-MM-DD nas duas pontas —
+  // o mesmo formato que o RPC recebe, sem conversão no meio.
+  const [selectedCreated, setSelectedCreated] = useState<DateRange>(EMPTY_DATE_RANGE);
   // Lista e o padrao: e o modo que aguenta operar centenas de perfis. Cards fica
   // como alternativa para quem quer ver as metricas de cada conta lado a lado.
   const [viewMode, setViewMode] = useState<'cards' | 'list'>('list');
@@ -420,6 +417,7 @@ export default function ProfilesClient({
   const [authMirrorBusy, setAuthMirrorBusy] = useState(false);
   const [authMirrorMessage, setAuthMirrorMessage] = useState('');
   const profileCounters = catalog.summary;
+  const organizationToday = todayInOrganizationTimeZone();
   const visibleProfileIds = catalog.items.map((profile) => profile.id);
   const visibleSelection = visibleSelectionState(selection, visibleProfileIds);
   const selectionCount = profileSelectionCount(selection, profileCounters.filteredTotal);
@@ -431,7 +429,7 @@ export default function ProfilesClient({
     situation: selectedSituation,
     publication: selectedPublicationView,
     sort: selectedSort,
-    createdOn: selectedCreatedOn || null,
+    created: selectedCreated,
   };
   const groupAssignmentSuffix = connectionResult.groupAssignment === 'assigned'
     ? ` Perfil(is) adicionado(s) ao grupo “${connectionResult.groupName ?? 'selecionado'}”.`
@@ -507,7 +505,8 @@ export default function ProfilesClient({
     if (selectedSituation !== 'all') params.set('situation', selectedSituation);
     if (selectedPublicationView !== 'all') params.set('publication', selectedPublicationView);
     if (selectedSort !== 'recent') params.set('sort', selectedSort);
-    if (selectedCreatedOn) params.set('createdOn', selectedCreatedOn);
+    if (selectedCreated.from) params.set('createdFrom', selectedCreated.from);
+    if (selectedCreated.to) params.set('createdTo', selectedCreated.to);
 
     setCatalogLoading(true);
     setCatalogError('');
@@ -525,7 +524,7 @@ export default function ProfilesClient({
         if (!controller.signal.aborted) setCatalogLoading(false);
       });
     return () => controller.abort();
-  }, [catalogCursor, catalogReloadKey, debouncedSearch, initialCatalog.limit, selectedCreatedOn, selectedGroupId, selectedPublicationView, selectedSituation, selectedSort, selectedStatus]);
+  }, [catalogCursor, catalogReloadKey, debouncedSearch, initialCatalog.limit, selectedCreated.from, selectedCreated.to, selectedGroupId, selectedPublicationView, selectedSituation, selectedSort, selectedStatus]);
 
   useEffect(() => {
     if (connectionResult.connected || connectionResult.error) setConnectModalOpen(true);
@@ -1136,29 +1135,16 @@ export default function ProfilesClient({
                 <option value="no_data">Sem dados</option>
               </select>
             </label>
-            <label htmlFor="profile-created-on-filter">
-              Adicionadas em
-              <span className={styles.dateField}>
-                <input
-                  id="profile-created-on-filter"
-                  type="date"
-                  value={selectedCreatedOn}
-                  max={todayInOrganizationTimeZone()}
-                  onChange={(event) => { resetCatalogPagination(); setSelectedCreatedOn(event.target.value); }}
-                />
-                {selectedCreatedOn && (
-                  <button
-                    className={styles.dateClear}
-                    type="button"
-                    aria-label="Limpar filtro de data de adição"
-                    title="Limpar data"
-                    onClick={() => { resetCatalogPagination(); setSelectedCreatedOn(''); }}
-                  >
-                    ×
-                  </button>
-                )}
-              </span>
-            </label>
+            {/* Não é <label>: o seletor tem vários controles focáveis dentro e um
+                rótulo só pode apontar para um. O visual acompanha os vizinhos. */}
+            <div className={styles.filterField}>
+              <span>Adicionadas em</span>
+              <DateRangePicker
+                value={selectedCreated}
+                today={organizationToday}
+                onChange={(range) => { resetCatalogPagination(); setSelectedCreated(range); }}
+              />
+            </div>
             <label htmlFor="profile-search-filter">
               Buscar
               <input id="profile-search-filter" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="@usuario, nome ou conta Zernio" />

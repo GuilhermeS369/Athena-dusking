@@ -1,0 +1,374 @@
+.wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Mesma altura e mesma borda dos selects vizinhos: o campo é um filtro a mais na
+   fileira, não um widget avulso. */
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 190px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #403b4c;
+  border-radius: 10px;
+  background: #12111a;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+
+.trigger:hover {
+  border-color: #5b4a71;
+}
+
+.trigger:focus-visible {
+  outline: none;
+  border-color: var(--purple-bright);
+  box-shadow: 0 0 0 3px #9f4cff22;
+}
+
+.triggerActive {
+  border-color: #6b4b92;
+  background: linear-gradient(135deg, #221735, #14121d);
+  color: #f0e2ff;
+}
+
+.triggerIcon {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+
+.triggerActive .triggerIcon {
+  color: #b9a2d8;
+}
+
+.triggerLabel {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.triggerCaret {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  font-size: 10px;
+}
+
+.clear {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #2a2535;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .16s ease, color .16s ease;
+}
+
+.clear:hover {
+  background: #3b3348;
+  color: var(--text);
+}
+
+.clear:focus-visible {
+  outline: none;
+  border-color: var(--purple-bright);
+  box-shadow: 0 0 0 3px #9f4cff22;
+}
+
+/* Popover ------------------------------------------------------------------- */
+
+.popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  width: 296px;
+  padding: 14px;
+  border: 1px solid #3d3450;
+  border-radius: 16px;
+  background: #15131d;
+  box-shadow: 0 22px 50px #000a, inset 0 1px #ffffff0a;
+}
+
+/* Flex em vez de quatro colunas iguais: "Este mês" é bem mais largo que "Hoje"
+   e numa grade uniforme ele era cortado. Cada pílula pede o que precisa e a
+   linha quebra se não couber. */
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.preset,
+.presetActive {
+  flex: 1 1 auto;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #383144;
+  border-radius: 999px;
+  background: #1b1826;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+
+.preset:hover {
+  border-color: #5b4a71;
+  color: var(--text);
+}
+
+.presetActive {
+  border-color: #8b5cf6;
+  background: rgba(121, 103, 247, .18);
+  color: #e9dcff;
+}
+
+.monthBar {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+/* capitalize maiusculiza cada palavra e produziria "Agosto De 2026". Só a
+   primeira letra do rótulo sobe. */
+.monthLabel {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.monthLabel::first-letter {
+  text-transform: uppercase;
+}
+
+.monthNav {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #383144;
+  border-radius: 9px;
+  background: #1b1826;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+
+.monthNav:hover:not(:disabled) {
+  border-color: #5b4a71;
+  background: #221d30;
+  color: var(--text);
+}
+
+.monthNav:disabled {
+  opacity: .35;
+  cursor: not-allowed;
+}
+
+.monthNav:focus-visible {
+  outline: none;
+  border-color: var(--purple-bright);
+  box-shadow: 0 0 0 3px #9f4cff22;
+}
+
+.weekdays,
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.weekdays {
+  gap: 2px;
+  margin-bottom: 4px;
+}
+
+.weekdays span {
+  color: var(--text-subtle);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-align: center;
+}
+
+/* Sem gap entre as colunas: o intervalo precisa ser uma faixa contínua, e um
+   vão de 2px o transformaria numa fileira de quadradinhos soltos. */
+.grid {
+  row-gap: 2px;
+}
+
+.day {
+  position: relative;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color .14s ease;
+}
+
+/* O fundo do dia é um pseudo-elemento para que o realce do intervalo possa
+   encostar nas bordas da célula enquanto o dia em si continua arredondado. */
+.day::before {
+  position: absolute;
+  z-index: -1;
+  top: 2px;
+  right: 0;
+  bottom: 2px;
+  left: 0;
+  content: '';
+}
+
+.day:hover:not(:disabled) {
+  color: #e9dcff;
+}
+
+.day:hover:not(:disabled)::before {
+  border-radius: 9px;
+  background: #241f31;
+}
+
+.day:focus-visible {
+  outline: none;
+  border-radius: 9px;
+  box-shadow: 0 0 0 2px var(--purple-bright);
+}
+
+.dayOutside {
+  color: var(--text-subtle);
+  font-weight: 600;
+}
+
+.day:disabled {
+  color: #453f52;
+  cursor: not-allowed;
+}
+
+/* Hoje: anel discreto, para localizar sem competir com a seleção. */
+.dayToday::after {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--purple-bright);
+  transform: translateX(-50%);
+  content: '';
+}
+
+.daySelected {
+  color: #fff;
+}
+
+.dayInRange::before {
+  background: rgba(121, 103, 247, .16);
+}
+
+.dayStart::before,
+.dayEnd::before {
+  background: linear-gradient(135deg, #7a5cf0, #5b3fd0);
+}
+
+.dayStart::before {
+  border-top-left-radius: 9px;
+  border-bottom-left-radius: 9px;
+}
+
+.dayEnd::before {
+  border-top-right-radius: 9px;
+  border-bottom-right-radius: 9px;
+}
+
+.daySelected.dayToday::after {
+  background: #fff;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid #2b2637;
+}
+
+.hint {
+  flex: 1 1 auto;
+  color: var(--text-subtle);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.footerAction {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #c9a6ff;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 750;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.footerAction:disabled {
+  color: var(--text-subtle);
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.footerAction:focus-visible {
+  outline: none;
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px #9f4cff22;
+}
+
+/* No celular o popover é mais largo que o campo. Ancorar pela direita
+   (`right: 0`) empurrava a borda esquerda para fora da tela: o campo começa
+   perto da margem, então é a esquerda que tem de mandar. A largura também passa
+   a respeitar a viewport, para telas mais estreitas que 328px. */
+@media (max-width: 640px) {
+  .popover {
+    left: 0;
+    right: auto;
+    width: min(296px, calc(100vw - 32px));
+  }
+}
