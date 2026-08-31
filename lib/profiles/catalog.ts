@@ -8,6 +8,9 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 export type InstagramProfileStatus = 'no_data' | 'online' | 'offline' | 'reauthorization_required';
 export type InstagramProfileSituation = 'all' | 'online' | 'error' | 'paused';
 export type InstagramProfilePublicationFilter = 'all' | 'posted';
+export type InstagramProfileSort = 'recent' | 'followers' | 'views';
+
+export const INSTAGRAM_PROFILE_SORTS: InstagramProfileSort[] = ['recent', 'followers', 'views'];
 
 export type InstagramProfileAnalyticsSummary = {
   profile_id: string;
@@ -70,9 +73,13 @@ export type InstagramProfilesCatalogFilters = {
   status: 'all' | InstagramProfileStatus;
   situation: InstagramProfileSituation;
   publication: InstagramProfilePublicationFilter;
+  sort: InstagramProfileSort;
 };
 
-export type InstagramProfilesCatalogCursor = { createdAt: string; id: string };
+// A metrica entra no cursor porque a ordenacao por seguidores/views usa a chave
+// keyset (sort_metric, created_at, id). No modo 'recent' ela e sempre 0 dos dois
+// lados e a comparacao degenera na ordem antiga.
+export type InstagramProfilesCatalogCursor = { createdAt: string; id: string; metric: number };
 
 export type InstagramProfilesCatalogPage = {
   items: InstagramProfileCatalogItem[];
@@ -82,7 +89,7 @@ export type InstagramProfilesCatalogPage = {
   limit: number;
 };
 
-type CatalogRow = Omit<InstagramProfileCatalogItem, 'publication_metrics'> & InstagramProfileAnalyticsSummary & { has_more: boolean };
+type CatalogRow = Omit<InstagramProfileCatalogItem, 'publication_metrics'> & InstagramProfileAnalyticsSummary & { has_more: boolean; sort_metric: number | string | null };
 type SummaryRow = { total: number | string; online: number | string; error: number | string; paused: number | string; published_items: number | string; filtered_total: number | string };
 
 export function encodeInstagramProfilesCursor(cursor: InstagramProfilesCatalogCursor) {
@@ -94,7 +101,10 @@ export function decodeInstagramProfilesCursor(value: string | null | undefined):
   try {
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<InstagramProfilesCatalogCursor>;
     if (typeof parsed.createdAt !== 'string' || !Number.isFinite(Date.parse(parsed.createdAt)) || typeof parsed.id !== 'string' || !UUID_PATTERN.test(parsed.id)) return null;
-    return { createdAt: parsed.createdAt, id: parsed.id };
+    // Cursores emitidos antes da ordenacao por metrica nao trazem `metric`; 0 e o
+    // valor correto para eles, que sempre foram do modo 'recent'.
+    const metric = typeof parsed.metric === 'number' && Number.isFinite(parsed.metric) && parsed.metric >= 0 ? Math.trunc(parsed.metric) : 0;
+    return { createdAt: parsed.createdAt, id: parsed.id, metric };
   } catch {
     return null;
   }
@@ -116,6 +126,7 @@ export function normalizeInstagramProfilesFilters(input: Partial<InstagramProfil
     status: typeof input.status === 'string' && statuses.has(input.status) ? input.status as InstagramProfileStatus : 'all',
     situation: typeof input.situation === 'string' && situations.has(input.situation) ? input.situation as InstagramProfileSituation : 'all',
     publication: input.publication === 'posted' ? 'posted' : 'all',
+    sort: typeof input.sort === 'string' && (INSTAGRAM_PROFILE_SORTS as string[]).includes(input.sort) ? input.sort as InstagramProfileSort : 'recent',
   };
 }
 
@@ -188,7 +199,10 @@ export async function getInstagramProfilesCatalogPage(input: {
       p_limit: limit,
       p_cursor_created_at: input.cursor?.createdAt ?? null,
       p_cursor_id: input.cursor?.id ?? null,
+      p_sort: filters.sort,
+      p_cursor_metric: input.cursor?.metric ?? null,
     }),
+    // O resumo nao recebe p_sort: ordenar nao muda o conjunto filtrado.
     input.supabase.rpc('get_instagram_profiles_catalog_summary', rpcFilters),
   ]);
   if (pageResult.error) throw new Error(`profiles_catalog_page:${pageResult.error.message}`);
@@ -209,7 +223,7 @@ export async function getInstagramProfilesCatalogPage(input: {
       filteredTotal: Number(summaryRow?.filtered_total ?? 0),
     },
     hasMore,
-    nextCursor: hasMore && last ? encodeInstagramProfilesCursor({ createdAt: last.created_at, id: last.id }) : null,
+    nextCursor: hasMore && last ? encodeInstagramProfilesCursor({ createdAt: last.created_at, id: last.id, metric: Number(last.sort_metric ?? 0) }) : null,
     limit,
   };
 }

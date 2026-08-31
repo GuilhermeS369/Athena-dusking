@@ -32,6 +32,28 @@ test('cards limitados usam miniaturas cacheáveis e navegação por cursor', () 
   assert.match(clientSource, /loadPreviousCatalogPage/);
 });
 
+test('seleção em massa não baixa ids para representar "todos deste filtro"', () => {
+  // O modo filtro tem de viajar como filtro + exceções. Se algum dia o cliente
+  // passar a montar a lista de ids, a paginação por cursor perde o sentido.
+  assert.match(clientSource, /buildBulkDeleteRequest/);
+  assert.match(clientSource, /selectAllMatchingFilter/);
+  assert.match(clientSource, /profileSelectionCount\(selection, profileCounters\.filteredTotal\)/);
+  assert.doesNotMatch(clientSource, /setSelectedProfileIds/);
+});
+
+test('exclusão em massa exige confirmação digitada e acompanha a fila', () => {
+  assert.match(clientSource, /isBulkDeleteConfirmed\(bulkDeleteConfirmation\)/);
+  assert.match(clientSource, /\/api\/profiles\/bulk-delete/);
+  assert.match(clientSource, /\/api\/profiles\/removal-progress/);
+  assert.match(clientSource, /dryRun: true/);
+});
+
+test('ordenação por métrica chega ao servidor em vez de reordenar a página', () => {
+  assert.match(clientSource, /params\.set\('sort', selectedSort\)/);
+  assert.match(apiSource, /searchParams\.get\('sort'\)/);
+  assert.doesNotMatch(clientSource, /\.sort\(\(a, b\) => b\.publication_metrics/);
+});
+
 test('API paginada evita recarregar todo o contexto de organizações', () => {
   assert.match(apiSource, /auth\.getSession\(\)/);
   assert.match(apiSource, /ACTIVE_ORGANIZATION_COOKIE/);

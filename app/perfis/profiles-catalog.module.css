@@ -25,7 +25,573 @@
 
 .profileCard {
   content-visibility: auto;
-  contain-intrinsic-size: auto 460px;
+  /* Acompanha a altura do card depois do enxugamento do cabeçalho e da faixa de
+     métricas. Um palpite alto demais devolve rolagem falsa; baixo demais faz o
+     scroll saltar quando o conteúdo real entra. */
+  contain-intrinsic-size: auto 380px;
+}
+
+.profileCardSelected {
+  border-color: var(--purple-bright);
+  background: linear-gradient(180deg, rgba(41, 16, 75, .5), rgba(12, 12, 17, .96));
+  box-shadow: inset 0 0 0 1px #9f4cff55, 0 12px 26px #0004;
+}
+
+/* O checkbox ocupava uma coluna de 18px: alvo pequeno demais para marcar dezenas
+   de perfis em sequência. A área clicável cresce para 34px sem alargar a coluna,
+   porque o <label> se espalha pelo canto do card. */
+.cardSelect {
+  width: 34px;
+  height: 34px;
+  margin: -8px 0 -8px -8px;
+  border-radius: 10px;
+  transition: background .16s ease;
+}
+
+.cardSelect:hover {
+  background: #ffffff0d;
+}
+
+.cardSelect input {
+  width: 18px;
+  height: 18px;
+}
+
+/* Seleção ------------------------------------------------------------------ */
+
+.selectionRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 12px;
+  padding: 11px 13px;
+  border: 1px solid #2e2a36;
+  border-radius: 12px;
+  background: rgba(16, 15, 22, .92);
+}
+
+/* `.profiles-toolbar label` é grid e tem a mesma especificidade; a barra de
+   seleção mora dentro da toolbar e precisa vencer para o rótulo ficar ao lado
+   da caixa em vez de embaixo dela. */
+.selectionRow .selectVisible {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.selectionRow .selectVisible input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--purple-bright);
+  cursor: pointer;
+}
+
+.selectionHint {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.selectionLink {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #c9a6ff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.selectionLink:hover:not(:disabled) {
+  color: #e2d0ff;
+}
+
+.selectionLink:disabled {
+  color: var(--text-subtle);
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.selectionLink:focus-visible,
+.selectVisible input:focus-visible,
+.listCheckbox input:focus-visible,
+.deleteConfirmLabel input:focus {
+  outline: none;
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px #9f4cff22;
+}
+
+/* Barra de ação: acompanha a rolagem porque a seleção atravessa páginas e o
+   alvo da ação não pode ficar preso ao topo da lista. */
+.selectionBar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  max-width: 1180px;
+  margin: 16px auto 0;
+  padding: 13px 16px;
+  padding-bottom: max(13px, env(safe-area-inset-bottom));
+  border: 1px solid #4a3560;
+  border-radius: 14px;
+  background: rgba(20, 15, 30, .93);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 -6px 26px #0006, inset 0 1px #ffffff0a;
+}
+
+.selectionBarCount {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.selectionBarCount strong {
+  margin-right: 4px;
+  font-size: 20px;
+  letter-spacing: -.03em;
+}
+
+.selectionBarHint {
+  flex: 1 1 260px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.selectionBarActions {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.selectionBarActions .button {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+/* Modo lista --------------------------------------------------------------- */
+
+.listPanel {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* A rolagem horizontal fica presa a este contêiner: o <main> nunca rola de lado. */
+.listScroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.listTable {
+  width: 100%;
+  min-width: 940px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+/* A coluna de identidade é a única cujo conteúdo é imprevisível; sem um piso ela
+   fica com ~150px e corta o @usuário depois de oito caracteres. */
+.listTable th:nth-child(2),
+.listTable td:nth-child(2) {
+  min-width: 230px;
+}
+
+.listTable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: #16151d;
+  color: var(--text-subtle);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.listTable tbody td {
+  padding: 10px 14px;
+  border-bottom: 1px solid #221f2a;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+.listTable tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.listTable tbody tr:hover td {
+  background: #ffffff05;
+}
+
+.listRowSelected td {
+  background: rgba(41, 16, 75, .45) !important;
+}
+
+.listCheckboxCell {
+  width: 44px;
+  padding-right: 0 !important;
+}
+
+.listCheckbox {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.listCheckbox:hover {
+  background: #ffffff0d;
+}
+
+.listCheckbox input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--purple-bright);
+  cursor: pointer;
+}
+
+.listIdentity {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.listIdentity > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.listIdentity strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listIdentity small {
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listIdentity:hover strong {
+  color: #d8b9ff;
+}
+
+/* O avatar do card tem 58px de moldura; na lista a densidade pede 30px. */
+.listIdentity :global(.profile-avatar-frame) {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-width: 1px;
+}
+
+.listIdentity :global(.profile-avatar) {
+  width: 26px;
+  height: 26px;
+}
+
+.listIdentity :global(.profile-avatar-online-dot) {
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  height: 8px;
+}
+
+.listStatus {
+  display: inline-block;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.listStatusOk {
+  background: rgba(85, 209, 154, .14);
+  color: #8cedbd;
+}
+
+.listStatusWarn {
+  background: rgba(239, 107, 131, .14);
+  color: #ffb5c5;
+}
+
+.listNumberCell {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.listActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.listActions :global(.button) {
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: 9px;
+  font-size: 11px;
+}
+
+/* Progresso da exclusão ----------------------------------------------------- */
+
+.removalPanel {
+  display: grid;
+  gap: 11px;
+  max-width: 1180px;
+  margin: 0 auto 18px;
+  padding: 16px 18px;
+}
+
+.removalHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+}
+
+.removalHeader strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.removalHeader .selectionLink {
+  margin-left: auto;
+}
+
+.removalTrack {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #221f2a;
+}
+
+.removalTrack > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--purple), var(--purple-bright));
+  transition: width .35s ease;
+}
+
+.removalHint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.removalFailures {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.removalFailures li {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid rgba(239, 107, 131, .3);
+  border-radius: 10px;
+  background: rgba(239, 107, 131, .07);
+}
+
+.removalFailures strong {
+  color: #ffb5c5;
+  font-size: 12px;
+}
+
+.removalFailures span,
+.removalFailures small {
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+/* Modal de exclusão em massa ------------------------------------------------ */
+
+.deleteModal {
+  display: grid;
+  gap: 16px;
+  width: min(560px, 100%);
+  max-height: min(88dvh, 780px);
+  overflow-y: auto;
+}
+
+.deleteSummary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.deleteSummary > div {
+  display: grid;
+  gap: 4px;
+  padding: 11px 8px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #0d0c12;
+  text-align: center;
+}
+
+.deleteSummary dt {
+  color: var(--text-subtle);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.deleteSummary dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -.03em;
+}
+
+.deleteDetail {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.deleteDetail strong {
+  color: var(--text);
+}
+
+.deleteConfirmLabel {
+  display: grid;
+  gap: 7px;
+  color: var(--text-subtle);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.deleteConfirmLabel input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 13px;
+  border: 1px solid #403b4c;
+  border-radius: 10px;
+  background: #12111a;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  outline: none;
+}
+
+@media (max-width: 1050px) {
+  .selectionBarHint {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .selectionBarActions {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .selectionBar {
+    gap: 10px;
+  }
+
+  .selectionBarActions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .deleteSummary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Sem rolagem lateral no celular: cada linha vira um bloco. O cabeçalho não
+     descreve mais nada útil nesse formato, então sai. */
+  .listTable {
+    min-width: 0;
+  }
+
+  .listTable thead {
+    display: none;
+  }
+
+  .listTable tbody tr {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid #221f2a;
+  }
+
+  .listTable tbody td {
+    padding: 3px 0;
+    border: 0;
+  }
+
+  .listTable tbody td:nth-child(n + 3) {
+    grid-column: 2;
+  }
+
+  .listNumberCell {
+    text-align: left;
+  }
+
+  .listNumberCell::before {
+    margin-right: 6px;
+    color: var(--text-subtle);
+    content: attr(data-label);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .listActions {
+    justify-content: flex-start;
+    margin-top: 6px;
+  }
 }
 
 @media (max-width: 560px) {

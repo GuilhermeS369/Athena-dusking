@@ -50,6 +50,7 @@ export async function GET(request: Request) {
     status: url.searchParams.get('status') as never,
     situation: url.searchParams.get('situation') as never,
     publication: url.searchParams.get('publication') as never,
+    sort: url.searchParams.get('sort') as never,
   });
   const startedAt = performance.now();
   try {

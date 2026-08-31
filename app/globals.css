@@ -165,7 +165,9 @@ button:focus-visible { outline: 3px solid var(--purple-bright); outline-offset: 
 .button-danger:hover:not(:disabled) { border-color: #ef6b83; background: #ef6b831a; color: #ffd2db; }
 .profiles-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px; max-width: 1180px; margin: 0 auto 18px; padding: 16px 22px; }
 .profiles-toolbar label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; }
-.profiles-toolbar select, .profiles-toolbar input { min-width: 190px; min-height: 40px; padding: 0 12px; border: 1px solid #403b4c; border-radius: 10px; outline: none; background: #12111a; color: var(--text); font: inherit; }
+/* Restrito a text/select: a barra de seleção mora dentro da toolbar e um
+   checkbox com min-width de 190px vira um retângulo cinza. */
+.profiles-toolbar select, .profiles-toolbar input:not([type="checkbox"]):not([type="radio"]) { min-width: 190px; min-height: 40px; padding: 0 12px; border: 1px solid #403b4c; border-radius: 10px; outline: none; background: #12111a; color: var(--text); font: inherit; }
 .profiles-toolbar select:focus, .profiles-toolbar input:focus { border-color: var(--purple-bright); box-shadow: 0 0 0 3px #9f4cff22; }
 .profiles-toolbar > span { color: var(--muted); font-size: 13px; }
 .profiles-filter-empty { max-width: 1180px; margin: 0 auto; }
@@ -269,10 +271,13 @@ button:focus-visible { outline: 3px solid var(--purple-bright); outline-offset: 
 .profiles-posted-toggle button:hover { color: var(--text); background: #1a1723; }
 .profiles-posted-toggle-button-active { border-color: #6b4b92 !important; background: linear-gradient(135deg, #221735, #171320) !important; color: #f0e2ff !important; box-shadow: inset 0 0 0 1px #9f4cff22; }
 .profile-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 18px; }
-.profile-card { position: relative; gap: 14px; min-height: 230px; padding: 16px; border-color: #2f2b38; background: linear-gradient(180deg, rgba(18,17,25,.94), rgba(12,12,17,.96)); box-shadow: inset 0 1px #ffffff08, 0 12px 26px #0003; }
-.profile-card-header-redesigned { grid-template-columns: 18px auto minmax(0, 1fr) auto; align-items: center; gap: 10px; }
-.profile-card-select { display: grid; place-items: center; width: 18px; height: 18px; }
+.profile-card { position: relative; gap: 12px; min-height: 0; padding: 15px; border-color: #2f2b38; background: linear-gradient(180deg, rgba(18,17,25,.94), rgba(12,12,17,.96)); box-shadow: inset 0 1px #ffffff08, 0 12px 26px #0003; }
+/* Duas linhas: identidade em cima, chips embaixo. Numa linha só, o nome do grupo
+   e o rótulo da chave Zernio disputavam largura com o avatar e o contador. */
+.profile-card-header-redesigned { grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 8px 10px; }
+.profile-card-select { display: grid; place-items: center; }
 .profile-card-select input { width: 15px; height: 15px; accent-color: var(--purple-bright); cursor: pointer; }
+.profile-card-chips { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
 .profile-avatar-frame { position: relative; display: grid; place-items: center; width: 58px; height: 58px; border: 2px solid #614866; border-radius: 50%; background: linear-gradient(135deg, #24182d, #111019); box-shadow: 0 8px 18px #0005; }
 .profile-avatar-frame-online { border-color: #55d19a99; box-shadow: 0 0 0 3px #55d19a13, 0 8px 18px #0005; }
 .profile-avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: var(--surface-soft); }
@@ -283,21 +288,21 @@ button:focus-visible { outline: 3px solid var(--purple-bright); outline-offset: 
 .profile-card h2 { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .profile-card-header p { margin-top: 2px; color: var(--text-subtle); font-size: 11px; }
 .profile-instagram-link span { color: #756f80; font-size: 11px; }
-.profile-group-chip { margin-top: 5px; padding: 3px 7px; border-color: #393441; background: #0d0c12; font-size: 10px; }
-.profile-zernio-connection-chip { display: flex; max-width: 100%; margin-top: 5px; overflow: hidden; color: #b9a2d8; font-size: 10px; font-weight: 700; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.profile-group-chip { margin-top: 0; padding: 3px 8px; border: 1px solid #393441; border-radius: 999px; background: #0d0c12; color: var(--text-muted); font-size: 10px; white-space: nowrap; }
+.profile-zernio-connection-chip { display: inline-block; max-width: 100%; margin-top: 0; padding: 3px 8px; overflow: hidden; border: 1px solid #3a2c4c; border-radius: 999px; background: #140f1e; color: #b9a2d8; font-size: 10px; font-weight: 700; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .profile-post-count-chip { justify-self: end; align-self: start; padding: 5px 9px; border: 1px solid #3a3542; border-radius: 999px; background: #1b1922; color: var(--text-muted); font-size: 10px; font-weight: 900; white-space: nowrap; }
 .profile-analytics-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; overflow: hidden; border: 1px solid #24212b; border-radius: 13px; background: #08080c; }
-.profile-analytics-strip > div { justify-items: center; gap: 5px; min-height: 58px; padding: 11px 8px; border: 0; border-right: 1px solid #1f1c25; border-radius: 0; background: transparent; text-align: center; }
+.profile-analytics-strip > div { justify-items: center; gap: 3px; min-height: 50px; padding: 9px 8px; border: 0; border-right: 1px solid #1f1c25; border-radius: 0; background: transparent; text-align: center; }
 .profile-analytics-strip > div:last-child { border-right: 0; }
-.profile-analytics-strip strong { max-width: 100%; color: #fff; font-size: 20px; line-height: 1; }
+.profile-analytics-strip strong { max-width: 100%; color: #fff; font-size: 18px; line-height: 1; }
 .profile-analytics-strip span { color: #7f7788; font-size: 9px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
 .profile-analytics-strip small { max-width: 100%; overflow: hidden; color: #7f7788; text-overflow: ellipsis; white-space: nowrap; }
 .profile-card-sync-row { display: flex; justify-content: space-between; gap: 10px; margin-top: -2px; color: #81798a; font-size: 10px; font-weight: 800; }
 .profile-card-sync-row span:last-child { text-align: right; }
 .profile-publication-metrics { gap: 8px; }
-.profile-publication-metric { padding: 10px; border-radius: 11px; }
-.profile-publication-metric-heading strong { font-size: 20px; }
-.profile-publication-format-list { gap: 5px; margin-top: 9px; }
+.profile-publication-metric { padding: 9px 10px; border-radius: 11px; }
+.profile-publication-metric-heading strong { font-size: 18px; }
+.profile-publication-format-list { gap: 4px; margin-top: 7px; }
 .profile-publication-format-list li { grid-template-columns: 16px minmax(0, 1fr) auto; font-size: 9px; }
 .profile-publication-format-list li > span:first-child { width: 16px; height: 16px; font-size: 8px; }
 .profile-card-actions { gap: 8px; }
@@ -1672,8 +1677,8 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
   .operation-event time { white-space: normal; }
   .profile-publication-metrics { grid-template-columns: 1fr; }
   .profiles-status-tabs, .profiles-toolbar-controls { grid-template-columns: 1fr; }
-  .profile-card-header-redesigned { grid-template-columns: 18px auto minmax(0, 1fr); }
-  .profile-post-count-chip { grid-column: 3; justify-self: start; }
+  .profile-card-header-redesigned { grid-template-columns: auto auto minmax(0, 1fr); }
+  .profile-post-count-chip { grid-column: 3; justify-self: end; align-self: center; }
   .profile-analytics-strip { grid-template-columns: 1fr; }
   .profile-analytics-strip > div { border-right: 0; border-bottom: 1px solid #1f1c25; }
   .profile-analytics-strip > div:last-child { border-bottom: 0; }

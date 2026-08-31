@@ -5,9 +5,27 @@ import Image from 'next/image';
 import Link from 'next/link';
 import styles from './profiles-catalog.module.css';
 import { buildBulkZernioRows, resolveZernioBulkTarget, sortZernioConnectionsByProfileCount } from '@/lib/integrations/zernio-bulk';
+import {
+  EMPTY_PROFILE_SELECTION,
+  MAX_BULK_PROFILE_DELETE,
+  MAX_FILTER_PROFILE_DELETE,
+  buildBulkDeleteRequest,
+  clearProfileSelection,
+  describeRemovalResult,
+  isBulkDeleteConfirmed,
+  isProfileSelected,
+  profileSelectionCount,
+  selectAllMatchingFilter,
+  toggleProfileSelection,
+  toggleVisibleProfiles,
+  visibleSelectionState,
+  type ProfileRemovalPreview,
+  type ProfileSelectionState,
+} from '@/lib/profiles/bulk-removal';
 import type {
   InstagramProfileAnalyticsSummary,
   InstagramProfileCatalogItem,
+  InstagramProfileSort,
   InstagramProfilesCatalogPage,
 } from '@/lib/profiles/catalog';
 import { ProfilePublicationMetrics, emptyPublicationFormatCounts } from '@/lib/publications/composer';
@@ -66,6 +84,14 @@ type ZernioOrganizationSyncProgress = {
   completedAt: string | null;
 };
 
+type RemovalProgress = {
+  pending: number;
+  done: number;
+  failed: number;
+  total: number;
+  failures: Array<{ id: string; username_snapshot: string; connection_label_snapshot: string | null; error_message: string | null }>;
+};
+
 type RefreshJobSummary = { job_id: string; status: string; total_count: number; reused: boolean; reason: string };
 type RefreshJobStatus = { id: string; status: string; total_count: number; processed_count: number; synced_count: number; partial_count: number; no_data_count: number; skipped_count: number; failed_count: number; retry_pending_count: number; dead_letter_count: number; last_error_message: string | null };
 
@@ -94,6 +120,15 @@ type AuthMirrorLinkState = {
   createdByEmail: string | null;
   lastUsedAt: string | null;
   useCount: number;
+};
+
+const PROFILES_VIEW_STORAGE_KEY = 'athena:perfis:view';
+
+const profileStatusLabels: Record<Profile['status'], string> = {
+  online: 'Online',
+  offline: 'Offline',
+  reauthorization_required: 'Reautorizar',
+  no_data: 'Sem dados',
 };
 
 const connectionErrorMessage: Record<string, string> = {
@@ -350,7 +385,16 @@ export default function ProfilesClient({
   const [selectedStatus, setSelectedStatus] = useState<'all' | Profile['status']>('all');
   const [selectedSituation, setSelectedSituation] = useState<'all' | 'online' | 'error' | 'paused'>('all');
   const [selectedPublicationView, setSelectedPublicationView] = useState<'all' | 'posted'>('all');
-  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
+  const [selection, setSelection] = useState<ProfileSelectionState>(EMPTY_PROFILE_SELECTION);
+  const [selectedSort, setSelectedSort] = useState<InstagramProfileSort>('recent');
+  const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeletePreview, setBulkDeletePreview] = useState<ProfileRemovalPreview | null>(null);
+  const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState('');
+  const [bulkDeleteBusy, setBulkDeleteBusy] = useState<'preview' | 'deleting' | ''>('');
+  const [bulkDeleteError, setBulkDeleteError] = useState('');
+  const [removalProgress, setRemovalProgress] = useState<RemovalProgress | null>(null);
+  const [pollingRemovals, setPollingRemovals] = useState(false);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [catalogCursor, setCatalogCursor] = useState<string | null>(null);
@@ -365,6 +409,18 @@ export default function ProfilesClient({
   const [authMirrorBusy, setAuthMirrorBusy] = useState(false);
   const [authMirrorMessage, setAuthMirrorMessage] = useState('');
   const profileCounters = catalog.summary;
+  const visibleProfileIds = catalog.items.map((profile) => profile.id);
+  const visibleSelection = visibleSelectionState(selection, visibleProfileIds);
+  const selectionCount = profileSelectionCount(selection, profileCounters.filteredTotal);
+  const overSelectionCap = !selection.allFilterSelected && selectionCount > MAX_BULK_PROFILE_DELETE;
+  const currentCatalogFilters = {
+    query: debouncedSearch,
+    groupId: selectedGroupId === 'all' ? null : selectedGroupId,
+    status: selectedStatus,
+    situation: selectedSituation,
+    publication: selectedPublicationView,
+    sort: selectedSort,
+  };
   const groupAssignmentSuffix = connectionResult.groupAssignment === 'assigned'
     ? ` Perfil(is) adicionado(s) ao grupo “${connectionResult.groupName ?? 'selecionado'}”.`
     : connectionResult.groupAssignment === 'failed'
@@ -420,6 +476,7 @@ export default function ProfilesClient({
       setDebouncedSearch(search.trim());
       setCatalogCursor(null);
       setCatalogCursorHistory([]);
+      setSelection(clearProfileSelection());
     }, 350);
     return () => window.clearTimeout(timeout);
   }, [search]);
@@ -437,6 +494,7 @@ export default function ProfilesClient({
     if (selectedStatus !== 'all') params.set('status', selectedStatus);
     if (selectedSituation !== 'all') params.set('situation', selectedSituation);
     if (selectedPublicationView !== 'all') params.set('publication', selectedPublicationView);
+    if (selectedSort !== 'recent') params.set('sort', selectedSort);
 
     setCatalogLoading(true);
     setCatalogError('');
@@ -445,7 +503,6 @@ export default function ProfilesClient({
         const payload = await response.json() as InstagramProfilesCatalogPage & { error?: string };
         if (!response.ok) throw new Error(payload.error ?? 'Não foi possível carregar os perfis.');
         setCatalog(payload);
-        setSelectedProfileIds([]);
       })
       .catch((error) => {
         if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -455,15 +512,19 @@ export default function ProfilesClient({
         if (!controller.signal.aborted) setCatalogLoading(false);
       });
     return () => controller.abort();
-  }, [catalogCursor, catalogReloadKey, debouncedSearch, initialCatalog.limit, selectedGroupId, selectedPublicationView, selectedSituation, selectedStatus]);
+  }, [catalogCursor, catalogReloadKey, debouncedSearch, initialCatalog.limit, selectedGroupId, selectedPublicationView, selectedSituation, selectedSort, selectedStatus]);
 
   useEffect(() => {
     if (connectionResult.connected || connectionResult.error) setConnectModalOpen(true);
   }, [connectionResult.connected, connectionResult.error]);
 
+  // Trocar de filtro invalida a seleção: "todos deste filtro" passaria a
+  // significar outro conjunto sem a pessoa ter pedido. Paginar, não — a seleção
+  // atravessa as páginas de propósito.
   function resetCatalogPagination() {
     setCatalogCursor(null);
     setCatalogCursorHistory([]);
+    setSelection(clearProfileSelection());
   }
 
   function loadNextCatalogPage() {
@@ -477,6 +538,123 @@ export default function ProfilesClient({
     const previous = catalogCursorHistory[catalogCursorHistory.length - 1] ?? null;
     setCatalogCursorHistory((current) => current.slice(0, -1));
     setCatalogCursor(previous);
+  }
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(PROFILES_VIEW_STORAGE_KEY);
+      if (stored === 'list' || stored === 'cards') setViewMode(stored);
+    } catch {
+      // Navegador em modo privado ou com dados de site bloqueados: fica no padrão.
+    }
+  }, []);
+
+  // O worker de publicação drena até 20 remoções por ciclo, então uma seleção
+  // grande leva vários ciclos. O painel acompanha até a fila zerar e só então
+  // recarrega o catálogo, para os perfis sumirem da tela quando de fato saíram.
+  useEffect(() => {
+    if (!pollingRemovals) return;
+    let cancelled = false;
+    async function readProgress() {
+      try {
+        const response = await fetch('/api/profiles/removal-progress', { cache: 'no-store' });
+        const payload = await response.json() as RemovalProgress & { error?: string };
+        if (cancelled || !response.ok) return;
+        setRemovalProgress(payload);
+        if (payload.pending === 0) {
+          setPollingRemovals(false);
+          setCatalogReloadKey((current) => current + 1);
+        }
+      } catch {
+        // Uma leitura perdida não interrompe o acompanhamento.
+      }
+    }
+    void readProgress();
+    const interval = window.setInterval(() => void readProgress(), 4000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [pollingRemovals]);
+
+  function changeViewMode(next: 'cards' | 'list') {
+    setViewMode(next);
+    try {
+      window.localStorage.setItem(PROFILES_VIEW_STORAGE_KEY, next);
+    } catch {
+      // Preferência não persistida; a sessão atual continua no modo escolhido.
+    }
+  }
+
+  async function openBulkDelete() {
+    if (!selectionCount || bulkDeleteBusy) return;
+    setBulkDeleteOpen(true);
+    setBulkDeletePreview(null);
+    setBulkDeleteConfirmation('');
+    setBulkDeleteError('');
+    setBulkDeleteBusy('preview');
+    try {
+      const response = await fetch('/api/profiles/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildBulkDeleteRequest(selection, currentCatalogFilters, { dryRun: true })),
+      });
+      const payload = await response.json() as { summary?: ProfileRemovalPreview; error?: string };
+      if (!response.ok || !payload.summary) throw new Error(payload.error ?? 'Não foi possível resumir a exclusão.');
+      setBulkDeletePreview(payload.summary);
+    } catch (error) {
+      setBulkDeleteError(error instanceof Error ? error.message : 'Não foi possível resumir a exclusão.');
+    } finally {
+      setBulkDeleteBusy('');
+    }
+  }
+
+  async function confirmBulkDelete() {
+    if (!isBulkDeleteConfirmed(bulkDeleteConfirmation) || bulkDeleteBusy) return;
+    setBulkDeleteBusy('deleting');
+    setBulkDeleteError('');
+    try {
+      const response = await fetch('/api/profiles/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildBulkDeleteRequest(selection, currentCatalogFilters, { confirmation: bulkDeleteConfirmation })),
+      });
+      const payload = await response.json() as {
+        queued?: number; alreadyQueued?: number; deletedLocal?: number; skipped?: number;
+        removedNowIds?: string[]; error?: string;
+      };
+      if (!response.ok) throw new Error(payload.error ?? 'Não foi possível excluir os perfis selecionados.');
+
+      // Só os perfis sem contrapartida remota já saíram do banco. Os Zernio
+      // continuam visíveis até o worker confirmar o DELETE na Zernio — some-los
+      // antes daria a impressão de que a vaga já foi liberada.
+      const removedNow = new Set(payload.removedNowIds ?? []);
+      if (removedNow.size) {
+        setCatalog((current) => ({
+          ...current,
+          items: current.items.filter((item) => !removedNow.has(item.id)),
+          summary: {
+            ...current.summary,
+            total: Math.max(0, current.summary.total - removedNow.size),
+            filteredTotal: Math.max(0, current.summary.filteredTotal - removedNow.size),
+          },
+        }));
+      }
+
+      setMessage(describeRemovalResult({
+        queued: payload.queued ?? 0,
+        alreadyQueued: payload.alreadyQueued ?? 0,
+        deletedLocal: payload.deletedLocal ?? 0,
+        skipped: payload.skipped ?? 0,
+        removedNowIds: payload.removedNowIds ?? [],
+      }));
+      setSelection(clearProfileSelection());
+      setBulkDeleteOpen(false);
+      setBulkDeleteConfirmation('');
+      if ((payload.queued ?? 0) + (payload.alreadyQueued ?? 0) > 0) setPollingRemovals(true);
+      else setCatalogReloadKey((current) => current + 1);
+    } catch (error) {
+      setBulkDeleteError(error instanceof Error ? error.message : 'Não foi possível excluir os perfis selecionados.');
+    } finally {
+      setBulkDeleteBusy('');
+    }
   }
 
   function zernioReconnectUrl(profile: Profile) {
@@ -949,33 +1127,171 @@ export default function ProfilesClient({
               Buscar
               <input id="profile-search-filter" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="@usuario, nome ou conta Zernio" />
             </label>
+            <label htmlFor="profile-sort-filter">
+              Ordenar por
+              <select id="profile-sort-filter" value={selectedSort} onChange={(event) => { resetCatalogPagination(); setSelectedSort(event.target.value as InstagramProfileSort); }}>
+                <option value="recent">Mais recentes</option>
+                <option value="followers">Mais seguidores</option>
+                <option value="views">Mais visualizações</option>
+              </select>
+            </label>
             <div className="profiles-posted-toggle" role="group" aria-label="Filtro de postadas">
               <button className={selectedPublicationView === 'all' ? 'profiles-posted-toggle-button-active' : ''} type="button" aria-pressed={selectedPublicationView === 'all'} onClick={() => { resetCatalogPagination(); setSelectedPublicationView('all'); }}>Todas</button>
               <button className={selectedPublicationView === 'posted' ? 'profiles-posted-toggle-button-active' : ''} type="button" aria-pressed={selectedPublicationView === 'posted'} onClick={() => { resetCatalogPagination(); setSelectedPublicationView('posted'); }}>Postadas {profileCounters.publishedItems}</button>
             </div>
+            <div className="profiles-posted-toggle" role="group" aria-label="Modo de exibição">
+              <button className={viewMode === 'cards' ? 'profiles-posted-toggle-button-active' : ''} type="button" aria-pressed={viewMode === 'cards'} onClick={() => changeViewMode('cards')}>Cards</button>
+              <button className={viewMode === 'list' ? 'profiles-posted-toggle-button-active' : ''} type="button" aria-pressed={viewMode === 'list'} onClick={() => changeViewMode('list')}>Lista</button>
+            </div>
             <span aria-live="polite">{catalogLoading ? 'Carregando…' : `${profiles.length} de ${profileCounters.filteredTotal} ${profileCounters.filteredTotal === 1 ? 'perfil' : 'perfis'}`}</span>
             </div>
+            {canManage && profiles.length > 0 && (
+              <div className={styles.selectionRow}>
+                <label className={styles.selectVisible}>
+                  <input
+                    type="checkbox"
+                    checked={visibleSelection.allSelected}
+                    ref={(input) => { if (input) input.indeterminate = visibleSelection.someSelected; }}
+                    onChange={(event) => setSelection((current) => toggleVisibleProfiles(current, visibleProfileIds, event.target.checked))}
+                  />
+                  Selecionar os {profiles.length} desta página
+                </label>
+                {selection.allFilterSelected ? (
+                  <span className={styles.selectionHint}>
+                    Selecionados todos os {selectionCount} perfis deste filtro{selection.excludedIds.length ? ` (${selection.excludedIds.length} desmarcado(s))` : ''}.
+                  </span>
+                ) : profileCounters.filteredTotal > profiles.length ? (
+                  <button
+                    className={styles.selectionLink}
+                    type="button"
+                    onClick={() => setSelection(selectAllMatchingFilter())}
+                    disabled={profileCounters.filteredTotal > MAX_FILTER_PROFILE_DELETE}
+                  >
+                    {profileCounters.filteredTotal > MAX_FILTER_PROFILE_DELETE
+                      ? `Filtro com ${profileCounters.filteredTotal} perfis — acima do limite de ${MAX_FILTER_PROFILE_DELETE} por operação`
+                      : `Selecionar todos os ${profileCounters.filteredTotal} perfis deste filtro`}
+                  </button>
+                ) : null}
+              </div>
+            )}
           </section>
           {catalogError && <p className={`inline-message inline-message-error ${styles.catalogMessage}`} role="alert">{catalogError}</p>}
+          {removalProgress && removalProgress.total > 0 && (
+            <section className={`panel ${styles.removalPanel}`} aria-label="Andamento das exclusões" aria-live="polite">
+              <div className={styles.removalHeader}>
+                <span className="section-kicker">Exclusão em andamento</span>
+                <strong>{removalProgress.done} de {removalProgress.total} perfil(is) removido(s) da Zernio</strong>
+                {!removalProgress.pending && <button className={styles.selectionLink} type="button" onClick={() => setRemovalProgress(null)}>Dispensar</button>}
+              </div>
+              <div className={styles.removalTrack} role="presentation">
+                <span style={{ width: `${Math.round((removalProgress.done / Math.max(1, removalProgress.total)) * 100)}%` }} />
+              </div>
+              <p className={styles.removalHint}>
+                {removalProgress.pending
+                  ? `${removalProgress.pending} na fila. O worker de publicação processa até 20 por ciclo e libera a vaga da chave Zernio ao confirmar cada remoção.`
+                  : 'Fila concluída. As vagas liberadas já aparecem no inventário das chaves Zernio.'}
+              </p>
+              {removalProgress.failed > 0 && (
+                <ul className={styles.removalFailures}>
+                  {removalProgress.failures.map((failure) => (
+                    <li key={failure.id}>
+                      <strong>@{failure.username_snapshot}</strong>
+                      <span>{failure.connection_label_snapshot ?? 'Conta Zernio não identificada'}</span>
+                      <small>{failure.error_message ?? 'Falha terminal na remoção remota.'}</small>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
           {profiles.length === 0 ? (
             <section className="panel empty-state profiles-filter-empty">
               <h2>Nenhum perfil encontrado</h2>
               <p>Ajuste a busca ou os filtros para consultar outro trecho do catálogo.</p>
+            </section>
+          ) : viewMode === 'list' ? (
+            <section className={`panel ${styles.listPanel}`} aria-label="Perfis conectados">
+              <div className={styles.listScroll}>
+                <table className={styles.listTable}>
+                  <thead>
+                    <tr>
+                      <th scope="col" className={styles.listCheckboxCell}><span className="visually-hidden">Selecionar</span></th>
+                      <th scope="col">Perfil</th>
+                      <th scope="col">Grupo</th>
+                      <th scope="col">Conta Zernio</th>
+                      <th scope="col">Status</th>
+                      <th scope="col" className={styles.listNumberCell}>Seguidores</th>
+                      <th scope="col" className={styles.listNumberCell}>Views</th>
+                      <th scope="col" className={styles.listNumberCell}>Posts</th>
+                      <th scope="col"><span className="visually-hidden">Ações</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {profiles.map((profile) => {
+                      const analytics = profile.publication_metrics;
+                      const selected = isProfileSelected(selection, profile.id);
+                      return (
+                        <tr key={profile.id} className={selected ? styles.listRowSelected : undefined}>
+                          <td className={styles.listCheckboxCell}>
+                            {canManage && (
+                              <label className={styles.listCheckbox}>
+                                <span className="visually-hidden">Selecionar @{profile.username}</span>
+                                <input type="checkbox" checked={selected} onChange={(event) => setSelection((current) => toggleProfileSelection(current, profile.id, event.target.checked))} />
+                              </label>
+                            )}
+                          </td>
+                          <td>
+                            <Link className={styles.listIdentity} href={`/perfis/${profile.id}`}>
+                              <ProfileAvatar profile={profile} />
+                              <span>
+                                <strong>@{profile.username}</strong>
+                                <small>{profile.display_name ?? 'Perfil profissional'}</small>
+                              </span>
+                            </Link>
+                          </td>
+                          <td>{profile.group_name ?? 'Sem grupo'}</td>
+                          <td>{profile.provider === 'zernio' ? (profile.zernio_connection_label ?? 'Não identificada') : 'Meta oficial'}</td>
+                          <td><span className={`${styles.listStatus} ${profile.status === 'online' ? styles.listStatusOk : styles.listStatusWarn}`}>{profileStatusLabels[profile.status]}</span></td>
+                          <td className={styles.listNumberCell} data-label="Seguidores">{formatCompactNumber(analytics?.followers_count)}</td>
+                          <td className={styles.listNumberCell} data-label="Views">{formatCompactNumber(analytics?.views)}</td>
+                          <td className={styles.listNumberCell} data-label="Posts">{analytics?.posts_count ?? 0}</td>
+                          <td>
+                            <div className={styles.listActions}>
+                              {canManage && (
+                                <button className="button button-ghost profile-sync-button" type="button" onClick={() => syncProfile(profile.id)} disabled={checkingProfileId !== null}>
+                                  <SyncIcon className="button-icon button-icon-sync" />
+                                  {checkingProfileId === profile.id ? 'Sincronizando…' : 'Sincronizar'}
+                                </button>
+                              )}
+                              {canManage && (
+                                <button className="button button-danger profile-delete-icon-button" type="button" aria-label={`Excluir perfil @${profile.username}`} onClick={() => requestDeleteProfile(profile)} disabled={deletingProfileId !== null}>
+                                  <TrashIcon className="button-icon" />
+                                  <span className="visually-hidden">Excluir perfil</span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </section>
           ) : <section className="profile-grid" aria-label="Perfis conectados">
           {profiles.map((profile) => {
             const metrics = publicationMetricsFromSummary(profile.publication_metrics);
             const analytics = profile.publication_metrics;
             const delta = analytics?.followers_delta ?? 0;
-            const selected = selectedProfileIds.includes(profile.id);
+            const selected = isProfileSelected(selection, profile.id);
               return (
-            <article className={`panel profile-card profile-card-clickable ${styles.profileCard}`} key={profile.id} onClick={(event) => {
+            <article className={`panel profile-card profile-card-clickable ${styles.profileCard} ${selected ? styles.profileCardSelected : ''}`} key={profile.id} onClick={(event) => {
               if ((event.target as HTMLElement).closest('a, button, select, input, label')) return;
               window.location.assign(`/perfis/${profile.id}`);
             }}>
               <div className="profile-card-header profile-card-header-redesigned">
-                <label className="profile-card-select" aria-label={`Selecionar @${profile.username}`}>
-                  <input type="checkbox" checked={selected} onChange={(event) => setSelectedProfileIds((current) => event.target.checked ? [...current, profile.id] : current.filter((id) => id !== profile.id))} />
+                <label className={`profile-card-select ${styles.cardSelect}`} aria-label={`Selecionar @${profile.username}`}>
+                  <input type="checkbox" checked={selected} onChange={(event) => setSelection((current) => toggleProfileSelection(current, profile.id, event.target.checked))} />
                 </label>
                 <ProfileAvatar profile={profile} />
                 <div className="profile-card-identity">
@@ -985,14 +1301,14 @@ export default function ProfilesClient({
                     </a>
                    </h2>
                    <p>{profile.display_name ?? 'Perfil profissional'}</p>
-                   <span className="profile-group-chip">{profile.group_name ?? 'Sem grupo'}</span>
-                   {profile.provider === 'zernio' && (
-                     <span className="profile-zernio-connection-chip" title={profile.zernio_connection_label ?? 'Conta Zernio não identificada'}>
-                       Zernio: {profile.zernio_connection_label ?? 'Não identificada'}
-                     </span>
-                   )}
                  </div>
                 <span className="profile-post-count-chip">{analytics?.posts_count ?? metrics.published.total} posts</span>
+                <div className="profile-card-chips">
+                  <span className="profile-group-chip">{profile.group_name ?? 'Sem grupo'}</span>
+                  <span className="profile-zernio-connection-chip" title={profile.provider === 'zernio' ? (profile.zernio_connection_label ?? 'Conta Zernio não identificada') : 'Conexão oficial da Meta'}>
+                    {profile.provider === 'zernio' ? `Zernio: ${profile.zernio_connection_label ?? 'Não identificada'}` : 'Meta oficial'}
+                  </span>
+                </div>
               </div>
               <div className="profile-analytics-strip" aria-label="Resumo de analytics">
                 <div><strong>{formatCompactNumber(analytics?.followers_count)}</strong><span>Seguidores</span><small className={delta >= 0 ? 'trend-positive' : 'trend-negative'}>{delta >= 0 ? '↑' : '↓'} {formatCompactNumber(Math.abs(delta))}</small></div>
@@ -1047,6 +1363,30 @@ export default function ProfilesClient({
             );
           })}
           </section>}
+          {canManage && selectionCount > 0 && (
+            <div className={styles.selectionBar} role="region" aria-label="Ações da seleção">
+              <span className={styles.selectionBarCount}>
+                <strong>{selectionCount}</strong>
+                {selection.allFilterSelected ? ' perfil(is) deste filtro' : ' perfil(is) selecionado(s)'}
+              </span>
+              <span className={styles.selectionBarHint}>
+                A exclusão remove a conta da Zernio, libera a vaga da chave e cancela as publicações em fila.
+              </span>
+              <div className={styles.selectionBarActions}>
+                <button className="button button-ghost" type="button" onClick={() => setSelection(clearProfileSelection())}>Limpar seleção</button>
+                <button
+                  className="button button-danger"
+                  type="button"
+                  onClick={() => void openBulkDelete()}
+                  disabled={Boolean(bulkDeleteBusy) || overSelectionCap}
+                  title={overSelectionCap ? `Marque no máximo ${MAX_BULK_PROFILE_DELETE} perfis por operação, ou use “Selecionar todos deste filtro”.` : undefined}
+                >
+                  <TrashIcon className="button-icon" />
+                  {overSelectionCap ? `Máximo de ${MAX_BULK_PROFILE_DELETE} por vez` : 'Excluir selecionados'}
+                </button>
+              </div>
+            </div>
+          )}
           <nav className={`${styles.pagination} panel`} aria-label="Paginação dos perfis">
             <span>Página {catalogCursorHistory.length + 1} · até {catalog.limit} perfis por página</span>
             <div>
@@ -1226,6 +1566,77 @@ export default function ProfilesClient({
                 Desconectar na Zernio e remover
               </button>
               <button className="button button-secondary" type="button" onClick={() => setDeleteChoiceProfile(null)} disabled={deletingProfileId !== null}>
+                Cancelar
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {bulkDeleteOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => { if (!bulkDeleteBusy) setBulkDeleteOpen(false); }}>
+          <section className={`panel bulk-modal ${styles.deleteModal}`} role="dialog" aria-modal="true" aria-labelledby="bulk-delete-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div>
+              <span className="section-kicker">Ação irreversível</span>
+              <h2 id="bulk-delete-title">Excluir {selectionCount} perfil(is)</h2>
+            </div>
+
+            {bulkDeleteBusy === 'preview' ? <p className="inline-message" role="status">Calculando o impacto…</p> : null}
+            {bulkDeleteError && <p className="inline-message inline-message-error" role="alert">{bulkDeleteError}</p>}
+
+            {bulkDeletePreview && (
+              <>
+                <dl className={styles.deleteSummary}>
+                  <div><dt>Perfis</dt><dd>{bulkDeletePreview.total}</dd></div>
+                  <div><dt>Na Zernio</dt><dd>{bulkDeletePreview.zernioCount}</dd></div>
+                  <div><dt>Só no Atena</dt><dd>{bulkDeletePreview.metaCount}</dd></div>
+                  <div><dt>Publicações canceladas</dt><dd>{bulkDeletePreview.pendingItemCount}</dd></div>
+                </dl>
+
+                {bulkDeletePreview.connectionLabels.length > 0 && (
+                  <p className={styles.deleteDetail}>
+                    Chaves Zernio afetadas: <strong>{bulkDeletePreview.connectionLabels.join(', ')}</strong>. Cada remoção confirmada libera uma vaga na chave correspondente.
+                  </p>
+                )}
+
+                {bulkDeletePreview.zernioCount > 0 && (
+                  <p className="inline-message inline-message-error" role="note">
+                    Na Zernio, apagar uma conta é global: ela deixa de existir em todas as chaves que a enxergam, não só na chave listada aqui.
+                  </p>
+                )}
+
+                {bulkDeletePreview.metaCount > 0 && (
+                  <p className={styles.deleteDetail}>
+                    {bulkDeletePreview.metaCount} perfil(is) não passam pela Zernio e saem imediatamente — sem liberar vaga nenhuma.
+                  </p>
+                )}
+
+                {bulkDeletePreview.alreadyQueued > 0 && (
+                  <p className={styles.deleteDetail}>{bulkDeletePreview.alreadyQueued} perfil(is) já estavam na fila de remoção; a ação não os duplica.</p>
+                )}
+
+                <label className={styles.deleteConfirmLabel} htmlFor="bulk-delete-confirmation">
+                  Digite EXCLUIR para confirmar
+                  <input
+                    id="bulk-delete-confirmation"
+                    autoComplete="off"
+                    value={bulkDeleteConfirmation}
+                    onChange={(event) => setBulkDeleteConfirmation(event.target.value)}
+                    placeholder="EXCLUIR"
+                  />
+                </label>
+              </>
+            )}
+
+            <div className="profile-delete-actions">
+              <button
+                className="button button-danger"
+                type="button"
+                onClick={() => void confirmBulkDelete()}
+                disabled={!selectionCount || !bulkDeletePreview || !isBulkDeleteConfirmed(bulkDeleteConfirmation) || Boolean(bulkDeleteBusy)}
+              >
+                {bulkDeleteBusy === 'deleting' ? 'Excluindo…' : `Excluir ${selectionCount} perfil(is)`}
+              </button>
+              <button className="button button-ghost" type="button" onClick={() => setBulkDeleteOpen(false)} disabled={Boolean(bulkDeleteBusy)}>
                 Cancelar
               </button>
             </div>

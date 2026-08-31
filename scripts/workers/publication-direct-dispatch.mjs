@@ -751,6 +751,9 @@ function createZernioClient(apiKey, telemetryContext = null) {
     disconnectAccount(accountId, requestId) {
       return request(`/v1/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE', requestId });
     },
+    listAccounts(query = {}) {
+      return request('/v1/accounts', { query });
+    },
   };
 }
 
@@ -1737,9 +1740,55 @@ export async function processZernioProfileRecyclingJobs(workerId, limit = 10) {
     if (error) throw error;
     return { jobId: job.job_id, outcome, result: data };
   }));
-  return processed.map((entry, index) => entry.status === 'fulfilled'
+  const results = processed.map((entry, index) => entry.status === 'fulfilled'
     ? entry.value
     : { jobId: jobs[index].job_id, outcome: 'error', error: errorInfo(entry.reason).message });
+
+  // O soft-delete local nao libera a vaga sozinho: a ocupacao da chave e
+  // greatest(remote_instagram_account_count, perfis locais) e o valor remoto so
+  // muda quando alguem re-lista /v1/accounts. Sem este passo a vaga so reaparece
+  // no proximo "Sincronizar" manual. Uma chamada por conexao, nao por job.
+  const freedConnectionIds = new Set(jobs
+    .filter((job, index) => job.zernio_connection_id
+      && ['remote_deleted', 'already_disconnected_404'].includes(results[index]?.outcome))
+    .map((job) => `${job.organization_id}:${job.zernio_connection_id}`));
+  for (const pair of freedConnectionIds) {
+    const [organizationId, connectionId] = pair.split(':');
+    await refreshZernioRemoteInventoryCount(organizationId, connectionId);
+  }
+
+  return results;
+}
+
+// Espelha lib/integrations/zernio-accounts.ts:refreshZernioRemoteInventorySnapshot.
+// A remocao remota ja aconteceu quando isto roda, entao uma falha aqui nao pode
+// invalidar o job: o portao de frescor de 30 minutos faz o valor velho expirar.
+async function refreshZernioRemoteInventoryCount(organizationId, connectionId) {
+  const supabase = createSupabase();
+  try {
+    const client = await createZernioClientForConnection(organizationId, connectionId, { operation: 'list_accounts' });
+    const response = await client.listAccounts();
+    const count = (response?.accounts ?? []).filter((account) => account.platform === 'instagram').length;
+    const { error } = await supabase
+      .from('zernio_connections')
+      .update({
+        remote_instagram_account_count: count,
+        remote_inventory_checked_at: new Date().toISOString(),
+        remote_inventory_error_code: null,
+        remote_inventory_error_message: null,
+      })
+      .eq('id', connectionId)
+      .eq('organization_id', organizationId);
+    if (error) throw error;
+    return count;
+  } catch (error) {
+    console.error('Nao foi possivel atualizar o inventario Zernio apos a reciclagem.', {
+      organizationId,
+      connectionId,
+      error: errorInfo(error),
+    });
+    return null;
+  }
 }
 
 export function zernioPollingDelaySeconds(workItem, now = Date.now()) {
