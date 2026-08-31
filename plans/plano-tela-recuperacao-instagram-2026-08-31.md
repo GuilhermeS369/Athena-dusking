@@ -2,8 +2,10 @@
 
 **Data:** 2026-08-31
 **Branch:** `codex/x-twitter-module`
-**Status:** em execução — este arquivo é o registro vivo. Marcar `- [x]` com data conforme cada etapa
-for concluída **e validada**.
+**Status:** **entregue e no ar** em 2026-08-31. Migrations 347–351 em produção, tela deployada na
+Vercel, cron diário ativo, e a régua validada contra a análise de 31/08 com reprodução exata.
+Restam dois itens **opcionais** (redundância de cron na VPS e captura automática de marco).
+Este arquivo é o registro vivo.
 
 ## Onde estamos
 
@@ -11,20 +13,18 @@ for concluída **e validada**.
 |---|---|
 | 0 — Registro | ✅ concluída |
 | 1 — Banco: schema (`347`) | ✅ concluída · pgTAP 16/16 |
-| 2 — Banco: a régua (`348`) | ✅ concluída · pgTAP 24/24 · **2 itens presos em produção** |
+| 2 — Banco: a régua (`348`) | ✅ concluída · pgTAP 24/24 · **aceitação em produção: reprodução exata** |
 | 3 — Banco: esteira e acompanhamento (`349` + `350`) | ✅ concluída · pgTAP 21/21 e 11/11 |
-| 4 — Disparo (rota interna + cron na VPS) | ✅ concluída |
+| 4 — Disparo (rota interna + **cron diário na Vercel**) | ✅ concluída · verificado em produção |
 | 5 — Leitura (libs e rotas GET) | ✅ concluída |
 | 6 — Ações (rotas POST/PATCH) | ✅ concluída |
 | 7 — Tela (`/recuperacao`) | ✅ concluída |
-| 8 — Fechamento (tsc, testes, aceitação) | ✅ o que dá para fechar daqui |
+| 8 — Fechamento (tsc, testes, aceitação) | ✅ concluída |
 
-**Presos em produção, não em código** — os dois vão ficar abertos até alguém rodar contra o banco
-real, e não devem ser marcados antes disso:
-1. Medir a duração de um chunk no maior grupo real (GG LEXY, ~457 perfis × 30 dias) contra o teto de
-   ~8 s **antes** de ligar qualquer cron.
-2. Aceitação contra a análise de 31/08 (33 / 55 / 39 e as medianas por grupo), rodando com a janela
-   de 25 a 31/08 e com os dois desvios conscientes desligados por parâmetro.
+**Os dois itens que estavam presos em produção foram fechados em 31/08:**
+1. ✅ Duração de um chunk: **558–821 ms** no GG LAURINHA (200 perfis), contra o teto de ~8 s.
+2. ✅ Aceitação contra a análise de 31/08: **reprodução exata** — as medianas, os cortes, o portão
+   fechado, as contagens 7 e 12, e os **doze perfis na mesma ordem com os mesmos views/slot**.
 
 ## Registro de execução
 
@@ -45,6 +45,8 @@ real, e não devem ser marcados antes disso:
 | 2026-08-31 | 2 | **Aceitação contra a análise de 31/08: reprodução exata**, incluindo os doze nomes na mesma ordem. Ver abaixo. |
 | 2026-08-31 | 2 | **Tempo de chunk medido em produção:** 558–821 ms para o GG LAURINHA (200 perfis), contra o teto de ~8 s. |
 | 2026-08-31 | — | `351_recovery_window_floor.sql`: piso da janela de 7 para 3 dias — o piso de 7 era palpite meu e bloqueava reproduzir a janela da análise. |
+| 2026-08-31 | 6 e 7 | **Três buracos funcionais fechados:** UI de registro do marco de mídia (a rota existia, a tela não), cancelamento da fila por esteira, e **cron diário na Vercel**. Modal conferido no navegador; um defeito de alinhamento de campos corrigido. |
+| 2026-08-31 | — | Segundo deploy de produção. Endpoint do cron verificado ao vivo: 401 sem segredo, e com segredo **cedeu a vez** à fila de publicação sob pressão — o portão funcionando. |
 
 ---
 
@@ -737,10 +739,10 @@ introduz nenhuma falha nova.
       Filtro 2 ao grupo que estava em queda.
 - [x] **2026-08-31** — Suíte completa: **45 arquivos falhando com e sem** as migrations novas.
       Sem regressão.
-- [ ] Medir a duração de um chunk no maior grupo real (GG LEXY, ~457 perfis × 30 dias) e confirmar
-      folga contra os ~8 s **antes** de ligar qualquer cron. **Só é possível em produção.**
-- [ ] Aceitação contra a análise de 31/08 (33/55/39). **Depende de produção** — os dados sintéticos
-      locais não reproduzem os grupos reais.
+- [x] **2026-08-31** — Duração medida em produção: **558–821 ms** por chunk no GG LAURINHA
+      (200 perfis), contra o teto de ~8 s.
+- [x] **2026-08-31** — Aceitação contra a análise de 31/08: **reprodução exata** para o LAURINHA,
+      inclusive os doze nomes na mesma ordem. Detalhe na Etapa 8.
 
 ### Etapa 3 — Banco: esteira e acompanhamento
 - [x] **2026-08-31** — `349_recovery_cohort.sql`: `enter_recovery_cohort`,
@@ -783,10 +785,19 @@ função. Verificado que `auth.uid()` lê GUC de sessão e sobrevive ao `definer
 - [x] **2026-08-31** — Verificação: as quatro RPCs exercitadas **pelo PostgREST** (o caminho exato das
       rotas, onde um nome de parâmetro errado aparece), com os números conferidos à mão —
       `M = 40`, portão `24` (= 40 × 0,60), `eligible25 = 1`, `eligible40 = 2`.
-- [ ] **Definir o horário do cron depois de conferir quando a coleta diária de analytics termina**
-      ([docs/vps-worker-runbook.md](docs/vps-worker-runbook.md)). O arquivo está com `10 9 * * *`
-      (06h10 em São Paulo) como palpite, com o aviso escrito no próprio `.cron`.
-- [ ] Instalar o script e o cron na VPS.
+- [x] **2026-08-31** — **Cron diário na Vercel** (`20 9 * * *`, 06h20 em São Paulo) em
+      [vercel.json](vercel.json). Sem acesso à VPS daqui, a Vercel virou o gatilho: é o que faz a
+      análise rodar sozinha hoje. Verificado em produção — sem segredo devolve 401; com segredo, a
+      rota rodou e **cedeu a vez** ao ver a fila de publicação sob pressão crítica, que é o
+      comportamento correto.
+- [x] **2026-08-31** — Para o cron da Vercel funcionar, a rota deixou de processar **uma**
+      organização por invocação e passou a percorrer todas dentro do orçamento de tempo: o cron da
+      Vercel dispara uma vez só, então uma invocação precisa dar conta. O laço da VPS continua
+      valendo — `MIN_HOURS_BETWEEN_RUNS` impede os dois gatilhos abrirem execução duplicada.
+- [ ] *(Opcional, redundância)* Instalar o `.sh` e o `.cron` na VPS. O cron da Vercel já cobre; a VPS
+      é rede de segurança para o dia em que a Vercel falhar em silêncio. O horário no `.cron` continua
+      sendo palpite — conferir quando a coleta diária termina
+      ([docs/vps-worker-runbook.md](docs/vps-worker-runbook.md)) antes de instalar.
 
 ### Etapa 5 — Leitura
 - [x] **2026-08-31** — [lib/recovery/ruler.ts](lib/recovery/ruler.ts): ajustes, rótulos e status, com
@@ -813,9 +824,12 @@ função. Verificado que `auth.uid()` lê GUC de sessão e sobrevive ao `definer
 - [x] **2026-08-31** — `GET`/`POST /api/recovery/milestones`.
 - [x] **2026-08-31** — `PATCH /api/groups/[groupId]/recovery` (rota nova, pelo motivo registrado no
       próprio arquivo) + colunas novas no `select` de grupos nas três leituras.
-- [ ] Captura automática do marco na camada de rota da Galeria
+- [x] **2026-08-31** — **UI de registro do marco na tela** (botão no cabeçalho + modal com grupo,
+      data, quantidade, tipo comum/reprocessada e nota). Era um buraco real: a rota existia, a tela
+      não, então o pico nunca seria recontado e o gráfico ficaria sem marco.
+- [ ] *(Opcional)* Captura **automática** na camada de rota da Galeria
       ([app/api/media/groups/bulk/route.ts](app/api/media/groups/bulk/route.ts)) — o registro manual
-      já cobre o caso; a captura automática é conveniência.
+      cobre; a automática é conveniência contra o esquecimento.
 
 ### Etapa 7 — Tela
 - [x] **2026-08-31** — `<symbol id="icon-recovery">` em [app/layout.tsx](app/layout.tsx), item em
@@ -827,7 +841,11 @@ função. Verificado que `auth.uid()` lê GUC de sessão e sobrevive ao `definer
 - [x] **2026-08-31** — Faixa da régua com os **dois totais lado a lado**, cards com sparkline + linha
       do limiar + marcadores de troca de mídia, e as três abas.
 - [x] **2026-08-31** — Toggle "Recuperação" em [app/grupos/groups-client.tsx](app/grupos/groups-client.tsx),
-      com aviso no lugar do toggle quando o grupo **é** uma esteira.
+      com aviso no lugar do toggle quando o grupo **é** uma esteira. **Refeito** depois de o operador
+      ver o resultado: o primeiro desenho era uma caixa com borda no meio de um card feito de pills;
+      virou switch de uma linha, conferido no navegador nos três estados.
+- [x] **2026-08-31** — Botão **"Registrar troca de mídia"** e modal, e **"Cancelar fila da esteira"**
+      na aba Em recuperação (uma operação durável para o grupo, em vez de uma por perfil).
 
 **Inspeção visual feita**, com uma página temporária de preview (fora do painel, alimentada com os
 números reais da análise de 31/08) — a página do painel exige sessão e não há como autenticar daqui.
@@ -919,7 +937,7 @@ que ele acabou de ligar, sem entender por quê.
 
 ## O que falta, e por que não dá para fechar daqui
 
-Tudo abaixo precisa do banco real ou de acesso à VPS. Nada é código pendente.
+**Sobrou pouco, e nada disso é código.** Os itens riscados foram fechados em 31/08.
 
 1. **Ligar a recuperação nos grupos** — decisão do operador, um grupo por vez, começando pelo
    LAURINHA. Ver "Procedimento de ativação" acima.
@@ -928,9 +946,8 @@ Tudo abaixo precisa do banco real ou de acesso à VPS. Nada é código pendente.
    conferidos quando forem ligados. *(Nota: os dois desvios conscientes ficaram inertes nesta
    rodada — não há esteira criada nem marco de mídia registrado, então ligados ou desligados dão o
    mesmo resultado. Quando houver esteira e marco, vale repetir a comparação.)*
-4. **Definir o horário do cron** depois de conferir quando a coleta diária de analytics termina
-   ([docs/vps-worker-runbook.md](docs/vps-worker-runbook.md)) e **instalar** o `.sh` e o `.cron` na
-   VPS.
+4. ~~Cron~~ — **feito**: cron diário na Vercel, verificado em produção. Instalar o `.sh` na VPS
+   virou redundância opcional.
 5. **Verificar a tela no painel autenticado** — compila, passa no `tsc` e está no ar em produção,
    mas não foi possível autenticar daqui para ver a tela dentro do painel. O interruptor em
    `/grupos` foi conferido no navegador nos três estados (desligado, ligado, e a pill de esteira).
@@ -940,7 +957,8 @@ Tudo abaixo precisa do banco real ou de acesso à VPS. Nada é código pendente.
 Em telas estreitas (~560 px), o botão de exportar do card de grupo estica para a largura toda da
 linha de ações, em vez de ficar no quadrado de 44 px. É **anterior** a este trabalho — nada aqui
 tocou `.actions` nem `.exportButton` — e ficou registrado só para não parecer efeito da recuperação.
-6. *(Opcional)* Captura automática do marco de mídia na rota da Galeria. O registro manual já cobre.
+6. *(Opcional)* Captura **automática** do marco de mídia na rota da Galeria. O registro manual já
+   está na tela e cobre o caso.
 
 ---
 
