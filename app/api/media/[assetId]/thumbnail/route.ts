@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { createR2SignedUrl, uploadToR2 } from '@/lib/storage/r2-client';
+import { removeMediaObjectsEverywhere } from '@/lib/storage/media-storage';
 
 const MAX_THUMBNAIL_SIZE = 2 * 1024 * 1024;
 function mediaStorageBackend() {
@@ -74,10 +75,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ ass
     }
   }
 
+  const previousStoragePath = asset.thumbnail_storage_path;
   const { error: updateError } = await supabase.from('media_assets').update({ thumbnail_storage_path: storagePath }).eq('id', asset.id);
   if (updateError) {
     console.error('[media/thumbnail] Miniatura enviada, mas não vinculada', { assetId, recoveryRequested, message: updateError.message });
     return NextResponse.json({ error: 'A miniatura foi enviada, mas não pôde ser vinculada ao vídeo.' }, { status: 400 });
+  }
+
+  // A miniatura do upload usa o id do item da fila no nome; a recuperação usa o
+  // id da mídia. Sem apagar a antiga aqui, cada recuperação deixava um arquivo
+  // solto no bucket — foi assim que apareceram ~2,2 mil miniaturas órfãs no R2.
+  if (previousStoragePath && previousStoragePath !== storagePath) {
+    const { error: removeError } = await removeMediaObjectsEverywhere(supabase, [previousStoragePath]);
+    if (removeError) {
+      console.warn('[media/thumbnail] Miniatura antiga não pôde ser removida', { assetId, previousStoragePath, message: removeError.message });
+    }
   }
 
   const thumbnailUrl = mediaStorageBackend() === 'r2'

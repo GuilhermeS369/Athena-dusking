@@ -152,6 +152,10 @@ export type QueueSummaryRow = {
 
 export type QueueSummary = {
   snapshotAt: string | null;
+  // Janela do histórico publicado que a projeção do banco cobre. Existe para a
+  // tela poder dizer ao operador de que período é o número — sem isso, "1.240
+  // publicadas" não tem unidade.
+  historyHours: number;
   totals: {
     total: number;
     historicalTotal?: number;
@@ -163,6 +167,11 @@ export type QueueSummary = {
     suspended: number;
     active?: number;
     closed: number;
+    // Saldo real do arquivamento, com o mesmo predicado de
+    // clean_publication_queue_finished. Não é ok + errors + closed: publicado
+    // já arquivado conta em `ok` e não tem mais nada a arquivar, e falha
+    // retentável nunca é arquivada.
+    pendingArchive?: number;
     archived: number;
     expiredLeases: number;
     activeAccounts: number;

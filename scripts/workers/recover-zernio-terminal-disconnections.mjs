@@ -51,10 +51,18 @@ function requiredEnv(name) {
   return value;
 }
 
-async function fetchAll(table, columns, configure = (query) => query) {
+// A ordenacao e aplicada AQUI, depois do configure, e por isso e parametro
+// obrigatorio na pratica: paginar por range sem ordem TOTAL faz paginas
+// consecutivas repetirem linhas e perderem outras, sem erro nenhum. Um perfil
+// com mais de 1.000 itens fazia esta recuperacao agir sobre o conjunto errado.
+// Medido em producao em 30/08/2026 noutra tabela: 7.151 linhas lidas, 6.942
+// distintas. orderBy precisa ser a chave da tabela, nao so um criterio bonito.
+async function fetchAll(table, columns, configure = (query) => query, orderBy = ['id']) {
   const rows = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await configure(supabase.from(table).select(columns)).range(from, from + 999);
+    let query = configure(supabase.from(table).select(columns));
+    for (const column of orderBy) query = query.order(column, { ascending: true });
+    const { data, error } = await query.range(from, from + 999);
     if (error) throw error;
     rows.push(...(data ?? []));
     if ((data ?? []).length < 1000) return rows;
@@ -142,7 +150,8 @@ async function loadImpact(candidates) {
   if (!profileIds.length) return { queueItems: [], groupMemberships: [], planProfiles: [], horizons: [], incidents: [], jobs: [] };
   const [queueItems, groupMemberships, planProfiles, horizons, incidents] = await Promise.all([
     fetchAll('publication_items', 'id,organization_id,profile_id,batch_id,status,execute_at,attempt_count,next_attempt_at,last_error_code,last_error_message,creation_id,claimed_by,lease_until,published_at,updated_at', (query) => query.in('profile_id', profileIds)),
-    fetchAll('profile_group_members', 'organization_id,profile_id,group_id,created_at', (query) => query.in('profile_id', profileIds)),
+    // profile_group_members nao tem coluna id: a chave e (group_id, profile_id).
+    fetchAll('profile_group_members', 'organization_id,profile_id,group_id,created_at', (query) => query.in('profile_id', profileIds), ['group_id', 'profile_id']),
     fetchAll('bulk_publication_plan_profiles', 'id,organization_id,profile_id,status,suspended_at,suspension_reason', (query) => query.in('profile_id', profileIds)),
     fetchAll('bulk_publication_profile_horizons', 'id,organization_id,profile_id,status,released_at', (query) => query.in('profile_id', profileIds)),
     fetchAll('zernio_profile_disconnection_incidents', '*', (query) => query.in('profile_id', profileIds)),

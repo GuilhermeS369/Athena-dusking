@@ -117,6 +117,7 @@ export function usePublicationQueue({
       const response = await fetch(`/api/publications/summary?${params.toString()}`, { cache: 'no-store' });
       const payload = await response.json() as {
         snapshotAt?: string | null;
+        historyHours?: number;
         totals?: QueueSummary['totals'];
         rows?: QueueSummary['accounts'];
         page?: QueueSummaryPage;
@@ -129,6 +130,7 @@ export function usePublicationQueue({
       setSummary((current) => {
         const previous = current ?? {
           snapshotAt: null,
+          historyHours: 24,
           totals: payload.totals!,
           accounts: [],
           batches: [],
@@ -141,6 +143,7 @@ export function usePublicationQueue({
         return {
           ...previous,
           snapshotAt: payload.snapshotAt ?? null,
+          historyHours: payload.historyHours ?? previous.historyHours,
           totals: payload.totals!,
           [key]: [...byId.values()],
         };
@@ -639,11 +642,12 @@ export function usePublicationQueue({
 
   async function cleanFinished() {
     if (!canManage) return;
-    const completedCount = summary?.totals.ok ?? 0;
-    const failureCount = summary?.totals.errors ?? 0;
-    const closedCount = summary?.totals.closed ?? 0;
-    const cleanableCount = completedCount + failureCount + closedCount;
-    if (!cleanableCount || !window.confirm(`Limpar ${cleanableCount} publicação(ões) encerrada(s) da fila? Isso inclui publicadas, canceladas e falhas. O histórico será preservado.`)) return;
+    // O saldo vem pronto do banco, com o mesmo predicado que a RPC vai aplicar.
+    // Somar ok + errors + closed aqui deixou de funcionar quando `ok` passou a
+    // incluir o publicado já arquivado (migration 337): o botão prometeria
+    // limpar milhares de itens que não têm mais nada a arquivar.
+    const cleanableCount = summary?.totals.pendingArchive ?? 0;
+    if (!cleanableCount || !window.confirm(`Limpar ${cleanableCount} publicação(ões) encerrada(s) da fila? Isso inclui publicadas e canceladas, além de falhas que já esgotaram as tentativas. O histórico será preservado.`)) return;
     setMessage('');
     setQueueActionId('queue:clean_finished');
     try {

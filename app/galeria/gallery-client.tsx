@@ -1513,6 +1513,16 @@ export default function GalleryClient({
         activeDeletionJob.status,
       )
     : false;
+  // "pending" quer dizer que a fila existe mas nenhum worker pegou o primeiro
+  // bloco ainda. Mostrar só "0%" fazia a exclusão parecer travada quando ela
+  // estava apenas esperando o dispatcher (que roda a cada minuto e fica em
+  // pausa enquanto a publicação está atrasada).
+  const deletionJobWaiting = Boolean(
+    activeDeletionJob &&
+      !deletionJobFinished &&
+      activeDeletionJob.status === "pending" &&
+      !activeDeletionJob.processed_count,
+  );
   const groupAssignmentJobPercent = activeGroupAssignmentJob?.total_count
     ? Math.round(
         (activeGroupAssignmentJob.processed_count /
@@ -2694,8 +2704,17 @@ export default function GalleryClient({
             <h2>
               {deletionJobFinished
                 ? "Fila de exclusão finalizada"
-                : "Apagando mídias em segundo plano"}
+                : deletionJobWaiting
+                  ? "Exclusão na fila, aguardando o worker"
+                  : "Apagando mídias em segundo plano"}
             </h2>
+            {deletionJobWaiting && (
+              <p>
+                As {activeDeletionJob.total_count} mídias já saíram da galeria e
+                serão apagadas em blocos. O worker pega a fila em até um minuto —
+                pode fechar esta tela sem interromper.
+              </p>
+            )}
             <p>
               {activeDeletionJob.processed_count} de{" "}
               {activeDeletionJob.total_count} processadas ·{" "}
@@ -2753,10 +2772,14 @@ export default function GalleryClient({
             )}
           </div>
           <div className="gallery-deletion-progress">
-            <strong>{deletionJobPercent}%</strong>
-            <progress max="100" value={deletionJobPercent}>
-              {deletionJobPercent}%
-            </progress>
+            <strong>{deletionJobWaiting ? "Na fila" : `${deletionJobPercent}%`}</strong>
+            {deletionJobWaiting ? (
+              <progress />
+            ) : (
+              <progress max="100" value={deletionJobPercent}>
+                {deletionJobPercent}%
+              </progress>
+            )}
           </div>
           {deletionJobFinished && (
             <button

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
 import { getTwitterCreatePrice, validateTwitterContent } from '@/lib/twitter/pricing';
 import { isTwitterRolloutActive } from '@/lib/twitter/feature';
 import { isTwitterWorkerAuthorized } from '@/lib/twitter/worker-auth';
@@ -32,17 +33,24 @@ export async function POST(request:Request){
   const programIds=[...new Set(items.map(item=>item.program_id))];
   const epochIds=[...new Set(items.map(item=>item.connection_epoch_id))];
   const profileIds=[...new Set(items.map(item=>item.profile_id))];
+  // Em blocos, e nao num `.in()` unico. O teto de linhas nunca foi o risco
+  // aqui: o claim traz no maximo 500 itens. O que estoura e o COMPRIMENTO DA
+  // URL — 500 UUIDs viram ~18 KB de query string, e assetIds mais abaixo chega
+  // a ~2.000 (500 conjuntos x 4 midias), ou seja ~74 KB, acima do limite de
+  // 37 KB que o CLAUDE.md documenta. Falharia so no lote grande, que e
+  // exatamente quando a preparacao mais importa. fetchAllRowsByIds parte em
+  // blocos de 200 (~7,4 KB) e ainda pagina cada bloco.
   const [setsResult,epochsResult,profilesResult]=await Promise.all([
-    admin.from('twitter_program_media_sets').select('id,program_id,client_key,media_kind').in('program_id',programIds),
-    admin.from('twitter_profile_connection_epochs').select('id,profile_id,connection_id,zernio_account_id,ended_at').in('id',epochIds),
-    admin.from('twitter_profiles').select('id,status,can_post,account_tier,current_epoch_id').in('id',profileIds).is('deleted_at',null),
+    fetchAllRowsByIds(programIds,(chunk,from,to)=>admin.from('twitter_program_media_sets').select('id,program_id,client_key,media_kind').in('program_id',chunk).order('id',{ascending:true}).range(from,to)),
+    fetchAllRowsByIds(epochIds,(chunk,from,to)=>admin.from('twitter_profile_connection_epochs').select('id,profile_id,connection_id,zernio_account_id,ended_at').in('id',chunk).order('id',{ascending:true}).range(from,to)),
+    fetchAllRowsByIds(profileIds,(chunk,from,to)=>admin.from('twitter_profiles').select('id,status,can_post,account_tier,current_epoch_id').in('id',chunk).is('deleted_at',null).order('id',{ascending:true}).range(from,to)),
   ]);
   if(setsResult.error||epochsResult.error||profilesResult.error)return NextResponse.json({error:'Falha ao materializar preparação X.'},{status:500});
   const sets=setsResult.data??[];const setIds=sets.map(set=>set.id);
-  const linksResult=setIds.length?await admin.from('twitter_program_media_set_assets').select('media_set_id,asset_id,position').in('media_set_id',setIds).order('position'):{data:[],error:null};
+  const linksResult=setIds.length?await fetchAllRowsByIds(setIds,(chunk,from,to)=>admin.from('twitter_program_media_set_assets').select('media_set_id,asset_id,position').in('media_set_id',chunk).order('media_set_id',{ascending:true}).order('position',{ascending:true}).range(from,to)):{data:[],error:null};
   if(linksResult.error)return NextResponse.json({error:'Falha ao carregar vínculos de mídia X.'},{status:500});
   const links=linksResult.data??[];const assetIds=[...new Set(links.map(link=>link.asset_id))];
-  const assetsResult=assetIds.length?await admin.from('twitter_media_assets').select('id,organization_id,storage_path,media_kind,status,sha256,deleted_at').in('id',assetIds):{data:[],error:null};
+  const assetsResult=assetIds.length?await fetchAllRowsByIds(assetIds,(chunk,from,to)=>admin.from('twitter_media_assets').select('id,organization_id,storage_path,media_kind,status,sha256,deleted_at').in('id',chunk).order('id',{ascending:true}).range(from,to)):{data:[],error:null};
   if(assetsResult.error)return NextResponse.json({error:'Falha ao validar mídias X.'},{status:500});
   const epochById=new Map((epochsResult.data??[]).map(epoch=>[epoch.id,epoch]));
   const profileById=new Map((profilesResult.data??[]).map(profile=>[profile.id,profile]));

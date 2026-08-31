@@ -21,7 +21,10 @@ export default async function AgendaPage() {
     .select('id, username')
     .eq('organization_id', organizationId)
     .is('deleted_at', null)
+    // username não tem constraint de unicidade: sem o desempate por id a ordem
+    // não é total e as páginas repetem/perdem perfis.
     .order('username')
+    .order('id')
     .range(from, to));
 
   if (profilesError) throw new Error('Não foi possível carregar a agenda.');

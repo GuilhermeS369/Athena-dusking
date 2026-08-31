@@ -44,7 +44,10 @@ export default async function TwitterAnalyticsPage() {
   const profileIds = profiles.map((profile) => profile.id);
   const [walletsResult, followersResult] = await Promise.all([
     fetchAllRowsByIds(identityIds, (chunk, from, to) => admin.from('twitter_wallets').select('identity_id,posted_balance_micros,reserved_micros').eq('organization_id', organizationId).in('identity_id', chunk).order('identity_id').range(from, to)),
-    fetchAllRowsByIds<{ profile_id: string; followers_count: number | string; captured_at: string; snapshot_date: string }>(profileIds, (chunk, from, to) => (admin.from('twitter_profile_follower_daily_metrics' as never) as any).select('profile_id,snapshot_date,followers_count,captured_at').eq('organization_id', organizationId).eq('snapshot_date', saoPauloYesterday()).in('profile_id', chunk).order('profile_id').range(from, to)),
+    // O cast fica no cliente, não em volta do .from(): a relação ainda não está
+    // nos tipos gerados, mas assim a tabela continua legível como literal para
+    // a guarda de limite de linhas (lib/supabase/row-limit-guard.test.ts).
+    fetchAllRowsByIds<{ profile_id: string; followers_count: number | string; captured_at: string; snapshot_date: string }>(profileIds, (chunk, from, to) => (admin as any).from('twitter_profile_follower_daily_metrics').select('profile_id,snapshot_date,followers_count,captured_at').eq('organization_id', organizationId).eq('snapshot_date', saoPauloYesterday()).in('profile_id', chunk).order('profile_id').range(from, to)),
   ]);
   if (walletsResult.error) throw new Error('Não foi possível carregar os saldos X.');
 

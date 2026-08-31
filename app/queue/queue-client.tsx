@@ -100,7 +100,10 @@ function progressPercent(completed: number, total: number) {
 }
 
 function QueueActions({ queue, canManage }: { queue: ReturnType<typeof usePublicationQueue>; canManage: boolean }) {
-  const cleanableCount = (queue.summary?.totals.ok ?? 0) + (queue.summary?.totals.errors ?? 0) + (queue.summary?.totals.closed ?? 0);
+  // Saldo real de arquivamento vindo do banco. Antes era ok + errors + closed,
+  // que virou um número inflado quando `ok` passou a contar o publicado já
+  // arquivado — e o botão prometia limpar o que já estava limpo.
+  const cleanableCount = queue.summary?.totals.pendingArchive ?? 0;
   return (
     <div className="queue-reference-actions">
       <button type="button" onClick={() => void queue.refreshAll(true)} disabled={queue.summaryLoading || queue.generationJobsLoading} aria-busy={queue.summaryLoading || queue.generationJobsLoading}><span aria-hidden="true">↻</span>{queue.summaryLoading ? 'Atualizando…' : 'Recarregar'}</button>
@@ -272,6 +275,7 @@ function ReferenceQueueView({
     suspended: 0,
     active: 0,
     closed: 0,
+    pendingArchive: 0,
     archived: 0,
     expiredLeases: 0,
     activeAccounts: 0,
@@ -280,6 +284,13 @@ function ReferenceQueueView({
     progress: 0,
   };
   const page = queue.summaryPages[tab];
+  // O publicado é lido numa janela (padrão 24 h), não desde sempre: acima de
+  // 7 dias o arquivo frio já apagou a linha da tabela quente e a contagem viria
+  // incompleta. O rótulo carrega a janela para o número nunca ficar sem unidade.
+  const historyHours = queue.summary?.historyHours ?? 24;
+  const historyLabel = historyHours % 24 === 0
+    ? `${historyHours / 24}d`
+    : `${historyHours}h`;
 
   function cancellationTarget(card: AggregatedCard) {
     const scope: 'account' | 'batch' | 'group' = tab === 'account' ? 'account' : tab === 'batch' ? 'batch' : 'group';
@@ -299,7 +310,7 @@ function ReferenceQueueView({
         </header>
 
         <div className="queue-reference-kpis" aria-label="Resumo da fila">
-          <article><span>OK</span><strong>{totals.ok.toLocaleString('pt-BR')}</strong><small>publicadas</small></article>
+          <article><span>OK</span><strong>{totals.ok.toLocaleString('pt-BR')}</strong><small>publicadas · {historyLabel}</small></article>
           <article><span>PENDENTES</span><strong>{totals.pending.toLocaleString('pt-BR')}</strong><small>aguardando</small></article>
           <article className="queue-reference-kpi-error"><span>ERROS</span><strong>{totals.errors.toLocaleString('pt-BR')}</strong><small>precisam de atenção</small></article>
           <article><span>SUSPENSAS</span><strong>{totals.suspended.toLocaleString('pt-BR')}</strong><small>retomada manual</small></article>
@@ -307,7 +318,7 @@ function ReferenceQueueView({
         </div>
 
         <div className="queue-reference-progress">
-          <div><span>Progresso geral</span><strong>{totals.progress}%</strong></div>
+          <div><span>Progresso geral · últimas {historyLabel}</span><strong>{totals.progress}%</strong></div>
           <div className="queue-reference-progress-track" aria-label={`Progresso geral: ${totals.progress}%`}><span style={{ width: `${totals.progress}%` }} /></div>
         </div>
 
@@ -339,7 +350,7 @@ function ReferenceQueueView({
               <span className="queue-reference-status"><i />{statusToneLabel(card)}</span>
               <div className="queue-reference-row-progress"><div><span style={{ width: `${percent}%` }} /></div><small>{percent}%</small></div>
               <div className="queue-reference-next"><span>{card.tone === 'paused' ? 'Execução' : 'Próxima'}</span><strong>{card.tone === 'paused' ? 'bloqueada' : compactFuture(card.nextAt)}</strong></div>
-              <div className="queue-reference-total"><strong>{card.completed} publicadas</strong><small>{card.active ? `${card.active} ativa(s)` : card.errors ? `${card.errors} erro(s)` : card.suspended ? `${card.suspended} suspensa(s)` : 'sem itens ativos'}{card.closed ? ` · ${card.closed} cancelada(s)` : ''}</small></div>
+              <div className="queue-reference-total"><strong>{card.completed} publicadas · {historyLabel}</strong><small>{card.active ? `${card.active} ativa(s)` : card.errors ? `${card.errors} erro(s)` : card.suspended ? `${card.suspended} suspensa(s)` : 'sem itens ativos'}{card.closed ? ` · ${card.closed} cancelada(s)` : ''}</small></div>
               <div className="queue-reference-row-actions">
                 {!unsupportedUngroupedScope && <button
                   type="button"

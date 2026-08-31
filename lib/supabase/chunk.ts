@@ -7,6 +7,23 @@ import { fetchAllRows } from './paginate.ts';
  * gera ~37 KB de query string, acima do que o proxy aceita, e a resposta ainda
  * seria cortada pelo teto de linhas. Blocos pequenos resolvem os dois de uma vez.
  */
+/**
+ * ATENÇÃO ao mudar este número: ele está DUPLICADO em
+ * scripts/workers/publication-worker.mjs, que chegou nos mesmos 200 de forma
+ * independente, partindo do limite de header do gateway. Se ajustar aqui,
+ * ajuste lá — a divergência não quebra nada de imediato, ela só faz um dos dois
+ * deixar de valer o que o comentário diz que vale.
+ *
+ * O motivo da duplicação NÃO é o worker ser `.mjs`: a VPS roda Node v22.23.2 e
+ * o type stripping nativo importaria este módulo sem problema hoje. O motivo é
+ * o contrato — aquele worker não tem nenhuma dependência de TypeScript, e o
+ * `engines` do package.json declara `node >=18.0.0`. Importar daqui criaria um
+ * requisito novo de Node >= 22.6 para o publicador subir, e o modo de falha é o
+ * pior possível: worker não sobe, publicação para.
+ *
+ * A duplicação termina quando o `engines` subir para >= 22.6, ou quando aquele
+ * worker passar a rodar sob tsx. Aí importe daqui e apague o número de lá.
+ */
 export const DEFAULT_ID_CHUNK_SIZE = 200;
 
 export function chunkIds<T>(ids: readonly T[], size = DEFAULT_ID_CHUNK_SIZE): T[][] {

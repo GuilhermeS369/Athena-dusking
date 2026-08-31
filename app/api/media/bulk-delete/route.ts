@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { removeMediaObjectsEverywhere } from '@/lib/storage/media-storage';
 
 const MAX_BULK_DELETE_SIZE = 100;
 const MAX_FILTER_DELETE_SIZE = 50000;
@@ -71,9 +72,7 @@ async function deleteAssetsNow(
     asset.storage_path,
     ...(asset.thumbnail_storage_path ? [asset.thumbnail_storage_path] : []),
   ]))];
-  const { error: storageError } = await supabase.storage
-    .from('instagram-media')
-    .remove(storagePaths);
+  const { error: storageError } = await removeMediaObjectsEverywhere(supabase, storagePaths);
 
   const responseBody = {
     deletedIds: existingIds,

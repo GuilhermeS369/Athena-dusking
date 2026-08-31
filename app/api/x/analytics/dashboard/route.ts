@@ -1,6 +1,8 @@
+import type { PostgrestError } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { fetchAllRows } from '@/lib/supabase/paginate';
 import { getTwitterRequestContext } from '@/lib/twitter/request-context';
 
 export const dynamic = 'force-dynamic';
@@ -47,15 +49,17 @@ function metricValue(item: PostMetric, metric: string) {
   return item[metric as keyof Pick<PostMetric, 'impressions' | 'views' | 'likes' | 'comments' | 'shares' | 'engagement'>];
 }
 
+/**
+ * Delega para fetchAllRows em vez de reimplementar o laço: é lá que mora a
+ * guarda de página menor que o teto do PostgREST. Toda consulta passada aqui
+ * precisa de ordem TOTAL — sem ela, páginas consecutivas repetem linhas e
+ * perdem outras, em silêncio.
+ */
 async function allRows(makeQuery: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message?: string } | null }>) {
-  const rows: unknown[] = [];
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const result = await makeQuery(from, from + PAGE_SIZE - 1);
-    if (result.error) return { data: [] as unknown[], error: result.error };
-    const page = result.data ?? [];
-    rows.push(...page);
-    if (page.length < PAGE_SIZE) return { data: rows, error: null };
-  }
+  return fetchAllRows<unknown>(
+    (from, to) => makeQuery(from, to) as PromiseLike<{ data: unknown[] | null; error: PostgrestError | null }>,
+    PAGE_SIZE,
+  );
 }
 
 export async function GET(request: Request) {
@@ -111,9 +115,12 @@ export async function GET(request: Request) {
 
   // Projeções são opcionais durante o rollout. Relação ausente cai para snapshots brutos locais.
   const [followerProjection, postProjection, projectedPublications] = await Promise.all([
-    allRows((from, to) => (admin.from('twitter_profile_follower_daily_metrics' as never) as any).select('profile_id,metric_date,followers_count,provider_updated_at,captured_at').eq('organization_id', organizationId).in('profile_id', scopedProfileList).lte('metric_date', end!).order('metric_date').range(from, to)),
-    allRows((from, to) => (admin.from('twitter_post_analytics_current' as never) as any).select('publication_item_id,profile_id,collection_stage,impressions,views,likes,comments,shares,replies,bookmarks,quotes,provider_updated_at,captured_at,raw_metrics').eq('organization_id', organizationId).in('profile_id', scopedProfileList).range(from, to)),
-    allRows((from, to) => admin.from('twitter_publication_items').select('id,profile_id,connection_id,content,execute_at').eq('organization_id', organizationId).in('profile_id', scopedProfileList).eq('status', 'published').gte('execute_at', `${start}T00:00:00.000Z`).lte('execute_at', `${end}T23:59:59.999Z`).order('execute_at').range(from, to) as any),
+    // As três consultas abaixo paginam por Range, então precisam de ordem TOTAL.
+    // O cast vai no cliente, não em volta do .from(), para a relação seguir
+    // legível como literal para lib/supabase/row-limit-guard.test.ts.
+    allRows((from, to) => (admin as any).from('twitter_profile_follower_daily_metrics').select('profile_id,metric_date,followers_count,provider_updated_at,captured_at').eq('organization_id', organizationId).in('profile_id', scopedProfileList).lte('metric_date', end!).order('metric_date').order('profile_id').range(from, to)),
+    allRows((from, to) => (admin as any).from('twitter_post_analytics_current').select('publication_item_id,profile_id,collection_stage,impressions,views,likes,comments,shares,replies,bookmarks,quotes,provider_updated_at,captured_at,raw_metrics').eq('organization_id', organizationId).in('profile_id', scopedProfileList).order('publication_item_id').range(from, to)),
+    allRows((from, to) => admin.from('twitter_publication_items').select('id,profile_id,connection_id,content,execute_at').eq('organization_id', organizationId).in('profile_id', scopedProfileList).eq('status', 'published').gte('execute_at', `${start}T00:00:00.000Z`).lte('execute_at', `${end}T23:59:59.999Z`).order('execute_at').order('id').range(from, to) as any),
   ]);
 
   let followerPoints: FollowerPoint[] = [];
@@ -143,8 +150,8 @@ export async function GET(request: Request) {
   } else {
     source = 'local_snapshots';
     const [snapshotsResult, publicationResult] = await Promise.all([
-      allRows((from, to) => admin.from('twitter_analytics_snapshots').select('id,resource_type,profile_id,publication_item_id,metrics,provider_updated_at,captured_at').eq('organization_id', organizationId).in('profile_id', scopedProfileList).order('captured_at').range(from, to) as any),
-      allRows((from, to) => admin.from('twitter_publication_items').select('id,profile_id,connection_id,content,execute_at').eq('organization_id', organizationId).in('profile_id', scopedProfileList).eq('status', 'published').gte('execute_at', `${start}T00:00:00.000Z`).lte('execute_at', `${end}T23:59:59.999Z`).order('execute_at').range(from, to) as any),
+      allRows((from, to) => admin.from('twitter_analytics_snapshots').select('id,resource_type,profile_id,publication_item_id,metrics,provider_updated_at,captured_at').eq('organization_id', organizationId).in('profile_id', scopedProfileList).order('captured_at').order('id').range(from, to) as any),
+      allRows((from, to) => admin.from('twitter_publication_items').select('id,profile_id,connection_id,content,execute_at').eq('organization_id', organizationId).in('profile_id', scopedProfileList).eq('status', 'published').gte('execute_at', `${start}T00:00:00.000Z`).lte('execute_at', `${end}T23:59:59.999Z`).order('execute_at').order('id').range(from, to) as any),
     ]);
     if (snapshotsResult.error || publicationResult.error) return NextResponse.json({ error: 'Não foi possível carregar os analytics locais do X.' }, { status: 503 });
     const snapshots = snapshotsResult.data as Snapshot[];

@@ -38,7 +38,10 @@ async function readWallets(admin: ReturnType<typeof createSupabaseAdminClient>) 
   const rows: WalletRow[] = [];
   const pageSize = 1_000;
   for (let from = 0; ; from += pageSize) {
-    const { data, error } = await admin.from('twitter_wallets').select('posted_balance_micros,reserved_micros').range(from, from + pageSize - 1);
+    // Sem .order() o PostgREST não garante ordem entre páginas: linhas se
+    // repetem e somem, e os saldos somados abaixo saem errados sem nenhum
+    // sinal de erro. identity_id é a PK da carteira.
+    const { data, error } = await admin.from('twitter_wallets').select('posted_balance_micros,reserved_micros').order('identity_id', { ascending: true }).range(from, from + pageSize - 1);
     if (error) throw new Error(error.message);
     rows.push(...((data ?? []) as WalletRow[]));
     if ((data?.length ?? 0) < pageSize) return rows;

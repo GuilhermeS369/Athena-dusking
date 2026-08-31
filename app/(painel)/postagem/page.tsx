@@ -95,7 +95,9 @@ async function PublishingPageContent() {
       .eq('organization_id', organizationId)
       .eq('status', 'online')
       .is('deleted_at', null)
+      // username não é único no banco; o desempate por id fecha a ordem total.
       .order('username', { ascending: true })
+      .order('id', { ascending: true })
       .range(from, to)),
     supabase
       .from('media_assets')

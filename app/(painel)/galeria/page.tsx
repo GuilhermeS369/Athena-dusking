@@ -30,6 +30,9 @@ async function GalleryPageContent() {
       .select('id, original_name, mime_type, kind, size_bytes, width, height, duration_ms, status, processing_error, storage_path, thumbnail_storage_path, first_published_at, created_at, updated_at')
       .eq('organization_id', context.activeOrganization.id)
       .is('deleted_at', null)
+      // Mesmo filtro de `list_gallery_media_ids`: sem isso, recarregar a página
+      // durante uma fila de exclusão trazia de volta as mídias já enfileiradas.
+      .is('deletion_requested_at', null)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })
       .limit(25),
@@ -43,7 +46,8 @@ async function GalleryPageContent() {
       .from('media_assets')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', context.activeOrganization.id)
-      .is('deleted_at', null),
+      .is('deleted_at', null)
+      .is('deletion_requested_at', null),
   ]);
 
   if (assetsResult.error || groupsResult.error || totalCountResult.error) {

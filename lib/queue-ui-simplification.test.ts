@@ -43,8 +43,13 @@ test("o painel operacional mostra quantos itens aguardam arquivamento", async ()
   // A contagem usa exatamente os status que clean_publication_queue_finished
   // processa, senão o painel mostraria um número que o worker não drena.
   assert.match(route, /\.is\("archived_at", null\)/);
-  assert.match(route, /"published", "cancelled", "removed", "ignored", "failed"/);
+  assert.match(route, /"published", "cancelled", "removed", "ignored"/);
   assert.match(route, /pendingArchive:/);
+
+  // 'failed' NÃO pode voltar para esta lista. Desde a migration 335 a RPC só
+  // arquiva falha terminal, então contar falha retentável aqui mostraria um
+  // saldo permanente que o worker nunca drena — o oposto do que o painel serve.
+  assert.doesNotMatch(route, /"ignored", "failed"/);
 
   // Falha de medição precisa aparecer como "—", não como zero: zero significa
   // "nada esperando", que é a mensagem oposta.

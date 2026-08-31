@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { loadEnvConfig } from '@next/env';
 
 import { createSupabaseAdminClient } from '../../lib/supabase/admin';
+import { fetchAllRows } from '../../lib/supabase/paginate';
 
 loadEnvConfig(process.cwd());
 
@@ -19,7 +20,10 @@ async function main(){
   for(const item of items.filter(row=>['ready','retry'].includes(row.status)))byPreparation[item.preparation_status]=(byPreparation[item.preparation_status]??0)+1;
   const [{data:holds,error:holdsError},{data:attempts,error:attemptsError},{count:attemptCount,error:attemptCountError}]=await Promise.all([
     admin.from('twitter_item_holds').select('status,amount_micros'),
-    admin.from('twitter_publication_attempts').select('item_id,external_started_at,status').in('status',['claimed','external_started','outcome_unknown']),
+    // Sem paginar, o PostgREST cortava esta leitura no teto de linhas e o
+    // conjunto externallyStarted saia incompleto — a auditoria classificava
+    // como "nao iniciado" item que ja tinha comecado. Ordem por id (PK).
+    fetchAllRows<{item_id:string;external_started_at:string|null;status:string}>((from,to)=>admin.from('twitter_publication_attempts').select('item_id,external_started_at,status').in('status',['claimed','external_started','outcome_unknown']).order('id').range(from,to)),
     admin.from('twitter_publication_attempts').select('*',{count:'exact',head:true}),
   ]);
   if(holdsError||attemptsError||attemptCountError)throw holdsError??attemptsError??attemptCountError;

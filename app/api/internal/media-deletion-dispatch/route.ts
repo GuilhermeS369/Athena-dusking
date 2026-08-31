@@ -33,6 +33,20 @@ function isAuthorized(request: Request) {
   }));
 }
 
+// Enquanto a publicação está atrasada o dispatcher de mídia fica parado de
+// propósito. Sem registrar o motivo na fila, a galeria mostrava só "0%" e a
+// exclusão parecia quebrada — o operador precisa ler por que ainda não começou.
+const PAUSED_MESSAGE = 'Exclusão pausada automaticamente enquanto a fila de publicação está atrasada. Ela recomeça sozinha assim que a publicação normalizar.';
+
+async function markPendingJobsPaused(admin: ReturnType<typeof createSupabaseAdminClient>, paused: boolean) {
+  const table = admin.from('media_deletion_jobs');
+  const query = paused
+    ? table.update({ last_error_message: PAUSED_MESSAGE }).eq('status', 'pending').is('last_error_message', null)
+    : table.update({ last_error_message: null }).eq('status', 'pending').eq('last_error_message', PAUSED_MESSAGE);
+  const { error } = await query;
+  if (error) console.warn('Não foi possível registrar a pausa na fila de exclusão de mídia.', { message: error.message });
+}
+
 export async function POST(request: Request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
 
@@ -45,6 +59,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: errorMessage(pressureError) }, { status: 503 });
   }
   if (pressure?.criticalDelay === true) {
+    await markPendingJobsPaused(admin, true);
     return NextResponse.json({
       paused: true,
       reason: 'critical_publication_delay',
@@ -69,6 +84,7 @@ export async function POST(request: Request) {
   const groupAssignmentChunkSize = typeof body.groupAssignmentChunkSize === 'number' ? body.groupAssignmentChunkSize : undefined;
 
   try {
+    await markPendingJobsPaused(admin, false);
     const [deletion, groupAssignment] = await Promise.all([
       dispatchMediaDeletionJobs({ workerId, limit, chunkSize, leaseSeconds }),
       dispatchMediaGroupAssignmentJobs({ workerId: workerId ? `${workerId}:groups` : undefined, limit: groupAssignmentLimit, chunkSize: groupAssignmentChunkSize, leaseSeconds }),

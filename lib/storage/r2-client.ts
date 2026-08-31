@@ -53,13 +53,29 @@ export async function objectExistsInR2(bucket: string, storagePath: string) {
   }
 }
 
+// DeleteObjects aceita no maximo 1000 chaves por chamada e — diferente do
+// resto do SDK — nao lanca quando uma chave individual falha: devolve a lista
+// em `Errors` com HTTP 200. Ignorar isso era exatamente como um arquivo ficava
+// orfao no R2 sem ninguem perceber, entao a falha parcial vira excecao.
+const R2_DELETE_BATCH = 1000;
+
 export async function deleteFromR2(bucket: string, storagePaths: string[]) {
   if (!storagePaths.length) return;
   const [{ DeleteObjectsCommand }, client] = await Promise.all([import('@aws-sdk/client-s3'), r2Client()]);
-  await client.send(new DeleteObjectsCommand({
-    Bucket: bucket,
-    Delete: { Objects: storagePaths.map((Key) => ({ Key })) },
-  }));
+  const failures: string[] = [];
+  for (let index = 0; index < storagePaths.length; index += R2_DELETE_BATCH) {
+    const batch = storagePaths.slice(index, index + R2_DELETE_BATCH);
+    const result = await client.send(new DeleteObjectsCommand({
+      Bucket: bucket,
+      Delete: { Objects: batch.map((Key) => ({ Key })) },
+    }));
+    for (const failure of result.Errors ?? []) {
+      failures.push(`${failure.Key ?? 'chave desconhecida'}: ${failure.Code ?? 'erro'} ${failure.Message ?? ''}`.trim());
+    }
+  }
+  if (failures.length) {
+    throw new Error(`O R2 recusou ${failures.length} arquivo(s): ${failures.slice(0, 5).join(' | ')}`);
+  }
 }
 
 // Presigned PUT: usado para permitir upload direto do navegador para o R2,

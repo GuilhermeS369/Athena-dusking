@@ -29,7 +29,10 @@ export default async function GroupsPage() {
       .select('id, username, display_name, profile_picture_url, status')
       .eq('organization_id', organizationId)
       .is('deleted_at', null)
+      // username não é único no banco; sem o desempate por id a paginação
+      // repete e perde perfis, e toda contagem derivada sai errada.
       .order('username', { ascending: true })
+      .order('id', { ascending: true })
       .range(from, to)),
     fetchAllRows((from, to) => supabase
       .from('profile_group_members')

@@ -139,7 +139,12 @@ export async function prepareTwitterAnalyticsQuote(organizationId: string, input
   }
 
   const identities = [...new Set(resources.map((resource) => resource.identityId))];
-  const { data: wallets } = await admin.from('twitter_wallets').select('identity_id,posted_balance_micros,reserved_micros,version').eq('organization_id', organizationId).in('identity_id', identities);
+  // Mesma paginação por blocos das quatro leituras acima: a cota de 1.000
+  // targets pode render perto de 2.000 identidades distintas, e um .in() dessa
+  // largura estoura a query string antes mesmo do teto de linhas. A carteira é
+  // 1 linha por identidade, então a comparação de comprimento abaixo só é
+  // confiável se nenhuma resposta vier cortada.
+  const { data: wallets } = await fetchAllRowsByIds(identities, (chunk, from, to) => admin.from('twitter_wallets').select('identity_id,posted_balance_micros,reserved_micros,version').eq('organization_id', organizationId).in('identity_id', chunk).order('identity_id', { ascending: true }).range(from, to));
   if (wallets?.length !== identities.length) throw new Error('Carteira X indisponível.');
   const walletSnapshots = wallets.map((wallet) => {
     const analyticsCostMicros = resources.filter((resource) => resource.identityId === wallet.identity_id).reduce((sum, resource) => sum + resource.amountMicros, 0);

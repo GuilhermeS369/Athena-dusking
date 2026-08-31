@@ -28,7 +28,9 @@ export async function GET() {
       .eq('organization_id', organizationId)
       .eq('status', 'online')
       .is('deleted_at', null)
+      // username não é único no banco; o desempate por id fecha a ordem total.
       .order('username', { ascending: true })
+      .order('id', { ascending: true })
       .range(from, to)),
     // Mesmo teto de 1000 linhas da consulta acima, que aqui passou batido: com
     // 1.150 perfis online a RPC devolvia exatamente 1.000 linhas e os 150

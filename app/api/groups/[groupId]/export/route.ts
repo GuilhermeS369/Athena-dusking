@@ -58,6 +58,11 @@ export async function GET(
     .eq('group_id', groupId)
     .order('row_kind', { ascending: true })
     .order('username', { ascending: true })
+    // A view (migration 205) não expõe nenhuma chave única — nem profile_id —
+    // e um mesmo username pode reaparecer no ramo 'fallen'. profile_added_at é
+    // o melhor desempate disponível daqui; a ordem só deixa de ser total se o
+    // mesmo perfil cair duas vezes com o mesmo created_at.
+    .order('profile_added_at', { ascending: true })
     .range(from, to));
 
   if (error) {
