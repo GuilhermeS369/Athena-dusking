@@ -63,7 +63,28 @@ const stagingLimit = integerEnv('PUBLICATION_WORKER_STAGING_LIMIT', 100, 1, 500)
 // com a maquina em 0,75 de load e 1 GB de 7 GB de memoria. O padrao muda no
 // codigo, e nao so no .env da VPS, para um deploy limpo nao devolver o gargalo.
 const stagingConcurrency = integerEnv('PUBLICATION_WORKER_STAGING_CONCURRENCY', 8, 1, 20);
-const stagingLeaseSeconds = integerEnv('PUBLICATION_WORKER_STAGING_LEASE_SECONDS', 1200, 120, 7200);
+// MEDIDO EM 31/08/2026, e esta e a conta que explica TODAS as ondas:
+//
+//   lease do staging ..... 1200s
+//   janela do staging .....  600s   (prepara ate 10 min antes de vencer)
+//   -----------------------------
+//   preso APOS vencer .....  600s = 10 minutos
+//
+// Um item e preparado ate 600s antes de vencer e recebe reserva de 1200s. Se o
+// arquivo do spool se perde, o item fica invisivel para os DOIS caminhos de
+// despacho ate a reserva expirar - exatamente 10 minutos depois de ja estar
+// vencido. Medido: 300 de 300 itens reservados estavam vencidos, com
+// preparation_status 'ready', preparados havia ~14 min, sem arquivo nenhum.
+//
+// E a assinatura bate: as ondas mediram 10,0 / 10,1 / 10,2 / 10,3 / 10,7 / 10,8
+// minutos, com 189 a 512 itens. Duracao constante independente do tamanho nao e
+// limite de vazao - e relogio. Foi por isso que sete ajustes de capacidade
+// (staging, concorrencia, tetos, controlador adaptativo, backpressure) nao
+// mudaram nada: a fila nao estava esperando capacidade.
+//
+// 660 = janela + 60s de folga. O item que perder o arquivo volta a ser
+// reivindicavel ~1 minuto depois de vencer, em vez de 10.
+const stagingLeaseSeconds = integerEnv('PUBLICATION_WORKER_STAGING_LEASE_SECONDS', 660, 120, 7200);
 // MEDIDO EM PRODUCAO (30/08/2026). Com 60.000 ms, "existe publicacao vencendo em
 // breve" era quase sempre verdade sob carga normal, e o staging so rodava 1 ciclo
 // a cada 4 (o teto de cessoes o forcava). Com 5.000 ms o mesmo heartbeat passou a
