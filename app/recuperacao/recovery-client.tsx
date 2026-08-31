@@ -256,6 +256,14 @@ export default function RecoveryClient({
   const [selection, setSelection] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'error' | 'neutral'; text: string } | null>(null);
+  const [milestoneOpen, setMilestoneOpen] = useState(false);
+  const [milestoneForm, setMilestoneForm] = useState({
+    groupId: '',
+    happenedOn: new Date().toISOString().slice(0, 10),
+    mediaCount: '',
+    batchKind: 'reprocessed' as 'common' | 'reprocessed',
+    note: '',
+  });
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletePreview, setDeletePreview] = useState<Record<string, unknown> | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
@@ -504,6 +512,84 @@ export default function RecoveryClient({
     }
   };
 
+  /**
+   * Registrar a troca de mídia não é burocracia: o pico do grupo — que decide
+   * se o Filtro 2 opina — passa a ser contado a partir do último marco, e é ele
+   * que marca o eixo do gráfico de acompanhamento. A análise de 31/08 registrou
+   * que essa data não existia em lugar nenhum do banco e teve de ser
+   * reconstruída pela curva de views.
+   */
+  const saveMilestone = async () => {
+    if (!milestoneForm.groupId) return;
+    setBusy('milestone');
+    try {
+      const response = await fetch('/api/recovery/milestones', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          groupId: milestoneForm.groupId,
+          happenedOn: milestoneForm.happenedOn,
+          mediaCount: Number(milestoneForm.mediaCount || 0),
+          batchKind: milestoneForm.batchKind,
+          note: milestoneForm.note || null,
+        }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? 'Falha ao registrar o marco.');
+      setMilestoneOpen(false);
+      setMilestoneForm((current) => ({ ...current, mediaCount: '', note: '' }));
+      await refreshOverview();
+      setMessage({
+        tone: 'success',
+        text: 'Marco registrado. O pico do grupo passa a ser contado a partir dele na próxima análise — rode Recalcular para valer agora.',
+      });
+    } catch (error) {
+      setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Falha ao registrar.' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * Cancelar a fila da esteira inteira em UMA operação durável, em vez de uma
+   * por perfil. É o caminho para o qual o mecanismo de cancelamento foi
+   * desenhado e o que o repositório já exercita em produção.
+   */
+  const cancelGroupQueue = async (targetId: string, label: string) => {
+    setBusy('queue');
+    try {
+      const idempotencyKey = `recovery-group-${targetId}-${new Date().toISOString().slice(0, 10)}`;
+      let guard = 0;
+      let status = 'running';
+      while (status === 'running' && guard < 40) {
+        guard += 1;
+        const response = await fetch('/api/publications/cancel', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ scope: 'group', targetId, execute: true, idempotencyKey }),
+        });
+        const payload = await response.json() as { operation?: { status?: string }; error?: string };
+        status = payload.operation?.status ?? 'failed';
+        if (status === 'blocked') {
+          setMessage({
+            tone: 'neutral',
+            text: `Há publicação em andamento em ${label}. **Nada foi cancelado** — aguarde a finalização e tente de novo.`,
+          });
+          return;
+        }
+        if (!response.ok && response.status !== 202 && response.status !== 503) {
+          throw new Error(payload.error ?? 'Falha ao cancelar a fila.');
+        }
+        if (status === 'completed') break;
+      }
+      setMessage({ tone: 'success', text: `Fila de ${label} cancelada.` });
+    } catch (error) {
+      setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Falha ao cancelar.' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const openDelete = async () => {
     setDeleteOpen(true);
     setDeleteConfirmation('');
@@ -628,10 +714,22 @@ export default function RecoveryClient({
           </div>
           <div className="profiles-header-actions">
             {canManage ? (
-              <button type="button" className="button button-primary" onClick={recompute}
-                disabled={busy !== null}>
-                {busy === 'recompute' ? 'Recalculando…' : 'Recalcular'}
-              </button>
+              <>
+                <button type="button" className="button button-ghost" disabled={busy !== null}
+                  onClick={() => {
+                    setMilestoneForm((current) => ({
+                      ...current,
+                      groupId: current.groupId || activeGroup?.groupId || groups[0]?.groupId || '',
+                    }));
+                    setMilestoneOpen(true);
+                  }}>
+                  Registrar troca de mídia
+                </button>
+                <button type="button" className="button button-primary" onClick={recompute}
+                  disabled={busy !== null}>
+                  {busy === 'recompute' ? 'Recalculando…' : 'Recalcular'}
+                </button>
+              </>
             ) : null}
           </div>
         </header>
@@ -849,11 +947,21 @@ export default function RecoveryClient({
                   onCancelQueue={cancelQueue}
                 />
 
-                {canManage && cohortRecoveryGroupIds.size ? (
-                  <p className={styles.footnote}>
-                    Para cancelar a fila da esteira inteira de uma vez, use o card do grupo na tela de
-                    Fila: um cancelamento por grupo é uma operação só, em vez de uma por perfil.
-                  </p>
+                {canManage && seriesGroupId ? (
+                  <div className={styles.selectionRow}>
+                    <span className={styles.selectionHint}>
+                      Cancelar a fila da esteira inteira é <strong>uma</strong> operação durável, em vez
+                      de uma por perfil.
+                    </span>
+                    <button type="button" className="button button-ghost" disabled={busy !== null}
+                      onClick={() => cancelGroupQueue(
+                        seriesGroupId,
+                        groups.find((group) => group.recoveryGroupId === seriesGroupId)?.recoveryGroupName
+                          ?? 'esteira',
+                      )}>
+                      {busy === 'queue' ? 'Cancelando…' : 'Cancelar fila da esteira'}
+                    </button>
+                  </div>
                 ) : null}
               </>
             ) : null}
@@ -867,6 +975,78 @@ export default function RecoveryClient({
             </p>
           </>
         )}
+
+        {milestoneOpen ? (
+          <div className="modal-backdrop" role="presentation"
+            onMouseDown={() => { if (!busy) setMilestoneOpen(false); }}>
+            <section className={`panel bulk-modal ${styles.modal}`} role="dialog" aria-modal="true"
+              aria-labelledby="recovery-milestone-title" onMouseDown={(event) => event.stopPropagation()}>
+              <div>
+                <span className="section-kicker">Marco</span>
+                <h2 id="recovery-milestone-title">Registrar troca de mídia</h2>
+              </div>
+              <p className={styles.modalNote}>
+                O pico do grupo — que decide se o Nível 2 opina — passa a ser contado a partir do
+                último marco. Sem ele, um dia excepcional de semanas atrás mantém o grupo “em queda”
+                para sempre. É também o que marca o eixo do gráfico de acompanhamento.
+              </p>
+              <label className={styles.modalField}>
+                Grupo
+                <select value={milestoneForm.groupId}
+                  onChange={(event) => setMilestoneForm((c) => ({ ...c, groupId: event.target.value }))}>
+                  {groups.map((group) => (
+                    <optgroup key={group.groupId} label={group.groupName}>
+                      <option value={group.groupId}>{group.groupName}</option>
+                      {group.recoveryGroupId ? (
+                        <option value={group.recoveryGroupId}>{group.recoveryGroupName}</option>
+                      ) : null}
+                    </optgroup>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.modalField}>
+                Data da troca
+                <input type="date" value={milestoneForm.happenedOn}
+                  onChange={(event) => setMilestoneForm((c) => ({ ...c, happenedOn: event.target.value }))} />
+              </label>
+              <label className={styles.modalField}>
+                Quantas mídias entraram
+                <input type="number" min={0} value={milestoneForm.mediaCount}
+                  onChange={(event) => setMilestoneForm((c) => ({ ...c, mediaCount: event.target.value }))} />
+              </label>
+              <label className={styles.modalField}>
+                Tipo da leva
+                <select value={milestoneForm.batchKind}
+                  onChange={(event) => setMilestoneForm((c) => ({
+                    ...c, batchKind: event.target.value as 'common' | 'reprocessed',
+                  }))}>
+                  <option value="reprocessed">Reprocessada</option>
+                  <option value="common">Comum</option>
+                </select>
+              </label>
+              <p className={styles.modalNote}>
+                Sem esse campo não dá para separar “melhorou porque foi reprocessada” de “melhorou
+                porque era nova”.
+              </p>
+              <label className={styles.modalField}>
+                Nota (opcional)
+                <input value={milestoneForm.note}
+                  onChange={(event) => setMilestoneForm((c) => ({ ...c, note: event.target.value }))} />
+              </label>
+              <div className={styles.modalActions}>
+                <button type="button" className="button button-primary"
+                  disabled={busy !== null || !milestoneForm.groupId || !milestoneForm.happenedOn}
+                  onClick={saveMilestone}>
+                  {busy === 'milestone' ? 'Registrando…' : 'Registrar'}
+                </button>
+                <button type="button" className="button button-ghost" disabled={busy !== null}
+                  onClick={() => setMilestoneOpen(false)}>
+                  Cancelar
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
 
         {deleteOpen ? (
           <div className="modal-backdrop" role="presentation"
@@ -894,9 +1074,9 @@ export default function RecoveryClient({
                 worker confirma a remoção remota e relê o inventário. Até lá o perfil continua
                 aparecendo como “removendo”.
               </p>
-              <label className={styles.modalNote}>
-                Digite <strong>EXCLUIR</strong> para confirmar
-                <input className="field" value={deleteConfirmation}
+              <label className={styles.modalField}>
+                <span>Digite <strong>EXCLUIR</strong> para confirmar</span>
+                <input value={deleteConfirmation}
                   onChange={(event) => setDeleteConfirmation(event.target.value)} />
               </label>
               <div className={styles.modalActions}>

@@ -372,6 +372,20 @@
 .modalSummary dt { color: var(--text-subtle); }
 .modalSummary dd { margin: 0; color: var(--text); font-weight: 750; font-variant-numeric: tabular-nums; }
 .modalNote { color: var(--text-subtle); font-size: 11px; line-height: 1.6; }
+/* Rotulo acima do controle, controle na largura toda. Reusar a classe de nota
+ * nos rotulos deixava input de data e de numero espremidos ao lado do texto,
+ * enquanto os selects ocupavam a linha inteira — dois campos do mesmo
+ * formulario com alinhamentos diferentes. */
+.modalField { display: grid; gap: 6px; color: var(--text-subtle); font-size: 11px; line-height: 1.5; }
+.modalField input, .modalField select {
+  width: 100%; min-height: 44px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 11px;
+  outline: none; background: var(--surface); color: var(--text);
+  font: inherit; font-size: 13px;
+}
+.modalField input:focus, .modalField select:focus {
+  border-color: var(--purple-bright); box-shadow: 0 0 0 3px #9f4cff33;
+}
 .modalActions { display: grid; gap: 10px; }
 .modalActions .button { width: 100%; }
 

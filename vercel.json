@@ -8,6 +8,10 @@
     {
       "path": "/api/internal/media-deletion-dispatch",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/internal/recovery-analysis-dispatch",
+      "schedule": "20 9 * * *"
     }
   ]
 }

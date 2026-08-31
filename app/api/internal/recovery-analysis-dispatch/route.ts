@@ -14,8 +14,11 @@ export const maxDuration = 60;
  * aqui, entre chamadas. Um `for` em plpgsql percorrendo doze grupos gastaria o
  * mesmo orçamento de um statement gigante — foi a lição da migration 324.
  *
- * Cada invocação HTTP trabalha em **uma organização**, dentro de um orçamento
- * de tempo. O chamador (cron da VPS) repete até receber `done: true`.
+ * Uma invocação percorre **todas** as organizações que precisam de trabalho,
+ * dentro de um orçamento de tempo — é o que permite o mesmo endpoint servir ao
+ * cron da Vercel (um disparo só) e ao laço do cron da VPS (várias chamadas).
+ * Se o orçamento acabar no meio, o progresso é durável e a chamada seguinte
+ * retoma exatamente de onde parou; `done: false` avisa que ainda há trabalho.
  */
 
 /** Um grupo por chunk: é o que garante um orçamento de timeout por grupo. */
@@ -123,10 +126,13 @@ export async function POST(request: Request) {
     });
   }
 
-  // Escolhe UMA organização por invocação: retomar uma execução viva vem antes
-  // de abrir uma nova, senão o índice único de execução ativa recusaria.
-  let target: { organizationId: string; runId: string | null } | null = null;
-  let pending = 0;
+  // Percorre as organizações que precisam de trabalho, dentro de um orçamento
+  // de tempo. Uma invocação basta para o caso comum; se o orçamento acabar, o
+  // progresso é durável e a próxima chamada retoma exatamente daqui — que é o
+  // que permite o mesmo endpoint servir ao cron da Vercel (um disparo) e ao
+  // laço do cron da VPS (várias chamadas).
+  const pending: string[] = [];
+  const resumable = new Map<string, string>();
 
   for (const organizationId of organizationIds) {
     const runResult = await admin
@@ -144,20 +150,22 @@ export async function POST(request: Request) {
     }
 
     const latest = runResult.data as RunRow | null;
-    const isActive = latest ? ACTIVE_STATUSES.includes(latest.status as typeof ACTIVE_STATUSES[number]) : false;
+    const isActive = latest
+      ? ACTIVE_STATUSES.includes(latest.status as typeof ACTIVE_STATUSES[number])
+      : false;
     const hoursSince = latest
       ? (Date.now() - new Date(latest.finished_at ?? latest.created_at).getTime()) / 3_600_000
       : Number.POSITIVE_INFINITY;
-    const needsWork = isActive || force || hoursSince >= MIN_HOURS_BETWEEN_RUNS;
 
-    if (!needsWork) continue;
-    pending += 1;
-    if (!target) {
-      target = { organizationId, runId: isActive && latest ? latest.id : null };
+    if (isActive) {
+      pending.push(organizationId);
+      resumable.set(organizationId, latest!.id);
+    } else if (force || hoursSince >= MIN_HOURS_BETWEEN_RUNS) {
+      pending.push(organizationId);
     }
   }
 
-  if (!target) {
+  if (!pending.length) {
     return NextResponse.json({
       ok: true,
       done: true,
@@ -168,101 +176,93 @@ export async function POST(request: Request) {
     });
   }
 
-  let runId = target.runId;
-  if (!runId) {
-    const begun = await admin.rpc("begin_recovery_analysis_run", {
-      p_organization_id: target.organizationId,
-      p_trigger_source: "cron",
-    });
-    if (begun.error) {
-      return NextResponse.json({
-        ok: false,
-        organizationId: target.organizationId,
-        error: begun.error.message,
-        source: "begin_run",
-      }, { status: 500 });
-    }
-    runId = (begun.data as { id?: string } | null)?.id ?? null;
-    if (!runId) {
-      return NextResponse.json({
-        ok: false,
-        organizationId: target.organizationId,
-        error: "A execução não devolveu identificador.",
-        source: "begin_run",
-      }, { status: 500 });
-    }
-  }
-
-  // O laço: um grupo por chamada de RPC, até o orçamento de tempo acabar. O
-  // progresso é durável, então a próxima invocação retoma exatamente daqui.
-  let chunks = 0;
-  let processed = 0;
-  let failed = 0;
-  let remaining: number | null = null;
-  let lastStatus = "running";
-
-  while (performance.now() - startedAt < TIME_BUDGET_MS) {
-    const chunk = await admin.rpc("process_recovery_analysis_chunk", {
-      p_run_id: runId,
-      p_group_limit: GROUP_LIMIT_PER_CHUNK,
-    });
-    if (chunk.error) {
-      return NextResponse.json({
-        ok: false,
-        organizationId: target.organizationId,
-        runId,
-        chunks,
-        error: chunk.error.message,
-        source: "process_chunk",
-      }, { status: 503 });
-    }
-    const data = chunk.data as {
-      processed?: number; failed?: number; remaining?: number; status?: string;
-    } | null;
-    chunks += 1;
-    processed += data?.processed ?? 0;
-    failed += data?.failed ?? 0;
-    remaining = data?.remaining ?? 0;
-    lastStatus = data?.status ?? lastStatus;
-    if (remaining <= 0) break;
-  }
-
-  const finished = remaining !== null && remaining <= 0;
-  let observationsRefreshed: number | null = null;
-  let prunedRuns: number | null = null;
+  const results: Array<Record<string, unknown>> = [];
   const failures: Array<{ source: string; error: string }> = [];
+  let processedOrganizations = 0;
 
-  if (finished) {
-    // O acompanhamento da coorte roda depois dos grupos, na mesma passada: é
-    // ele que alimenta a aba "Em recuperação" sem cálculo na renderização.
-    const observations = await admin.rpc("refresh_recovery_cohort_observations", {
-      p_organization_id: target.organizationId,
-      p_run_id: runId,
-    });
-    if (observations.error) failures.push({ source: "cohort_observations", error: observations.error.message });
-    else observationsRefreshed = observations.data as number;
+  for (const organizationId of pending) {
+    if (performance.now() - startedAt >= TIME_BUDGET_MS) break;
 
-    const pruned = await admin.rpc("prune_recovery_analysis_runs", {
-      p_organization_id: target.organizationId,
+    let runId = resumable.get(organizationId) ?? null;
+    if (!runId) {
+      const begun = await admin.rpc("begin_recovery_analysis_run", {
+        p_organization_id: organizationId,
+        p_trigger_source: "cron",
+      });
+      if (begun.error) {
+        failures.push({ source: `begin_run:${organizationId}`, error: begun.error.message });
+        continue;
+      }
+      runId = (begun.data as { id?: string } | null)?.id ?? null;
+      if (!runId) {
+        failures.push({ source: `begin_run:${organizationId}`, error: "sem identificador de execução" });
+        continue;
+      }
+    }
+
+    let chunks = 0;
+    let processed = 0;
+    let failed = 0;
+    let remaining: number | null = null;
+
+    while (performance.now() - startedAt < TIME_BUDGET_MS) {
+      const chunk = await admin.rpc("process_recovery_analysis_chunk", {
+        p_run_id: runId,
+        p_group_limit: GROUP_LIMIT_PER_CHUNK,
+      });
+      if (chunk.error) {
+        failures.push({ source: `process_chunk:${organizationId}`, error: chunk.error.message });
+        break;
+      }
+      const data = chunk.data as {
+        processed?: number; failed?: number; remaining?: number;
+      } | null;
+      chunks += 1;
+      processed += data?.processed ?? 0;
+      failed += data?.failed ?? 0;
+      remaining = data?.remaining ?? 0;
+      if (remaining <= 0) break;
+    }
+
+    const finished = remaining !== null && remaining <= 0;
+    let observationsRefreshed: number | null = null;
+    let prunedRuns: number | null = null;
+
+    if (finished) {
+      // O acompanhamento da coorte roda depois dos grupos, na mesma passada: é
+      // ele que alimenta a aba "Em recuperação" sem cálculo na renderização.
+      const observations = await admin.rpc("refresh_recovery_cohort_observations", {
+        p_organization_id: organizationId,
+        p_run_id: runId,
+      });
+      if (observations.error) {
+        failures.push({ source: `cohort_observations:${organizationId}`, error: observations.error.message });
+      } else {
+        observationsRefreshed = observations.data as number;
+      }
+
+      const pruned = await admin.rpc("prune_recovery_analysis_runs", {
+        p_organization_id: organizationId,
+      });
+      if (pruned.error) failures.push({ source: `prune_runs:${organizationId}`, error: pruned.error.message });
+      else prunedRuns = pruned.data as number;
+
+      processedOrganizations += 1;
+    }
+
+    results.push({
+      organizationId, runId, chunks,
+      groupsProcessed: processed, groupsFailed: failed,
+      remaining, finished, observationsRefreshed, prunedRuns,
     });
-    if (pruned.error) failures.push({ source: "prune_runs", error: pruned.error.message });
-    else prunedRuns = pruned.data as number;
   }
 
+  const done = processedOrganizations >= pending.length && failures.length === 0;
   const response = {
     ok: failures.length === 0,
-    // `done` é do ponto de vista do chamador: ainda há organização a processar?
-    done: finished && pending <= 1,
-    organizationId: target.organizationId,
-    runId,
-    status: lastStatus,
-    chunks,
-    groupsProcessed: processed,
-    groupsFailed: failed,
-    remaining,
-    organizationsPending: finished ? pending - 1 : pending,
-    observationsRefreshed,
-    prunedRuns,
+    done,
+    organizationsPending: pending.length - processedOrganizations,
+    organizations: results,
     failures,
     durationMs: Math.round(performance.now() - startedAt),
     checkedAt: new Date().toISOString(),
@@ -273,7 +273,7 @@ export async function POST(request: Request) {
     return NextResponse.json(response, { status: 500 });
   }
   console.info("recovery_analysis_dispatch_succeeded", response);
-  return NextResponse.json(response, { status: finished ? 200 : 202 });
+  return NextResponse.json(response, { status: done ? 200 : 202 });
 }
 
 // O cron da Vercel manda GET; o da VPS manda POST. Mesma rota.
