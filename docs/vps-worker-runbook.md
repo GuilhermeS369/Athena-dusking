@@ -1139,3 +1139,41 @@ Desde a Fase 8, `InstagramObservabilityCenter` mostra, por organização (via `g
 - **Backlog parado/avançando**: compara o total ativo entre duas leituras (`publication_dispatch_backlog_trend`) — só sinaliza "parado" quando existe backlog real (`activeTotal > 0`) e o total não muda por mais de 10 minutos (`p_stalled_after_seconds`).
 
 Limitação conhecida: o tamanho do spool em disco da VPS **não aparece por organização** (o spool é um diretório compartilhado, sem metadado por organização no heartbeat atual) — para ver o total global, usar `ls /var/lib/athena-publication-spool | wc -l` direto na VPS.
+
+## 25. Liberação automática de vaga Zernio após exclusão de perfil
+
+Deploy de 2026-08-31. Um arquivo, nenhuma variável de ambiente nova:
+`scripts/workers/publication-direct-dispatch.mjs`.
+
+O que mudou: `processZernioProfileRecyclingJobs` passa a re-listar `/v1/accounts`
+uma vez por chave depois de cada remoção confirmada e a gravar
+`remote_instagram_account_count` com o número que a Zernio devolveu. Antes disso,
+o soft-delete local não liberava a vaga — a ocupação é
+`greatest(remote_instagram_account_count, perfis locais)` e o valor remoto só
+mudava no `Sincronizar contas` manual da tela `/perfis`.
+
+A contagem nunca é decrementada por aritmetica: ela vem da releitura, o que torna
+o passo idempotente e faz da própria Zernio a fonte da verdade. A mesma listagem
+confirma a ausência do `accountId` removido; se ele continuar aparecendo, o caso
+é registrado como erro em vez de virar uma vaga fantasma. Falha nessa etapa não
+invalida o job — a remoção remota já aconteceu e o portão de frescor de 30
+minutos faz o valor velho expirar.
+
+Script: [artifacts/deploy-publication-worker-liberacao-vaga-zernio.sh](../artifacts/deploy-publication-worker-liberacao-vaga-zernio.sh).
+
+Registro da execução:
+
+- Preflight: 16 processos PM2 online; disco 7% de 96G; 6,5G de memória livre;
+  Node v22.23.2. Hash anterior do arquivo `4cf2064b877b…`, idêntico ao commit
+  `cd71271` do repositório (CRLF) — sem drift entre VPS e código.
+- Backup: `publication-direct-dispatch.mjs.before-liberacao-vaga-20260831T170856Z`.
+- Hash publicado: `665eb6c7accd…`. `node --check` aprovado antes e depois da troca.
+- Reiniciado somente `athena-publication-worker` (PID 29955). Os outros 15
+  processos, incluindo os `athena-twitter-*`, mantiveram uptime e zero restart.
+- Pós-restart: ciclos concluindo em 1–5s, fase `reciclagemZernio` executando em
+  25–36ms, e nenhuma escrita nova no log de erro (última era de 17:04:38, um
+  `ConnectTimeoutError` anterior ao deploy).
+
+Rollback: `pm2 stop athena-publication-worker`, restaurar o arquivo com o sufixo
+de backup acima, `node --check` e `pm2 restart athena-publication-worker
+--update-env`.
