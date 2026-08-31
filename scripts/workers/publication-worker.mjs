@@ -158,12 +158,43 @@ const stagingCriticalDelayForceAfterMs = integerEnv(
   60000,
   1800000,
 );
+// ACHADO POR LEITURA DE CODIGO (31/08/2026), depois de cinco experimentos em
+// producao refutados. O staging ficava CRAVADO no minimo (25 itens por ciclo),
+// medido: `claimed=25 persisted=25` em toda amostra, com o spool parando em ~620
+// enquanto 891 itens venciam nos 12 minutos seguintes.
+//
+// A causa esta nos limiares PADRAO de createAdaptiveBulkController, que foram
+// calibrados para fatias de BANCO DE DADOS:
+//
+//   fastPerItemThresholdMs = 25    -> precisa de <=25ms POR ITEM para crescer
+//   maxStableDurationMs    = 3000  -> acima disso, desaba para o minimo
+//   slowThresholdMs        = 750
+//
+// Mas o staging nao e trabalho de banco: ele monta envelopes, o que inclui
+// resolver URLs de midia pela REDE (mediaProbeTimeoutMs vai a 12 SEGUNDOS por
+// sonda). Nenhuma medida realista de I/O de rede fica abaixo de 25ms por item.
+// Resultado: `stableThroughput` nunca era verdadeiro, o controlador nunca crescia,
+// e qualquer ciclo acima de 3s o devolvia ao minimo. Travado por construcao.
+//
+// Os limiares abaixo sao os mesmos conceitos, na escala do trabalho real. O
+// controlador compartilhado NAO muda - o worker de geracao continua com os
+// padroes de banco, que para ele estao certos.
 const stagingController = stagingEnabled ? createAdaptiveBulkController({
   initialStep: stagingLimit,
   minimumStep: Math.max(1, Math.min(25, Math.floor(stagingLimit / 4))),
   maximumStep: stagingLimit,
   timeoutCooldownMs: 120000,
   idleCooldownMs: 3000,
+  // Escala de rede, nao de banco: resolver midia de um item custa centenas de ms.
+  // 1200 vem da MEDICAO, nao de estimativa: o log do controlador mostrou o
+  // staging custando 514 a 690 ms por item (resolucao de midia pela rede). Um
+  // primeiro palpite de 400ms ainda ficava abaixo do custo real e mantinha o
+  // controlador travado. Com 1200 (~2x o p50 observado) a operacao normal conta
+  // como estavel e o passo subiu de 25 para 100; degradacao de verdade, 2x mais
+  // lenta que o normal, continua barrando o crescimento.
+  fastPerItemThresholdMs: integerEnv('PUBLICATION_WORKER_STAGING_FAST_PER_ITEM_MS', 1200, 25, 5000),
+  maxStableDurationMs: integerEnv('PUBLICATION_WORKER_STAGING_MAX_STABLE_MS', 20000, 1000, 60000),
+  slowThresholdMs: integerEnv('PUBLICATION_WORKER_STAGING_SLOW_MS', 8000, 250, 30000),
 }) : null;
 
 process.on('SIGINT', () => {
@@ -884,13 +915,28 @@ async function runStagingCycle(supabase, spool) {
   }
   const durationMs = Date.now() - startedAt;
 
-  stagingController.observe({
+  const estadoDoControlador = stagingController.observe({
     durationMs,
     ok: !cycleError,
     message: cycleError ? errorMessage(cycleError) : '',
     processedItems: result.persisted,
     now: Date.now(),
   });
+  // O estado do controlador era invisivel de fora, e foi por isso que demorei
+  // cinco experimentos para achar que ele estava travado no minimo. Fica no log
+  // sempre que houver trabalho, com o motivo da ultima decisao.
+  if (result.persisted > 0) {
+    console.info('[publication-worker] controlador do staging', {
+      workerId,
+      passoAtual: estadoDoControlador.currentStep,
+      minimo: estadoDoControlador.minimumStep,
+      maximo: estadoDoControlador.maximumStep,
+      motivo: estadoDoControlador.lastReason,
+      duracaoMs: estadoDoControlador.lastDurationMs,
+      msPorItem: estadoDoControlador.lastDurationPerItemMs,
+      itens: result.persisted,
+    });
+  }
 
   if (cycleError) throw cycleError;
 
