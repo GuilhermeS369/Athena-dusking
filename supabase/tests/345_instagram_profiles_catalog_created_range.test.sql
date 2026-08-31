@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select extensions.plan(11);
+select extensions.plan(10);
 
 -- Mesmo cenario de fronteira da 344: created_at e UTC e a organizacao opera em
 -- America/Sao_Paulo, entao tudo conectado das 21h em diante ja esta no dia
@@ -43,14 +43,14 @@ set local request.jwt.claim.email = 'range-345@example.com';
 select extensions.is(
   (select array_agg(username order by username) from public.list_instagram_profiles_catalog_page(
     '24500000-0000-4000-8000-000000000001', 40, null, null, null, null, null, null, 'all', 'recent', null,
-    null, '2026-08-27'::date, '2026-08-28'::date)),
+    '2026-08-27'::date, '2026-08-28'::date)),
   array['dia27_0010', 'dia27_2130', 'dia28_0900'],
   'o intervalo 27-28 inclui as duas pontas e respeita o fuso local'
 );
 select extensions.is(
   (select array_agg(username order by username) from public.list_instagram_profiles_catalog_page(
     '24500000-0000-4000-8000-000000000001', 40, null, null, null, null, null, null, 'all', 'recent', null,
-    null, '2026-08-26'::date, '2026-08-26'::date)),
+    '2026-08-26'::date, '2026-08-26'::date)),
   array['dia26_2330'],
   'intervalo de um dia so equivale ao dia'
 );
@@ -60,35 +60,23 @@ select extensions.is(
 select extensions.is(
   (select array_agg(username order by username) from public.list_instagram_profiles_catalog_page(
     '24500000-0000-4000-8000-000000000001', 40, null, null, null, null, null, null, 'all', 'recent', null,
-    null, '2026-08-28'::date, null)),
+    '2026-08-28'::date, null)),
   array['dia28_0900', 'dia30_1000'],
   'so o inicio significa daquele dia em diante'
 );
 select extensions.is(
   (select array_agg(username order by username) from public.list_instagram_profiles_catalog_page(
     '24500000-0000-4000-8000-000000000001', 40, null, null, null, null, null, null, 'all', 'recent', null,
-    null, null, '2026-08-27'::date)),
+    null, '2026-08-27'::date)),
   array['dia26_2330', 'dia27_0010', 'dia27_2130'],
   'so o fim significa ate aquele dia, inclusive'
 );
 select extensions.is(
   (select count(*)::integer from public.list_instagram_profiles_catalog_page(
     '24500000-0000-4000-8000-000000000001', 40, null, null, null, null, null, null, 'all', 'recent', null,
-    null, null, null)),
+    null, null)),
   5,
   'sem intervalo, o catalogo continua trazendo tudo'
-);
-
--- Compatibilidade durante a janela de deploy ---------------------------------
--- p_created_on ainda e aceito porque a versao no ar chama por ele. Sai na
--- migration seguinte, depois que o deploy novo estiver publicado.
-
-select extensions.is(
-  (select array_agg(username order by username) from public.list_instagram_profiles_catalog_page(
-    '24500000-0000-4000-8000-000000000001', 40, null, null, null, null, null, null, 'all', 'recent', null,
-    '2026-08-27'::date, null, null)),
-  array['dia27_0010', 'dia27_2130'],
-  'p_created_on segue valendo como intervalo de um dia'
 );
 
 -- Pagina, ids e resumo concordam ---------------------------------------------
@@ -96,21 +84,21 @@ select extensions.is(
 select extensions.is(
   (select count(*)::integer from public.list_instagram_profiles_catalog_ids(
     '24500000-0000-4000-8000-000000000001', 2000, null, null, null, null, 'all',
-    null, '2026-08-27'::date, '2026-08-28'::date)),
+    '2026-08-27'::date, '2026-08-28'::date)),
   3,
   'os ids do filtro respeitam o mesmo intervalo'
 );
 select extensions.is(
   (select filtered_total::integer from public.get_instagram_profiles_catalog_summary(
     '24500000-0000-4000-8000-000000000001', null, null, null, null, 'all',
-    null, '2026-08-27'::date, '2026-08-28'::date)),
+    '2026-08-27'::date, '2026-08-28'::date)),
   3,
   'o total filtrado do resumo bate com os ids'
 );
 select extensions.is(
   (select total::integer from public.get_instagram_profiles_catalog_summary(
     '24500000-0000-4000-8000-000000000001', null, null, null, null, 'all',
-    null, '2026-08-27'::date, '2026-08-28'::date)),
+    '2026-08-27'::date, '2026-08-28'::date)),
   5,
   'o total geral ignora o intervalo, como os demais contadores do topo'
 );
@@ -120,7 +108,7 @@ select extensions.is(
 select extensions.is(
   (select count(*)::integer from public.list_instagram_profiles_catalog_page(
     '24500000-0000-4000-8000-000000000001', 40, null, null, null, null, null, null, 'all', 'recent', null,
-    null, '2026-08-29'::date, '2026-08-29'::date)),
+    '2026-08-29'::date, '2026-08-29'::date)),
   0,
   'dia sem adicao devolve vazio em vez de cair no filtro inteiro'
 );
@@ -130,7 +118,7 @@ select extensions.is(
 select extensions.is(
   (select count(*)::integer from public.list_instagram_profiles_catalog_page(
     '24500000-0000-4000-8000-000000000001', 40, null, null, null, null, null, null, 'all', 'recent', null,
-    null, '2026-08-28'::date, '2026-08-27'::date)),
+    '2026-08-28'::date, '2026-08-27'::date)),
   0,
   'intervalo invertido devolve vazio, sem inverter sozinho no banco'
 );
