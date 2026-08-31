@@ -42,6 +42,9 @@ real, e não devem ser marcados antes disso:
 | 2026-08-31 | 8 | Fechamento: `tsc` limpo, `npm test` 404/404, `next build` ✓, os quatro testes pgTAP verdes e a suíte completa em 45 falhas (baseline). **347–350 aplicadas em produção.** |
 | 2026-08-31 | 7 | Interruptor de recuperação em `/grupos` **refeito** depois de o operador ver o resultado: era uma caixa com borda no meio do card, virou switch de uma linha. Conferido no navegador nos três estados. |
 | 2026-08-31 | — | **Deploy de produção na Vercel.** `/recuperacao` responde na URL de produção. Branch publicada no GitHub. |
+| 2026-08-31 | 2 | **Aceitação contra a análise de 31/08: reprodução exata**, incluindo os doze nomes na mesma ordem. Ver abaixo. |
+| 2026-08-31 | 2 | **Tempo de chunk medido em produção:** 558–821 ms para o GG LAURINHA (200 perfis), contra o teto de ~8 s. |
+| 2026-08-31 | — | `351_recovery_window_floor.sql`: piso da janela de 7 para 3 dias — o piso de 7 era palpite meu e bloqueava reproduzir a janela da análise. |
 
 ---
 
@@ -854,7 +857,47 @@ um olhar seu.
       portões reais são o `tsc`, o `npm test` (que inclui a guarda de paginação) e a suíte pgTAP.
 - [x] **2026-08-31** — Migrations **347, 348, 349 e 350 aplicadas em produção** via
       `supabase db push`, confirmadas no `migration list` com `remote` preenchido.
-- [ ] Aceitação da régua contra a análise de 31/08 (ver Verificação). **Depende de produção.**
+- [x] **2026-08-31** — **Aceitação da régua: passou por completo**, contra os dados reais do
+      GG LAURINHA (200 perfis), com a janela de 25 a 30/08 (a mesma da análise, já sem o dia parcial):
+
+      | | régua | artifact |
+      |---|---|---|
+      | julgáveis | 200 | 200 |
+      | mediana `M` | 13,700248 | 13,7 |
+      | mediana recente `MR` | 13,391892 | 13,4 |
+      | pico | 26,214286 | 26,3 |
+      | limiar (60% do pico) | 15,73 | 15,8 |
+      | saúde | 51% | 51% |
+      | portão do Nível 2 | **fechado** | desligado |
+      | cortes 25% / 40% | 3,43 / 5,48 | 3,4 / 5,5 |
+      | Nível 1 a 25% / 40% | **7 / 12** | 7 / 12 |
+
+      E não só as contagens: os **doze perfis são os mesmos, na mesma ordem, com os mesmos
+      views/slot** — `0,43 · 0,70 · 1,43 · 1,85 · 2,10 · 2,96 · 3,18` no corte de 25%, e
+      `3,60 · 3,72 · 3,76 · 4,19 · 4,69` no acréscimo de 40%.
+
+- [x] **2026-08-31** — **Tempo medido em produção:** 558 ms e 821 ms por chunk no GG LAURINHA
+      (200 perfis), incluindo a ida e volta HTTP, contra o teto de ~8 s do `statement_timeout`.
+      Folga de uma ordem de grandeza. O GG LEXY tem 457 perfis; mesmo dobrando, sobra teto.
+
+- [x] **2026-08-31** — **Piso da janela corrigido** (`351_recovery_window_floor.sql`). O
+      `window_days between 7 and 180` que eu havia gravado era palpite e bloqueava exatamente a
+      reprodução da janela da análise, que tem 6 dias efetivos. O piso passou para 3 — o gate de
+      julgabilidade é contado em **posts**, não em dias, e 3 ainda barra o erro real que a análise
+      registra (julgar por um dia só produz dois terços de falso positivo).
+
+### O que os dados de produção mostraram
+
+- **O LAURINHA só começou a postar em 25/08.** Entre 01 e 24/08 o grupo inteiro tem 3 posts. Por isso
+  a janela padrão de 30 dias e a janela de 6 dias produzem números idênticos até a sexta casa decimal:
+  não há material anterior. Vale lembrar quando a série crescer — aí as duas vão divergir.
+- **A guarda de 3 perfis por dia para o pico fez diferença.** A série tem 9 pontos (desde 15/08), mas
+  os dias magros do começo não podem virar pico. Sem a guarda, um dia com um ou dois perfis postando
+  fixaria um pico artificial e o Nível 2 ficaria desligado por um motivo falso.
+- **O que a tela mostra agora:** 7 elegíveis a 25%, 12 a 40%, todos "nunca engrenou"; Nível 2
+  desligado porque a mediana recente está em 51% do pico. A própria análise avisa que a lista do
+  LAURINHA é a mais provisória das três — **refazer depois de ~60 posts na mídia nova**, porque a
+  janela atual ainda carrega os dias de queima.
 
 ## Procedimento de ativação (definido pelo operador em 2026-08-31)
 
@@ -880,11 +923,11 @@ Tudo abaixo precisa do banco real ou de acesso à VPS. Nada é código pendente.
 
 1. **Ligar a recuperação nos grupos** — decisão do operador, um grupo por vez, começando pelo
    LAURINHA. Ver "Procedimento de ativação" acima.
-2. **Medir a duração de um chunk no GG LEXY real** (~457 perfis × 30 dias) contra o teto de ~8 s,
-   **antes** de ligar qualquer cron.
-3. **Aceitação contra 31/08** — rodar com a janela de 25 a 31/08 e os dois desvios desligados por
-   parâmetro, conferir 33 / 55 / 39 e as medianas, e só depois rodar com os desvios ligados,
-   registrando a diferença.
+2. ~~Medir a duração de um chunk~~ — **feito**: 558–821 ms no LAURINHA (200 perfis).
+3. ~~Aceitação contra 31/08~~ — **feita e passou** para o LAURINHA. Os outros grupos só podem ser
+   conferidos quando forem ligados. *(Nota: os dois desvios conscientes ficaram inertes nesta
+   rodada — não há esteira criada nem marco de mídia registrado, então ligados ou desligados dão o
+   mesmo resultado. Quando houver esteira e marco, vale repetir a comparação.)*
 4. **Definir o horário do cron** depois de conferir quando a coleta diária de analytics termina
    ([docs/vps-worker-runbook.md](docs/vps-worker-runbook.md)) e **instalar** o `.sh` e o `.cron` na
    VPS.
