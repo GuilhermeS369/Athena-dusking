@@ -735,10 +735,18 @@ async function dispatchDueStagedPublications(supabase, spool, correlationId) {
   // 136 a 601 segundos restantes de reserva - exatamente a duracao das ondas que
   // nenhuma outra hipotese explicou.
   //
-  // Correcao: item que nao avancou tem a RESERVA LIBERADA, voltando ao caminho
-  // normal de claim, que respeita `next_attempt_at`. Manter o arquivo em vez
-  // disso seria pior: viraria o mesmo giro em falso que a limpeza de entradas
-  // mortas ja precisou resolver.
+  // Correcao: TODO item cujo arquivo saiu do spool tem a reserva liberada. A
+  // primeira versao desta correcao so liberava quando o resultado era
+  // `deferred` - e nunca disparou, porque processClaimedItem devolve o MOTIVO no
+  // lugar do estado nesse caso (`state: result.reason`, tipo
+  // 'dispatch_rate_limit'). Alem de errada, aquela regra era fragil: dependia de
+  // enumerar estados de fracasso, uma lista que cresce.
+  //
+  // A regra certa e inversa e nao tem excecao: sem arquivo, a reserva mente. Se o
+  // item avancou, liberar e inofensivo (a RPC so limpa dispatch_staged_*, sem
+  // tocar status ou lease); se nao avancou, liberar e o que o desbloqueia. E se o
+  // item entrou em polling, liberar ainda AJUDA - o caminho direto passa a poder
+  // reivindica-lo para confirmar.
   const naoAvancaram = [];
   const settled = await mapWithConcurrency(activated, stagedDispatchConcurrency, async (envelope) => {
     const comecouEm = Date.now();
@@ -747,36 +755,41 @@ async function dispatchDueStagedPublications(supabase, spool, correlationId) {
     try {
       const result = await processClaimedItem(item, workerId, envelope);
       await spool.remove(envelope.itemId);
-      // `deferred` cobre negativa da reserva de capacidade, espacamento por perfil
-      // e limite diario: nesses casos o item continua devendo publicacao.
-      if (result?.state === 'deferred') naoAvancaram.push(envelope.itemId);
       return result;
     } catch (erro) {
-      // Falha inesperada tambem deixa o item devendo. Sem liberar, ele sumiria
-      // pelo resto do lease.
       await spool.remove(envelope.itemId).catch(() => {});
-      naoAvancaram.push(envelope.itemId);
       throw erro;
     } finally {
+      // Independente do desfecho: uma vez que o ARQUIVO saiu do spool, a reserva
+      // no banco deixa de ter sentido - ela existe para dizer "este item pertence
+      // ao spool", e isso passou a ser falso. Ver o bloco de comentario acima.
+      naoAvancaram.push(envelope.itemId);
       duracaoPorItem.push(Date.now() - comecouEm);
     }
   });
   marcar('processarItens', processamentoIniciadoEm);
 
-  if (naoAvancaram.length > 0) {
-    const { error: erroLiberacao } = await supabase.rpc('release_publication_dispatch_staging', {
+  // Em blocos de 200 pelo mesmo motivo de discardUnactivatableSpoolEntries: o lote
+  // vai ate STAGED_DISPATCH_LIMIT (500) e 500 UUIDs viram URL grande demais.
+  let reservasLiberadas = 0;
+  for (let from = 0; from < naoAvancaram.length; from += 200) {
+    const bloco = naoAvancaram.slice(from, from + 200);
+    const { data, error: erroLiberacao } = await supabase.rpc('release_publication_dispatch_staging', {
       p_worker_id: workerId,
-      p_item_ids: naoAvancaram,
+      p_item_ids: bloco,
     });
     if (erroLiberacao) {
-      console.error('[publication-worker] falha ao liberar reserva de item nao despachado', {
-        workerId, itens: naoAvancaram.length, message: errorMessage(erroLiberacao),
+      console.error('[publication-worker] falha ao liberar reserva de staging', {
+        workerId, itens: bloco.length, message: errorMessage(erroLiberacao),
       });
-    } else {
-      console.info('[publication-worker] reservas liberadas de itens nao despachados', {
-        workerId, itens: naoAvancaram.length,
-      });
+      break;
     }
+    reservasLiberadas += Number(data) || 0;
+  }
+  if (reservasLiberadas > 0) {
+    console.info('[publication-worker] reservas de staging liberadas', {
+      workerId, itens: reservasLiberadas,
+    });
   }
   const processed = settled.map((entry, index) => entry.status === 'fulfilled'
     ? entry.value
@@ -1042,6 +1055,10 @@ const stagingGuard = createSingleFlightGuard();
 const preparationGuard = createSingleFlightGuard();
 let lastPreparationCycleResult = null;
 let preparationConsecutiveSkips = 0;
+// Espelha POSTGREST_MAX_ROWS de lib/supabase/paginate.ts, que este worker nao
+// consegue importar (roda como .mjs puro; ver a nota em
+// discardUnactivatableSpoolEntries). Se mudar la, mude aqui.
+const POSTGREST_MAX_ROWS_SEGURO = 5000;
 
 async function dispatchLoop(supabase, spool) {
   while (!stopping) {
@@ -1139,10 +1156,79 @@ async function preparationLoop(supabase, spool) {
   }
 }
 
+// Ao subir, devolve para a fila o que o processo ANTERIOR com este mesmo id
+// deixou reservado no meio do caminho.
+//
+// MEDIDO EM 31/08/2026: havia 400 itens vencidos com `dispatch_staged_until` no
+// futuro e NENHUM arquivo no spool - verificados um a um, 199 de 199 sem arquivo.
+// Ficavam invisiveis para os dois caminhos de despacho (o direto ignora item
+// reservado; o do spool nao acha arquivo) ate a reserva expirar, o que levava ate
+// 1200s. Todos com `dispatch_staged_by` deste worker.
+//
+// A origem e a janela entre reservar no banco e gravar o arquivo: se o processo
+// morre ali no meio - deploy, restart do PM2, reboot da VPS -, o lote em voo (ate
+// PUBLICATION_WORKER_STAGING_LIMIT itens) fica orfao. O caminho normal ja libera
+// o que falha DENTRO do ciclo; o que nao existia era rede para o processo que nao
+// chega ao fim do ciclo.
+//
+// Nao ha risco de roubar trabalho de outro processo: o filtro e pelo proprio
+// `dispatch_staged_by`, e dois publicadores nao compartilham workerId (ele vem de
+// PUBLICATION_WORKER_ID). E a RPC so limpa os campos de staging - nao toca status,
+// lease nem creation_id.
+async function liberarStagingOrfaoDoProcessoAnterior(supabase) {
+  if (!stagingEnabled) return 0;
+  const agora = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('publication_items')
+    .select('id')
+    .is('archived_at', null)
+    .eq('dispatch_staged_by', workerId)
+    .gt('dispatch_staged_until', agora)
+    .limit(POSTGREST_MAX_ROWS_SEGURO);
+  if (error) {
+    console.error('[publication-worker] não foi possível procurar staging órfão', {
+      workerId, message: errorMessage(error),
+    });
+    return 0;
+  }
+  const ids = (data ?? []).map((row) => row.id);
+  if (ids.length === 0) return 0;
+
+  let liberados = 0;
+  for (let from = 0; from < ids.length; from += 200) {
+    const bloco = ids.slice(from, from + 200);
+    const { data: afetados, error: erroLiberacao } = await supabase.rpc('release_publication_dispatch_staging', {
+      p_worker_id: workerId,
+      p_item_ids: bloco,
+    });
+    if (erroLiberacao) {
+      console.error('[publication-worker] falha ao liberar staging órfão', {
+        workerId, itens: bloco.length, message: errorMessage(erroLiberacao),
+      });
+      break;
+    }
+    liberados += Number(afetados) || 0;
+  }
+  if (liberados > 0) {
+    console.info('[publication-worker] staging órfão do processo anterior liberado', {
+      workerId, itens: liberados,
+    });
+  }
+  return liberados;
+}
+
 async function main() {
   const supabase = createSupabase();
   const spool = stagingEnabled ? await new PublicationDispatchSpool(spoolDirectory).initialize() : null;
   console.info('[publication-worker] iniciando', { workerId, mode, dryRun, runOnce, reconciliationOnly });
+  // Antes de qualquer laço: devolve à fila o que o processo anterior deixou
+  // reservado sem arquivo. Sem isto, um deploy no meio de uma onda esconde ate
+  // PUBLICATION_WORKER_STAGING_LIMIT itens por 20 minutos.
+  await liberarStagingOrfaoDoProcessoAnterior(supabase).catch((error) => {
+    console.error('[publication-worker] limpeza de staging órfão falhou', {
+      workerId, message: errorMessage(error),
+    });
+  });
   await heartbeat(supabase, 'starting');
 
   // Os dois loops compartilham a mesma flag `stopping`: em SIGTERM/SIGINT, cada um termina
