@@ -172,6 +172,9 @@ const stagingMaxConsecutiveSkips = integerEnv('PUBLICATION_WORKER_STAGING_MAX_CO
 // nao consome capacidade do provedor, entao ceder a pressao dele so esvazia o
 // spool. Ligue de volta se aparecer contencao de banco ou de CPU.
 const stagingPressureYieldEnabled = (process.env.PUBLICATION_WORKER_STAGING_PRESSURE_YIELD || 'false') === 'true';
+// Ver o comentario extenso em runStagingCycle: abortava todo ciclo ~2s apos o
+// inicio sempre que houvesse publicacao vencendo, o que sob onda e sempre.
+const stagingCooperativeCancelEnabled = (process.env.PUBLICATION_WORKER_STAGING_COOPERATIVE_CANCEL || 'false') === 'true';
 let stagingConsecutiveSkips = 0;
 const stagingCriticalDelayForceAfterMs = integerEnv(
   'PUBLICATION_WORKER_STAGING_CRITICAL_DELAY_FORCE_AFTER_MS',
@@ -967,20 +970,39 @@ async function runStagingCycle(supabase, spool) {
   const limit = stagingController.snapshot(now).currentStep;
   const correlationId = randomUUID();
 
+  // O CANCELADOR COOPERATIVO ERA A QUARTA INSTANCIA DO MESMO ANTI-PADRAO.
+  //
+  // Ele checava a cada 2s se havia publicacao vencendo e, em caso afirmativo,
+  // abortava o ciclo de staging em andamento. Durante uma onda SEMPRE ha algo
+  // vencendo, entao todo ciclo morria ~2 segundos depois de comecar.
+  //
+  // Os numeros medidos batem exatamente: `claimed: 100, persisted: 32-37,
+  // duracaoMs: 2237-2771`. Reivindicava 100, gravava ~30 nos 2 segundos ate o
+  // corte, e liberava os outros 70 - repetindo indefinidamente. Era por isso que
+  // o spool tinha ~300 arquivos para ~700 itens reservados, e por isso que a onda
+  // chegava com so um terco dela preparada.
+  //
+  // Nao ha o que proteger aqui: o staging NAO chama a API de publicacao, e a
+  // maquina fica em 0,03 de load. Abortar o staging porque uma publicacao esta
+  // vencendo esvazia justamente a fonte que alimenta o despacho dessa publicacao.
+  //
+  // Fica desligado por padrao e religavel por env, como as outras tres guardas.
   let cancelled = false;
   let checkingCancel = false;
-  const cancelWatcher = setInterval(() => {
-    if (checkingCancel) return;
-    checkingCancel = true;
-    stagingHasSafeWindow(spool, Date.now())
-      .then((safe) => {
-        if (!safe) cancelled = true;
-      })
-      .catch(() => {})
-      .finally(() => {
-        checkingCancel = false;
-      });
-  }, stagingCooperativeCancelCheckIntervalMs);
+  const cancelWatcher = stagingCooperativeCancelEnabled
+    ? setInterval(() => {
+      if (checkingCancel) return;
+      checkingCancel = true;
+      stagingHasSafeWindow(spool, Date.now())
+        .then((safe) => {
+          if (!safe) cancelled = true;
+        })
+        .catch(() => {})
+        .finally(() => {
+          checkingCancel = false;
+        });
+    }, stagingCooperativeCancelCheckIntervalMs)
+    : null;
 
   const startedAt = Date.now();
   let result;
@@ -991,7 +1013,7 @@ async function runStagingCycle(supabase, spool) {
     cycleError = error;
     result = { claimed: 0, persisted: 0, failed: 0, cancelled: 0 };
   } finally {
-    clearInterval(cancelWatcher);
+    if (cancelWatcher) clearInterval(cancelWatcher);
   }
   const durationMs = Date.now() - startedAt;
 
