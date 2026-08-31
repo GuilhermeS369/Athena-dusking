@@ -12,8 +12,8 @@ for concluída **e validada**.
 | 0 — Registro | ✅ concluída |
 | 1 — Banco: schema (`347`) | ✅ concluída · pgTAP 16/16 |
 | 2 — Banco: a régua (`348`) | ✅ concluída · pgTAP 24/24 · **2 itens presos em produção** |
-| 3 — Banco: esteira e acompanhamento (`349`) | ⏳ em andamento |
-| 4 — Disparo (rota interna + cron na VPS) | ⬜ |
+| 3 — Banco: esteira e acompanhamento (`349` + `350`) | ✅ concluída · pgTAP 21/21 e 11/11 |
+| 4 — Disparo (rota interna + cron na VPS) | ⏳ em andamento |
 | 5 — Leitura (libs e rotas GET) | ⬜ |
 | 6 — Ações (rotas POST/PATCH) | ⬜ |
 | 7 — Tela (`/recuperacao`) | ⬜ |
@@ -33,6 +33,8 @@ real, e não devem ser marcados antes disso:
 | 2026-08-31 | 0 | Plano registrado. Numeração das migrations resolvida: **347–349** (ver abaixo). |
 | 2026-08-31 | 1 | `347_recovery_schema.sql` aplicada no Postgres local via `supabase db reset` (todas as migrations do zero) e `supabase/tests/347_recovery_schema.test.sql` **16/16 verde**. |
 | 2026-08-31 | 2 | `348_recovery_compute.sql` (a régua) aplicada e `supabase/tests/348_recovery_compute.test.sql` **24/24 verde**. Suíte completa segue em 45 falhas — igual ao baseline. |
+| 2026-08-31 | — | **347 e 348 aplicadas em produção** via `supabase db push` e commitadas em `89398c9`. |
+| 2026-08-31 | 3 | `349_recovery_cohort.sql` (esteira) **21/21** e `350_recovery_reads.sql` (leitura) **11/11**. Aplicadas em produção. Suíte completa segue em 45 falhas. |
 
 ---
 
@@ -731,11 +733,28 @@ introduz nenhuma falha nova.
       locais não reproduzem os grupos reais.
 
 ### Etapa 3 — Banco: esteira e acompanhamento
-- [ ] `349_recovery_cohort.sql` — `enter_recovery_cohort` (`security invoker`),
-      `return_from_recovery_cohort`, `refresh_recovery_cohort_observations`, e as duas de leitura.
-- [ ] pgTAP: índice contra a mediana de origem nos mesmos dias; taxa de zerados **ignorando** post com
-      `sync_status = 'pending'` e post com menos de 24 h; `measurement_start_on` respeitado;
-      truncamento do nome da esteira com origem de 120 caracteres.
+- [x] **2026-08-31** — `349_recovery_cohort.sql`: `enter_recovery_cohort`,
+      `return_from_recovery_cohort`, `record_recovery_cohort_deletion`,
+      `refresh_recovery_cohort_observations`.
+- [x] **2026-08-31** — `350_recovery_reads.sql` (leitura, separada de propósito — a semântica da
+      esteira muda raramente, a forma da leitura muda a cada ajuste de tela): `get_recovery_overview`,
+      `list_recovery_candidates`, `get_recovery_cohort_page`, `get_recovery_cohort_series`.
+- [x] **2026-08-31** — `supabase/tests/349_recovery_cohort.test.sql`, **21/21**: nome da esteira
+      truncado numa origem de 120 caracteres; esteira reusada em vez de duplicada; perfil fora da
+      origem voltando em `skippedProfileIds`; `measurement_start_on` respeitado (um dia anterior com
+      100 mil views fica de fora); índice contra a mediana da origem nos mesmos dias; os quatro
+      vereditos; **taxa de zerados ignorando post `pending` e post de menos de 24 h**; devolução ao
+      grupo de origem; e exclusão virando registro no Histórico.
+- [x] **2026-08-31** — `supabase/tests/350_recovery_reads.test.sql`, **11/11**: cenários de 25% e 40%
+      (2 e 3 elegíveis), limiar do portão **derivado** do pico na leitura, `judged_index` usando a
+      razão recente para quem desabou e a agregada para quem nunca engrenou, e `has_more`.
+
+**Decisão de projeto tomada aqui.** `enter_recovery_cohort` é `security definer`, não `invoker`: as
+tabelas de coorte não têm política de escrita para `authenticated` de propósito. A armadilha conhecida
+disso — a checagem de papel de `move_profile_group_members` (que é `invoker`) evaporar dentro de uma
+função `definer` — está coberta pela checagem explícita de `has_organization_role` no topo de cada
+função. Verificado que `auth.uid()` lê GUC de sessão e sobrevive ao `definer`, então `added_by` e
+`entered_by` continuam sendo o operador real.
 
 ### Etapa 4 — Disparo
 - [ ] `app/api/internal/recovery-analysis-dispatch/route.ts` com segredo, portão de pressão e laço de
