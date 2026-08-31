@@ -13,6 +13,9 @@ type Group = {
   description: string | null;
   consumption_mode: 'single_use' | 'reusable';
   default_caption: string | null;
+  recovery_enabled: boolean;
+  /** Preenchido quando ESTE grupo e a esteira de recuperacao de outro. */
+  recovery_source_group_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -113,6 +116,7 @@ export default function GroupsClient({
   const [moveTargetGroupId, setMoveTargetGroupId] = useState('');
   const [search, setSearch] = useState('');
   const [message, setMessage] = useState('');
+  const [recoveryBusyId, setRecoveryBusyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savingMembers, setSavingMembers] = useState(false);
   const [exportingGroupId, setExportingGroupId] = useState<string | null>(null);
@@ -238,6 +242,33 @@ export default function GroupsClient({
       setMessage('Não foi possível conectar ao servidor.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function toggleRecovery(group: Group, enabled: boolean) {
+    setMessage('');
+    setRecoveryBusyId(group.id);
+    try {
+      const response = await fetch(`/api/groups/${group.id}/recovery`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ recoveryEnabled: enabled }),
+      });
+      const payload = await response.json() as { group?: Group; error?: string };
+      if (!response.ok || !payload.group) {
+        setMessage(payload.error ?? 'Não foi possível mudar a recuperação do grupo.');
+        return;
+      }
+      setGroups((current) => current.map((item) => (
+        item.id === group.id ? { ...item, recovery_enabled: enabled } : item
+      )));
+      setMessage(enabled
+        ? `“${group.name}” entrou na análise de recuperação. Rode Recalcular na tela de Recuperação.`
+        : `“${group.name}” saiu da análise de recuperação.`);
+    } catch {
+      setMessage('Não foi possível conectar ao servidor.');
+    } finally {
+      setRecoveryBusyId(null);
     }
   }
 
@@ -517,6 +548,25 @@ export default function GroupsClient({
               <span className={styles.memberCount}>{memberProfiles.length} {memberProfiles.length === 1 ? 'perfil' : 'perfis'}</span>
             </div>
           </div>
+          {group.recovery_source_group_id
+            ? <p className={styles.recoveryNote}>
+                Esteira de recuperação. Ela não é analisada como origem — é a coorte em observação.
+              </p>
+            : canManage && <label className={styles.recoveryToggle}>
+                <input
+                  type="checkbox"
+                  checked={group.recovery_enabled}
+                  disabled={recoveryBusyId === group.id}
+                  onChange={(event) => toggleRecovery(group, event.target.checked)}
+                />
+                <span>
+                  <strong>Recuperação</strong>
+                  {/* A régua compara cada perfil com a mediana do PRÓPRIO grupo,
+                      então ligar grupo a grupo é o filtro certo: um grupo com
+                      poucos julgáveis não deve entrar. */}
+                  <em>Libera este grupo para a análise da tela de Recuperação.</em>
+                </span>
+              </label>}
           {group.description && <p className={styles.description}>{group.description}</p>}
           {group.default_caption && <p className={styles.caption}>“{group.default_caption}”</p>}
           <div className={styles.membersPreview}>

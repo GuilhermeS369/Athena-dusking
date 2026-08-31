@@ -29,6 +29,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <symbol id="icon-calendar" viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="15" rx="2" /><path d="M8 3.5v4M16 3.5v4M4 10h16M8 14h.1M12 14h.1M16 14h.1M8 17.5h.1M12 17.5h.1" /></symbol>
           <symbol id="icon-key" viewBox="0 0 24 24"><circle cx="7.5" cy="12" r="3.5" /><path d="M11 12h9M16 12v3M19 12v2" /></symbol>
           <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M12 15.5V4.5" /><path d="m7.5 9 4.5-4.5L16.5 9" /><path d="M5 15.5v2.8c0 .9.7 1.7 1.7 1.7h10.6c.9 0 1.7-.7 1.7-1.7v-2.8" /></symbol>
+          <symbol id="icon-recovery" viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1" /><path d="M20.5 4.2v4.6h-4.6" /><path d="M7.6 12.4h2.6l1.5-3 2 6 1.4-3h1.3" /></symbol>
           <symbol id="icon-activity" viewBox="0 0 24 24"><path d="M3 12h4l2.2-6 4.1 12 2.2-6H21" /></symbol>
         </svg>
         {children}

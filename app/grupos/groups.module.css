@@ -108,3 +108,38 @@ p.modalMessage { width: 100%; margin: -8px 0 16px; }
   .memberList { max-height: 46vh; }
   .moveGroupSelect { max-width: none; width: 100%; }
 }
+
+/* Interruptor da analise de recuperacao. Ligar grupo a grupo e o filtro: a
+ * regua compara cada perfil com a mediana do proprio grupo, entao um grupo com
+ * poucos julgaveis nao deve entrar. */
+.recoveryToggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #2e2a36;
+  border-radius: 12px;
+  background: rgba(16, 15, 22, .92);
+  cursor: pointer;
+}
+.recoveryToggle input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--purple-bright);
+  cursor: pointer;
+}
+.recoveryToggle span { display: grid; gap: 2px; }
+.recoveryToggle strong { color: var(--text); font-size: 12px; font-weight: 800; }
+.recoveryToggle em { color: var(--text-subtle); font-size: 11px; font-style: normal; line-height: 1.5; }
+.recoveryToggle:has(input:checked) { border-color: #6b4b92; background: linear-gradient(135deg, #1d1530, #15121d); }
+
+.recoveryNote {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed #4c4159;
+  border-radius: 12px;
+  color: var(--text-subtle);
+  font-size: 11px;
+  line-height: 1.5;
+}

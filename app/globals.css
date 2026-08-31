@@ -244,8 +244,8 @@ button:focus-visible { outline: 3px solid var(--purple-bright); outline-offset: 
 .profile-mirror-login-message { margin: 0; padding: 9px 10px; border: 1px solid #55d19a44; border-radius: 10px; background: #10251a; color: #bdf4d3; font-size: 11px; line-height: 1.45; }
 .button-disabled, .button:disabled { opacity: .55; cursor: not-allowed; transform: none !important; box-shadow: none; }
 .button-disabled:hover { border-color: #765797; background: linear-gradient(135deg, #5f3a86, #432b66); color: #d9c9ec; }
-.gallery-page, .profiles-page, .groups-page, .publishing-page, .zernio-page { background: radial-gradient(circle at 88% -15%, #26163d 0, transparent 34%), var(--bg); }
-.gallery-page .standalone-header, .profiles-page .standalone-header, .groups-page .standalone-header { max-width: 1180px; }
+.gallery-page, .profiles-page, .groups-page, .publishing-page, .zernio-page, .recovery-page { background: radial-gradient(circle at 88% -15%, #26163d 0, transparent 34%), var(--bg); }
+.gallery-page .standalone-header, .profiles-page .standalone-header, .groups-page .standalone-header, .recovery-page .standalone-header { max-width: 1180px; }
 .profiles-page .standalone-header { margin-bottom: 22px; padding-top: 24px; }
 .profiles-page .standalone-header h1 { font-size: clamp(2.2rem, 5vw, 3.8rem); }
 .profiles-toolbar { display: grid; align-items: stretch; gap: 16px; padding: 0; overflow: hidden; background: transparent; border: 0; }

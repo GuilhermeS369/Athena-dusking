@@ -26,6 +26,7 @@ const instagramNavigation: NavigationItem[] = [
   { label: 'Galeria', icon: 'image', href: '/galeria' },
   { label: 'Perfis', icon: 'user', href: '/perfis' },
   { label: 'Grupos', icon: 'users', href: '/grupos' },
+  { label: 'Recuperação', icon: 'recovery', href: '/recuperacao' },
   { label: 'Agenda', icon: 'calendar', href: '/agenda' },
   { label: 'Zernio', icon: 'key', href: '/zernio' },
   { label: 'Logs', icon: 'activity', href: '/operacao' },

@@ -1,0 +1,411 @@
+/* Tela de Recuperação (Instagram).
+ *
+ * TUDO QUE SE AJUSTA ESTÁ NO BLOCO `.page` ABAIXO. O resto do arquivo só
+ * consome essas variáveis — mudar a altura das linhas, a cor de um veredito ou
+ * a espessura da barra é editar UMA linha, não caçar valores pelo arquivo.
+ *
+ * As cores base vêm dos tokens globais de app/globals.css. O app é dark-only
+ * (color-scheme: dark), então não há tema claro a suportar.
+ */
+
+.page {
+  /* Cores ------------------------------------------------------------- */
+  --rec-accent: var(--purple-bright);
+  --rec-ok: var(--green);
+  --rec-warn: var(--yellow);
+  --rec-dead: var(--danger);
+  --rec-muted: var(--text-subtle);
+
+  --rec-surface: rgba(18, 18, 25, .85);
+  --rec-surface-soft: rgba(16, 15, 22, .92);
+  --rec-line: #2e2a36;
+  --rec-line-soft: #221f2a;
+
+  --rec-bar-track: #ffffff10;
+  --rec-tick: #ffffff40;          /* os tiques de 25% e 40% */
+  --rec-row-hover: #ffffff05;
+  --rec-row-selected: rgba(41, 16, 75, .45);
+
+  /* Medidas ----------------------------------------------------------- */
+  --rec-max-width: 1180px;
+  --rec-card-radius: 19px;
+  --rec-inner-radius: 13px;
+  --rec-chip-radius: 999px;
+  --rec-row-height: 40px;
+  --rec-bar-height: 6px;
+  --rec-bar-width: 92px;
+  --rec-spark-height: 46px;
+  --rec-chart-height: 210px;
+  --rec-gap: 12px;
+  --rec-gap-lg: 18px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Faixa da régua: o número que se gira                                */
+/* ------------------------------------------------------------------ */
+
+.ruleBar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--rec-gap-lg);
+  max-width: var(--rec-max-width);
+  margin: 0 auto var(--rec-gap-lg);
+  padding: 20px 22px;
+}
+
+.ruleHeadline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px 16px; }
+.ruleCount { color: var(--text); font-size: 44px; font-weight: 800; line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.ruleCountLabel { color: var(--text-muted); font-size: 13px; font-weight: 750; }
+.ruleBreakdown { color: var(--text-subtle); font-size: 12px; font-weight: 700; }
+
+.ruleDelta {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: var(--rec-chip-radius);
+  background: rgba(85, 209, 154, .14); color: var(--rec-ok);
+  font-size: 11px; font-weight: 850; font-variant-numeric: tabular-nums;
+}
+.ruleDeltaZero { background: #ffffff0d; color: var(--text-subtle); }
+
+.ruleCuts {
+  margin: 12px 0 0; color: var(--text-subtle);
+  font-size: 11px; line-height: 1.6; font-variant-numeric: tabular-nums;
+}
+.ruleCuts strong { color: var(--text-muted); font-weight: 800; }
+
+.ruleAside { display: grid; justify-items: end; gap: 10px; }
+
+/* Segmented 25% / 40%: os dois totais aparecem ao mesmo tempo, para comparar
+ * antes de transferir. Girar não dispara requisição — o conjunto de 40% já
+ * está carregado e a mudança é de opacidade e contagem. */
+.ruleToggle {
+  display: inline-flex; gap: 3px; padding: 3px;
+  border: 1px solid #3b3547; border-radius: var(--rec-inner-radius); background: #111019;
+}
+.ruleToggle button {
+  display: grid; gap: 1px; justify-items: center;
+  min-width: 84px; min-height: 44px; padding: 0 14px;
+  border: 1px solid transparent; border-radius: 10px;
+  background: transparent; color: var(--text-muted);
+  font: inherit; font-size: 11px; font-weight: 850; cursor: pointer;
+  transition: background .18s ease, color .18s ease, border-color .18s ease;
+}
+.ruleToggle button:hover { color: var(--text); }
+.ruleToggleActive {
+  border-color: #6b4b92 !important;
+  background: linear-gradient(135deg, #221735, #171320) !important;
+  color: #f0e2ff !important;
+}
+.ruleToggleCount { font-size: 17px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+.staleness {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border: 1px solid #3a3346; border-radius: 10px;
+  background: #16141d; color: var(--text-subtle); font-size: 11px; font-weight: 750;
+}
+/* Coleta atrasada é a única coisa que impede o operador de decidir sobre um
+ * vazio. Por isso acende, em vez de ficar escondida num rodapé. */
+.stalenessWarn { border-color: #e7b74e66; background: #2a2113; color: var(--rec-warn); }
+
+/* ------------------------------------------------------------------ */
+/* Cards de grupo                                                      */
+/* ------------------------------------------------------------------ */
+
+.groupGrid {
+  display: grid; gap: var(--rec-gap);
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  max-width: var(--rec-max-width); margin: 0 auto var(--rec-gap-lg);
+}
+
+.groupCard {
+  display: grid; gap: 10px; padding: 16px;
+  border: 1px solid var(--rec-line); border-radius: var(--rec-inner-radius);
+  background: var(--rec-surface); color: var(--text-muted);
+  text-align: left; cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.groupCard:hover { border-color: #5b4a71; transform: translateY(-1px); }
+.groupCardActive {
+  border-color: #9f4cffaa;
+  background: linear-gradient(135deg, rgba(41, 16, 75, .88), rgba(21, 18, 30, .95));
+  box-shadow: 0 0 0 1px #9f4cff33, inset 3px 0 var(--rec-accent);
+}
+
+.groupHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.groupName { color: var(--text); font-size: 13px; font-weight: 800; letter-spacing: -.01em; }
+
+.groupBadge {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  padding: 3px 8px; border-radius: var(--rec-chip-radius);
+  font-size: 10px; font-weight: 850; white-space: nowrap;
+}
+.groupBadgeOk { background: rgba(85, 209, 154, .14); color: var(--rec-ok); }
+.groupBadgeWarn { background: rgba(231, 183, 78, .16); color: var(--rec-warn); }
+.groupBadgeMuted { background: #ffffff0d; color: var(--text-subtle); }
+
+/* O sparkline é a peça visual mais importante da tela: é onde a mídia
+ * queimando aparece antes de qualquer número. A linha tracejada é o limiar do
+ * portão (60% do pico), e os triângulos são as trocas de mídia. */
+.groupSpark { display: block; width: 100%; height: var(--rec-spark-height); overflow: visible; }
+.groupSparkLine { fill: none; stroke: var(--rec-accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.groupSparkArea { fill: url(#recSparkFade); }
+.groupSparkThreshold { stroke: var(--rec-warn); stroke-width: 1; stroke-dasharray: 3 3; opacity: .7; }
+.groupSparkMarker { fill: var(--rec-ok); opacity: .9; }
+.groupSparkEmpty { color: var(--text-subtle); font-size: 11px; padding: 12px 0; text-align: center; }
+
+.groupStats {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px;
+  font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.groupStats dt { color: var(--text-subtle); }
+.groupStats dd { margin: 0; color: var(--text); font-weight: 750; }
+
+.groupCounts {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding-top: 9px; border-top: 1px solid var(--rec-line-soft);
+  font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.groupCount { display: inline-flex; align-items: center; gap: 5px; color: var(--text-subtle); }
+.groupCount strong { color: var(--text); font-weight: 800; }
+
+/* ------------------------------------------------------------------ */
+/* Abas                                                                */
+/* ------------------------------------------------------------------ */
+
+.tabs {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  max-width: var(--rec-max-width); margin: 0 auto var(--rec-gap);
+}
+.tab {
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 40px; padding: 0 15px;
+  border: 1px solid var(--rec-line); border-radius: var(--rec-inner-radius);
+  background: var(--rec-surface-soft); color: var(--text-muted);
+  font: inherit; font-size: 12px; font-weight: 800; cursor: pointer;
+  transition: border-color .18s ease, color .18s ease, background .18s ease;
+}
+.tab:hover { border-color: #5b4a71; color: var(--text); }
+.tabActive {
+  border-color: #9f4cffaa; background: linear-gradient(135deg, #221735, #171320); color: #f0e2ff;
+}
+.tabCount {
+  padding: 1px 7px; border-radius: var(--rec-chip-radius);
+  background: #ffffff12; font-size: 11px; font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ */
+/* Toolbar                                                             */
+/* ------------------------------------------------------------------ */
+
+.toolbar {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px;
+  max-width: var(--rec-max-width); margin: 0 auto var(--rec-gap);
+  padding: 12px; border: 1px solid var(--rec-line);
+  border-radius: 14px; background: var(--rec-surface-soft);
+}
+.toolbar label {
+  display: grid; gap: 6px;
+  color: var(--text-subtle); font-size: 10px; font-weight: 900;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.toolbar select, .toolbar input {
+  min-height: 40px; padding: 0 12px;
+  border: 1px solid #403b4c; border-radius: 10px;
+  background: #12111a; color: var(--text); font: inherit; font-size: 12px;
+}
+.toolbar select:focus, .toolbar input:focus {
+  border-color: var(--rec-accent); box-shadow: 0 0 0 3px #9f4cff22; outline: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tabelas                                                             */
+/* ------------------------------------------------------------------ */
+
+.listPanel { max-width: var(--rec-max-width); margin: 0 auto; padding: 0; overflow: hidden; }
+.listScroll { overflow-x: auto; overscroll-behavior-x: contain; }
+.listTable { width: 100%; min-width: 880px; border-collapse: collapse; font-size: 12px; }
+.listTable thead th {
+  position: sticky; top: 0; z-index: 1;
+  padding: 12px 10px; border-bottom: 1px solid var(--border);
+  background: #16151d; color: var(--text-subtle);
+  font-size: 10px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; text-align: left;
+}
+.listTable tbody td {
+  height: var(--rec-row-height);
+  padding: 8px 10px; border-bottom: 1px solid var(--rec-line-soft);
+  color: var(--text-muted); vertical-align: middle;
+}
+.listTable tbody tr:hover td { background: var(--rec-row-hover); }
+.listRowSelected td { background: var(--rec-row-selected) !important; }
+/* Perfis que só entram a 40% ficam esmaecidos quando a régua está em 25%.
+ * Girar o botão não recarrega nada: é opacidade e contagem. */
+.listRowOutOfCut td { opacity: .38; }
+
+.numberCell { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.checkboxCell { width: 44px; padding-right: 0 !important; }
+.checkbox { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; }
+.checkbox input { width: 17px; height: 17px; accent-color: var(--rec-accent); cursor: pointer; }
+
+.identity { display: flex; align-items: center; gap: 9px; min-width: 0; }
+/* O @usuario e a chave de leitura da linha: truncar cedo obriga o operador a
+ * passar o mouse em cada uma para saber de quem esta falando. */
+.identityCell { min-width: 210px; }
+.identityName { display: grid; gap: 1px; min-width: 0; }
+.identityName strong { color: var(--text); font-size: 12px; font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.identityMeta { color: var(--text-subtle); font-size: 10px; }
+
+.newDot {
+  display: inline-block; width: 6px; height: 6px; flex: none;
+  border-radius: 50%; background: var(--rec-accent); box-shadow: 0 0 0 3px #9f4cff22;
+}
+
+.reasonChip {
+  display: inline-block; padding: 3px 8px; border-radius: var(--rec-chip-radius);
+  font-size: 10px; font-weight: 850; white-space: nowrap;
+}
+.reasonNeverStarted { background: rgba(159, 76, 255, .14); color: #d3b4ff; }
+.reasonCollapsed { background: rgba(231, 183, 78, .16); color: var(--rec-warn); }
+
+.judgedMetric { display: grid; gap: 1px; }
+.judgedMetric span { color: var(--text-subtle); font-size: 10px; }
+.judgedMetric strong { color: var(--text); font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+/* A barra com dois tiques fixos em 25% e 40%: mostra de relance o quão longe
+ * do corte o perfil está, e por qual métrica ele foi julgado. */
+.medianBar {
+  position: relative; width: var(--rec-bar-width); height: var(--rec-bar-height);
+  border-radius: var(--rec-chip-radius); background: var(--rec-bar-track); overflow: hidden;
+}
+.medianBarFill { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--rec-accent); }
+.medianBarFillSevere { background: var(--rec-dead); }
+.medianBarTick { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--rec-tick); }
+.medianCell { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
+.medianValue { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 42px; text-align: right; }
+
+.staleCell { color: var(--text-subtle); font-size: 11px; }
+.staleWarn { color: var(--rec-warn); font-weight: 800; }
+
+/* ------------------------------------------------------------------ */
+/* Vereditos                                                           */
+/* ------------------------------------------------------------------ */
+
+.verdict {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: var(--rec-chip-radius);
+  font-size: 10px; font-weight: 850; white-space: nowrap;
+}
+.verdictRecovered { background: rgba(85, 209, 154, .14); color: var(--rec-ok); }
+.verdictPartial { background: rgba(231, 183, 78, .16); color: var(--rec-warn); }
+.verdictNotRecovered { background: rgba(239, 107, 131, .14); color: #ffb5c5; }
+.verdictPending { background: #ffffff0d; color: var(--text-subtle); }
+
+.transition { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.transition em { color: var(--text-subtle); font-style: normal; }
+.transition strong { color: var(--text); font-weight: 800; }
+.transitionArrow { color: var(--text-subtle); }
+
+/* O denominador não é enfeite: a Zernio devolve analytics de post em páginas de
+ * 25, então a taxa é sobre o que foi medido. "40% de zerados" sobre 5 posts não
+ * é a mesma frase que sobre 60. */
+.zeroRate { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.zeroRateDenominator { color: var(--text-subtle); font-size: 10px; font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------------ */
+/* Gráfico de acompanhamento                                           */
+/* ------------------------------------------------------------------ */
+
+.cohortChart { max-width: var(--rec-max-width); margin: 0 auto var(--rec-gap); padding: 18px 20px; }
+.cohortChartHead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.cohortChartTitle { color: var(--text); font-size: 13px; font-weight: 800; }
+.cohortChartSvg { display: block; width: 100%; height: var(--rec-chart-height); overflow: visible; }
+.chartGrid { stroke: #ffffff0c; stroke-width: 1; }
+.chartAxis { fill: var(--text-subtle); font-size: 10px; }
+.chartCohort { fill: none; stroke: var(--rec-accent); stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
+.chartOrigin { fill: none; stroke: var(--text-subtle); stroke-width: 1.8; stroke-dasharray: 5 4; opacity: .8; }
+.chartMarker { stroke: var(--rec-ok); stroke-width: 1.4; stroke-dasharray: 3 3; }
+.chartMarkerLabel { fill: var(--rec-ok); font-size: 9.5px; font-weight: 700; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; color: var(--text-subtle); font-size: 11px; }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legendSwatch { width: 14px; height: 3px; border-radius: 2px; background: var(--rec-accent); }
+.legendSwatchOrigin { background: var(--text-subtle); }
+.legendSwatchMarker { background: var(--rec-ok); }
+
+/* ------------------------------------------------------------------ */
+/* Seleção                                                             */
+/* ------------------------------------------------------------------ */
+
+.selectionRow {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+  max-width: var(--rec-max-width); margin: var(--rec-gap) auto 0;
+  padding: 11px 13px; border: 1px solid var(--rec-line);
+  border-radius: var(--rec-inner-radius); background: var(--rec-surface-soft);
+  font-size: 12px;
+}
+.selectVisible { display: inline-flex; align-items: center; gap: 9px; font-weight: 750; }
+.selectVisible input { width: 16px; height: 16px; accent-color: var(--rec-accent); cursor: pointer; }
+.selectionHint { color: var(--text-subtle); }
+
+.selectionBar {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+  max-width: var(--rec-max-width); margin: var(--rec-gap) auto 0;
+  padding: 13px 16px; padding-bottom: max(13px, env(safe-area-inset-bottom));
+  border: 1px solid #4a3560; border-radius: 14px;
+  background: rgba(20, 15, 30, .93); backdrop-filter: blur(10px);
+  box-shadow: 0 -6px 26px #0006, inset 0 1px #ffffff0a;
+}
+.selectionBarCount { color: var(--text-muted); font-size: 12px; }
+.selectionBarCount strong { color: var(--text); font-size: 20px; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.selectionBarActions { display: flex; flex-wrap: wrap; gap: 10px; margin-left: auto; }
+
+/* ------------------------------------------------------------------ */
+/* Modais e mensagens                                                  */
+/* ------------------------------------------------------------------ */
+
+.modal { display: grid; width: min(560px, 100%); gap: 16px; }
+.modalSummary {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px;
+  padding: 12px; border: 1px solid var(--rec-line); border-radius: var(--rec-inner-radius);
+  background: #12111a; font-size: 12px;
+}
+.modalSummary dt { color: var(--text-subtle); }
+.modalSummary dd { margin: 0; color: var(--text); font-weight: 750; font-variant-numeric: tabular-nums; }
+.modalNote { color: var(--text-subtle); font-size: 11px; line-height: 1.6; }
+.modalActions { display: grid; gap: 10px; }
+.modalActions .button { width: 100%; }
+
+.footnote {
+  max-width: var(--rec-max-width); margin: 28px auto 0;
+  padding-top: 14px; border-top: 1px solid var(--rec-line-soft);
+  color: var(--text-subtle); font-size: 11px; line-height: 1.65;
+}
+
+/* ------------------------------------------------------------------ */
+/* Mobile: a tabela vira blocos                                        */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 720px) {
+  .ruleBar { grid-template-columns: minmax(0, 1fr); }
+  .ruleAside { justify-items: start; }
+}
+
+@media (max-width: 640px) {
+  .listTable { min-width: 0; }
+  .listTable thead { display: none; }
+  .listTable tbody tr {
+    display: grid; grid-template-columns: 44px minmax(0, 1fr);
+    padding: 10px 4px; border-bottom: 1px solid var(--rec-line-soft);
+  }
+  .listTable tbody td { height: auto; border: 0; padding: 3px 8px; }
+  .checkboxCell { grid-row: span 6; }
+  .numberCell { display: flex; align-items: center; justify-content: space-between; text-align: left; }
+  .numberCell::before {
+    content: attr(data-label);
+    color: var(--text-subtle); font-size: 10px; font-weight: 900;
+    letter-spacing: .06em; text-transform: uppercase;
+  }
+  .medianCell { justify-content: flex-end; }
+  .selectionBarActions { width: 100%; margin-left: 0; }
+  .selectionBarActions .button { flex: 1 1 auto; }
+}
