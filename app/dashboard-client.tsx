@@ -319,7 +319,6 @@ export default function DashboardClient({
     }))
     : profileRanking;
   const effectiveTopPosts = data.version === 'v2' ? v2TopPosts : filteredPosts;
-  const effectiveTopPost = effectiveTopPosts[0];
   const effectiveStatusRollups = v2Analytics?.publication_status;
   const effectiveFormatRollups = v2Analytics?.publication_format;
   // Uma fração única ("598/1105") tratava "publicou e não coletamos", "não
@@ -365,7 +364,7 @@ export default function DashboardClient({
         <KpiCard label="Alcance total" value={formatCompact(effectiveDailyTotals.reach)} icon="◉" />
         <KpiCard label="Seguidores totais" value={formatCompact(effectiveFollowersTotal)} icon="♙" caption={`${effectiveFollowersDelta >= 0 ? '+' : ''}${formatCompact(effectiveFollowersDelta)} no período`} />
         <KpiCard label="Posts no período" value={String(effectivePostsThisPeriod)} icon="▤" />
-        <KpiCard label={`Melhor post · ${metricLabel(selectedMetric)}`} value={effectiveTopPost ? formatCompact(postMetricValue(effectiveTopPost, selectedMetric)) : 'Sem dados'} caption={effectiveTopPost?.content?.slice(0, 34) ?? undefined} />
+        <KpiCard label="Visualizações totais" value={formatCompact(effectiveDailyTotals.views)} icon="▷" />
       </section>
 
       <section className="analytics-board" aria-label="Análise de postagens">
