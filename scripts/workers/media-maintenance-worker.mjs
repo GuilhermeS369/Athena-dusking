@@ -36,15 +36,26 @@ const archiveBudgetMs = integerEnv('MEDIA_MAINTENANCE_ARCHIVE_BUDGET_MS', 20000,
 // de 1 milhao de linhas. Ligar antes disso gasta I/O sem necessidade.
 const coldStorageEnabled = (process.env.MEDIA_MAINTENANCE_COLD_STORAGE_ENABLED || 'false') === 'true';
 const coldStorageIntervalMs = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_INTERVAL_MS', 3600000, 300000, 21600000);
-const coldStorageBudgetMs = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_BUDGET_MS', 30000, 1000, 120000);
+// O orcamento e o ciclo de trabalho do dreno: ele trabalha `budget` a cada
+// `interval`. Com 30s a cada 300s eram 10% do tempo, e o dreno movia 50/min
+// contra ~38/min de entrada — 30% de folga, que os +600 perfis planejados para
+// 01/09 fechariam quase por completo. Com 90s a cada 300s (30%) medi 149/min,
+// tres vezes mais, e o backlog de 80 mil elegiveis caiu de 27h para 8,9h.
+const coldStorageBudgetMs = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_BUDGET_MS', 90000, 1000, 120000);
 const coldStorageRetentionDays = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_RETENTION_DAYS', 7, 7, 90);
-// MEDIDO EM PRODUCAO (30/08/2026), depois dos indices da migration 334:
-//   1 item .... 960ms   |  50 itens .. 4.019ms  (seguro)
+// MEDIDO EM 30/08/2026, logo depois dos indices da migration 334:
+//   1 item .... 960ms   |  50 itens .. 4.019ms
 //  10 itens .. 1.699ms  | 100 itens .. 7.973ms  (na beira do timeout de 8s)
-// Sao ~900ms fixos mais ~80ms por item, porque cada delete resolve 14 chaves
-// estrangeiras. Lote de 500 levaria ~40s e estourava o statement timeout - foi
-// exatamente o que aconteceu na primeira tentativa.
-const coldStorageBatch = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_BATCH', 50, 1, 100);
+//
+// REMEDIDO EM 01/09/2026: o mesmo lote de 50 passou a levar ~10s, e comecou a
+// bater no statement timeout de verdade (69 falhas). O custo por item dobrou em
+// dois dias porque cada delete resolve 14 chaves estrangeiras sobre tabelas que
+// nao pararam de crescer. Lote de 25 volta para ~5s, com folga.
+//
+// A LICAO: este numero nao e constante, ele degrada junto com o tamanho das
+// tabelas referenciadoras. Se voltarem timeouts, o remedio e baixar o LOTE, nao
+// aumentar o orcamento — lote grande que estoura nao move item nenhum.
+const coldStorageBatch = integerEnv('MEDIA_MAINTENANCE_COLD_STORAGE_BATCH', 25, 1, 100);
 
 let lastArchiveAt = 0;
 let lastColdStorageAt = 0;
