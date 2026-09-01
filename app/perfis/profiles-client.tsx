@@ -8,8 +8,10 @@ import styles from './profiles-catalog.module.css';
 import { buildBulkZernioRows, resolveZernioBulkTarget, sortZernioConnectionsByProfileCount } from '@/lib/integrations/zernio-bulk';
 import {
   EMPTY_PROFILE_SELECTION,
+  EMPTY_REMOVAL_TOTALS,
   MAX_BULK_PROFILE_DELETE,
   MAX_FILTER_PROFILE_DELETE,
+  accumulateRemovalTotals,
   buildBulkDeleteRequest,
   clearProfileSelection,
   describeRemovalResult,
@@ -22,7 +24,15 @@ import {
   visibleSelectionState,
   type ProfileRemovalPreview,
   type ProfileSelectionState,
+  type RemovalTotals,
 } from '@/lib/profiles/bulk-removal';
+
+/**
+ * Quantas continuações a tela aceita antes de devolver o controle a quem clicou.
+ * Cada rodada custa até 45s no servidor; passar disso é sinal de que o conjunto
+ * é grande demais para uma sessão de clique e merece uma nova decisão humana.
+ */
+const MAX_BULK_DELETE_ROUNDS = 6;
 import { EMPTY_DATE_RANGE, todayInOrganizationTimeZone, type DateRange } from '@/lib/profiles/date-range';
 import type {
   InstagramProfileAnalyticsSummary,
@@ -623,16 +633,31 @@ export default function ProfilesClient({
     setBulkDeleteBusy('deleting');
     setBulkDeleteError('');
     try {
-      const response = await fetch('/api/profiles/bulk-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildBulkDeleteRequest(selection, currentCatalogFilters, { confirmation: bulkDeleteConfirmation })),
-      });
-      const payload = await response.json() as {
-        queued?: number; alreadyQueued?: number; deletedLocal?: number; skipped?: number;
-        removedNowIds?: string[]; error?: string;
-      };
-      if (!response.ok) throw new Error(payload.error ?? 'Não foi possível excluir os perfis selecionados.');
+      // A rota fatia o enfileiramento para não estourar o statement_timeout e
+      // devolve `remaining` quando o orçamento de tempo dela acaba. Continuar
+      // daqui é seguro: repetir um perfil já enfileirado devolve 'already_queued'.
+      type BulkDeletePayload = Partial<RemovalTotals> & { remaining?: string[]; error?: string };
+      let totals = EMPTY_REMOVAL_TOTALS;
+      let request = buildBulkDeleteRequest(selection, currentCatalogFilters, { confirmation: bulkDeleteConfirmation });
+
+      for (let round = 0; ; round += 1) {
+        const response = await fetch('/api/profiles/bulk-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(request),
+        });
+        const payload = await response.json() as BulkDeletePayload;
+        if (!response.ok) throw new Error(payload.error ?? 'Não foi possível excluir os perfis selecionados.');
+        totals = accumulateRemovalTotals(totals, payload);
+
+        const pending = payload.remaining ?? [];
+        if (!pending.length) break;
+        if (round >= MAX_BULK_DELETE_ROUNDS - 1) {
+          throw new Error(`${pending.length} perfil(is) ainda não foram enfileirados. Clique em excluir de novo para continuar de onde parou.`);
+        }
+        request = { profileIds: pending.slice(0, MAX_BULK_PROFILE_DELETE), confirmation: bulkDeleteConfirmation };
+      }
+      const payload = totals;
 
       // Só os perfis sem contrapartida remota já saíram do banco. Os Zernio
       // continuam visíveis até o worker confirmar o DELETE na Zernio — some-los

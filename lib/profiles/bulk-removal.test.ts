@@ -15,6 +15,12 @@ import {
   toggleProfileSelection,
   toggleVisibleProfiles,
   visibleSelectionState,
+  EMPTY_REMOVAL_TOTALS,
+  MAX_PROFILES_PER_REMOVAL_CALL,
+  REMOVAL_ITEM_BUDGET_PER_CALL,
+  accumulateRemovalTotals,
+  chunkProfileIdsForRemoval,
+  profileRemovalChunkSize,
   type ProfileRemovalRow,
 } from './bulk-removal.ts';
 
@@ -119,4 +125,47 @@ test('só perfis sem contrapartida remota saem da tela na hora', () => {
 
 test('o teto do modo filtro fica abaixo do corte do PostgREST', () => {
   assert.ok(MAX_FILTER_PROFILE_DELETE < 5000);
+});
+
+test('a fatia do enfileiramento é medida em itens de fila, não em perfis', () => {
+  // O caso real que motivou o fatiamento: 12 perfis com 1.111 itens abertos
+  // somados iam numa transação só e estouravam o statement_timeout do papel.
+  const size = profileRemovalChunkSize(12, 1111);
+  assert.ok(size >= 1 && size < 12, `esperava fatiar 12 perfis, veio ${size}`);
+  assert.ok(size * Math.ceil(1111 / 12) <= REMOVAL_ITEM_BUDGET_PER_CALL);
+
+  // Perfis sem fila nenhuma não precisam de fatia pequena, mas continuam com teto.
+  assert.equal(profileRemovalChunkSize(500, 0), MAX_PROFILES_PER_REMOVAL_CALL);
+
+  // Um perfil sozinho nunca vira fatia menor que ele mesmo, por mais pesado que seja.
+  assert.equal(profileRemovalChunkSize(1, 999999), 1);
+  assert.equal(profileRemovalChunkSize(3, 999999), 1);
+});
+
+test('o fatiamento cobre todos os ids uma vez só, na ordem', () => {
+  const ids = Array.from({ length: 10 }, (_, index) => `p${index}`);
+  const chunks = chunkProfileIdsForRemoval(ids, 4);
+  assert.deepEqual(chunks.map((chunk) => chunk.length), [4, 4, 2]);
+  assert.deepEqual(chunks.flat(), ids);
+  // Tamanho inválido não pode virar laço infinito nem fatia vazia.
+  assert.deepEqual(chunkProfileIdsForRemoval(ids, 0).flat(), ids);
+  assert.deepEqual(chunkProfileIdsForRemoval([], 4), []);
+});
+
+test('continuações somam os totais em vez de sobrescrever', () => {
+  const primeira = accumulateRemovalTotals(EMPTY_REMOVAL_TOTALS, {
+    queued: 4, deletedLocal: 1, removedNowIds: ['meta-1'],
+  });
+  const segunda = accumulateRemovalTotals(primeira, {
+    queued: 3, alreadyQueued: 1, skipped: 2, removedNowIds: ['meta-2'],
+  });
+  assert.deepEqual(segunda, {
+    queued: 7,
+    alreadyQueued: 1,
+    deletedLocal: 1,
+    skipped: 2,
+    removedNowIds: ['meta-1', 'meta-2'],
+  });
+  // O acumulador não muda o objeto que recebeu.
+  assert.equal(primeira.queued, 4);
 });

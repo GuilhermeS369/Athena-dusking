@@ -5,7 +5,9 @@ import { getOrganizationContext } from '@/lib/organizations/server';
 import {
   MAX_BULK_PROFILE_DELETE,
   MAX_FILTER_PROFILE_DELETE,
+  chunkProfileIdsForRemoval,
   isBulkDeleteConfirmed,
+  profileRemovalChunkSize,
   summarizeRemovalRows,
   type ProfileRemovalRow,
 } from '@/lib/profiles/bulk-removal';
@@ -13,6 +15,14 @@ import { normalizeInstagramProfilesFilters } from '@/lib/profiles/catalog';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
+/**
+ * Folga contra o `maxDuration` de 60s: quando o orçamento acaba, a rota devolve
+ * o que já enfileirou e os ids restantes, em vez de ser cortada no meio sem
+ * ninguém saber quanto foi feito.
+ */
+const WALL_BUDGET_MS = 45_000;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -131,10 +141,16 @@ export async function POST(request: Request) {
   const { data: previewRows, error: previewError } = await supabase
     .rpc('preview_instagram_profile_removal', { p_organization_id: organizationId, p_profile_ids: profileIds });
   if (previewError) {
+    if (previewError.code !== '42501') {
+      console.error('Falha ao resumir a exclusão de perfis.', {
+        organizationId, profileCount: profileIds.length,
+        code: previewError.code, message: previewError.message, details: previewError.details,
+      });
+    }
     return NextResponse.json({
       error: previewError.code === '42501'
         ? 'Ação não permitida.'
-        : 'Não foi possível resumir a exclusão.',
+        : `Não foi possível resumir a exclusão (código ${previewError.code ?? 'desconhecido'}).`,
     }, { status: previewError.code === '42501' ? 403 : 500 });
   }
   const preview = ((previewRows ?? []) as PreviewRow[])[0];
@@ -153,20 +169,62 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Digite EXCLUIR para confirmar a exclusão.' }, { status: 400 });
   }
 
-  const { data: rows, error: enqueueError } = await supabase.rpc('enqueue_instagram_profile_removal', {
-    p_organization_id: organizationId,
-    p_profile_ids: profileIds,
-    p_actor_label: `operator: ${context.user.email ?? context.user.id}`,
-  });
-  if (enqueueError) {
-    return NextResponse.json({
-      error: enqueueError.code === '42501'
-        ? 'Somente administradores e operadores podem excluir perfis.'
-        : 'Não foi possível excluir os perfis selecionados.',
-    }, { status: enqueueError.code === '42501' ? 403 : 500 });
+  // Uma chamada só para todos os perfis estoura o statement_timeout do papel
+  // assim que o conjunto tem itens de fila demais — ver o comentário de
+  // profileRemovalChunkSize. Cada fatia é sua própria transação, e repetir uma
+  // fatia é inofensivo porque o enfileiramento é idempotente.
+  const chunks = chunkProfileIdsForRemoval(profileIds, profileRemovalChunkSize(profileIds.length, summary.pendingItemCount));
+  const actorLabel = `operator: ${context.user.email ?? context.user.id}`;
+  const startedAt = Date.now();
+  const rows: ProfileRemovalRow[] = [];
+  const chunkDurationsMs: number[] = [];
+  let remaining: string[] = [];
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    if (index > 0 && Date.now() - startedAt > WALL_BUDGET_MS) {
+      remaining = chunks.slice(index).flat();
+      break;
+    }
+    const chunkStartedAt = Date.now();
+    const { data: chunkRows, error: enqueueError } = await supabase.rpc('enqueue_instagram_profile_removal', {
+      p_organization_id: organizationId,
+      p_profile_ids: chunks[index],
+      p_actor_label: actorLabel,
+    });
+    chunkDurationsMs.push(Date.now() - chunkStartedAt);
+
+    if (enqueueError) {
+      // O erro do banco precisa aparecer em algum lugar: sem isto a falha chega
+      // à tela como uma frase genérica e a causa se perde.
+      console.error('Falha ao enfileirar remoção de perfis.', {
+        organizationId,
+        chunkIndex: index,
+        chunkSize: chunks[index].length,
+        chunkDurationsMs,
+        code: enqueueError.code,
+        message: enqueueError.message,
+        details: enqueueError.details,
+        hint: enqueueError.hint,
+      });
+      if (enqueueError.code === '42501') {
+        return NextResponse.json({ error: 'Somente administradores e operadores podem excluir perfis.' }, { status: 403 });
+      }
+      const partial = summarizeRemovalRows(rows);
+      const done = partial.queued + partial.alreadyQueued + partial.deletedLocal;
+      return NextResponse.json({
+        ...partial,
+        error: done
+          ? `${done} perfil(is) foram enfileirados antes da falha. O restante não saiu (código ${enqueueError.code ?? 'desconhecido'}); tente de novo para continuar de onde parou.`
+          : `Não foi possível excluir os perfis selecionados (código ${enqueueError.code ?? 'desconhecido'}).`,
+        code: enqueueError.code ?? null,
+        remaining: chunks.slice(index).flat(),
+        summary,
+      }, { status: 500 });
+    }
+    rows.push(...((chunkRows ?? []) as ProfileRemovalRow[]));
   }
 
-  const outcomes = summarizeRemovalRows((rows ?? []) as ProfileRemovalRow[]);
+  const outcomes = summarizeRemovalRows(rows);
 
   // Perfis Zernio ainda vão ser apagados pelo worker; só os locais já saíram e
   // precisam ter os snapshots de analytics encerrados aqui.
@@ -174,12 +232,20 @@ export async function POST(request: Request) {
     console.error('Falha ao encerrar analytics de perfil excluído.', { profileId, error });
   })));
 
+  if (remaining.length) {
+    console.warn('Remoção de perfis interrompida pelo orçamento de tempo da rota.', {
+      organizationId, processed: rows.length, remaining: remaining.length, chunkDurationsMs,
+    });
+  }
+
   return NextResponse.json({
     queued: outcomes.queued,
     alreadyQueued: outcomes.alreadyQueued,
     deletedLocal: outcomes.deletedLocal,
     skipped: outcomes.skipped,
     removedNowIds: outcomes.removedNowIds,
+    remaining,
+    chunkDurationsMs,
     summary,
   }, { status: 202 });
 }

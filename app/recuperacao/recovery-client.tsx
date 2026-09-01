@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  EMPTY_REMOVAL_TOTALS,
+  accumulateRemovalTotals,
+  type RemovalTotals,
+} from '@/lib/profiles/bulk-removal';
+import {
   DEFAULT_RECOVERY_ADJUSTMENT,
   RECOVERY_ADJUSTMENTS,
   RECOVERY_GROUP_STATUS_HINTS,
@@ -26,6 +31,9 @@ import {
 } from '@/lib/recovery/verdict';
 
 import styles from './recovery.module.css';
+
+/** Continuações aceitas num clique só; cada rodada custa até 45s no servidor. */
+const MAX_DELETE_ROUNDS = 6;
 
 type Tab = 'eligible' | 'cohort' | 'history';
 
@@ -579,13 +587,27 @@ export default function RecoveryClient({
     setBusy('delete');
     try {
       const profileIds = [...selection];
-      const response = await fetch('/api/profiles/bulk-delete', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ profileIds, confirmation: deleteConfirmation }),
-      });
-      const payload = await response.json() as { queued?: number; deletedLocal?: number; error?: string };
-      if (!response.ok) throw new Error(payload.error ?? 'Falha ao excluir.');
+      // A rota fatia o enfileiramento para caber no statement_timeout do papel e
+      // devolve `remaining` quando o orçamento de tempo dela acaba. Repetir um
+      // perfil já enfileirado é inofensivo: volta como 'already_queued'.
+      let totals = EMPTY_REMOVAL_TOTALS;
+      let pendingIds = profileIds;
+      for (let round = 0; ; round += 1) {
+        const response = await fetch('/api/profiles/bulk-delete', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ profileIds: pendingIds, confirmation: deleteConfirmation }),
+        });
+        const payload = await response.json() as Partial<RemovalTotals> & { remaining?: string[]; error?: string };
+        if (!response.ok) throw new Error(payload.error ?? 'Falha ao excluir.');
+        totals = accumulateRemovalTotals(totals, payload);
+        pendingIds = payload.remaining ?? [];
+        if (!pendingIds.length) break;
+        if (round >= MAX_DELETE_ROUNDS - 1) {
+          throw new Error(`${pendingIds.length} perfil(is) ainda não foram enfileirados. Clique em excluir de novo para continuar de onde parou.`);
+        }
+      }
+      const payload = totals;
 
       // Registro no Histórico. Vai depois da exclusão e não pode derrubá-la:
       // se falhar, o perfil já foi excluído de qualquer forma.

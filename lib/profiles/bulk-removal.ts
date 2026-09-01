@@ -169,3 +169,77 @@ export function describeRemovalResult(summary: ReturnType<typeof summarizeRemova
   if (summary.skipped) parts.push(`${summary.skipped} ignorado(s) por não existir(em) mais`);
   return parts.length ? `${parts.join(' · ')}.` : 'Nenhum perfil foi alterado.';
 }
+
+// Fatiamento do enfileiramento -------------------------------------------------
+//
+// O custo de excluir perfis não cresce com o número de perfis, e sim com o
+// número de itens de fila abertos que cada um carrega: a contenção marca cada
+// item como 'ignored' e grava um `publication_item_events` por item — e cada um
+// desses eventos dispara o trigger de observabilidade da migration 278, que faz
+// três consultas e mais duas escritas por linha.
+//
+// Doze perfis com ~93 itens abertos cada somam 1.111 itens numa transação só.
+// A migration 323 mediu o teto disso na prática: uma mutação em massa sobre
+// publication_items abortou em ~8,8s, no statement_timeout do papel. A saída
+// registrada na migration 324 vale igual aqui — "a única forma de fazer mais
+// trabalho do que cabe em 8s é dividir em várias chamadas separadas, cada uma
+// com seu próprio orçamento de tempo".
+//
+// Fatiar é seguro porque o enfileiramento é idempotente por construção: o
+// incidente tem unique (organization_id, profile_id) e o job tem unique
+// (incident_id), então repetir uma fatia devolve `already_queued` em vez de
+// duplicar trabalho. Uma fatia que falhe não desfaz as anteriores.
+
+/** Itens de fila que uma única chamada do RPC pode conter com folga. */
+export const REMOVAL_ITEM_BUDGET_PER_CALL = 400;
+
+/** Teto de perfis por chamada, para perfis sem nenhum item aberto. */
+export const MAX_PROFILES_PER_REMOVAL_CALL = 25;
+
+/**
+ * Quantos perfis cabem numa chamada, a partir da média de itens abertos que o
+ * dry-run já contou. `pendingItemCount` é do conjunto inteiro, não da fatia.
+ */
+export function profileRemovalChunkSize(profileCount: number, pendingItemCount: number) {
+  if (profileCount <= 1) return 1;
+  const averageItems = Math.max(1, Math.ceil(Math.max(0, pendingItemCount) / profileCount));
+  const size = Math.floor(REMOVAL_ITEM_BUDGET_PER_CALL / averageItems);
+  return Math.min(MAX_PROFILES_PER_REMOVAL_CALL, Math.max(1, size));
+}
+
+export function chunkProfileIdsForRemoval(profileIds: string[], size: number) {
+  const step = Math.max(1, size);
+  const chunks: string[][] = [];
+  for (let index = 0; index < profileIds.length; index += step) {
+    chunks.push(profileIds.slice(index, index + step));
+  }
+  return chunks;
+}
+
+/** Totais de uma resposta do bulk-delete, para somar continuações. */
+export type RemovalTotals = {
+  queued: number;
+  alreadyQueued: number;
+  deletedLocal: number;
+  skipped: number;
+  removedNowIds: string[];
+};
+
+export const EMPTY_REMOVAL_TOTALS: RemovalTotals = {
+  queued: 0, alreadyQueued: 0, deletedLocal: 0, skipped: 0, removedNowIds: [],
+};
+
+/**
+ * Soma uma resposta parcial ao acumulado. A rota devolve `remaining` quando o
+ * orçamento de tempo acaba antes das fatias terminarem; quem chama repete com
+ * esses ids e junta os totais aqui.
+ */
+export function accumulateRemovalTotals(totals: RemovalTotals, payload: Partial<RemovalTotals>): RemovalTotals {
+  return {
+    queued: totals.queued + (payload.queued ?? 0),
+    alreadyQueued: totals.alreadyQueued + (payload.alreadyQueued ?? 0),
+    deletedLocal: totals.deletedLocal + (payload.deletedLocal ?? 0),
+    skipped: totals.skipped + (payload.skipped ?? 0),
+    removedNowIds: [...totals.removedNowIds, ...(payload.removedNowIds ?? [])],
+  };
+}
