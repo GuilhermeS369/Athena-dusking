@@ -343,6 +343,28 @@ function errorInfo(error) {
   return { message: sanitizedZernioDiagnostic(String(error), 1200) };
 }
 
+// Assinaturas de falha de TRANSPORTE (undici/Node).
+//
+// Elas precisam estar aqui porque o supabase-js NAO propaga o TypeError original
+// de uma queda de rede: ele entrega um objeto simples
+// `{ message: 'TypeError: fetch failed', details, hint, code: '' }`. Como isso
+// nao e instancia de Error, o `error instanceof TypeError` abaixo passa longe, e
+// "fetch failed" nao batia com nenhum termo da lista de mensagens.
+//
+// O CUSTO DISSO, MEDIDO EM PRODUCAO (31/08/2026 15:19 UTC ate 01/09 11:00 UTC):
+// uma queda de conexao com o Supabase virava falha TERMINAL de publicacao, com
+// `retryable: false` ja na primeira tentativa. 3.315 posts perdidos em 946
+// perfis, nenhum deles reprocessavel sozinho, com taxa de perda chegando a 19,7%
+// em uma hora. Era exatamente o que o comentario dentro de
+// `recoverUnexpectedDispatcherFailure` diz que nunca pode acontecer.
+//
+// POR QUE AMPLIAR AQUI NAO ARRISCA POSTAGEM DUPLICADA: falha de transporte
+// contra a Zernio nao chega ao catch-all. `zernioFailureResult` a converte antes
+// em `zernio_creation_outcome_unknown`, que e terminal de proposito, justamente
+// porque nesse caso nao se sabe se o post foi criado. O catch-all so ve erro que
+// escapou de todo o fluxo normal — na pratica, o banco.
+const TRANSPORT_FAILURE = /fetch failed|und_err_|connecttimeouterror|headerstimeouterror|bodytimeouterror|socketerror|socket hang up|econnreset|econnrefused|etimedout|eai_again|enotfound|epipe/;
+
 export function isPublicationInfrastructureError(error) {
   const details = errorInfo(error);
   const code = String(details.code ?? '').trim().toLowerCase();
@@ -351,7 +373,8 @@ export function isPublicationInfrastructureError(error) {
     '57014', '40001', '40p01', '53300', '57p01', '57p02', '57p03',
     'publication_worker_cycle_failed',
   ]).has(code)
-    || /statement timeout|canceling statement|deadlock detected|connection pool|database connection|supabase unavailable/.test(message);
+    || /statement timeout|canceling statement|deadlock detected|connection pool|database connection|supabase unavailable/.test(message)
+    || TRANSPORT_FAILURE.test(message);
 }
 
 function storageSignedUrlError(error) {

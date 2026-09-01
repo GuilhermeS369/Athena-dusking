@@ -175,6 +175,39 @@ test('timeout interno do banco nunca vira falha terminal de publicação', () =>
   assert.equal(isPublicationInfrastructureError({ code: '190', message: 'Token expirado' }), false);
 });
 
+// Regressão do incidente de 31/08/2026: 3.315 publicações perdidas em 946 perfis
+// porque uma queda de conexão com o Supabase foi classificada como falha
+// terminal. O objeto abaixo é a forma EXATA capturada no log do worker — o
+// supabase-js não entrega o TypeError original, entrega um objeto simples, então
+// `instanceof TypeError` não vale de nada aqui.
+test('queda de conexão com o Supabase nunca vira falha terminal de publicação', () => {
+  const quedaDeRede = {
+    message: 'TypeError: fetch failed',
+    details: 'TypeError: fetch failed\n\nCaused by: ConnectTimeoutError: Connect Timeout Error (attempted addresses: 104.18.38.10:443, 172.64.149.246:443, timeout: 10000ms) (UND_ERR_CONNECT_TIMEOUT)',
+    hint: '',
+    code: '',
+  };
+
+  assert.equal(quedaDeRede instanceof TypeError, false, 'a premissa do bug: não é um TypeError');
+  assert.equal(isPublicationInfrastructureError(quedaDeRede), true);
+
+  for (const transporte of [
+    { message: 'TypeError: fetch failed', details: 'SocketError: other side closed', hint: '', code: '' },
+    { message: 'request to database failed', details: 'Error: read ECONNRESET', hint: '', code: '' },
+    { message: 'fetch failed', details: 'Error: getaddrinfo EAI_AGAIN db.supabase.co', hint: '', code: '' },
+    { message: 'fetch failed', details: 'HeadersTimeoutError (UND_ERR_HEADERS_TIMEOUT)', hint: '', code: '' },
+  ]) {
+    assert.equal(isPublicationInfrastructureError(transporte), true, transporte.details);
+  }
+
+  // O alargamento não pode engolir erro de negócio: continua terminal o que o é.
+  assert.equal(isPublicationInfrastructureError({ code: 'user_content', message: 'Legenda recusada pela plataforma' }), false);
+  assert.equal(isPublicationInfrastructureError({
+    code: 'zernio_creation_outcome_unknown',
+    message: 'A criação Zernio não retornou confirmação.',
+  }), false, 'o desfecho desconhecido da Zernio é terminal de propósito, para não duplicar post');
+});
+
 test('classifica somente os sinais terminais aprovados da Zernio', () => {
   assert.equal(isZernioTerminalAccountDisconnection({ errorCode: 'ACCOUNT_DISCONNECTED' }), true);
   assert.equal(isZernioTerminalAccountDisconnection({ errorMessage: 'auth_expired retornado pela Zernio' }), true);

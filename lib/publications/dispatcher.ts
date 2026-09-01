@@ -7,6 +7,7 @@ import {
 } from '@/lib/integrations/instagram-publisher';
 import { processZernioInstagramPublication } from '@/lib/integrations/zernio-publisher';
 import { PUBLICATION_MAX_ATTEMPTS } from '@/lib/publications/attempts';
+import { isPublicationInfrastructureError } from '@/lib/publications/infrastructure-error';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 type ClaimedItem = {
@@ -242,6 +243,31 @@ async function recoverUnexpectedDispatcherFailure(itemId: string, workerId: stri
   const original = errorInfo(error);
   const message = [original.message, original.details, original.hint].filter(Boolean).join(' — ').slice(0, 1200)
     || 'Falha inesperada ao processar o item.';
+
+  // Indisponibilidade de infraestrutura nunca vira falha terminal: o item é
+  // adiado 30 s e volta com a tentativa intacta. Este ramo faltava aqui — o
+  // worker da VPS tinha a guarda, este caminho não tinha nenhuma, e era o
+  // bastante para uma oscilação do banco apagar a publicação em definitivo.
+  if (isPublicationInfrastructureError(error)) {
+    const { error: deferError } = await supabase.rpc('defer_publication_infrastructure_failure', {
+      p_item_id: itemId,
+      p_worker_id: workerId,
+      p_error_code: original.code || 'publication_worker_cycle_failed',
+      p_error_message: message,
+      p_delay_seconds: 30,
+    });
+    if (deferError) {
+      // Se nem o adiamento persiste, o lease expira e o item volta pela
+      // reconciliação. Melhor repetir do que perder.
+      console.error('Não foi possível persistir o retry de infraestrutura; o lease será recuperado.', {
+        itemId,
+        original,
+        deferError: errorInfo(deferError),
+      });
+    }
+    return message;
+  }
+
   const { error: completionError } = await supabase.rpc('complete_publication_item', {
     p_item_id: itemId,
     p_worker_id: workerId,
