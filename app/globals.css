@@ -436,6 +436,7 @@ button:focus-visible { outline: 3px solid var(--purple-bright); outline-offset: 
 .media-card-state { display: flex; min-height: 21px; flex-wrap: wrap; gap: 5px; }
 .media-state-badge { padding: 4px 7px; border: 1px solid #55d19a66; border-radius: 999px; background: #103627; color: #b5f2d0; font-size: 10px; font-weight: 750; }
 .media-state-published { border-color: #55d19a66; background: #103627; color: #9be5bd; }
+.media-state-reprocessed { border-color: #9f4cff55; background: #221735; color: #d3b4ff; }
 .media-card-body h2 { overflow: hidden; margin: 0; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .media-card-body > p:not(.profile-error) { margin-top: 0; color: var(--text-subtle); font-size: 11px; }
 .media-card-body .media-group-picker { margin-top: 16px; }

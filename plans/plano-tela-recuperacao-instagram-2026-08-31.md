@@ -50,6 +50,7 @@ Este arquivo é o registro vivo.
 | 2026-08-31 | 6 | **Marco de mídia passou a ser automático** (`352`): a atribuição de mídia a um grupo grava o marco sozinha. Botão manual removido da tela. pgTAP 7/7. |
 | 2026-08-31 | 7 | Duas correções apontadas pelo operador na tela: linhas fora do corte de 25% **deixaram de bloquear a seleção** (só ficam esmaecidas, com etiqueta "só a 40%"), e a caixa de seleção **descolou** da tabela. |
 | 2026-08-31 | 6 | **Comum vs reprocessada resolvido sem tela nova** (`354`): inferido do nome do arquivo, que já traz a marca da ferramenta. Backfill: 205 reprocessadas e 712 comuns, zero sem classificação. |
+| 2026-08-31 | 7 | **Etiqueta "Reprocessada" na Galeria** e painel **"Como ler esta tela"** na Recuperação, explicando mediana, métrica julgada, melhor dia, coleta, julgáveis/parados, os dois níveis e o portão. |
 
 ---
 
@@ -837,6 +838,15 @@ função. Verificado que `auth.uid()` lê GUC de sessão e sobrevive ao `definer
       O botão manual saiu da tela; a rota `POST /api/recovery/milestones` continua existindo para
       correção. pgTAP **7/7**.
 
+### "Como ler esta tela"
+
+A tela ficou difícil de ler para quem não acompanhou a construção da régua — reclamação direta do
+operador. Entrou um painel colapsável logo abaixo dos cards (`<details>` nativo: colapsado custa uma
+linha, sem estado nem JavaScript) explicando em linguagem simples o que é **mediana do grupo**
+(o valor do meio, não a média, e por quê), **métrica julgada** (e por que ela troca de rótulo entre
+os dois níveis), **melhor dia** (o veto, e o que ele impede), **% da mediana**, **coleta**,
+**julgáveis e parados**, os dois níveis, o portão do Nível 2 e o botão 25%/40%.
+
 ### Comum vs reprocessada: resolvido pelo nome do arquivo
 
 Eu tinha deixado esse campo como `unknown`, achando que o sistema não teria como saber. **Tinha.**
@@ -855,6 +865,11 @@ reclassificado de uma vez. Lista canônica de marcadores em
 [lib/media/content-origin.ts](lib/media/content-origin.ts) (6 testes); backfill e derivação do tipo da
 leva na migration `354`. Resultado em produção: **205 reprocessadas, 712 comuns, zero sem
 classificação.**
+
+**A classificação ficou visível nos dois lugares.** Na Galeria, a mídia reconhecida como
+reprocessada ganha uma etiqueta roxa no card (distinta do verde de "Publicada"), com tooltip
+explicando que a marca veio do nome do arquivo. Na Recuperação, o rótulo do marco diz o tipo da leva.
+Sem isso a inferência seria uma caixa-preta — e um erro dela ficaria invisível.
 
 Uma leva que mistura os dois tipos vira `mixed`, e isso é deliberado: um marco misto não é legível
 para o experimento, e escolher um dos dois lados no par ou ímpar esconderia isso.

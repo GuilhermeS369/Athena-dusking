@@ -27,7 +27,7 @@ async function GalleryPageContent() {
   const [assetsResult, groupsResult, totalCountResult] = await Promise.all([
     supabase
       .from('media_assets')
-      .select('id, original_name, mime_type, kind, size_bytes, width, height, duration_ms, status, processing_error, storage_path, thumbnail_storage_path, first_published_at, created_at, updated_at')
+      .select('id, original_name, mime_type, kind, size_bytes, width, height, duration_ms, status, processing_error, storage_path, thumbnail_storage_path, first_published_at, content_origin, created_at, updated_at')
       .eq('organization_id', context.activeOrganization.id)
       .is('deleted_at', null)
       // Mesmo filtro de `list_gallery_media_ids`: sem isso, recarregar a página

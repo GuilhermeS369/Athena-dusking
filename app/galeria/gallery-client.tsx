@@ -36,6 +36,8 @@ type Asset = {
   thumbnail_url?: string | null;
   group_ids?: string[];
   first_published_at: string | null;
+  /** Inferido do nome do arquivo no upload (ver lib/media/content-origin.ts). */
+  content_origin?: "common" | "reprocessed" | null;
   publication_state?: {
     scheduled_count: number;
     next_scheduled_at: string | null;
@@ -2462,6 +2464,18 @@ export default function GalleryClient({
             {asset.first_published_at && (
               <span className="media-state-badge media-state-published">
                 Publicada
+              </span>
+            )}
+            {/* A marca vem do nome do arquivo, não de alguém preencher: a
+                ferramenta de camuflagem/espelhamento já nomeia assim. É o que
+                separa, na tela de Recuperação, "melhorou porque foi
+                reprocessada" de "melhorou porque era nova". */}
+            {asset.content_origin === "reprocessed" && (
+              <span
+                className="media-state-badge media-state-reprocessed"
+                title="Reconhecida como reprocessada pelo nome do arquivo (camuflado/espelhado). A tela de Recuperação usa isso para saber que tipo de leva entrou no grupo."
+              >
+                Reprocessada
               </span>
             )}
           </div>

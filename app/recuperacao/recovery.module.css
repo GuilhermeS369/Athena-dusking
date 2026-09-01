@@ -169,6 +169,46 @@
 .groupCount strong { color: var(--text); font-weight: 800; }
 
 /* ------------------------------------------------------------------ */
+/* "Como ler esta tela"                                                */
+/*                                                                      */
+/* <details> nativo: colapsado custa uma linha e não precisa de estado  */
+/* nem de JavaScript. Fica logo abaixo dos cards, que é onde alguém     */
+/* perdido olha primeiro.                                              */
+/* ------------------------------------------------------------------ */
+
+.legendPanel {
+  max-width: var(--rec-max-width); margin: 0 auto var(--rec-gap);
+  padding: 0; overflow: hidden;
+}
+.legendPanel > summary {
+  display: flex; align-items: center; gap: 9px;
+  padding: 13px 18px; color: var(--text-muted);
+  font-size: 12px; font-weight: 800; cursor: pointer; list-style: none;
+}
+.legendPanel > summary::-webkit-details-marker { display: none; }
+.legendPanel > summary::before {
+  content: '?'; display: grid; place-items: center;
+  width: 19px; height: 19px; flex: none;
+  border: 1px solid var(--rec-accent); border-radius: 50%;
+  color: var(--rec-accent); font-size: 11px; font-weight: 900;
+}
+.legendPanel > summary:hover { color: var(--text); }
+.legendPanel[open] > summary { border-bottom: 1px solid var(--rec-line-soft); }
+
+.legendBody { display: grid; gap: 14px; padding: 16px 18px 18px; }
+.legendGrid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+.legendItem {
+  display: grid; gap: 4px; padding: 12px 13px;
+  border: 1px solid var(--rec-line-soft); border-radius: var(--rec-inner-radius);
+  background: #12111a;
+}
+.legendItem dt { color: var(--text); font-size: 12px; font-weight: 800; }
+.legendItem dd { margin: 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.6; }
+.legendItem em { color: var(--text-subtle); font-style: normal; }
+.legendNote { color: var(--text-subtle); font-size: 11.5px; line-height: 1.65; }
+.legendNote strong { color: var(--text-muted); }
+
+/* ------------------------------------------------------------------ */
 /* Abas                                                                */
 /* ------------------------------------------------------------------ */
 

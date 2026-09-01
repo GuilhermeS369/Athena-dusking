@@ -757,6 +757,100 @@ export default function RecoveryClient({
               ))}
             </section>
 
+            {/* Como ler esta tela -------------------------------------------- */}
+            <details className={`panel ${styles.legendPanel}`}>
+              <summary>Como ler esta tela</summary>
+              <div className={styles.legendBody}>
+                <p className={styles.legendNote}>
+                  Tudo aqui é medido em <strong>views por post</strong> — views ÷ posts. Não é views
+                  totais de propósito: views totais medem há quanto tempo o perfil existe, não se ele
+                  entrega. Um perfil de 12 dias sempre teria mais views que um de 3.
+                </p>
+
+                <dl className={styles.legendGrid}>
+                  <div className={styles.legendItem}>
+                    <dt>Mediana do grupo</dt>
+                    <dd>
+                      O valor do <strong>meio</strong>: metade dos perfis do grupo entrega mais que
+                      isso, metade entrega menos. <em>Não é média</em> — dois perfis virais fazem 17%
+                      de todas as views e puxariam a média para cima, fazendo todo mundo parecer ruim.
+                      É contra ela que cada perfil é comparado, e ela se recalcula a cada rodada.
+                    </dd>
+                  </div>
+
+                  <div className={styles.legendItem}>
+                    <dt>Métrica julgada</dt>
+                    <dd>
+                      As views por post do perfil. <strong>Qual delas depende do nível:</strong> quem
+                      “nunca engrenou” é julgado pela janela toda (<em>vs</em>); quem “desabou” é
+                      julgado só pelos últimos 60 posts (<em>recente</em>). Por isso a coluna troca de
+                      rótulo de linha para linha.
+                    </dd>
+                  </div>
+
+                  <div className={styles.legendItem}>
+                    <dt>Melhor dia</dt>
+                    <dd>
+                      O melhor dia único que o perfil já teve, na mesma conta. É o{' '}
+                      <strong>veto</strong>: se ele já bateu a mediana do grupo em algum dia, não cai
+                      por “nunca engrenou” — já provou que consegue. É isso que impede a régua de
+                      condenar 42 perfis quando a mídia do grupo queima, em vez de 4.
+                    </dd>
+                  </div>
+
+                  <div className={styles.legendItem}>
+                    <dt>% da mediana</dt>
+                    <dd>
+                      A métrica julgada dividida pela mediana do grupo. Os dois risquinhos na barra
+                      são <strong>25%</strong> e <strong>40%</strong> — os dois cortes. Quanto menor,
+                      pior: 6% quer dizer que o perfil entrega 6% do que o perfil típico do grupo
+                      entrega.
+                    </dd>
+                  </div>
+
+                  <div className={styles.legendItem}>
+                    <dt>Coleta</dt>
+                    <dd>
+                      Há quantos dias os dados <em>daquele perfil</em> pararam de chegar. “Em dia”
+                      significa tudo coletado. Se atrasar, os números recentes caem por falta de dado
+                      e não por queda real — por isso um perfil com coleta atrasada não é acusado de
+                      “desabou”.
+                    </dd>
+                  </div>
+
+                  <div className={styles.legendItem}>
+                    <dt>Julgáveis e parados</dt>
+                    <dd>
+                      <strong>Julgáveis</strong> são os perfis com 60 posts ou mais: abaixo disso não
+                      há material para julgar. <strong>Parados</strong> são os que não postaram
+                      nenhum dia na janela — não dá para medir quem não postou.
+                    </dd>
+                  </div>
+                </dl>
+
+                <p className={styles.legendNote}>
+                  <strong>Os dois níveis.</strong> “Nunca engrenou” é o perfil que ficou abaixo do
+                  corte <em>e nunca teve um dia bom</em>. “Desabou” é o oposto: já teve dias bons e
+                  afundou nos últimos 60 posts. São as duas maneiras diferentes de um perfil estar
+                  queimado, e por isso são medidos de maneiras diferentes.
+                </p>
+
+                <p className={styles.legendNote}>
+                  <strong>Por que um grupo aparece com “Nível 2 desligado”.</strong> Quando a mediana
+                  recente do grupo inteiro cai abaixo de 60% do pico dele, não dá para separar “esta
+                  conta caiu” de “a mídia do grupo queimou” — e a régua prefere não opinar a acusar
+                  errado. Assim que a mídia nova levantar o grupo, o Nível 2 volta sozinho.
+                </p>
+
+                <p className={styles.legendNote}>
+                  <strong>O botão 25% / 40%</strong> é o quão aberta você deixa a régua, e vale só
+                  para “nunca engrenou”. A 25% entram só os piores; a 40% entram mais. Os dois totais
+                  aparecem lado a lado para você comparar antes de mover — e as linhas esmaecidas são
+                  as que só entram a 40%, mas dá para marcar mesmo assim.
+                </p>
+              </div>
+            </details>
+
             {/* Abas ---------------------------------------------------------- */}
             <nav className={styles.tabs} aria-label="Seções da recuperação">
               {([
