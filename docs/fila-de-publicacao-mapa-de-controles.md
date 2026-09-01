@@ -121,6 +121,68 @@ distribuição real antes de escolher.
 
 ---
 
+## 3-A. O INCIDENTE DE 31/08/2026 — leia antes de subir concorrência
+
+**3.315 publicações perdidas, 946 perfis, 20 horas sangrando.** Não foram
+atrasos: foram posts que nunca saíram, encerrados em definitivo com
+`retryable: false` na primeira tentativa. O usuário percebeu como intervalos de
+2 a 5 horas entre posts de um mesmo perfil.
+
+| hora (UTC) | taxa de perda |
+|---|---:|
+| até 31/08 14h | 0,0% |
+| 31/08 15h | 12,0% |
+| 31/08 20h | **19,7%** |
+| 01/09 03h–10h | 2,5–5,6% |
+
+### O gatilho
+
+Subir `STAGED_DISPATCH_CONCURRENCY` de 64 para **160**, em cima da medição de
+saturação da onda de 1.486 itens (`esperaPorSlot` p50 de 34 s). A leitura da
+saturação estava certa. A conclusão de que bastava dar mais vagas estava errada.
+
+`reserve_publication_dispatch_capacity` pega um **advisory lock por
+organização**, e uma onda inteira é de uma organização só. Os 160 despachos
+enfileiraram no mesmo lock, cada um segurando uma conexão enquanto esperava. O
+pool do Supabase esgotou: primeiro `statement timeout` (57014), depois
+`ConnectTimeoutError` — o banco recusando conexão nova.
+
+**A concorrência não virou vazão, virou espera dentro do banco em vez de espera
+dentro do worker.** E a vazão *caiu*: 1.566–1.989 publicações/hora durante o
+incidente, contra 2.200–2.400 normais.
+
+### O amplificador, que é o defeito de verdade
+
+Uma queda de conexão com o banco deveria ser adiada por 30 s com a tentativa
+intacta. Não foi, porque `isPublicationInfrastructureError` testava
+`error instanceof TypeError` — e **o supabase-js não propaga o TypeError
+original**: entrega um objeto simples
+`{ message: 'TypeError: fetch failed', details, hint, code: '' }`, que não é
+instância de `Error`. O texto "fetch failed" também não batia com nenhum termo
+da lista de mensagens. Statement timeout escapava disso só porque vem com
+`code: '57014'`.
+
+Pior: **o cron da Vercel não tinha guarda nenhuma**, nem quebrada. Dois
+despachantes com catch-alls idênticos, um só protegido.
+
+Corrigido em `lib/publications/infrastructure-error.ts`, agora módulo único para
+os dois caminhos, com `infrastructure-error.test.ts` comparando as duas
+implementações caso a caso.
+
+### A regra que fica
+
+**Não suba a concorrência de despacho sem fatiar o advisory lock por
+organização antes** (opção 3 da remediação de lock, ainda pendente). Enquanto
+ele serializar, subir daqui só troca uma fila visível no worker por uma fila
+invisível dentro do Postgres — e essa apaga publicação.
+
+E a lição de método, que é a terceira vez que aparece neste documento:
+**uma medição correta não valida a ação que você deduziu dela.** Eu tinha o
+número certo (`esperaPorSlot` saturado) e agi sem observar a janela depois de
+aplicar — justamente a etapa que o plano exige e que eu pulei porque o
+experimento anterior no mesmo parâmetro tinha sido inócuo.
+
+
 ## 4. COMO AUMENTAR A VELOCIDADE A PARTIR DAQUI
 
 Esta é a seção a ler quando a frota crescer. **Os tetos estão em ordem de quem
@@ -336,6 +398,7 @@ mexiam em **capacidade**, e a fila não estava esperando capacidade.
 | Experimento | Resultado |
 |---|---|
 | Concorrência do staged dispatch 32 → 64 | sem efeito (62 vs 69/min) |
+| **Concorrência do staged dispatch 64 → 160** | **causou o incidente de 31/08: 3.315 posts perdidos. Ver seção 3-A** |
 | Teto por organização no worker 300 → 600 | sem efeito (75 vs 81/min) |
 | Reduzir cessão do staging 3 → 1 | sem efeito na drenagem |
 | Teto por minuto no banco 200 → 600 | adiamentos zeraram, vazão não mudou |

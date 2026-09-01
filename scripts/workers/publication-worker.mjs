@@ -103,19 +103,33 @@ const stagedDispatchLimit = integerEnv('PUBLICATION_WORKER_STAGED_DISPATCH_LIMIT
 //
 // Em onda normal (~450 itens espalhados) essa espera e de 4 MILISSEGUNDOS. Com
 // 432 itens num unico ciclo ela vai a 34 SEGUNDOS de mediana: a concorrencia
-// satura, e cada item entra numa fila interna esperando vaga.
+// satura, e cada item entra numa fila interna esperando vaga. O efeito e
+// nao-linear: onda de 446 itens saiu a 665-891/min o dia inteiro; a de 1.486
+// caiu para 58/min. Nao e o formato - e o tamanho.
 //
-// O efeito e nao-linear e foi medido: onda de 446 itens saiu a 665-891/min o dia
-// inteiro; a de 1.486 caiu para 58/min, e os REELS da mesma janela cairam para
-// 17/min. Nao e o formato - e o tamanho.
+// NAO SUBA ESTE NUMERO SEM FATIAR O LOCK ANTES. Em 31/08 eu subi de 64 para 160
+// com base na medicao acima, e o resultado foi o pior incidente da fila ate hoje:
+// 3.315 publicacoes perdidas em 946 perfis, taxa de perda de 0,0% para 19,7% no
+// pico, sangrando por 20 horas. A leitura da saturacao estava certa; a conclusao
+// de que bastava dar mais vagas estava errada.
+//
+// O MOTIVO: `reserve_publication_dispatch_capacity` pega um advisory lock POR
+// ORGANIZACAO. Como uma onda inteira e de uma organizacao so, os 160 despachos
+// enfileiram no MESMO lock, e cada um segura uma conexao enquanto espera. O pool
+// do Supabase esgota, vem `statement timeout` (57014) e em seguida
+// `ConnectTimeoutError` - o banco parando de aceitar conexao nova. A concorrencia
+// nao virou vazao, virou espera dentro do banco em vez de espera dentro do worker.
+//
+// Ou seja: o teto real desta onda nao e o numero de vagas aqui, e a serializacao
+// no lock por organizacao. Enquanto ele nao for fatiado por hash de perfil (a
+// opcao 3 da remediacao de lock, ainda pendente), subir daqui so troca uma fila
+// visivel por uma fila invisivel dentro do Postgres - e essa apaga publicacao.
 //
 // NOTA SOBRE UM TESTE ANTERIOR: subir 32 -> 64 em 30/08 nao teve efeito nenhum, e
 // isso esta registrado em docs/fila-de-publicacao-mapa-de-controles.md como
-// experimento falho. A conclusao continua valida PARA AQUELE CONTEXTO: naquele
-// momento o spool vivia vazio por causa do cancelador cooperativo, entao a
-// concorrencia nunca era exercitada. Com o spool cheio, ela passou a ser o teto -
-// o experimento nao estava errado, as condicoes e que mudaram.
-const stagedDispatchConcurrency = integerEnv('PUBLICATION_WORKER_STAGED_DISPATCH_CONCURRENCY', 160, 1, 512);
+// experimento falho. Naquele momento o spool vivia vazio por causa do cancelador
+// cooperativo, entao a concorrencia nunca era exercitada.
+const stagedDispatchConcurrency = integerEnv('PUBLICATION_WORKER_STAGED_DISPATCH_CONCURRENCY', 64, 1, 512);
 const stagedDispatchLeaseSeconds = integerEnv('PUBLICATION_WORKER_STAGED_DISPATCH_LEASE_SECONDS', 900, 30, 900);
 // O valor padrão (180) e o teto (antes 200) vieram do plano de estabilização de
 // 27/08, quando o Supabase era Micro: era proteção do BANCO, não da Zernio.
