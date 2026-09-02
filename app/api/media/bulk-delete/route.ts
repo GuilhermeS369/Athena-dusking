@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
 import { removeMediaObjectsEverywhere } from '@/lib/storage/media-storage';
 
 const MAX_BULK_DELETE_SIZE = 100;
@@ -48,6 +49,32 @@ function parseFilters(body: BulkDeleteBody) {
   };
 }
 
+// O RPC de exclusão e o de enfileiramento pulam em silêncio a mídia reservada por
+// um agendamento em massa ainda ativo (`media_asset_is_in_active_generation_job`).
+// Quando a seleção inteira cai nesse caso, "nenhuma mídia disponível" não diz nada
+// ao operador: a mídia está na galeria, ele acabou de selecioná-la, e a fila do
+// grupo aparece concluída. Aqui separamos os dois motivos possíveis — a mídia já
+// não existe, ou continua presa a um plano — para que a mensagem aponte o caminho.
+async function describeSkippedAssets(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  organizationId: string,
+  skippedIds: string[],
+) {
+  if (!skippedIds.length) return null;
+  const { data, error } = await fetchAllRowsByIds<{ id: string }>(skippedIds, (chunk, from, to) => supabase
+    .from('media_assets')
+    .select('id')
+    .eq('organization_id', organizationId)
+    .is('deleted_at', null)
+    .in('id', chunk)
+    .order('id', { ascending: true })
+    .range(from, to));
+  if (error) return null;
+  const stillPresent = data.length;
+  if (!stillPresent) return null;
+  return `${stillPresent} mídia(s) continuam reservadas por um agendamento em massa que ainda não foi encerrado. Cancele o plano correspondente na fila de publicação e tente de novo.`;
+}
+
 async function deleteAssetsNow(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   organizationId: string,
@@ -65,7 +92,8 @@ async function deleteAssetsNow(
 
   const existingIds = assets.map((asset) => asset.media_asset_id);
   if (!existingIds.length) {
-    return NextResponse.json({ error: 'Nenhuma mídia selecionada está disponível para exclusão.' }, { status: 404 });
+    const reason = await describeSkippedAssets(supabase, organizationId, assetIds);
+    return NextResponse.json({ error: reason ?? 'Nenhuma mídia selecionada está disponível para exclusão.' }, { status: 404 });
   }
 
   const storagePaths = [...new Set(assets.flatMap((asset) => [
@@ -176,7 +204,10 @@ export async function POST(request: Request) {
   });
   if (jobError) return NextResponse.json({ error: jobError.message || 'Não foi possível criar a fila de exclusão.' }, { status: jobError.code === '42501' ? 403 : 400 });
   const job = ((jobRows ?? []) as DeleteJobResult[])[0];
-  if (!job?.total_count) return NextResponse.json({ error: 'Nenhuma mídia selecionada está disponível para exclusão.' }, { status: 404 });
+  if (!job?.total_count) {
+    const reason = await describeSkippedAssets(supabase, context.activeOrganization.id, assetIds);
+    return NextResponse.json({ error: reason ?? 'Nenhuma mídia selecionada está disponível para exclusão.' }, { status: 404 });
+  }
 
   return NextResponse.json({ queued: true, job: { id: job.job_id, totalCount: job.total_count }, queuedAssetIds: assetIds }, { status: 202 });
 }
