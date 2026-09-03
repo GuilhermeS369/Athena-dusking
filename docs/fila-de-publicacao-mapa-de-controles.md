@@ -523,6 +523,55 @@ telemetria de vaga do worker:
 erro de banco = contenção real; alto **e** com banco limpo = onda grande, que é
 o comportamento esperado.
 
+### Armadilha nº 4: `57014` quase nunca é sobre a quantidade que você contou
+
+O reflexo diante de um statement timeout é diminuir o lote. Às vezes resolve, e
+por isso a armadilha sobrevive: o custo real costuma escalar com **outra coisa**,
+e encolher o número que você estava olhando só empurra o problema.
+
+**Caso registrado — exclusão de 12 perfis, 03/09/2026.** A tela de Recuperação
+voltou "código 57014" sem enfileirar nada. Os números que estavam à mão diziam
+que era pequeno: 426 itens de fila abertos, 36 por perfil, fatia de 11 perfis.
+
+O custo não vinha dos itens. `contain_instagram_profile_for_removal` sincronizava
+o status de **todo lote que o perfil já tocou na vida**, e não só dos lotes cujos
+itens ela mexeu. Medido em produção para aqueles perfis:
+
+| | |
+|---|---|
+| lotes distintos por perfil | 12 |
+| desses, com item **aberto** | 2 |
+| desses, **já inteiramente terminais** | 10 |
+| tamanho dos 4 maiores | 30.096 / 24.000 / 15.480 / 14.400 itens |
+
+Lote inteiramente terminal é o pior caso de `sync_publication_batch_status`: os
+três `exists` dele só provam a ausência **varrendo o lote inteiro**. Só o
+primeiro dos três custava ~374 ms de servidor por perfil; vezes 11 perfis da
+fatia, ~4,1 s — e isso é um terço do trabalho. O laço fazia 132 sincronizações
+onde 2 bastavam.
+
+**O que fazer quando aparecer um `57014`:**
+
+1. **Meça o fan-out, não o lote.** Pergunte de quantas entidades o custo depende
+   de verdade — aqui era `perfis × lotes`, não `perfis` nem `itens`.
+2. **Desconfie de laço em cima de histórico.** `select distinct <fk> from <tabela
+   grande> where <entidade> = ...` percorre a vida inteira da entidade. Quase
+   sempre o certo é derivar a lista do que a própria operação **acabou de
+   alterar** — a CTE de `returning` já tem isso na mão.
+3. **Ache o precedente antes de inventar.** `suspend_offline_profile_publications`
+   (088) já coletava `affected_batch_ids` da CTE que suspendeu os itens. A
+   contenção da 342 era a exceção; a 362 alinhou as duas.
+4. **Índice é a última saída, não a primeira.** Um índice parcial em
+   `publication_items` deixaria o `exists` O(1) — e poria escrita a mais no
+   caminho mais quente da fila para acelerar chamadas que, corrigido o laço,
+   deixam de existir.
+
+**E deixe a rota sobreviver ao erro de estimativa.** O tamanho da fatia é sempre
+um palpite sobre custo. Em `app/api/profiles/bulk-delete/route.ts` uma fatia que
+volta erro de infraestrutura é partida no meio e tentada de novo, até um perfil
+por chamada — seguro porque o enfileiramento é idempotente. Sem isso, um palpite
+errado custa a operação inteira em vez de alguns segundos.
+
 ---
 
 ## 9. Experimentos que FALHARAM — não repita
