@@ -187,6 +187,7 @@ const UPLOAD_PROGRESS_INTERVAL_MS = 250;
 const UPLOAD_RETRY_BASE_DELAY_MS = 3_000;
 const UPLOAD_RETRY_MAX_DELAY_MS = 30_000;
 const THUMBNAIL_RECOVERY_DOWNLOAD_TIMEOUT_MS = 90_000;
+const THUMBNAIL_PROBE_TIMEOUT_MS = 15_000;
 const QUEUE_PREVIEW_SIZE = 16;
 
 type ThumbnailRecoveryFailure = { name: string; message: string };
@@ -2219,15 +2220,35 @@ export default function GalleryClient({
     // ocupa thumbnail_url normalmente, portanto verificar somente null nunca
     // encontraria os cartões exibidos como placeholder na galeria.
     if (!asset.thumbnail_url) return true;
+    // Único passo do fluxo que não tinha limite de tempo: uma resposta pendurada
+    // do storage travava a varredura inteira sem nada na tela explicando.
+    const controller = new AbortController();
+    const probeTimeout = window.setTimeout(
+      () => controller.abort(),
+      THUMBNAIL_PROBE_TIMEOUT_MS,
+    );
     try {
-      const response = await fetch(asset.thumbnail_url, { cache: "no-store" });
+      const response = await fetch(asset.thumbnail_url, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       if (!response.ok) return true;
       const image = await loadThumbnailImage(await response.blob());
       const canvas = document.createElement("canvas");
       canvas.width = 1;
       canvas.height = 1;
       const context = canvas.getContext("2d", { willReadFrequently: true });
-      if (!context) return false;
+      if (!context) {
+        // Sem canvas não dá para comparar o pixel médio, mas declarar a
+        // miniatura boa é justamente como uma falha do navegador virava um
+        // relatório de "0 de 0". As dimensões exatas do fallback ainda separam
+        // placeholder de frame real.
+        console.warn(
+          "[gallery] Canvas indisponível para inspecionar a miniatura; decidindo apenas pelas dimensões.",
+          { assetId: asset.id, name: asset.original_name },
+        );
+        return image.naturalWidth === 640 && image.naturalHeight === 360;
+      }
       context.drawImage(image, 0, 0, 1, 1);
       const [red, green, blue] = context.getImageData(0, 0, 1, 1).data;
       // createVideoFallbackThumbnail gera exatamente 640×360 com o fundo
@@ -2245,6 +2266,8 @@ export default function GalleryClient({
         { assetId: asset.id, name: asset.original_name, error },
       );
       return true;
+    } finally {
+      window.clearTimeout(probeTimeout);
     }
   }
 
@@ -2280,6 +2303,12 @@ export default function GalleryClient({
       let cursor: string | null = null;
       let hasMore = true;
       while (hasMore) {
+        // A fase vira "recovering" no fim de cada página e nunca voltava para
+        // "scanning": da segunda página em diante o contador de varredura sumia
+        // da tela e o painel ficava parado em "0 de 0" durante toda a busca
+        // restante, com a impressão de travamento mesmo trabalhando.
+        recovery.phase = "scanning";
+        setThumbnailRecovery({ ...recovery, failures: [...recovery.failures] });
         const response = await fetch(filterUrl(cursor), { cache: "no-store" });
         const payload = (await response.json()) as {
           assets?: Asset[];
