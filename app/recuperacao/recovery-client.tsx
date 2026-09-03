@@ -35,7 +35,36 @@ import styles from './recovery.module.css';
 /** Continuações aceitas num clique só; cada rodada custa até 45s no servidor. */
 const MAX_DELETE_ROUNDS = 6;
 
+/**
+ * Ritmo do acompanhamento da exclusão. A remoção é assíncrona: o cancelamento
+ * da fila acontece no clique, mas o perfil só sai do Athena depois que o worker
+ * confirma o DELETE na Zernio. Medido em 03/09/2026, 63 perfis levaram ~4 min.
+ * 5s dá movimento visível na barra sem transformar a tela num gerador de
+ * requisições.
+ */
+const REMOVAL_POLL_MS = 5_000;
+
 type Tab = 'eligible' | 'cohort' | 'history';
+
+type RemovalFailure = {
+  id: string;
+  profile_id: string | null;
+  username_snapshot: string | null;
+  connection_label_snapshot: string | null;
+  error_message: string | null;
+  updated_at: string;
+};
+
+type RemovalProgress = {
+  pending: number;
+  done: number;
+  failed: number;
+  total: number;
+  failures: RemovalFailure[];
+  pendingProfileIds: string[];
+  failedProfileIds: string[];
+  truncated: boolean;
+};
 
 type Props = {
   organizationName: string;
@@ -280,6 +309,17 @@ export default function RecoveryClient({
   const [deletePreview, setDeletePreview] = useState<Record<string, unknown> | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
 
+  const [removal, setRemoval] = useState<RemovalProgress | null>(null);
+  // Reinicia o acompanhamento na hora do envio, sem depender do array otimista
+  // como dependência do efeito (o que reiniciaria o laço a cada poda).
+  const [removalNonce, setRemovalNonce] = useState(0);
+  // Os ids que ACABARAM de ser enviados. Existem porque entre o clique e a
+  // primeira resposta do acompanhamento passam segundos, e nesse intervalo as
+  // linhas ficariam clicáveis de novo — que é exatamente o buraco que se está
+  // fechando. Some sozinho: quando o acompanhamento passa a listar o perfil (ou
+  // ele sai da lista por ter sido apagado), este conjunto deixa de importar.
+  const [justSubmitted, setJustSubmitted] = useState<string[]>([]);
+
   const skippedInitialFetch = useRef(false);
 
   const run = overview?.run ?? null;
@@ -300,6 +340,71 @@ export default function RecoveryClient({
     if (!response.ok) throw new Error(payload.error ?? 'Não foi possível carregar a esteira.');
     setCohort(payload.members ?? []);
   }, []);
+
+  const refreshCandidates = useCallback(async () => {
+    if (!run?.id) return;
+    const params = new URLSearchParams({ runId: run.id });
+    if (groupId !== 'all') params.set('groupId', groupId);
+    const response = await fetch(`/api/recovery/candidates?${params}`, { cache: 'no-store' });
+    const payload = await response.json() as {
+      candidates?: RecoveryCandidate[]; hasMore?: boolean; error?: string;
+    };
+    if (!response.ok) return;
+    setCandidates(payload.candidates ?? []);
+    setCandidatesHasMore(payload.hasMore ?? false);
+  }, [run?.id, groupId]);
+
+  /* --- Acompanhamento da exclusão ----------------------------------- */
+
+  // Roda ao montar (não só depois de clicar): a exclusão continua no worker
+  // mesmo com a aba fechada, então recarregar a página tem de reencontrar o
+  // andamento em vez de mostrar uma lista limpa e mentirosa.
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let anteriorPendente = 0;
+    // A janela do servidor é de 24 h, então `done` continua alto muito depois do
+    // fim. Sem isto a tela ficaria com um painel verde de "concluída" o dia
+    // inteiro. Mostra enquanto há o que acompanhar — e mantém o painel de pé até
+    // o fim se esta sessão chegou a ver algo pendente, para o operador ver a
+    // barra fechar em vez de ela sumir.
+    let viuPendente = false;
+
+    const tick = async () => {
+      try {
+        const response = await fetch('/api/profiles/removal-progress', { cache: 'no-store' });
+        if (!alive) return;
+        if (response.ok) {
+          const payload = await response.json() as RemovalProgress;
+          if (payload.pending > 0) viuPendente = true;
+          const vale = payload.pending > 0 || payload.failed > 0 || (viuPendente && payload.total > 0);
+          setRemoval(vale ? payload : null);
+          // Assim que o acompanhamento assume um perfil, a marcação otimista
+          // dele não é mais necessária. Devolver `current` quando nada muda
+          // evita re-render a cada 5 s por um array novo idêntico ao anterior.
+          setJustSubmitted((current) => {
+            const assumido = new Set([...payload.pendingProfileIds, ...payload.failedProfileIds]);
+            const restante = current.filter((id) => !assumido.has(id));
+            return restante.length === current.length ? current : restante;
+          });
+          // A lista só é recarregada quando algo de fato saiu: é o momento em
+          // que os perfis apagados deixam de ser candidatos (migration 363).
+          if (anteriorPendente > 0 && payload.pending < anteriorPendente) {
+            await Promise.all([refreshCandidates(), refreshOverview().catch(() => undefined)]);
+          }
+          anteriorPendente = payload.pending;
+          if (payload.pending === 0) { timer = null; return; }
+        }
+      } catch {
+        // Falha de rede no acompanhamento não pode derrubar a tela: a próxima
+        // volta tenta de novo, e a marcação otimista segura as linhas até lá.
+      }
+      if (alive) timer = setTimeout(() => { void tick(); }, REMOVAL_POLL_MS);
+    };
+
+    void tick();
+    return () => { alive = false; if (timer) clearTimeout(timer); };
+  }, [refreshCandidates, refreshOverview, removalNonce]);
 
   // Candidatos são buscados por execução e grupo. O ajuste 25%/40% NÃO entra
   // aqui de propósito: ele é filtro de cliente sobre o superconjunto já
@@ -383,10 +488,30 @@ export default function RecoveryClient({
     () => visibleCandidates.filter((candidate) => isOutOfCut(candidate)).length,
     [visibleCandidates, isOutOfCut],
   );
+  /**
+   * Perfis que estão saindo do Athena. Enquanto o worker não confirma o DELETE
+   * na Zernio o perfil continua existindo, então a régua continua listando ele
+   * — e sem isto a linha aceitaria "mandar para recuperação" e "cancelar fila"
+   * sobre algo que está deixando de existir.
+   */
+  const removingIds = useMemo(
+    () => new Set([...(removal?.pendingProfileIds ?? []), ...justSubmitted]),
+    [removal?.pendingProfileIds, justSubmitted],
+  );
+  const failedRemovalIds = useMemo(
+    () => new Set(removal?.failedProfileIds ?? []),
+    [removal?.failedProfileIds],
+  );
+  const removingVisibleCount = useMemo(
+    () => visibleCandidates.filter((candidate) => removingIds.has(candidate.profileId)).length,
+    [visibleCandidates, removingIds],
+  );
 
   const selectableIds = useMemo(
-    () => inCutCandidates.filter((candidate) => !candidate.alreadyInRecovery).map((c) => c.profileId),
-    [inCutCandidates],
+    () => inCutCandidates
+      .filter((candidate) => !candidate.alreadyInRecovery && !removingIds.has(candidate.profileId))
+      .map((c) => c.profileId),
+    [inCutCandidates, removingIds],
   );
   const selectedSet = useMemo(() => new Set(selection), [selection]);
   const selectedCandidates = useMemo(
@@ -394,7 +519,18 @@ export default function RecoveryClient({
     [candidates, selectedSet],
   );
 
+  // Quem entra em exclusão sai da seleção sozinho. Sem isto, um perfil marcado
+  // antes do clique continuaria contando na barra e iria junto na próxima ação.
+  useEffect(() => {
+    if (!removingIds.size) return;
+    setSelection((current) => {
+      const restante = current.filter((id) => !removingIds.has(id));
+      return restante.length === current.length ? current : restante;
+    });
+  }, [removingIds]);
+
   const toggleOne = (profileId: string, checked: boolean) => {
+    if (checked && removingIds.has(profileId)) return;
     setSelection((current) => (checked
       ? [...new Set([...current, profileId])]
       : current.filter((id) => id !== profileId)));
@@ -585,8 +721,17 @@ export default function RecoveryClient({
 
   const confirmDelete = async () => {
     setBusy('delete');
+    // Ids que a rota devolveu como NÃO enfileirados. Se a operação falhar no
+    // meio, só estes voltam a ser clicáveis — os que já entraram continuam
+    // travados, porque a exclusão deles está de pé.
+    let naoEnfileirados: string[] = [];
     try {
       const profileIds = [...selection];
+      // Trava as linhas ANTES da primeira requisição. A exclusão leva minutos e
+      // o acompanhamento só responde segundos depois; sem isto haveria uma
+      // janela em que o operador ainda consegue agir sobre os mesmos perfis.
+      setJustSubmitted((current) => [...new Set([...current, ...profileIds])]);
+      setRemovalNonce((value) => value + 1);
       // A rota fatia o enfileiramento para caber no statement_timeout do papel e
       // devolve `remaining` quando o orçamento de tempo dela acaba. Repetir um
       // perfil já enfileirado é inofensivo: volta como 'already_queued'.
@@ -599,11 +744,15 @@ export default function RecoveryClient({
           body: JSON.stringify({ profileIds: pendingIds, confirmation: deleteConfirmation }),
         });
         const payload = await response.json() as Partial<RemovalTotals> & { remaining?: string[]; error?: string };
-        if (!response.ok) throw new Error(payload.error ?? 'Falha ao excluir.');
+        if (!response.ok) {
+          naoEnfileirados = payload.remaining ?? pendingIds;
+          throw new Error(payload.error ?? 'Falha ao excluir.');
+        }
         totals = accumulateRemovalTotals(totals, payload);
         pendingIds = payload.remaining ?? [];
         if (!pendingIds.length) break;
         if (round >= MAX_DELETE_ROUNDS - 1) {
+          naoEnfileirados = pendingIds;
           throw new Error(`${pendingIds.length} perfil(is) ainda não foram enfileirados. Clique em excluir de novo para continuar de onde parou.`);
         }
       }
@@ -625,6 +774,10 @@ export default function RecoveryClient({
         text: `${payload.deletedLocal ?? 0} excluídos e ${payload.queued ?? 0} enfileirados na Zernio. A vaga só volta depois que o worker confirmar a remoção remota.`,
       });
     } catch (error) {
+      if (naoEnfileirados.length) {
+        const soltar = new Set(naoEnfileirados);
+        setJustSubmitted((current) => current.filter((id) => !soltar.has(id)));
+      }
       setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Falha ao excluir.' });
     } finally {
       setBusy(null);
@@ -706,6 +859,8 @@ export default function RecoveryClient({
             ) : null}
           </div>
         </header>
+
+        {removal ? <RemovalProgressPanel progress={removal} /> : null}
 
         {!run ? (
           <div className="empty-state">
@@ -948,9 +1103,11 @@ export default function RecoveryClient({
                       Selecionar os {numberFormat.format(selectableIds.length)} desta lista
                     </label>
                     <span className={styles.selectionHint}>
-                      {outOfCutCount > 0
-                        ? `${outOfCutCount} ${outOfCutCount === 1 ? 'perfil está' : 'perfis estão'} esmaecidos porque só entram com a régua a 40% — dá para marcar um a um mesmo assim.`
-                        : 'Perfis já na esteira não entram na seleção.'}
+                      {removingVisibleCount > 0
+                        ? `${removingVisibleCount} ${removingVisibleCount === 1 ? 'perfil está sendo excluído e está travado' : 'perfis estão sendo excluídos e estão travados'}.`
+                        : outOfCutCount > 0
+                          ? `${outOfCutCount} ${outOfCutCount === 1 ? 'perfil está' : 'perfis estão'} esmaecidos porque só entram com a régua a 40% — dá para marcar um a um mesmo assim.`
+                          : 'Perfis já na esteira não entram na seleção.'}
                     </span>
                   </div>
                 ) : null}
@@ -961,6 +1118,8 @@ export default function RecoveryClient({
                   canManage={canManage}
                   selectedSet={selectedSet}
                   onToggle={toggleOne}
+                  removingIds={removingIds}
+                  failedRemovalIds={failedRemovalIds}
                 />
 
                 {canManage && selection.length ? (
@@ -1162,14 +1321,96 @@ function GroupCard({
 /* Tabelas                                                             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Acompanhamento da exclusão.
+ *
+ * A exclusão é assíncrona e leva minutos: a fila é cancelada no clique, mas o
+ * perfil só sai do Athena depois que o worker confirma o DELETE na Zernio.
+ * Antes disto a tela não dizia nada e o operador ficava sem saber se estava
+ * andando, travado ou falhando — e as falhas não apareciam em lugar nenhum.
+ *
+ * A janela é de 24 h no servidor, então recarregar a página reencontra o
+ * andamento em vez de esconder o que continua acontecendo.
+ */
+function RemovalProgressPanel({ progress }: { progress: RemovalProgress }) {
+  const { pending, done, failed, total, failures, truncated } = progress;
+  const concluido = done + failed;
+  const percentual = total > 0 ? Math.round((concluido / total) * 100) : 0;
+  const emAndamento = pending > 0;
+
+  return (
+    <section className={`panel ${styles.removalPanel} ${failed ? styles.removalPanelFailed : ''}`}
+      aria-live="polite">
+      <div className={styles.removalHead}>
+        <span className={styles.removalTitle}>
+          {emAndamento ? (
+            <>
+              <i className={styles.removalSpinner} aria-hidden="true" />
+              Excluindo perfis do Athena + Zernio
+            </>
+          ) : failed ? 'Exclusão encerrada com falhas' : 'Exclusão concluída'}
+        </span>
+        <span className={styles.removalCounts}>
+          <strong>{numberFormat.format(concluido)}</strong> de {numberFormat.format(total)}
+          {failed ? <span className={styles.removalFailedCount}> · {numberFormat.format(failed)} com falha</span> : null}
+        </span>
+      </div>
+
+      <div className={styles.removalTrack}
+        role="progressbar" aria-valuenow={percentual} aria-valuemin={0} aria-valuemax={100}
+        aria-label="Andamento da exclusão">
+        {/* Duas faixas na mesma barra: o que saiu e o que falhou. Uma barra que
+            só cresce esconderia justamente a parte que precisa de ação. */}
+        <span className={styles.removalFillDone}
+          style={{ width: `${total > 0 ? (done / total) * 100 : 0}%` }} />
+        <span className={styles.removalFillFailed}
+          style={{ width: `${total > 0 ? (failed / total) * 100 : 0}%` }} />
+      </div>
+
+      <p className={styles.removalHint}>
+        {emAndamento
+          ? `${numberFormat.format(pending)} aguardando a confirmação da Zernio. A vaga da chave só volta depois disso — os perfis ficam travados na lista até lá.`
+          : failed
+            ? 'Os perfis abaixo não foram removidos na Zernio. Eles continuam ocupando vaga.'
+            : 'Todos os perfis saíram do Athena e da Zernio.'}
+      </p>
+
+      {truncated ? (
+        <p className="inline-message inline-message-neutral" role="status">
+          Há mais exclusões em andamento do que cabe numa resposta. Algumas linhas podem aparecer
+          destravadas sem estar — recarregue depois que a barra chegar ao fim antes de agir em massa.
+        </p>
+      ) : null}
+
+      {failures.length ? (
+        <ul className={styles.removalFailures}>
+          {failures.map((failure) => (
+            <li key={failure.id}>
+              <strong>@{failure.username_snapshot ?? 'perfil sem nome'}</strong>
+              {failure.connection_label_snapshot ? (
+                <span className={styles.removalFailureKey}>{failure.connection_label_snapshot}</span>
+              ) : null}
+              <span className={styles.removalFailureReason}>
+                {failure.error_message ?? 'A Zernio recusou a remoção e o pedido esgotou as tentativas.'}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
 function CandidatesTable({
-  candidates, isOutOfCut, canManage, selectedSet, onToggle,
+  candidates, isOutOfCut, canManage, selectedSet, onToggle, removingIds, failedRemovalIds,
 }: {
   candidates: RecoveryCandidate[];
   isOutOfCut: (candidate: RecoveryCandidate) => boolean;
   canManage: boolean;
   selectedSet: Set<string>;
   onToggle: (profileId: string, checked: boolean) => void;
+  removingIds: Set<string>;
+  failedRemovalIds: Set<string>;
 }) {
   if (!candidates.length) {
     return (
@@ -1204,19 +1445,32 @@ function CandidatesTable({
               const collapsed = candidate.reason === 'collapsed';
               const selected = selectedSet.has(candidate.profileId);
               const stale = (candidate.staleDays ?? 0) > 2;
+              const removing = removingIds.has(candidate.profileId);
+              const removalFailed = failedRemovalIds.has(candidate.profileId);
+              // Um perfil em exclusão não aceita ação nenhuma: ele está deixando
+              // de existir, e "mandar para recuperação" ou "cancelar fila" em
+              // cima dele agiria sobre algo que já foi.
+              const locked = candidate.alreadyInRecovery || removing;
               return (
                 <tr key={candidate.profileId}
-                  className={`${selected ? styles.listRowSelected : ''} ${outOfCut ? styles.listRowOutOfCut : ''}`}>
+                  className={[
+                    selected ? styles.listRowSelected : '',
+                    outOfCut ? styles.listRowOutOfCut : '',
+                    removing ? styles.listRowRemoving : '',
+                    removalFailed ? styles.listRowRemovalFailed : '',
+                  ].filter(Boolean).join(' ')}>
                   {canManage ? (
                     <td className={styles.checkboxCell}>
                       <span className={styles.checkbox}>
-                        <input type="checkbox" checked={selected}
-                          disabled={candidate.alreadyInRecovery}
-                          title={candidate.alreadyInRecovery
-                            ? 'Este perfil já está na esteira de recuperação.'
-                            : outOfCut
-                              ? 'Fora do corte de 25%. Dá para marcar mesmo assim — a régua é recomendação, não trava.'
-                              : undefined}
+                        <input type="checkbox" checked={selected && !removing}
+                          disabled={locked}
+                          title={removing
+                            ? 'Este perfil está sendo excluído do Athena e da Zernio.'
+                            : candidate.alreadyInRecovery
+                              ? 'Este perfil já está na esteira de recuperação.'
+                              : outOfCut
+                                ? 'Fora do corte de 25%. Dá para marcar mesmo assim — a régua é recomendação, não trava.'
+                                : undefined}
                           onChange={(event) => onToggle(candidate.profileId, event.target.checked)}
                           aria-label={`Selecionar @${candidate.username}`} />
                       </span>
@@ -1224,10 +1478,18 @@ function CandidatesTable({
                   ) : null}
                   <td className={styles.identityCell}>
                     <span className={styles.identity}>
-                      {candidate.newSincePrevious ? <i className={styles.newDot} title="Novo desde a rodada anterior" /> : null}
+                      {candidate.newSincePrevious && !removing
+                        ? <i className={styles.newDot} title="Novo desde a rodada anterior" /> : null}
                       <span className={styles.identityName}>
                         <strong>@{candidate.username}</strong>
-                        {candidate.alreadyInRecovery ? (
+                        {removing ? (
+                          <span className={styles.removingTag}>
+                            <i className={styles.removingDot} aria-hidden="true" />
+                            excluindo…
+                          </span>
+                        ) : removalFailed ? (
+                          <span className={styles.removalFailedTag}>falha ao excluir</span>
+                        ) : candidate.alreadyInRecovery ? (
                           <span className={styles.identityMeta}>já na esteira</span>
                         ) : null}
                       </span>
