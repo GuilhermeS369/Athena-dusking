@@ -183,6 +183,84 @@ aplicar — justamente a etapa que o plano exige e que eu pulei porque o
 experimento anterior no mesmo parâmetro tinha sido inócuo.
 
 
+## 3-B. O INCIDENTE DE 02/09/2026 — o teto por minuto TAMBÉM é um controle de conexão
+
+**O painel inteiro parou em "carregando" por horas.** O Supabase acusou 99,1% de
+erro no banco — 70.507 no intervalo das 21h. Não foi lentidão: a API de dados
+parou de responder por completo, inclusive para um `select id from organizations
+limit 1`.
+
+### A cadeia, na ordem em que o log do worker registra
+
+| # | Sintoma | Onde aparece |
+|---|---|---|
+| 1 | `PGRST002` — "Could not query the database for the schema cache. Retrying." | linha 2.546 |
+| 2 | `PGRST003` — "Timed out acquiring connection from connection pool." | linha 20.780 |
+| 3 | `ConnectTimeoutError` (UND_ERR_CONNECT_TIMEOUT) contra `172.64.149.246:443` | 1.746× no trecho final |
+
+O terceiro é o mesmo desfecho do incidente de 31/08, e o IP é o do próprio
+projeto Supabase (confirmado por `getent hosts`): a API deixou de **aceitar
+conexão TCP**. O painel foi a última vítima, não a primeira.
+
+`authenticator` ficou cravada em **41 conexões** e não drenou nem depois de
+parar todos os workers. Só voltou (41 → 3) com restart do projeto. Trate 41 como
+o teto prático do pool.
+
+### O gatilho
+
+Subir `max_provider_publications_per_minute` da Zernio de 600 para **1200**
+(migration 355, 02/09 10:47), com uma onda de agendamento em massa à noite.
+
+### Por que a premissa da 355 estava errada
+
+A 355 argumentou que era seguro porque *"este teto NÃO controla paralelismo …
+subir o teto só faz o sistema parar de ADIAR — não abre uma conexão a mais"*.
+A primeira metade é verdadeira e a conclusão não segue dela.
+
+`reserve_publication_dispatch_capacity` pega o advisory lock por (organização,
+provedor) na **linha 140**, e só compara contra o teto na **linha 261** — ou
+seja, todo despacho enfileira no lock *antes* de saber se tem capacidade. O que
+o teto muda não é quantos chegam ao lock, é **quanto trabalho cada um faz
+segurando o lock**: rejeitado solta rápido, aceito percorre o caminho completo
+de inserção.
+
+E a seção 3-A já dá a fórmula que fecha a conta: *"o teto real que ele impõe é
+1000/T por segundo, onde T é o tempo segurando o lock."* Dobrar o teto dobra a
+proporção de chamadas que pagam o T cheio. A fila dentro do Postgres cresce,
+cada um esperando segura uma conexão do pool, e o pool acaba.
+
+**O teto por minuto não abre conexão. Ele alonga o tempo de posse do lock que
+serializa todas elas — e é isso que consome o pool.** Com 600, as reservas em
+voo (300 s) encostavam no teto e o pipeline pausava; essa pausa era um freio de
+contenção que ninguém tinha percebido que existia.
+
+### O agravante: o cache de schema não tem conexão reservada
+
+As migrations 356/357/358 foram aplicadas no mesmo dia. Todo DDL dispara um
+reload do cache de schema do PostgREST, e esse reload disputa o mesmo pool que
+já estava esgotado — daí o PGRST002 **antes** do PGRST003. Sem cache, o PostgREST
+não serve nada, tenta de novo em laço, e o laço segura conexão: o pool nunca
+esvazia, o cache nunca carrega. Só restart quebra o ciclo.
+
+**Não aplique DDL com a fila sob carga.** Um `create or replace function`
+inofensivo, na hora errada, é o que transforma pool apertado em queda total.
+
+### A regra que fica
+
+A dimensão que faltava nas duas vezes é a mesma: **o pool do Supabase (~41) é
+menor do que o paralelismo que a frota está provisionada para gerar.** Um único
+`athena-publication-worker` roda hoje com 64 de despacho + 8 de staging + 8 de
+preparação = **80 requisições simultâneas possíveis** — e ainda concorrem 4
+instâncias do worker do Twitter, o cron da Vercel e o painel.
+
+Antes de mexer em qualquer botão de capacidade, some o paralelismo de TODA a
+frota e compare com 41. Se a soma passar, o botão não é de vazão: é de risco.
+
+O conserto durável continua sendo o mesmo pendente da seção 3-A — **fatiar o
+advisory lock por organização**. Enquanto ele serializar, tanto a concorrência
+quanto o teto por minuto são maneiras diferentes de encher o mesmo funil.
+
+
 ## 4. COMO AUMENTAR A VELOCIDADE A PARTIR DAQUI
 
 Esta é a seção a ler quando a frota crescer. **Os tetos estão em ordem de quem
@@ -299,6 +377,12 @@ mudar só o `.env` deixa o repositório mentindo.
 | `PUBLICATION_WORKER_STAGED_DISPATCH_CONCURRENCY` | 64 | paralelismo (spool) |
 | `PUBLICATION_WORKER_STAGED_MAX_PER_ORGANIZATION_PER_MINUTE` | 600 | teto de seleção por org |
 | `PUBLICATION_WORKER_ADAPTIVE_COLLAPSE_RATIO` | 0.1 | ver abaixo |
+
+⚠️ **Some antes de somar vagas.** O pool do PostgREST teto em ~41 conexões
+(medido no incidente de 02/09 — ver seção 3-B). Só este worker já soma 64+8+8 =
+80 requisições simultâneas possíveis, e ainda concorrem os 4 workers do Twitter,
+o cron da Vercel e o painel. Vaga a mais aqui não é vazão: é uma conexão a mais
+disputando um pool que já não cabe.
 
 ### Zernio
 
