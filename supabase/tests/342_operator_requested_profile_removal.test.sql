@@ -25,7 +25,7 @@ select extensions.ok(
 select extensions.ok(
   not has_function_privilege(
     'authenticated',
-    'public.contain_instagram_profile_for_removal(uuid,uuid,uuid,text,text,text,boolean)',
+    'public.contain_instagram_profile_for_removal(uuid,uuid,uuid,text,text,text,boolean,boolean)',
     'EXECUTE'
   ),
   'contenção direta não é exposta ao usuário autenticado'

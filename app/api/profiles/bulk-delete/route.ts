@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { softDeleteProfileAnalytics } from '@/lib/integrations/zernio-analytics';
 import { getOrganizationContext } from '@/lib/organizations/server';
+import { isPublicationInfrastructureError } from '@/lib/publications/infrastructure-error';
 import {
   MAX_BULK_PROFILE_DELETE,
   MAX_FILTER_PROFILE_DELETE,
@@ -179,16 +180,35 @@ export async function POST(request: Request) {
   const rows: ProfileRemovalRow[] = [];
   const chunkDurationsMs: number[] = [];
   let remaining: string[] = [];
+  let splits = 0;
+  let attempts = 0;
 
-  for (let index = 0; index < chunks.length; index += 1) {
-    if (index > 0 && Date.now() - startedAt > WALL_BUDGET_MS) {
-      remaining = chunks.slice(index).flat();
+  // A fila é mutável de propósito: uma fatia que estoura o statement_timeout é
+  // partida no meio e tentada de novo, em vez de derrubar a operação inteira.
+  // Repetir um perfil já enfileirado é inofensivo — o incidente tem unique
+  // (organization_id, profile_id) e o job tem unique (incident_id), então a
+  // repetição volta como 'already_queued'.
+  //
+  // Isto existe porque o tamanho da fatia é uma ESTIMATIVA: profileRemovalChunkSize
+  // olha a média de itens abertos, e o custo real depende também de quantos
+  // batches distintos os itens tocam. Em 03/09/2026 a estimativa deu 11 perfis
+  // por chamada e a chamada morreu em 57014 sem enfileirar nada. A migration 362
+  // tirou o trabalho inútil que causou aquele caso; este laço é o que impede que
+  // a próxima estimativa errada volte a custar a operação toda.
+  const queue = [...chunks];
+  let index = 0;
+
+  while (index < queue.length) {
+    if (attempts > 0 && Date.now() - startedAt > WALL_BUDGET_MS) {
+      remaining = queue.slice(index).flat();
       break;
     }
+    const chunk = queue[index];
     const chunkStartedAt = Date.now();
+    attempts += 1;
     const { data: chunkRows, error: enqueueError } = await supabase.rpc('enqueue_instagram_profile_removal', {
       p_organization_id: organizationId,
-      p_profile_ids: chunks[index],
+      p_profile_ids: chunk,
       p_actor_label: actorLabel,
     });
     chunkDurationsMs.push(Date.now() - chunkStartedAt);
@@ -199,8 +219,9 @@ export async function POST(request: Request) {
       console.error('Falha ao enfileirar remoção de perfis.', {
         organizationId,
         chunkIndex: index,
-        chunkSize: chunks[index].length,
+        chunkSize: chunk.length,
         chunkDurationsMs,
+        splits,
         code: enqueueError.code,
         message: enqueueError.message,
         details: enqueueError.details,
@@ -208,6 +229,16 @@ export async function POST(request: Request) {
       });
       if (enqueueError.code === '42501') {
         return NextResponse.json({ error: 'Somente administradores e operadores podem excluir perfis.' }, { status: 403 });
+      }
+      // Erro de infraestrutura (timeout, deadlock, queda de conexão) numa fatia
+      // com mais de um perfil é sinal de fatia grande demais, não de exclusão
+      // impossível. Um perfil sozinho que ainda assim estoura é falha de verdade
+      // e vai para a resposta.
+      if (isPublicationInfrastructureError(enqueueError) && chunk.length > 1) {
+        const half = Math.ceil(chunk.length / 2);
+        queue.splice(index, 1, chunk.slice(0, half), chunk.slice(half));
+        splits += 1;
+        continue;
       }
       const partial = summarizeRemovalRows(rows);
       const done = partial.queued + partial.alreadyQueued + partial.deletedLocal;
@@ -217,11 +248,12 @@ export async function POST(request: Request) {
           ? `${done} perfil(is) foram enfileirados antes da falha. O restante não saiu (código ${enqueueError.code ?? 'desconhecido'}); tente de novo para continuar de onde parou.`
           : `Não foi possível excluir os perfis selecionados (código ${enqueueError.code ?? 'desconhecido'}).`,
         code: enqueueError.code ?? null,
-        remaining: chunks.slice(index).flat(),
+        remaining: queue.slice(index).flat(),
         summary,
       }, { status: 500 });
     }
     rows.push(...((chunkRows ?? []) as ProfileRemovalRow[]));
+    index += 1;
   }
 
   const outcomes = summarizeRemovalRows(rows);
@@ -234,7 +266,15 @@ export async function POST(request: Request) {
 
   if (remaining.length) {
     console.warn('Remoção de perfis interrompida pelo orçamento de tempo da rota.', {
-      organizationId, processed: rows.length, remaining: remaining.length, chunkDurationsMs,
+      organizationId, processed: rows.length, remaining: remaining.length, chunkDurationsMs, splits,
+    });
+  }
+  if (splits) {
+    // Não é erro, mas é o sinal de que a estimativa de fatia está grande demais
+    // para este acervo. Se aparecer sempre, é caso de baixar o orçamento.
+    console.warn('Fatia de remoção precisou ser dividida.', {
+      organizationId, splits, profileCount: profileIds.length,
+      pendingItemCount: summary.pendingItemCount, chunkDurationsMs,
     });
   }
 
