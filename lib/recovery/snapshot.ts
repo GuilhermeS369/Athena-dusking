@@ -103,6 +103,10 @@ export type RecoveryOverview = {
     eligible25: number;
     eligible40: number;
     newSincePrevious: number;
+    /** Quantos a régua marcou na rodada, sem descontar quem saiu depois. */
+    markedInRun: number;
+    /** Marcados que já não existem mais — exclusão, na prática. */
+    goneSinceRun: number;
   };
   groups: RecoveryGroupCard[];
 };
@@ -236,6 +240,8 @@ export function normalizeRecoveryOverview(payload: OverviewPayload): RecoveryOve
       eligible25: int(totals.eligible25),
       eligible40: int(totals.eligible40),
       newSincePrevious: int(totals.newSincePrevious),
+      markedInRun: int(totals.markedInRun),
+      goneSinceRun: int(totals.goneSinceRun),
     },
     groups: groups.map((group) => ({
       groupId: String(group.group_id),

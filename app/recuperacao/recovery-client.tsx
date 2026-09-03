@@ -1120,6 +1120,8 @@ export default function RecoveryClient({
                   onToggle={toggleOne}
                   removingIds={removingIds}
                   failedRemovalIds={failedRemovalIds}
+                  markedInRun={totals?.markedInRun ?? 0}
+                  goneSinceRun={totals?.goneSinceRun ?? 0}
                 />
 
                 {canManage && selection.length ? (
@@ -1403,6 +1405,7 @@ function RemovalProgressPanel({ progress }: { progress: RemovalProgress }) {
 
 function CandidatesTable({
   candidates, isOutOfCut, canManage, selectedSet, onToggle, removingIds, failedRemovalIds,
+  markedInRun, goneSinceRun,
 }: {
   candidates: RecoveryCandidate[];
   isOutOfCut: (candidate: RecoveryCandidate) => boolean;
@@ -1411,8 +1414,28 @@ function CandidatesTable({
   onToggle: (profileId: string, checked: boolean) => void;
   removingIds: Set<string>;
   failedRemovalIds: Set<string>;
+  markedInRun: number;
+  goneSinceRun: number;
 }) {
   if (!candidates.length) {
+    // Um zero sem explicação parece defeito. Quando a régua marcou gente e ela
+    // saiu depois (exclusão), a tela precisa dizer isso — foi exatamente a
+    // pergunta "diz 43 e não tem nada embaixo".
+    if (goneSinceRun > 0) {
+      return (
+        <div className="empty-state">
+          <span className="empty-state-icon" aria-hidden="true">✓</span>
+          <h2>Nada a fazer nesta rodada</h2>
+          <p>
+            A régua marcou {numberFormat.format(markedInRun)}{' '}
+            {markedInRun === 1 ? 'perfil' : 'perfis'} nesta análise, e{' '}
+            {numberFormat.format(goneSinceRun)} já {goneSinceRun === 1 ? 'saiu' : 'saíram'} do Athena.
+            Clique em <strong>Recalcular</strong> para a régua olhar o estado de hoje — as medianas
+            e o pico dos cartões continuam sendo os da análise antiga.
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="empty-state">
         <span className="empty-state-icon" aria-hidden="true">✓</span>
