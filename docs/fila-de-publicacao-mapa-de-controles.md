@@ -172,9 +172,15 @@ implementações caso a caso.
 ### A regra que fica
 
 **Não suba a concorrência de despacho sem fatiar o advisory lock por
-organização antes** (opção 3 da remediação de lock, ainda pendente). Enquanto
+organização antes** (opção 3 da remediação de lock). Enquanto
 ele serializar, subir daqui só troca uma fila visível no worker por uma fila
 invisível dentro do Postgres — e essa apaga publicação.
+
+> **Atualização de 03/09/2026:** o lock foi fatiado (migration 360), depois de a
+> seção 3-B mostrar que o teto por minuto chegava ao mesmo funil por outro
+> caminho. A pré-condição desta regra está cumprida — mas *cumprida* não é
+> *validada*: até uma onda grande passar com `esperaPorSlot` em milissegundos,
+> a concorrência continua onde está.
 
 E a lição de método, que é a terceira vez que aparece neste documento:
 **uma medição correta não valida a ação que você deduziu dela.** Eu tinha o
@@ -256,9 +262,18 @@ instâncias do worker do Twitter, o cron da Vercel e o painel.
 Antes de mexer em qualquer botão de capacidade, some o paralelismo de TODA a
 frota e compare com 41. Se a soma passar, o botão não é de vazão: é de risco.
 
-O conserto durável continua sendo o mesmo pendente da seção 3-A — **fatiar o
-advisory lock por organização**. Enquanto ele serializar, tanto a concorrência
-quanto o teto por minuto são maneiras diferentes de encher o mesmo funil.
+O conserto durável era o mesmo pendente da seção 3-A — **fatiar o advisory lock
+por organização** —, e foi feito na mesma madrugada: migration 360, lock por
+(organização, provedor, balde) com o balde derivado do perfil.
+
+A cota **não** foi dividida junto, ao contrário do esboço original. Dividir 600
+em 8 baldes daria 75 cada, e uma onda balanceada de 733 itens dá ~92 por balde:
+passaria a adiar *antes* do que o teto único adia — regressão de vazão vendida
+como correção de contenção. O preço de manter a cota global é que até N−1
+transações leem a mesma contagem e passam juntas, ~1% acima do teto, sem
+acumular.
+
+Reverter é um UPDATE: `dispatch_lock_shards = 1` devolve o lock único.
 
 
 ## 4. COMO AUMENTAR A VELOCIDADE A PARTIR DAQUI
@@ -408,6 +423,7 @@ disputando um pool que já não cabe.
 | Onde | Valor | Cuidado |
 |---|---:|---|
 | `publication_rate_limit_settings.max_provider_publications_per_minute` (zernio) | 600 | **não é vazão pura** |
+| `publication_rate_limit_settings.dispatch_lock_shards` | 8 | baldes do advisory lock, **não** divide a cota |
 
 ⚠️ Esse teto é comparado contra *publicados no último minuto* **mais as reservas
 ativas**. Cada publicação/minuto custa ~4 unidades por causa dos itens em voo.

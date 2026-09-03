@@ -119,10 +119,11 @@ devolvido no retorno da função e registrado no log do worker. É aditivo.
 - [x] **8. Testes** cobrindo a aritmética do balde e a preservação da cota
 - [x] **9. `npx tsc --noEmit` e `npm test` limpos**
 - [x] **10. Aplicar em produção** com a fila vazia
-- [ ] **11. Validar** que a fila continua publicando e o `esperaPorSlot` caiu
-- [ ] **12. Commit** com o raciocínio registrado
-- [ ] **13. Atualizar o mapa de controles** com o resultado
-- [ ] **14. Corrigir a premissa da tarefa agendada das 07:30**, que ainda
+- [~] **11. Validar** — PARCIAL: sem regressão, mas o volume até agora não
+      exercita o lock. A validação real é a onda das 07:00.
+- [x] **12. Commit** com o raciocínio registrado
+- [x] **13. Atualizar o mapa de controles** com o resultado
+- [x] **14. Corrigir a premissa da tarefa agendada das 07:30**, que ainda
       descreve o teto como 1200
 
 ## Registro de execução
@@ -170,6 +171,18 @@ qualquer forma.
 
 Aplicada as 01:0x UTC com 87 vencidos e **0 em voo** — nenhuma transacao de
 despacho no meio da troca, que era a mitigacao do achado nº 4 da revisao.
+
+### Etapas 12-14 (feitas)
+
+12. Commit `c500892`.
+13. Mapa de controles atualizado: a regra da 3-A deixou de apontar para um
+    pendente, o fecho da 3-B registra o que foi feito e por que a cota nao foi
+    dividida, e `dispatch_lock_shards` entrou na tabela "No BANCO, nao em env".
+14. A tarefa das 07:30 foi reescrita. A premissa antiga (teto 1200, lock unico)
+    descrevia um mundo que nao existe mais; agora ela mede o fatiamento, tem o
+    incidente no contexto, a linha de base do log em 112.934, e o
+    `esperaPorSlot` como sinal principal contra os 5.653 ms medidos. A tarefa
+    das 21:35 foi arquivada.
 
 ### Etapa 11 — validacao (PARCIAL, e e importante dizer isso)
 
