@@ -22,6 +22,7 @@
     "worker:zernio-sync": "node scripts/workers/zernio-sync-worker.mjs",
     "worker:zernio-sync:once": "node scripts/workers/zernio-sync-worker.mjs --once",
     "worker:operational-health": "node scripts/workers/validate-operational-health.mjs",
+    "monitor:queue": "node scripts/workers/queue-health-monitor.mjs",
     "worker:publication-telemetry": "node scripts/workers/validate-publication-dispatch-telemetry.mjs",
     "worker:twitter:publication": "node scripts/workers/twitter-worker.mjs --role=publication",
     "worker:twitter:publication:once": "node scripts/workers/twitter-worker.mjs --role=publication --once",

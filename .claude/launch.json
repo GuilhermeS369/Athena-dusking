@@ -4,8 +4,20 @@
     {
       "name": "pomodoro-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3000
+    },
+    {
+      "name": "queue-health-monitor",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "monitor:queue"
+      ],
+      "port": 4599
     }
   ]
 }
