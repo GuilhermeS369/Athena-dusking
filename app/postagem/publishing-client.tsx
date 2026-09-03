@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useMemo, useRef, useState } from 'react';
 import { BulkPlanProgressFeed } from '@/app/components/bulk-plan-progress-list';
 import { formatSaoPauloDateTime, ScheduledCountsByFormat, ScheduledSlotsByFormat } from '@/lib/publications/composer';
 import { ProfilePublicationMetrics } from '@/lib/publications/composer';
@@ -26,10 +26,15 @@ type Profile = {
   scheduled_post_count: number;
   scheduled_by_time: Record<string, number>;
   scheduled_by_format_and_time: ScheduledCountsByFormat;
+  // Preenchidos sob demanda, depois de escolher o destino — nunca vêm do SSR.
   scheduled_execute_ats?: string[];
   scheduled_execute_ats_by_format?: ScheduledSlotsByFormat;
   publication_metrics?: ProfilePublicationMetrics;
 };
+
+type SlotsResponse = { slots?: Record<string, ScheduledSlotsByFormat>; error?: string };
+
+const composerFormats: Array<keyof ScheduledSlotsByFormat> = ['reel', 'story', 'image', 'carousel'];
 
 type Group = {
   id: string;
@@ -145,13 +150,36 @@ export default function PublishingClient({
   // Confirmar uma programação em massa não recarregava o feed abaixo: ele só
   // buscava na montagem da página, então o lote novo "sumia" até um F5.
   const [bulkFeedRefreshSignal, setBulkFeedRefreshSignal] = useState(0);
+  // A agenda ocupada de cada perfil não vem no SSR: eram 13,8 MiB de props para
+  // 1.401 perfis, e ela só é usada depois que existe um destino. Carregada aqui
+  // para os perfis do destino escolhido, e nunca para a organização inteira.
+  const [slotsByProfileId, setSlotsByProfileId] = useState<Record<string, ScheduledSlotsByFormat>>({});
+  const [slotsState, setSlotsState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  // Trocar de destino durante uma busca em andamento não pode deixar a resposta
+  // antiga chegar depois e virar a agenda do destino novo.
+  const slotsRequestRef = useRef(0);
+
+  const composerProfiles = useMemo(() => profiles.map((profile) => {
+    const byFormat = slotsByProfileId[profile.id];
+    if (!byFormat) return profile;
+    return {
+      ...profile,
+      scheduled_execute_ats_by_format: byFormat,
+      // O array plano é a união exata dos quatro formatos, então a API não o
+      // transporta — seria o mesmo conjunto duas vezes. A ordem aqui não
+      // importa: todo consumidor em lib/publications/composer.ts o converte
+      // para Set antes de usar.
+      scheduled_execute_ats: composerFormats.flatMap((format) => byFormat[format] ?? []),
+    };
+  }), [profiles, slotsByProfileId]);
 
   const selectedGroup = groups.find((group) => group.id === groupId);
-  const selectedProfile = profiles.find((profile) => profile.id === profileId);
+  const selectedProfile = composerProfiles.find((profile) => profile.id === profileId);
   const selectedProfileGroup = selectedProfile
     ? groups.find((group) => (group.profile_group_members ?? []).some((member) => member.profile_id === selectedProfile.id))
     : undefined;
   const hasTarget = Boolean(selectedGroup || selectedProfile);
+  const composerReady = hasTarget && slotsState === 'ready';
   const runMode: GroupRunMode = scheduleMode === 'scheduled' ? 'scheduled' : 'immediate';
   const singleProfileScheduleRange = singleProfileDraftItems
     .map((item) => item.executeAt)
@@ -171,18 +199,56 @@ export default function PublishingClient({
     .sort((left, right) => new Date(left).getTime() - new Date(right).getTime());
   const invalidGroupScheduleCount = scheduleMode === 'scheduled'
     ? groupDraftItems.filter((item) => {
-      const profile = profiles.find((candidate) => candidate.id === item.profileId);
+      const profile = composerProfiles.find((candidate) => candidate.id === item.profileId);
       const executeAt = item.executeAt;
       const conflicts = executeAt && profile?.scheduled_execute_ats?.some((value) => new Date(value).getTime() >= new Date(executeAt).getTime() && new Date(value).getTime() < new Date(executeAt).getTime() + 60_000);
       return item.scheduleTime ? false : !item.executeAt || new Date(item.executeAt).getTime() <= Date.now() || conflicts;
     }).length
     : 0;
 
+  // Invalida também a requisição em voo: depois de enfileirar, a agenda que
+  // acabou de ser lida já não descreve mais a fila do perfil.
+  function resetSlots() {
+    slotsRequestRef.current += 1;
+    setSlotsByProfileId({});
+    setSlotsState('idle');
+  }
+
+  async function loadSlots(profileIds: string[]) {
+    const requestId = slotsRequestRef.current + 1;
+    slotsRequestRef.current = requestId;
+    if (!profileIds.length) {
+      setSlotsByProfileId({});
+      setSlotsState('ready');
+      return;
+    }
+    setSlotsState('loading');
+    try {
+      const response = await fetch('/api/publications/composer/slots', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileIds }),
+      });
+      const payload = await response.json() as SlotsResponse;
+      if (requestId !== slotsRequestRef.current) return;
+      if (!response.ok) {
+        setSlotsState('error');
+        return;
+      }
+      setSlotsByProfileId(payload.slots ?? {});
+      setSlotsState('ready');
+    } catch {
+      if (requestId !== slotsRequestRef.current) return;
+      setSlotsState('error');
+    }
+  }
+
   function selectTarget(kind: 'profile' | 'group', value: string) {
     if (kind === 'profile') {
       setProfileId(value);
       setGroupId('');
       setSingleProfileDraftItems([]);
+      void loadSlots([value]);
       return;
     }
 
@@ -190,6 +256,10 @@ export default function PublishingClient({
     setProfileId('');
     setGroupDraftItems([]);
     const group = groups.find((item) => item.id === value);
+    // Só os membros que o compositor de fato exibe: o grupo pode listar perfis
+    // offline ou excluídos, que não estão em `profiles` e não recebem plano.
+    const memberIds = new Set((group?.profile_group_members ?? []).map((member) => member.profile_id));
+    void loadSlots(profiles.filter((profile) => memberIds.has(profile.id)).map((profile) => profile.id));
   }
 
   function changeScheduleMode(nextMode: 'immediate' | 'scheduled' | 'bulk') {
@@ -209,6 +279,16 @@ export default function PublishingClient({
 
     if (!profileId && !groupId) {
       setMessage('Selecione um perfil ou grupo de destino.');
+      return;
+    }
+
+    // Sem a agenda ocupada não há como saber se um horário já está tomado, e
+    // agendar às cegas produz o conflito de minuto que o compositor existe para
+    // evitar. Na prática o compositor nem chega a ser renderizado antes disso.
+    if (slotsState !== 'ready') {
+      setMessage(slotsState === 'error'
+        ? 'Não foi possível carregar a agenda do destino. Selecione o destino novamente.'
+        : 'Aguarde o carregamento da agenda do destino.');
       return;
     }
 
@@ -260,6 +340,7 @@ export default function PublishingClient({
         setGroupId('');
         setGroupDraftItems([]);
         setSingleProfileDraftItems([]);
+        resetSlots();
         setScheduleMode('immediate');
         setBatchName('');
         setReviewed(false);
@@ -271,6 +352,7 @@ export default function PublishingClient({
       setGroupId('');
       setGroupDraftItems([]);
       setSingleProfileDraftItems([]);
+      resetSlots();
       setScheduleMode('immediate');
       setBatchName('');
       setReviewed(false);
@@ -329,9 +411,9 @@ export default function PublishingClient({
             <label>Nome interno (opcional)<input maxLength={160} value={batchName} onChange={(event) => setBatchName(event.target.value)} disabled={!canManage} placeholder="Ex.: campanha de sexta" /></label>
           </div>
 
-          {!hasTarget ? <div className="publishing-target-empty"><strong>Selecione um destino para continuar</strong><span>Depois de escolher um perfil ou grupo, você poderá definir formato, mídia, legenda e horário.</span></div> : selectedGroup ? <GroupComposer group={selectedGroup} groups={groups} profiles={profiles} assets={composerAssets} assignments={assignments} disabled={!canManage} runMode={runMode} onChange={setGroupDraftItems} /> : selectedProfile ? <GroupComposer group={selectedProfileGroup ?? { id: `single:${selectedProfile.id}`, name: selectedProfile.username, consumption_mode: 'reusable', default_caption: null, profile_group_members: [{ profile_id: selectedProfile.id }] }} groups={groups} profiles={profiles} assets={composerAssets} assignments={assignments} disabled={!canManage} runMode={runMode} onChange={setSingleProfileDraftItems} singleProfile={selectedProfile} submissionGroupId={null} /> : null}
+          {!hasTarget ? <div className="publishing-target-empty"><strong>Selecione um destino para continuar</strong><span>Depois de escolher um perfil ou grupo, você poderá definir formato, mídia, legenda e horário.</span></div> : slotsState === 'loading' ? <div className="publishing-target-empty"><strong>Carregando a agenda do destino…</strong><span>Os horários já ocupados são lidos agora, só para os perfis deste destino, para que a montagem não crie conflito de minuto.</span></div> : slotsState === 'error' ? <div className="publishing-target-empty"><strong>Não foi possível carregar a agenda do destino</strong><span>Selecione o destino de novo para tentar mais uma vez.</span></div> : selectedGroup ? <GroupComposer group={selectedGroup} groups={groups} profiles={composerProfiles} assets={composerAssets} assignments={assignments} disabled={!canManage} runMode={runMode} onChange={setGroupDraftItems} /> : selectedProfile ? <GroupComposer group={selectedProfileGroup ?? { id: `single:${selectedProfile.id}`, name: selectedProfile.username, consumption_mode: 'reusable', default_caption: null, profile_group_members: [{ profile_id: selectedProfile.id }] }} groups={groups} profiles={composerProfiles} assets={composerAssets} assignments={assignments} disabled={!canManage} runMode={runMode} onChange={setSingleProfileDraftItems} singleProfile={selectedProfile} submissionGroupId={null} /> : null}
 
-          {hasTarget && <><label className="review-check"><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} disabled={!canManage} /><span>Revisei perfil, formato, mídia, legenda e horário antes de confirmar.</span></label>
+          {composerReady && <><label className="review-check"><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} disabled={!canManage} /><span>Revisei perfil, formato, mídia, legenda e horário antes de confirmar.</span></label>
           <button className={`button button-secondary ${saving ? 'button-saving' : ''}`} type="submit" disabled={!canManage || saving || (!selectedGroup && invalidSingleProfileScheduleCount > 0)} aria-busy={saving}>{saving ? 'Adicionando à fila…' : scheduleMode === 'immediate' ? 'Adicionar à fila imediata' : 'Agendar publicações'}</button></>}
         </form>
 

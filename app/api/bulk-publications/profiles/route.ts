@@ -4,12 +4,12 @@ import { NextResponse } from 'next/server';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import type { ComposerMetricRow } from '@/lib/publications/composer-metrics-fallback';
 
-// Os tipos gerados não descrevem esta RPC como set-returning, então encadear
-// .select() nela faz o TypeScript inferir "uma linha OU uma lista". O cast
-// abaixo é só para reconciliar isso; em tempo de execução a função sempre
-// devolve um conjunto, que é o que fetchAllRows pagina.
+// Os tipos gerados não descrevem esta RPC como set-returning, então o
+// TypeScript infere "uma linha OU uma lista". O cast abaixo é só para
+// reconciliar isso; em tempo de execução a função sempre devolve um conjunto,
+// que é o que fetchAllRows pagina.
 type ComposerMetricCounts = Pick<ComposerMetricRow, 'profile_id' | 'scheduled_counts' | 'published_counts'>;
-import { fetchAllRows } from '@/lib/supabase/paginate';
+import { fetchAllRows, POSTGREST_MAX_ROWS } from '@/lib/supabase/paginate';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -32,25 +32,31 @@ export async function GET() {
       .order('username', { ascending: true })
       .order('id', { ascending: true })
       .range(from, to)),
-    // Mesmo teto de 1000 linhas da consulta acima, que aqui passou batido: com
+    // Mesmo teto de linhas da consulta acima, que aqui passou batido: com
     // 1.150 perfis online a RPC devolvia exatamente 1.000 linhas e os 150
     // restantes ficavam sem métrica, aparecendo como "0/0" no seletor mesmo
     // tendo dezenas de publicações agendadas. A função agrega por profile_id
     // mas não impõe ordem no resultado, e sem ordem determinística paginar
     // traria linhas repetidas e outras faltando — daí o order explícito.
-    // Esta rota monta o payload apenas com publication_metrics e descarta os dois
-    // arrays de horários da RPC — mas sem o select explícito abaixo ela puxava os
-    // 4,88 MB inteiros do banco a cada chamada só para jogar 97% fora. Os arrays
-    // scheduled_execute_ats e scheduled_execute_ats_by_format sozinhos são esses
-    // 97%; pedindo só as contagens, a resposta cai para ~225 KB.
+    //
+    // Esta rota usa só as contagens. Antes ela chamava
+    // get_posting_composer_profile_metrics, que devolve também os dois arrays
+    // com todos os horários agendados, e precisava de um `.select()` explícito
+    // para não puxar 4,88 MB do banco a cada chamada só para jogar 97% fora.
+    // get_posting_composer_profile_summaries (migration 356) simplesmente não
+    // tem esses arrays.
+    //
+    // O tamanho de página é o teto do servidor, e não o padrão de 1.000, porque
+    // o PostgREST aplica o `.range()` DEPOIS de a função ter calculado o
+    // conjunto inteiro: cada página a mais é outra agregação completa sobre as
+    // ~350 mil linhas elegíveis de publication_items, ~2,4 s cada.
     fetchAllRows((from, to) => supabase
-      .rpc('get_posting_composer_profile_metrics', {
+      .rpc('get_posting_composer_profile_summaries', {
         p_organization_id: organizationId,
         p_slot_horizon_days: 90,
       })
-      .select('profile_id,scheduled_counts,published_counts')
       .order('profile_id', { ascending: true })
-      .range(from, to) as unknown as PromiseLike<{ data: ComposerMetricCounts[] | null; error: PostgrestError | null }>),
+      .range(from, to) as unknown as PromiseLike<{ data: ComposerMetricCounts[] | null; error: PostgrestError | null }>, POSTGREST_MAX_ROWS),
   ]);
   if (profilesResult.error) return NextResponse.json({ error: 'Não foi possível carregar os perfis online.' }, { status: 500 });
   if (composerMetricsResult.error) return NextResponse.json({ error: 'Não foi possível carregar as métricas dos perfis.' }, { status: 500 });

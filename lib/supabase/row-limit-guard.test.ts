@@ -297,7 +297,7 @@ const ORDERING_ALLOWLIST = new Map<string, string>([
 const OPAQUE_PAGINATION_ALLOWLIST = new Map<string, { count: number; reason: string }>([
   [
     'app/(painel)/postagem/page.tsx',
-    { count: 1, reason: 'RPC composer_profile_metrics paginada por .order(profile_id): a função devolve uma linha por perfil, então profile_id é ordem total.' },
+    { count: 1, reason: 'RPC get_posting_composer_profile_summaries paginada por .order(profile_id): a função devolve uma linha por perfil, então profile_id é ordem total. A página passa POSTGREST_MAX_ROWS como tamanho de página, e não o padrão de 1.000: o PostgREST aplica o .range() depois de a função ter agregado tudo, então página a mais é agregação inteira a mais.' },
   ],
   [
     'app/(painel)/x/postagem/page.tsx',
@@ -305,7 +305,7 @@ const OPAQUE_PAGINATION_ALLOWLIST = new Map<string, { count: number; reason: str
   ],
   [
     'app/api/bulk-publications/profiles/route.ts',
-    { count: 1, reason: 'RPC de contagens do compositor paginada por .order(profile_id): uma linha por perfil, ordem total.' },
+    { count: 1, reason: 'RPC get_posting_composer_profile_summaries paginada por .order(profile_id): uma linha por perfil, ordem total. Mesmo motivo da /postagem para o tamanho de página ser POSTGREST_MAX_ROWS.' },
   ],
   [
     'lib/twitter/bulk-service.ts',
