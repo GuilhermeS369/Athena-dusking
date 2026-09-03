@@ -179,8 +179,11 @@ invisível dentro do Postgres — e essa apaga publicação.
 > **Atualização de 03/09/2026:** o lock foi fatiado (migration 360), depois de a
 > seção 3-B mostrar que o teto por minuto chegava ao mesmo funil por outro
 > caminho. A pré-condição desta regra está cumprida — mas *cumprida* não é
-> *validada*: até uma onda grande passar com `esperaPorSlot` em milissegundos,
-> a concorrência continua onde está.
+> *validada*. **Validada em 03/09**, na onda de 2.797 itens das 10:00 UTC —
+> quatro vezes a de 674 que derrubou o sistema —, que drenou em 13,3 min com
+> zero `ConnectTimeout`, zero `PGRST00x`, zero statement timeout e load 0,26.
+> (O critério que eu havia escrito aqui, "`esperaPorSlot` em milissegundos",
+> estava errado e foi corrigido na armadilha nº 3 da seção 8.)
 
 E a lição de método, que é a terceira vez que aparece neste documento:
 **uma medição correta não valida a ação que você deduziu dela.** Eu tinha o
@@ -487,6 +490,38 @@ controlador do staging { passoAtual, minimo, maximo, motivo, duracaoMs, msPorIte
 **`esperaPorSlot` alto** = concorrência saturada.
 **`esperaPorSlot` baixo com poucos itens** = despacho **faminto**, o problema
 está a montante.
+
+### Armadilha nº 3: `esperaPorSlot` alto NÃO é sinal de contenção no banco
+
+Em 03/09/2026 eu escrevi, aqui e numa tarefa agendada, que o critério para
+validar o fatiamento do lock seria "`esperaPorSlot` p90 continuar em
+milissegundos". **O critério estava errado.** A onda de 2.797 itens daquele dia
+deu p90 de 11.371 ms e o sistema estava perfeitamente saudável.
+
+`esperaPorSlot` mede espera por **vaga no worker**, não espera no banco. Com N
+itens, 64 vagas e ~7 s por item, a fila é aritmética: 2.797 ÷ 64 × 7 s ≈ 5 min
+de espera acumulada. Ela **tem** que subir quando a onda é maior que a
+capacidade instantânea — e, como a seção 3-A já dizia, fila dentro do worker é
+justamente o lugar **seguro** para ela estar.
+
+O que distingue os dois casos é `porItemMs`. Naquela onda ele chegou a
+**27.586 ms**, muito acima do `statement_timeout` de 8 s: se fosse espera no
+advisory lock, teria morrido em 57014 e virado erro. Não morreu — o tempo era a
+chamada à API da Zernio.
+
+**Para saber se o banco está sofrendo, olhe os sinais do banco**, não a
+telemetria de vaga do worker:
+
+| sinal | onde | significa |
+|---|---|---|
+| `ConnectTimeout` / `PGRST002` / `PGRST003` | log do worker | pool esgotado — crítico |
+| `57014` statement timeout | log do worker | consulta batendo nos 8 s |
+| `authenticator` perto de 41 | `supabase inspect db role-stats` | pool no teto |
+| latência de um `select` trivial | monitor / sonda | o primeiro a subir |
+
+`esperaPorSlot` só vira sinal útil **combinado** com esses: alto **e** com
+erro de banco = contenção real; alto **e** com banco limpo = onda grande, que é
+o comportamento esperado.
 
 ---
 
