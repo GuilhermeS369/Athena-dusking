@@ -137,6 +137,8 @@ const RELATION_KEYS = new Map<string, string[]>([
   ['profile_post_analytics_snapshots', ['id']],
   ['profile_analytics_sync_runs', ['id']],
   ['profile_analytics_refresh_job_items', ['job_id', 'profile_id']],
+  ['profile_group_deletion_job_profiles', ['job_id', 'profile_id']],
+  ['media_deletion_job_items', ['job_id', 'media_asset_id']],
   ['recovery_candidates', ['run_id', 'profile_id']],
   ['recovery_cohort_observations', ['cohort_member_id', 'observed_on']],
   ['twitter_profile_follower_daily_metrics', ['profile_id', 'metric_date']],
@@ -145,9 +147,10 @@ const RELATION_KEYS = new Map<string, string[]>([
   ['twitter_wallets', ['identity_id']],
   ['twitter_media_assets', ['id']],
   ['twitter_rate_cards', ['id']],
-  // `group_profile_export_rows` fica de fora de propósito: a view (migration
-  // 205) não expõe chave única nenhuma, então não há chave a exigir. A decisão
-  // sobre a ordem dela está escrita na própria rota de exportação.
+  // `group_profile_export_rows` fica de fora de propósito: a migration 368 lhe
+  // deu um profile_id, mas nenhuma chave ÚNICA — no ramo 'fallen' o mesmo perfil
+  // reaparece a cada queda —, então não há chave a exigir aqui. A decisão sobre a
+  // ordem dela está escrita nas próprias rotas de exportação.
 ]);
 
 /**
@@ -169,6 +172,10 @@ const ALLOWLIST = new Map<string, string>([
   ],
 
   // --- Leituras limitadas por uma página de cursor a montante (<= 101 itens) ---
+  [
+    'app/(painel)/perfis/page.tsx::instagram_profiles_safe',
+    '.in(id) sobre os perfis meta_official da página de catálogo já paginada por cursor. Traz o estado de renovação do token, que a RPC do catálogo não devolve.',
+  ],
   [
     'app/(painel)/x/galeria/page.tsx::twitter_media_group_members',
     '.in(asset_id) sobre a página de mídias já paginada por cursor.',
@@ -592,8 +599,11 @@ test('consultas em tabelas que escalam com a organização declaram paginação'
       const chain = readChain(source, match.index);
       const bounded = /\.range\(/.test(chain)
         || /\.limit\(/.test(chain)
-        || /\.maybeSingle\(/.test(chain)
-        || /\.single\(/.test(chain)
+        // `.maybeSingle<Row>()` é a mesma coisa que `.maybeSingle()`: o
+        // parâmetro de tipo não muda o teto de uma linha, mas escondia a
+        // chamada de um regex que só aceitava o parêntese colado.
+        || /\.maybeSingle[<(]/.test(chain)
+        || /\.single[<(]/.test(chain)
         || /head:\s*true/.test(chain)
         || /count:\s*['"]exact['"]/.test(chain)
         // Mutações (update/delete/insert/upsert) não sofrem teto de linhas.

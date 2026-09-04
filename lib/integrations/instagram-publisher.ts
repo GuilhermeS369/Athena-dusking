@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { decryptToken } from '@/lib/security/token-crypto';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { createR2SignedUrl } from '@/lib/storage/r2-client';
+import { isRetryableGraphFailure } from '@/lib/integrations/meta-graph-errors';
 
 // 'supabase' (padrão) usa o Storage do Supabase, que cobra egress por byte
 // transferido. 'r2' usa Cloudflare R2 (egress $0), mantendo o mesmo
@@ -195,10 +196,10 @@ async function readResponse(response: Response) {
 
   if (!response.ok) {
     const message = body.error?.message ?? `Instagram retornou HTTP ${response.status}.`;
-    const retryable = response.status >= 500 || response.status === 429 || body.error?.is_transient === true;
+    const graphCode = body.error?.code;
     const error = new Error(message) as Error & { retryable?: boolean; code?: string };
-    error.retryable = retryable;
-    error.code = String(body.error?.code ?? response.status);
+    error.retryable = isRetryableGraphFailure(response.status, graphCode, body.error?.is_transient);
+    error.code = String(graphCode ?? response.status);
     throw error;
   }
 

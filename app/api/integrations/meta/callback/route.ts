@@ -6,8 +6,12 @@ import { initializeProfileAnalyticsState } from '@/lib/integrations/zernio-analy
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import {
-  metaClientId,
-  metaClientSecret,
+  MetaAppUnavailableError,
+  resolveMetaAppCredentials,
+  type MetaAppCredentials,
+} from '@/lib/integrations/meta-app-credentials';
+import {
+  legacyMetaAppCredentials,
   metaRedirectUri,
   META_GRAPH_API_VERSION,
   META_OAUTH_COOKIE,
@@ -46,9 +50,19 @@ function redirectWithError(
   return NextResponse.redirect(url);
 }
 
-function redirectWithSuccess(origin: string, returnTo: string, outcome: 'created' | 'updated') {
+function redirectWithSuccess(
+  origin: string,
+  returnTo: string,
+  outcome: 'created' | 'updated',
+  groupAssignment?: { status: 'assigned' | 'failed'; groupName: string | null; error?: string },
+) {
   const url = new URL(safeReturnTo(returnTo), origin);
   url.searchParams.set('connected', outcome);
+  if (groupAssignment) {
+    url.searchParams.set('groupAssignment', groupAssignment.status);
+    if (groupAssignment.groupName) url.searchParams.set('groupName', groupAssignment.groupName);
+    if (groupAssignment.error) url.searchParams.set('groupAssignmentError', groupAssignment.error);
+  }
   return NextResponse.redirect(url);
 }
 
@@ -84,6 +98,43 @@ function requestDiagnostic(request: Request) {
 
 function safeErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Vincula o perfil recém-conectado ao grupo pedido na linha do Bulk Meta.
+ *
+ * A inserção é idempotente: repetir a mesma linha em outro aparelho não duplica
+ * a associação nem derruba a conexão. O grupo é relido antes para garantir que
+ * ele ainda existe e pertence à organização — o intervalo entre gerar a lista e
+ * autorizar no celular pode ser de horas.
+ */
+async function assignProfileToGroup(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  input: { organizationId: string; groupId: string; profileId: string; addedBy: string },
+): Promise<{ status: 'assigned' | 'failed'; groupName: string | null; error?: string }> {
+  const { data: group } = await admin
+    .from('profile_groups')
+    .select('id, name')
+    .eq('id', input.groupId)
+    .eq('organization_id', input.organizationId)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (!group) {
+    return { status: 'failed', groupName: null, error: 'o grupo não existe mais.' };
+  }
+
+  const { error } = await admin
+    .from('profile_group_members')
+    .upsert({
+      organization_id: input.organizationId,
+      group_id: group.id,
+      profile_id: input.profileId,
+      added_by: input.addedBy,
+    }, { onConflict: 'group_id,profile_id', ignoreDuplicates: true });
+
+  if (error) return { status: 'failed', groupName: group.name, error: error.message };
+  return { status: 'assigned', groupName: group.name };
 }
 
 export const dynamic = 'force-dynamic';
@@ -129,15 +180,45 @@ export async function GET(request: Request) {
       hasCode: Boolean(code),
       hasState: Boolean(stateValue),
       hasOauthCookie: Boolean(oauthCookie),
+      metaAppId: state.metaAppId,
       returnTo: state.returnTo,
     });
+
+    // A troca do código exige a MESMA credencial que abriu a autorização. Como
+    // o state é assinado, o app vem de lá e não de uma variável de ambiente.
+    //
+    // A vaga não é reconferida aqui de propósito: o /start já barrou o app
+    // cheio, e recusar agora jogaria fora um token que o usuário já autorizou
+    // no celular. Reconexão de perfil existente também não ocupa vaga nova.
+    let metaApp: MetaAppCredentials | null = null;
+
+    if (state.metaAppId) {
+      try {
+        metaApp = await resolveMetaAppCredentials(state.organizationId, state.metaAppId, {
+          requireFreeSlot: false,
+        });
+      } catch (error) {
+        if (error instanceof MetaAppUnavailableError) {
+          return redirectWithError(url.origin, state.returnTo, error.code, error.message);
+        }
+        throw error;
+      }
+    }
+
+    // Retaguarda para autorizações abertas antes do cadastro de apps existir.
+    const legacy = metaApp ? null : legacyMetaAppCredentials();
+    if (!metaApp && !legacy) {
+      return redirectWithError(url.origin, state.returnTo, 'meta_app_required');
+    }
+    const clientId = metaApp?.clientId ?? legacy!.clientId;
+    const clientSecret = metaApp?.clientSecret ?? legacy!.clientSecret;
 
     const tokenResponse = await fetch('https://api.instagram.com/oauth/access_token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        client_id: metaClientId(),
-        client_secret: metaClientSecret(),
+        client_id: clientId,
+        client_secret: clientSecret,
         grant_type: 'authorization_code',
         redirect_uri: metaRedirectUri(url.origin),
         code,
@@ -160,7 +241,7 @@ export async function GET(request: Request) {
     const longLivedResponse = await fetch(
       `https://graph.instagram.com/${META_GRAPH_API_VERSION}/access_token?${new URLSearchParams({
         grant_type: 'ig_exchange_token',
-        client_secret: metaClientSecret(),
+        client_secret: clientSecret,
         access_token: shortLived.access_token,
       })}`,
       { cache: 'no-store' },
@@ -259,6 +340,9 @@ export async function GET(request: Request) {
         ...(existingProfile?.id ? { id: existingProfile.id } : {}),
         organization_id: state.organizationId,
         instagram_user_id: instagramUserId,
+        // Só grava o vínculo quando existe app cadastrado: uma autorização
+        // legada não pode apagar o app de um perfil que já tem um.
+        ...(metaApp ? { meta_app_id: metaApp.id } : {}),
         username: profile.username.trim(),
         display_name: profile.name ?? null,
         profile_picture_url: profile.profile_picture_url ?? null,
@@ -271,6 +355,14 @@ export async function GET(request: Request) {
         token_expires_at: expiresIn
           ? new Date(Date.now() + expiresIn * 1000).toISOString()
           : null,
+        // O token nasce novo aqui. É deste instante que a renovação mede idade
+        // — a Meta só aceita renovar depois de 24 h, e deixa de aceitar depois
+        // de 60 dias. Zerar o histórico de falha junto evita que um erro da
+        // conexão anterior fique alarmando um token que acabou de ser trocado.
+        token_refreshed_at: new Date().toISOString(),
+        token_refresh_attempted_at: null,
+        token_refresh_error: null,
+        token_refresh_failure_count: 0,
         status: 'no_data',
         deleted_at: null,
         created_by: state.userId,
@@ -304,10 +396,43 @@ export async function GET(request: Request) {
       });
     }
 
+    if (metaApp) {
+      await admin.from('meta_apps')
+        .update({ last_connected_at: new Date().toISOString() })
+        .eq('id', metaApp.id)
+        .eq('organization_id', state.organizationId);
+    }
+
+    // O grupo só entra depois que o perfil existe, e a falha aqui não desfaz a
+    // conexão: perder o vínculo de grupo é reparável na tela de grupos, perder
+    // a conta autorizada obrigaria a refazer o OAuth no celular.
+    const groupAssignment = savedProfile?.id && state.groupId
+      ? await assignProfileToGroup(admin, {
+        organizationId: state.organizationId,
+        groupId: state.groupId,
+        profileId: savedProfile.id,
+        addedBy: state.userId,
+      }).catch((error) => ({
+        status: 'failed' as const,
+        groupName: null,
+        error: safeErrorMessage(error),
+      }))
+      : undefined;
+
+    if (groupAssignment?.status === 'failed') {
+      console.error('[meta-oauth] group_assignment_failed', {
+        requestId,
+        profileId: savedProfile?.id,
+        groupId: state.groupId,
+        error: groupAssignment.error,
+      });
+    }
+
     const response = redirectWithSuccess(
       url.origin,
       state.returnTo,
       existingProfile?.id ? 'updated' : 'created',
+      groupAssignment,
     );
     response.cookies.set(META_OAUTH_COOKIE, '', {
       httpOnly: true,

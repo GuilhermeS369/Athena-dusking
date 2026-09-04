@@ -1942,3 +1942,14 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
   .media-card > img, .media-card > video, .media-thumbnail { aspect-ratio: 4 / 5; height: auto; max-height: none; }
   .media-card-body { padding: 18px; }
 }
+
+/* Estado da renovação do token da Meta no cartão de perfil. Só é renderizado
+   quando há decisão a tomar, então cada variação precisa ler como um aviso e
+   não como enfeite. */
+.profile-token-renewal { margin: 6px 0 0; padding: 7px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); color: var(--text-muted); font-size: 11px; line-height: 1.45; }
+.profile-token-renewal-due { border-color: #5b5665; color: var(--text); }
+.profile-token-renewal-at_risk { border-color: #e7b74e66; background: #241c0e; color: #f2d9a0; }
+.profile-token-renewal-expired { border-color: #ef6b8355; background: #3c1522; color: #ffb3c0; }
+.profile-token-renewal-button { min-height: 32px; padding: 0 10px; font-size: 11px; white-space: nowrap; }
+.profile-token-renewal-button-at_risk { border-color: #e7b74e88; color: #f2d9a0; }
+.profile-token-renewal-button-expired { border-color: #ef6b8388; color: #ffb3c0; }

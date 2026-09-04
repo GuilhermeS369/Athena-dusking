@@ -1,0 +1,89 @@
+.shell { display: grid; gap: 18px; }
+
+.header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.header h1 { margin: 6px 0 8px; font-size: 30px; letter-spacing: -.03em; }
+.header p { max-width: 720px; margin: 0; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+
+.totals { display: flex; gap: 10px; flex-wrap: wrap; }
+.total { display: grid; gap: 2px; min-width: 108px; padding: 12px 15px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface-raised); }
+.total dt { color: var(--text-subtle); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+.total dd { margin: 0; font-size: 20px; font-weight: 850; }
+
+.list { display: grid; gap: 10px; }
+
+.card { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 15px; background: var(--surface-raised); }
+.cardInactive { opacity: .62; }
+.cardFull { border-color: #e7b74e55; }
+
+.identity { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.avatar { display: grid; flex: 0 0 auto; place-items: center; width: 38px; height: 38px; border: 1px solid #b579f455; border-radius: 11px; background: var(--purple-soft); color: #d9b8ff; font-size: 17px; }
+.identityText { display: grid; gap: 3px; min-width: 0; }
+.name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; font-weight: 800; }
+.meta { color: var(--text-subtle); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .06em; }
+.badgeActive { border: 1px solid #55d19a66; background: #103627; color: #b5f2d0; }
+.badgeInactive { border: 1px solid #5b5665; background: #1b1922; color: var(--text-muted); }
+.badgeFull { border: 1px solid #e7b74e66; background: #372a10; color: #f2d9a0; }
+
+.capacity { display: grid; gap: 6px; flex: 0 0 210px; }
+.capacityNumbers { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 11px; }
+.capacityNumbers strong { font-size: 14px; font-weight: 850; }
+.capacityNumbers span { color: var(--text-subtle); }
+.gauge { height: 6px; overflow: hidden; border-radius: 999px; background: #2a2735; }
+.gaugeFill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #8b45d5, #b579f4); transition: width .25s ease; }
+.gaugeFillFull { background: linear-gradient(90deg, #e7b74e, #ef6b83); }
+
+.cardActions { display: flex; gap: 8px; flex-wrap: wrap; }
+.cardActions .button { min-height: 36px; padding: 0 13px; font-size: 12px; }
+
+.form { display: grid; gap: 12px; padding: 18px; border: 1px dashed var(--border-strong); border-radius: 15px; background: var(--surface); }
+.formTitle { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 800; }
+.formGrid { display: grid; grid-template-columns: 1fr 1fr 1fr 128px; gap: 10px; }
+.formGrid label { display: grid; gap: 5px; color: var(--text-subtle); font-size: 11px; font-weight: 700; }
+.formGrid input { min-height: 42px; padding: 0 12px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface-raised); color: var(--text); font-size: 13px; }
+.formGrid input:focus { border-color: #b579f4; outline: none; }
+.formHint { margin: 0; color: var(--text-subtle); font-size: 11px; }
+
+.renewal { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 18px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 15px; background: var(--surface-raised); }
+.renewalAttention { border-color: #e7b74e66; background: #241c0e; }
+.renewalCopy strong { display: block; margin: 6px 0 4px; font-size: 15px; }
+.renewalCopy p { max-width: 640px; margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.55; }
+.renewalWarning { margin-top: 6px !important; color: #f2d9a0 !important; }
+.renewalCounts { display: flex; gap: 8px; margin: 0; flex-wrap: wrap; }
+.renewalCounts > div { display: grid; gap: 2px; min-width: 74px; padding: 8px 11px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); text-align: center; }
+.renewalCounts dt { color: var(--text-subtle); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+.renewalCounts dd { margin: 0; font-size: 17px; font-weight: 850; }
+.renewalCountAlert { border-color: #e7b74e88 !important; }
+.renewalCountAlert dd { color: #f2d9a0; }
+.renewalActions { display: flex; gap: 8px; flex-wrap: wrap; }
+.renewalActions .button { min-height: 38px; padding: 0 14px; font-size: 12px; }
+.renewalMessage { grid-column: 1 / -1; margin: 0 !important; width: 100% !important; }
+
+.metaAlert { color: #f2d9a0; font-size: 11px; font-weight: 700; }
+
+.legacy { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 18px; border: 1px solid #e7b74e44; border-radius: 15px; background: #241c0e; }
+.legacy strong { display: block; font-size: 13px; }
+.legacy p { max-width: 620px; margin: 4px 0 0; color: #e2cfa4; font-size: 11px; line-height: 1.5; }
+.legacyCount { flex: 0 0 auto; font-size: 22px; font-weight: 850; }
+
+.empty { display: grid; place-items: center; gap: 6px; min-height: 180px; border: 1px dashed var(--border); border-radius: 15px; color: var(--text-muted); text-align: center; }
+
+.modal { display: grid; gap: 14px; width: min(460px, 92vw); }
+.modal p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.modal label { display: grid; gap: 5px; font-size: 11px; font-weight: 700; }
+.modal input { min-height: 42px; padding: 0 12px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface-raised); color: var(--text); font-size: 13px; }
+.modalActions { display: flex; justify-content: flex-end; gap: 8px; }
+
+@media (max-width: 900px) {
+  .formGrid { grid-template-columns: 1fr; }
+  .renewal { grid-template-columns: 1fr; }
+  .card { align-items: stretch; flex-direction: column; }
+  .capacity { flex: 1 1 auto; }
+}
+
+.legacyForm { display: flex; align-items: flex-end; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.legacyForm label { display: grid; gap: 5px; color: #e2cfa4; font-size: 11px; font-weight: 700; }
+.legacyForm input { min-height: 40px; min-width: 200px; padding: 0 12px; border: 1px solid #e7b74e55; border-radius: 11px; background: var(--surface-raised); color: var(--text); font-size: 13px; }
+.legacyForm input:focus { border-color: #e7b74e; outline: none; }
+.legacyForm .button { min-height: 40px; }

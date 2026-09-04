@@ -1,11 +1,23 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import DateRangePicker from './date-range-picker';
 import styles from './profiles-catalog.module.css';
 import { buildBulkZernioRows, resolveZernioBulkTarget, sortZernioConnectionsByProfileCount } from '@/lib/integrations/zernio-bulk';
+import {
+  buildBulkMetaRows,
+  metaAppCapacity,
+  metaBulkPlanMessage,
+  resolveMetaBulkTarget,
+  sortMetaAppsByFillOrder,
+} from '@/lib/integrations/meta-apps';
+import {
+  metaTokenRenewalLabel,
+  metaTokenRenewalState,
+  type MetaTokenProfile,
+} from '@/lib/integrations/meta-token-renewal';
 import {
   EMPTY_PROFILE_SELECTION,
   EMPTY_REMOVAL_TOTALS,
@@ -126,6 +138,17 @@ type ZernioConnection = {
   created_at: string;
 };
 
+type MetaApp = {
+  id: string;
+  label: string;
+  app_id: string;
+  active: boolean;
+  instagram_slot_limit: number | null;
+  instagram_profile_count: number | null;
+};
+
+type MetaTokenState = MetaTokenProfile & { id: string };
+
 type AuthMirrorLinkState = {
   active: boolean;
   activatedAt: string | null;
@@ -164,7 +187,20 @@ const connectionErrorMessage: Record<string, string> = {
   zernio_no_available_slot: 'Nenhuma chave Zernio possui slot livre agora. Aguarde a outra conexão terminar ou adicione capacidade em uma chave Zernio.',
   zernio_intent_in_progress: 'Esta solicitação específica já está aberta. Cada outra linha do Bulk Zernio continua independente.',
   zernio_intent_failed: 'Esta solicitação específica terminou com falha. Gere uma nova linha no Bulk Zernio para tentar novamente.',
+  meta_app_required: 'Cadastre um app em “API da Meta” antes de conectar. A chave global antiga não abre conexões novas.',
+  meta_app_not_found: 'O app da Meta usado nesta linha não existe mais. Gere novamente a lista no Bulk Meta.',
+  meta_app_inactive: 'O app da Meta desta linha está desativado e não recebe contas novas.',
+  meta_app_no_available_slot: 'O app da Meta desta linha ficou sem vaga. Gere uma nova lista no Bulk Meta escolhendo outro app.',
+  meta_app_secret_unreadable: 'A chave secreta desse app não pôde ser lida. Cadastre o App Secret novamente em “API da Meta”.',
+  meta_group_not_found: 'O grupo dessa linha não existe mais. Gere novamente a lista no Bulk Meta.',
 };
+
+/**
+ * A Zernio está estacionada: as contas conectadas seguem funcionando, mas o
+ * caminho de conexão nova é só o app próprio da Meta. As opções antigas ficam
+ * no código, atrás desta constante, até a migração terminar.
+ */
+const LEGACY_ZERNIO_CONNECT_VISIBLE = false;
 
 function formatDate(value: string | null) {
   if (!value) return 'Ainda não verificado';
@@ -361,6 +397,8 @@ export default function ProfilesClient({
   initialCatalog,
   groups,
   zernioConnections: initialZernioConnections,
+  metaApps: initialMetaApps,
+  metaTokenStates,
   authMirrorLink: initialAuthMirrorLink,
   connectionResult,
 }: {
@@ -368,6 +406,8 @@ export default function ProfilesClient({
   initialCatalog: InstagramProfilesCatalogPage;
   groups: Group[];
   zernioConnections: ZernioConnection[];
+  metaApps: MetaApp[];
+  metaTokenStates: MetaTokenState[];
   authMirrorLink: AuthMirrorLinkState;
   connectionResult: ConnectionResult;
 }) {
@@ -384,6 +424,18 @@ export default function ProfilesClient({
   const [zernioConnections, setZernioConnections] = useState(() => sortZernioConnectionsByProfileCount(initialZernioConnections));
   const [selectedZernioConnectionId, setSelectedZernioConnectionId] = useState(() => sortZernioConnectionsByProfileCount(initialZernioConnections)[0]?.id ?? '');
   const [connectModalOpen, setConnectModalOpen] = useState(false);
+  const [metaApps, setMetaApps] = useState(() => sortMetaAppsByFillOrder(initialMetaApps));
+  const [bulkMetaModalOpen, setBulkMetaModalOpen] = useState(false);
+  const [bulkMetaAppId, setBulkMetaAppId] = useState(() => sortMetaAppsByFillOrder(initialMetaApps)[0]?.id ?? '');
+  const [bulkMetaQuantity, setBulkMetaQuantity] = useState(10);
+  const [bulkMetaGroupId, setBulkMetaGroupId] = useState('none');
+  const [bulkMetaCopyMessage, setBulkMetaCopyMessage] = useState('');
+  const [bulkMetaRefreshing, setBulkMetaRefreshing] = useState(false);
+  const [pastedMetaLabel, setPastedMetaLabel] = useState('');
+  const [refreshingTokenProfileId, setRefreshingTokenProfileId] = useState<string | null>(null);
+  // Semeado pelo servidor para a primeira pintura não piscar, e reconsultado a
+  // cada troca de página ou filtro do catálogo — que acontecem no cliente.
+  const [loadedMetaTokenStates, setLoadedMetaTokenStates] = useState(metaTokenStates);
   const [bulkZernioModalOpen, setBulkZernioModalOpen] = useState(false);
   const [pastedZernioLabel, setPastedZernioLabel] = useState('');
   const [pastedZernioIntentKey, setPastedZernioIntentKey] = useState('');
@@ -479,6 +531,25 @@ export default function ProfilesClient({
     && pastedZernioIntentKey
     ? `/api/integrations/zernio/start?returnTo=%2Fperfis&connectionId=${encodeURIComponent(pastedZernioMatch.connection.id)}${pastedZernioMatch.group ? `&groupId=${encodeURIComponent(pastedZernioMatch.group.id)}` : ''}&intentKey=${encodeURIComponent(pastedZernioIntentKey)}`
     : '';
+  const pastedMetaMatch = useMemo(
+    () => resolveMetaBulkTarget(metaApps, groups, pastedMetaLabel),
+    [groups, metaApps, pastedMetaLabel],
+  );
+  const pastedMetaConnectUrl = pastedMetaMatch.valid && pastedMetaMatch.app
+    ? `/api/integrations/meta/start?returnTo=%2Fperfis&appId=${encodeURIComponent(pastedMetaMatch.app.id)}${pastedMetaMatch.group ? `&groupId=${encodeURIComponent(pastedMetaMatch.group.id)}` : ''}`
+    : '';
+  const bulkMetaApp = metaApps.find((app) => app.id === bulkMetaAppId) ?? null;
+  const bulkMetaGroup = groups.find((group) => group.id === bulkMetaGroupId) ?? null;
+  const bulkMetaPlan = useMemo(
+    () => buildBulkMetaRows(bulkMetaApp, bulkMetaQuantity, bulkMetaGroup?.name ?? null),
+    [bulkMetaApp, bulkMetaGroup?.name, bulkMetaQuantity],
+  );
+  const bulkMetaPlanMessage = metaBulkPlanMessage(bulkMetaPlan, bulkMetaApp?.label ?? null);
+  const metaConnectableApps = metaApps.filter((app) => metaAppCapacity(app).connectable);
+  const metaTokenStateById = useMemo(
+    () => new Map(loadedMetaTokenStates.map((state) => [state.id, state])),
+    [loadedMetaTokenStates],
+  );
   const bulkZernioGroup = groups.find((group) => group.id === bulkZernioGroupId) ?? null;
   const bulkZernioPlan = useMemo(
     () => buildBulkZernioRows(zernioConnections, bulkZernioQuantity, bulkZernioGroup?.name ?? null),
@@ -919,6 +990,101 @@ export default function ProfilesClient({
     }
   }
 
+  const visibleMetaProfileIds = useMemo(
+    () => profiles.filter((profile) => profile.provider === 'meta_official').map((profile) => profile.id),
+    [profiles],
+  );
+
+  const loadMetaTokenStates = useCallback(async (profileIds: string[]) => {
+    if (profileIds.length === 0) {
+      setLoadedMetaTokenStates([]);
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/integrations/meta/token-states', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileIds }),
+      });
+      const payload = await response.json().catch(() => ({})) as { states?: MetaTokenState[] };
+      // Falha aqui só esconde o botão de renovar; a tela de perfis não pode
+      // deixar de carregar por causa de um enfeite de token.
+      if (response.ok && payload.states) setLoadedMetaTokenStates(payload.states);
+    } catch {
+      // Silencioso pelo mesmo motivo.
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMetaTokenStates(visibleMetaProfileIds);
+  }, [loadMetaTokenStates, visibleMetaProfileIds]);
+
+  async function refreshProfileToken(profileId: string) {
+    if (refreshingTokenProfileId) return;
+    setRefreshingTokenProfileId(profileId);
+    setMessage('');
+
+    try {
+      const response = await fetch(`/api/integrations/meta/profiles/${profileId}/refresh-token`, {
+        method: 'POST',
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string; message?: string };
+
+      setMessage(payload.error ?? payload.message ?? 'Token renovado.');
+      // A idade do token vem do servidor; reler evita mostrar "renovado agora"
+      // em cima de uma renovação que na verdade falhou pela metade.
+      if (response.ok) await loadMetaTokenStates(visibleMetaProfileIds);
+    } catch {
+      setMessage('Não foi possível conectar ao servidor.');
+    } finally {
+      setRefreshingTokenProfileId(null);
+    }
+  }
+
+  async function refreshMetaApps() {
+    if (bulkMetaRefreshing) return;
+
+    setBulkMetaRefreshing(true);
+    setBulkMetaCopyMessage('');
+
+    try {
+      const response = await fetch('/api/integrations/meta/apps', { cache: 'no-store' });
+      const payload = await response.json() as { apps?: MetaApp[]; error?: string };
+
+      if (!response.ok) {
+        setBulkMetaCopyMessage(payload.error ?? 'Não foi possível atualizar a leitura dos apps da Meta.');
+        return;
+      }
+
+      const sorted = sortMetaAppsByFillOrder(payload.apps ?? []);
+      setMetaApps(sorted);
+      setBulkMetaAppId((current) => sorted.some((app) => app.id === current) ? current : sorted[0]?.id ?? '');
+    } catch {
+      setBulkMetaCopyMessage('Não foi possível conectar ao servidor para atualizar a lista.');
+    } finally {
+      setBulkMetaRefreshing(false);
+    }
+  }
+
+  async function copyBulkMetaList() {
+    setBulkMetaCopyMessage('');
+
+    // O plano já recusou o pedido maior que a vaga. Copiar aqui só reforça a
+    // mesma decisão: nada vai para a área de transferência pela metade.
+    if (bulkMetaPlan.blocked || !bulkMetaPlan.text) {
+      setBulkMetaCopyMessage(bulkMetaPlanMessage);
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(bulkMetaPlan.text);
+      setBulkMetaCopyMessage(`${bulkMetaPlan.rows.length} linha(s) copiadas para colar no Excel.`);
+    } catch {
+      setBulkMetaCopyMessage('Não foi possível copiar automaticamente. Selecione o texto da prévia e copie manualmente.');
+    }
+  }
+
   async function refreshBulkZernioConnections() {
     if (bulkZernioRefreshing) return;
 
@@ -1036,9 +1202,14 @@ export default function ProfilesClient({
               <SyncIcon className="button-icon button-icon-sync" />
               {syncingZernio ? 'Sincronizando…' : 'Sincronizar contas'}
             </button>
-            <button className="button button-ghost" type="button" onClick={() => { setBulkZernioCopyMessage(''); setBulkZernioModalOpen(true); }} disabled={zernioConnections.length === 0}>
-              Bulk Zernio
+            <button className="button button-ghost" type="button" onClick={() => { setBulkMetaCopyMessage(''); setBulkMetaModalOpen(true); void refreshMetaApps(); }}>
+              Bulk Meta
             </button>
+            {LEGACY_ZERNIO_CONNECT_VISIBLE && (
+              <button className="button button-ghost" type="button" onClick={() => { setBulkZernioCopyMessage(''); setBulkZernioModalOpen(true); }} disabled={zernioConnections.length === 0}>
+                Bulk Zernio
+              </button>
+            )}
             <button className="button button-secondary mobile-connect-button" type="button" onClick={() => setConnectModalOpen(true)}>
               ＋ Conectar conta
             </button>
@@ -1128,9 +1299,9 @@ export default function ProfilesClient({
           <h2>Nenhum perfil conectado</h2>
           <p>O primeiro perfil conectado ficará disponível para grupos, fila e publicações.</p>
           {canManage && (
-            <a className="button button-secondary" href="/api/integrations/meta/start?returnTo=%2Fperfis">
+            <button className="button button-secondary" type="button" onClick={() => setConnectModalOpen(true)}>
               Conectar Instagram
-            </a>
+            </button>
           )}
         </section>
       ) : (
@@ -1277,6 +1448,14 @@ export default function ProfilesClient({
                     {profiles.map((profile) => {
                       const analytics = profile.publication_metrics;
                       const selected = isProfileSelected(selection, profile.id);
+                      // Na lista o aviso só aparece quando há decisão a tomar.
+                      // Quarenta linhas com "renovado há 2 dias" viram ruído e
+                      // fazem justamente o caso urgente passar despercebido.
+                      const listTokenState = metaTokenStateById.get(profile.id);
+                      const listRenewal = listTokenState ? metaTokenRenewalState(listTokenState) : null;
+                      const tokenNeedsAttention = Boolean(listRenewal)
+                        && listRenewal!.health !== 'not_applicable'
+                        && (listRenewal!.health !== 'healthy' || listRenewal!.consecutiveFailures > 0);
                       return (
                         <tr key={profile.id} className={selected ? styles.listRowSelected : undefined}>
                           <td className={styles.listCheckboxCell}>
@@ -1327,6 +1506,17 @@ export default function ProfilesClient({
                                 >
                                   <SyncIcon className="button-icon button-icon-sync" />
                                   <span className="visually-hidden">{checkingProfileId === profile.id ? 'Sincronizando…' : 'Sincronizar'}</span>
+                                </button>
+                              )}
+                              {canManage && tokenNeedsAttention && (
+                                <button
+                                  className={`button button-ghost profile-token-renewal-button profile-token-renewal-button-${listRenewal!.health}`}
+                                  type="button"
+                                  title={metaTokenRenewalLabel(listRenewal!)}
+                                  disabled={refreshingTokenProfileId !== null}
+                                  onClick={() => void refreshProfileToken(profile.id)}
+                                >
+                                  {refreshingTokenProfileId === profile.id ? 'Renovando…' : 'Renovar token'}
                                 </button>
                               )}
                               {canManage && (
@@ -1392,10 +1582,41 @@ export default function ProfilesClient({
               {profile.last_error_message && (
                 <p className="profile-error" role="status">{profile.last_error_message}</p>
               )}
+              {(() => {
+                const tokenState = metaTokenStateById.get(profile.id);
+                if (!tokenState) return null;
+                const renewal = metaTokenRenewalState(tokenState);
+                if (renewal.health === 'not_applicable') return null;
+                // Só aparece quando há o que decidir. Um token de três dias não
+                // precisa ocupar espaço no cartão para dizer que está bem.
+                const worthShowing = renewal.health !== 'healthy' || renewal.consecutiveFailures > 0;
+                if (!worthShowing) return null;
+                return (
+                  <p
+                    className={`profile-token-renewal profile-token-renewal-${renewal.health}`}
+                    role="status"
+                  >
+                    {metaTokenRenewalLabel(renewal)}
+                    {renewal.consecutiveFailures > 0 && renewal.lastError
+                      ? ` Última falha: ${renewal.lastError}`
+                      : ''}
+                  </p>
+                );
+              })()}
               <div className="profile-card-actions">
                 <div className="profile-card-primary-actions">
+                  {canManage && profile.provider === 'meta_official' && metaTokenStateById.has(profile.id) && (
+                    <button
+                      className="button button-ghost"
+                      type="button"
+                      disabled={refreshingTokenProfileId !== null}
+                      onClick={() => void refreshProfileToken(profile.id)}
+                    >
+                      {refreshingTokenProfileId === profile.id ? 'Renovando…' : 'Renovar token'}
+                    </button>
+                  )}
                   {profile.status === 'reauthorization_required' && canManage && (
-                    <a className="button button-secondary" href={profile.provider === 'zernio' ? zernioReconnectUrl(profile) : '/api/integrations/meta/start?returnTo=%2Fperfis'}>Reautorizar</a>
+                    <a className="button button-secondary" href={profile.provider === 'zernio' ? zernioReconnectUrl(profile) : `/api/integrations/meta/start?returnTo=%2Fperfis&profileId=${encodeURIComponent(profile.id)}`}>Reautorizar</a>
                   )}
                   {canManage && (
                     <button
@@ -1484,6 +1705,70 @@ export default function ProfilesClient({
             )}
             <div className="profile-connect-options">
               <div className="profile-connect-option profile-connect-option-zernio profile-connect-option-zernio-bulk">
+                <strong>API oficial da Meta</strong>
+                <span>Cole exatamente <b>nome do app</b> ou <b>nome do app;grupo</b>, como saiu do Bulk Meta. A conta é conectada pelo app escolhido e, depois, vinculada ao grupo.</span>
+                {metaApps.length > 0 ? (
+                  <>
+                    <label htmlFor="connect-modal-meta-paste">
+                      App da Meta e grupo opcional
+                      <span className={`zernio-paste-input-shell${pastedMetaMatch.valid ? ' zernio-paste-input-shell-valid' : pastedMetaMatch.parsed.kind === 'empty' ? '' : ' zernio-paste-input-shell-invalid'}`}>
+                        <input
+                          id="connect-modal-meta-paste"
+                          value={pastedMetaLabel}
+                          onChange={(event) => setPastedMetaLabel(event.target.value)}
+                          placeholder="Ex: duskingapp;GG Lexy"
+                          autoComplete="off"
+                          aria-describedby="meta-paste-validation"
+                        />
+                        {pastedMetaMatch.parsed.kind !== 'empty' && (
+                          <span className="zernio-paste-input-status" aria-label={pastedMetaMatch.valid ? 'App e grupo válidos' : 'App ou grupo inválido'}>
+                            {pastedMetaMatch.valid ? '✓' : '×'}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                    <div id="meta-paste-validation" className="zernio-target-validation" aria-live="polite">
+                      {pastedMetaMatch.parsed.kind === 'empty' ? (
+                        <p className="zernio-target-validation-hint">Use o nome exato do app. Sem “;grupo”, o perfil será conectado sem grupo.</p>
+                      ) : pastedMetaMatch.parsed.kind === 'invalid_format' ? (
+                        <p className="zernio-target-validation-error"><span>×</span>Formato inválido. Use somente “app” ou “app;grupo”, sem partes vazias.</p>
+                      ) : (
+                        <>
+                          <p className={pastedMetaMatch.appStatus === 'found' ? 'zernio-target-validation-success' : 'zernio-target-validation-error'}>
+                            <span>{pastedMetaMatch.appStatus === 'found' ? '✓' : '×'}</span>
+                            {pastedMetaMatch.appStatus === 'found'
+                              ? `App “${pastedMetaMatch.parsed.appName}” encontrado com ${metaAppCapacity(pastedMetaMatch.app!).freeSlots} vaga(s) livre(s).`
+                              : pastedMetaMatch.appStatus === 'duplicate'
+                                ? 'Há mais de um app com esse nome exato.'
+                                : pastedMetaMatch.appStatus === 'full'
+                                  ? `O app “${pastedMetaMatch.parsed.appName}” está sem vaga. Gere uma nova linha no Bulk Meta com outro app.`
+                                  : pastedMetaMatch.appStatus === 'inactive'
+                                    ? `O app “${pastedMetaMatch.parsed.appName}” está desativado.`
+                                    : `App “${pastedMetaMatch.parsed.appName}” não encontrado.`}
+                          </p>
+                          {pastedMetaMatch.groupStatus === 'not_requested' ? (
+                            <p className="zernio-target-validation-neutral"><span>—</span>Sem grupo: o perfil será apenas conectado.</p>
+                          ) : (
+                            <p className={pastedMetaMatch.groupStatus === 'found' ? 'zernio-target-validation-success' : 'zernio-target-validation-error'}>
+                              <span>{pastedMetaMatch.groupStatus === 'found' ? '✓' : '×'}</span>
+                              {pastedMetaMatch.groupStatus === 'found' ? `Grupo “${pastedMetaMatch.parsed.groupName}” encontrado.` : pastedMetaMatch.groupStatus === 'duplicate' ? 'Há mais de um grupo com esse nome exato.' : `Grupo “${pastedMetaMatch.parsed.groupName}” não encontrado.`}
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    {pastedMetaConnectUrl ? (
+                      <a className="button button-primary" href={pastedMetaConnectUrl}>{pastedMetaMatch.group ? 'Conectar e vincular ao grupo' : 'Conectar sem grupo'}</a>
+                    ) : <span className="button button-primary button-disabled" aria-disabled="true">Aguardando dados válidos</span>}
+                  </>
+                ) : (
+                  <p className="profile-error">
+                    Nenhum app da Meta cadastrado. Cadastre um em <Link href="/meta">API da Meta</Link> antes de conectar contas.
+                  </p>
+                )}
+              </div>
+              {LEGACY_ZERNIO_CONNECT_VISIBLE && (
+              <div className="profile-connect-option profile-connect-option-zernio profile-connect-option-zernio-bulk">
                 <strong>Conectar Zernio em massa</strong>
                 <span>Cole exatamente <b>conta Zernio</b> ou <b>conta Zernio;grupo</b>. A conta é adicionada primeiro e, depois, vinculada ao grupo.</span>
                 {zernioConnections.length > 0 ? (
@@ -1534,6 +1819,8 @@ export default function ProfilesClient({
                   </>
                 ) : <p className="profile-error">Cadastre uma conta Zernio antes de conectar por este provedor.</p>}
               </div>
+              )}
+              {LEGACY_ZERNIO_CONNECT_VISIBLE && (
               <div className="profile-connect-option profile-connect-option-zernio">
                 <strong>Zernio manual</strong>
                 <span>Opção tradicional: escolha manualmente uma conta Zernio salva para abrir o OAuth externo.</span>
@@ -1551,12 +1838,82 @@ export default function ProfilesClient({
                   <a className="button button-primary" href={selectedConnectionConnectUrl}>Conectar via Zernio</a>
                 ) : <span className="button button-primary button-disabled" aria-disabled="true">Conectar via Zernio</span>}
               </div>
-              <a className="profile-connect-option" href="/api/integrations/meta/start?returnTo=%2Fperfis">
-                <strong>API oficial Meta</strong>
-                <span>Abre o OAuth oficial do Instagram e retorna para a Athena.</span>
-              </a>
+              )}
             </div>
             <button className="button button-ghost" type="button" onClick={() => setConnectModalOpen(false)}>Cancelar</button>
+          </section>
+        </div>
+      )}
+      {bulkMetaModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setBulkMetaModalOpen(false)}>
+          <section className="panel bulk-modal zernio-bulk-copy-modal" role="dialog" aria-modal="true" aria-labelledby="meta-bulk-copy-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="zernio-bulk-copy-header">
+              <div>
+                <span className="section-kicker">Bulk Meta</span>
+                <h2 id="meta-bulk-copy-title">Gerar linhas para colar no Excel</h2>
+              </div>
+              <div className="zernio-bulk-refresh-actions">
+                <button className="zernio-bulk-refresh-button" type="button" onClick={() => void refreshMetaApps()} disabled={bulkMetaRefreshing} aria-label="Atualizar leitura dos apps da Meta">
+                  <SyncIcon className={`zernio-bulk-refresh-icon${bulkMetaRefreshing ? ' zernio-bulk-refresh-icon-spinning' : ''}`} />
+                </button>
+              </div>
+            </div>
+            <p className="bulk-modal-help">Escolha o app, o grupo e quantas linhas quer gerar. Cada linha representa um celular/tela. Pedir mais linhas do que o app tem de vaga não gera nada — a lista sai inteira ou não sai.</p>
+            {metaApps.length === 0 ? (
+              <p className="profile-error">Nenhum app da Meta cadastrado. Cadastre um em <Link href="/meta">API da Meta</Link> antes de gerar a lista.</p>
+            ) : (
+              <>
+                <div className="zernio-bulk-copy-controls">
+                  <label htmlFor="meta-bulk-app">
+                    App da Meta
+                    <select id="meta-bulk-app" value={bulkMetaAppId} onChange={(event) => { setBulkMetaAppId(event.target.value); setBulkMetaCopyMessage(''); }}>
+                      {metaApps.map((app) => {
+                        const capacity = metaAppCapacity(app);
+                        return (
+                          <option key={app.id} value={app.id}>
+                            {app.label} ({capacity.usedSlots}/{capacity.slotLimit}){app.active ? '' : ' · desativado'}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </label>
+                  <label htmlFor="meta-bulk-quantity">
+                    Quantidade de linhas
+                    <input id="meta-bulk-quantity" type="number" min="1" value={bulkMetaQuantity} onChange={(event) => { setBulkMetaQuantity(Number(event.target.value)); setBulkMetaCopyMessage(''); }} />
+                  </label>
+                  <label className="zernio-bulk-group-control" htmlFor="meta-bulk-group">
+                    Grupo depois da conexão
+                    <select id="meta-bulk-group" value={bulkMetaGroupId} onChange={(event) => setBulkMetaGroupId(event.target.value)}>
+                      <option value="none">Sem grupo</option>
+                      {groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                    </select>
+                    <small>{bulkMetaGroup ? `A lista sairá como app;${bulkMetaGroup.name}` : 'A lista terá somente o nome do app.'}</small>
+                  </label>
+                </div>
+                <dl className="zernio-bulk-copy-summary">
+                  <div><dt>Vagas do app</dt><dd>{bulkMetaPlan.slotLimit}</dd></div>
+                  <div><dt>Em uso</dt><dd>{bulkMetaPlan.usedSlots}</dd></div>
+                  <div><dt>Livres</dt><dd>{bulkMetaPlan.freeSlots}</dd></div>
+                  <div><dt>Linhas geradas</dt><dd>{bulkMetaPlan.rows.length}</dd></div>
+                </dl>
+                <p className={`zernio-paste-status${bulkMetaPlan.blocked ? ' zernio-paste-status-warning' : ''}`} role="status">{bulkMetaPlanMessage}</p>
+                <label className="zernio-bulk-preview" htmlFor="meta-bulk-preview-text">
+                  Prévia para Excel
+                  <textarea
+                    id="meta-bulk-preview-text"
+                    readOnly
+                    value={bulkMetaPlan.text}
+                    rows={Math.min(12, Math.max(4, bulkMetaPlan.rows.length))}
+                    placeholder="Nenhuma linha gerada com os critérios atuais."
+                  />
+                </label>
+                {bulkMetaCopyMessage && <p className="profile-mirror-login-message" role="status">{bulkMetaCopyMessage}</p>}
+              </>
+            )}
+            <div className="profile-delete-actions">
+              <button className="button button-primary" type="button" onClick={() => void copyBulkMetaList()} disabled={bulkMetaPlan.rows.length === 0}>Copiar lista</button>
+              <button className="button button-ghost" type="button" onClick={() => setBulkMetaModalOpen(false)}>Fechar</button>
+            </div>
           </section>
         </div>
       )}

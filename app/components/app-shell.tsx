@@ -29,6 +29,7 @@ const instagramNavigation: NavigationItem[] = [
   { label: 'Recuperação', icon: 'recovery', href: '/recuperacao' },
   { label: 'Agenda', icon: 'calendar', href: '/agenda' },
   { label: 'Zernio', icon: 'key', href: '/zernio' },
+  { label: 'API da Meta', icon: 'key', href: '/meta' },
   { label: 'Logs', icon: 'activity', href: '/operacao' },
 ];
 

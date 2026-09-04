@@ -13,6 +13,13 @@ type OAuthState = {
   nonce: string;
   returnTo: string;
   expiresAt: number;
+  /**
+   * App da Meta escolhido para esta conexão. Nulo só em estados emitidos antes
+   * do cadastro de apps existir — o /start atual sempre exige um app.
+   */
+  metaAppId: string | null;
+  /** Grupo a vincular depois que o perfil existir. */
+  groupId: string | null;
 };
 
 function requiredMetaEnv(name: 'META_OAUTH_STATE_SECRET') {
@@ -41,8 +48,13 @@ function sign(value: string) {
     .digest('base64url');
 }
 
-export function createSignedState(input: Omit<OAuthState, 'nonce' | 'expiresAt'>) {
+export function createSignedState(
+  input: Omit<OAuthState, 'nonce' | 'expiresAt' | 'metaAppId' | 'groupId'>
+    & Partial<Pick<OAuthState, 'metaAppId' | 'groupId'>>,
+) {
   const state: OAuthState = {
+    metaAppId: null,
+    groupId: null,
     ...input,
     nonce: randomBytes(32).toString('base64url'),
     expiresAt: Date.now() + 10 * 60 * 1000,
@@ -85,15 +97,20 @@ export function verifySignedState(value: string, expectedNonce: string | undefin
       return null;
     }
 
-    return state;
+    return {
+      ...state,
+      // Estados assinados antes do cadastro de apps não têm estes campos.
+      metaAppId: typeof state.metaAppId === 'string' ? state.metaAppId : null,
+      groupId: typeof state.groupId === 'string' ? state.groupId : null,
+    };
   } catch {
     return null;
   }
 }
 
-export function buildMetaAuthorizationUrl(state: string, redirectUri: string) {
+export function buildMetaAuthorizationUrl(state: string, redirectUri: string, clientId: string) {
   const url = new URL('https://api.instagram.com/oauth/authorize');
-  url.searchParams.set('client_id', metaClientId());
+  url.searchParams.set('client_id', clientId);
   url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('scope', META_OAUTH_SCOPES.join(','));
@@ -101,16 +118,18 @@ export function buildMetaAuthorizationUrl(state: string, redirectUri: string) {
   return url;
 }
 
-export function metaClientSecret() {
-  const value = process.env.INSTAGRAM_CLIENT_SECRET ?? process.env.META_CLIENT_SECRET;
-  if (!value) throw new Error('A variável INSTAGRAM_CLIENT_SECRET não está configurada.');
-  return value;
-}
+/**
+ * Credencial global antiga, mantida apenas como retaguarda das conexões que já
+ * existiam antes do cadastro de apps por organização. Conexões novas passam
+ * obrigatoriamente por um app cadastrado em /meta, então estas funções devolvem
+ * null em vez de lançar: a ausência da variável deixou de ser um erro.
+ */
+export function legacyMetaAppCredentials() {
+  const clientId = process.env.INSTAGRAM_CLIENT_ID ?? process.env.META_CLIENT_ID;
+  const clientSecret = process.env.INSTAGRAM_CLIENT_SECRET ?? process.env.META_CLIENT_SECRET;
 
-export function metaClientId() {
-  const value = process.env.INSTAGRAM_CLIENT_ID ?? process.env.META_CLIENT_ID;
-  if (!value) throw new Error('A variável INSTAGRAM_CLIENT_ID não está configurada.');
-  return value;
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
 }
 
 export function safeReturnTo(value: string | null) {
