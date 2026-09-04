@@ -132,7 +132,7 @@ tbody tr:last-child td{border-bottom:0}
   <div class="hero">
     <p class="eyebrow">Privacidade e proteção de dados</p>
     <h1>Política de Privacidade</h1>
-    <p class="lead">Como o <strong>dusking</strong> coleta, usa, guarda e elimina dados quando você conecta suas Páginas do Facebook e contas do Instagram para publicar e gerenciar conteúdo. Escrito para ser lido — sem letras miúdas.</p>
+    <p class="lead">Como o <strong>dusking</strong> coleta, usa, guarda e elimina dados quando você conecta suas contas profissionais do Instagram para publicar e gerenciar conteúdo. Escrito para ser lido — sem letras miúdas.</p>
     <div class="meta">
       <div><span>Vigência</span>4 de setembro de 2026</div>
       <div><span>Última atualização</span>4 de setembro de 2026</div>
@@ -180,7 +180,7 @@ tbody tr:last-child td{border-bottom:0}
 
       <section class="sec" id="s2">
         <h2><span class="num">02</span>A quem esta política se aplica</h2>
-        <p>Esta política vale para qualquer pessoa que crie uma conta no dusking, conecte uma Página do Facebook ou uma conta profissional do Instagram, ou use o aplicativo para criar, agendar, publicar ou gerenciar conteúdo nessas contas.</p>
+        <p>Esta política vale para qualquer pessoa que crie uma conta no dusking, conecte uma conta profissional do Instagram, ou use o aplicativo para criar, agendar, publicar e gerenciar conteúdo, comentários e mensagens dessa conta.</p>
         <p>O dusking é um <strong>aplicativo de terceiro</strong>: não é afiliado, patrocinado nem endossado pela Meta Platforms, Inc. O tratamento de dados feito pela própria Meta dentro do Facebook e do Instagram segue a política de privacidade da Meta, não esta.</p>
       </section>
 
@@ -188,28 +188,40 @@ tbody tr:last-child td{border-bottom:0}
         <h2><span class="num">03</span>Dados que coletamos</h2>
         <p>Coletamos apenas o necessário para o app funcionar. Não compramos listas, não enriquecemos perfis com dados de fora e não coletamos dados de pessoas que não sejam usuárias do dusking, salvo o que aparece publicamente vinculado às publicações que você mesmo gerencia.</p>
 
-        <h3>a) Dados de cadastro e autenticação</h3>
+        <h3>a) Dados da sua conta no painel</h3>
         <ul>
-          <li>Nome, foto de perfil e endereço de e-mail informados no login com o Facebook;</li>
-          <li>Seu identificador de usuário específico do aplicativo (<span class="perm">app-scoped user ID</span>), que não é o mesmo ID usado por outros apps;</li>
-          <li>Tokens de acesso emitidos pela Meta para o app agir em seu nome.</li>
+          <li>Nome e endereço de e-mail informados no cadastro;</li>
+          <li>Senha de acesso, guardada apenas como hash pelo provedor de autenticação — nunca em texto;</li>
+          <li>A organização a que você pertence e seu papel nela (administrador, operador ou leitor).</li>
         </ul>
 
-        <h3>b) Dados das Páginas e contas conectadas</h3>
+        <h3>b) Dados da conta do Instagram conectada</h3>
         <ul>
-          <li>Lista de Páginas do Facebook que você administra: ID, nome, categoria e foto;</li>
-          <li>Conta profissional do Instagram vinculada à Página: ID, nome de usuário, foto e número de seguidores;</li>
-          <li>Tokens de acesso de Página necessários para publicar.</li>
+          <li>Identificador da conta, nome de usuário, nome de exibição, foto e tipo de conta;</li>
+          <li>Token de acesso emitido pela Meta para o app agir em seu nome, guardado criptografado;</li>
+          <li>Métricas da conta e das publicações, quando você usa a área de análises.</li>
         </ul>
 
         <h3>c) Conteúdo que você envia pelo app</h3>
         <ul>
           <li>Textos, legendas, hashtags, imagens, vídeos e Reels que você carrega para publicar ou agendar;</li>
           <li>Datas e horários de agendamento, rascunhos e modelos salvos;</li>
-          <li>Identificadores e status das publicações criadas (publicado, agendado, com erro) e métricas públicas básicas de desempenho.</li>
+          <li>Identificadores e status das publicações criadas (publicado, agendado, com erro).</li>
         </ul>
 
-        <h3>d) Dados técnicos</h3>
+        <h3>d) Comentários e mensagens</h3>
+        <ul>
+          <li>Comentários das suas publicações e mensagens recebidas no Direct, quando você usa o app para lê-los ou respondê-los;</li>
+          <li>Esse conteúdo é acessado para exibir e responder dentro do painel — nunca para treinar modelos, montar perfis de terceiros ou qualquer finalidade publicitária.</li>
+        </ul>
+
+        <h3>e) Dados de atendimento por WhatsApp</h3>
+        <ul>
+          <li>Número de telefone, nome e histórico da conversa, quando a contratação ou o suporte acontece por lá;</li>
+          <li>Comprovantes de pagamento que você enviar para a liberação do acesso.</li>
+        </ul>
+
+        <h3>f) Dados técnicos</h3>
         <ul>
           <li>Endereço IP, tipo de navegador e sistema operacional;</li>
           <li>Registros de acesso à aplicação com data e hora, mantidos por exigência do art. 15 do Marco Civil da Internet (Lei 12.965/2014);</li>
@@ -218,7 +230,7 @@ tbody tr:last-child td{border-bottom:0}
 
         <div class="note">
           <span class="tag">Não coletamos</span>
-          <p>Senhas do Facebook ou do Instagram — o login é feito pela própria Meta e nunca vemos suas credenciais. Também não acessamos mensagens diretas, caixa de entrada, dados de cartão ou qualquer dado sensível na acepção do art. 5º, II, da LGPD.</p>
+          <p>Sua senha do Instagram — a autorização é feita pela própria Meta e nunca vemos as credenciais de lá. Também não coletamos dados de cartão, nem dados sensíveis na acepção do art. 5º, II, da LGPD.</p>
         </div>
       </section>
 
@@ -231,19 +243,15 @@ tbody tr:last-child td{border-bottom:0}
               <tr><th>Permissão</th><th>Por que precisamos</th><th>O que acessa</th></tr>
             </thead>
             <tbody>
-              <tr><td><span class="perm">public_profile</span></td><td>Identificar você no login e exibir seu nome no app</td><td>Nome, foto e ID do app</td></tr>
-              <tr><td><span class="perm">email</span></td><td>Criar sua conta e enviar avisos sobre publicações</td><td>E-mail cadastrado na Meta</td></tr>
-              <tr><td><span class="perm">pages_show_list</span></td><td>Listar as Páginas que você administra para você escolher onde publicar</td><td>ID, nome e categoria das Páginas</td></tr>
-              <tr><td><span class="perm">pages_read_engagement</span></td><td>Mostrar o resultado das publicações feitas pelo app</td><td>Contagens públicas de reações, comentários e alcance</td></tr>
-              <tr><td><span class="perm">pages_manage_posts</span></td><td>Criar, agendar, editar e excluir publicações, sempre por comando seu</td><td>Somente o conteúdo que você envia pelo app</td></tr>
-              <tr><td><span class="perm">pages_manage_metadata</span></td><td>Assinar webhooks para saber se uma publicação foi concluída ou falhou</td><td>Eventos de status da Página</td></tr>
-              <tr><td><span class="perm">instagram_basic</span></td><td>Identificar a conta profissional do Instagram vinculada à Página</td><td>ID, @usuário, foto e contagem de seguidores</td></tr>
-              <tr><td><span class="perm">instagram_content_publish</span></td><td>Publicar fotos, vídeos, carrosséis e Reels na conta escolhida</td><td>Mídia e legendas que você envia</td></tr>
-              <tr><td><span class="perm">business_management</span></td><td>Quando aplicável, identificar os ativos do Gerenciador de Negócios que você administra</td><td>Vínculo entre conta, Página e portfólio comercial</td></tr>
+              <tr><td><span class="perm">instagram_business_basic</span></td><td>Identificar a conta profissional conectada e exibi-la no painel</td><td>ID, @usuário, nome, foto e tipo de conta</td></tr>
+              <tr><td><span class="perm">instagram_business_content_publish</span></td><td>Publicar e agendar fotos, vídeos, carrosséis e Reels, sempre por comando seu</td><td>Somente a mídia e as legendas que você envia pelo app</td></tr>
+              <tr><td><span class="perm">instagram_business_manage_insights</span></td><td>Mostrar o desempenho das publicações e a evolução da conta</td><td>Métricas de alcance, impressões, interações e seguidores</td></tr>
+              <tr><td><span class="perm">instagram_business_manage_comments</span></td><td>Ler e responder comentários das publicações a partir do painel</td><td>Texto, autor e data dos comentários nos seus posts</td></tr>
+              <tr><td><span class="perm">instagram_business_manage_messages</span></td><td>Ler e responder mensagens do Direct a partir do painel</td><td>Conteúdo e remetente das mensagens recebidas pela conta</td></tr>
             </tbody>
           </table>
         </div>
-        <p>Você pode revisar e revogar essas permissões a qualquer momento em <strong>Facebook → Configurações e privacidade → Configurações → Aplicativos e sites</strong>. A revogação interrompe imediatamente o acesso do dusking, e as publicações agendadas que dependiam dela deixam de ser enviadas.</p>
+        <p>Você pode revisar e revogar essas permissões a qualquer momento em <strong>Instagram → Configurações e privacidade → Aplicativos e sites</strong>. A revogação interrompe imediatamente o acesso do dusking, e as publicações agendadas que dependiam dela deixam de ser enviadas.</p>
       </section>
 
       <section class="sec" id="s5">
@@ -295,7 +303,7 @@ tbody tr:last-child td{border-bottom:0}
           <table>
             <thead><tr><th>Dado</th><th>Prazo de retenção</th></tr></thead>
             <tbody>
-              <tr><td>Tokens de acesso do Facebook e Instagram</td><td>Até você desconectar a conta ou revogar o app — eliminados imediatamente</td></tr>
+              <tr><td>Token de acesso do Instagram</td><td>Até você desconectar a conta ou revogar o app — eliminados imediatamente</td></tr>
               <tr><td>Dados de cadastro e contas conectadas</td><td>Enquanto a conta estiver ativa; até 30 dias após o pedido de exclusão</td></tr>
               <tr><td>Rascunhos e publicações agendadas ainda não enviadas</td><td>Excluídos junto com a conta</td></tr>
               <tr><td>Histórico de publicações (ID, data, status)</td><td>12 meses</td></tr>
@@ -326,11 +334,11 @@ tbody tr:last-child td{border-bottom:0}
 
       <section class="sec" id="s10">
         <h2><span class="num">10</span>Exclusão de dados</h2>
-        <p>Você pode apagar seus dados do dusking a qualquer momento, sem precisar justificar. Há três caminhos — pelo próprio aplicativo, removendo o app nas configurações do Facebook, ou por e-mail.</p>
+        <p>Você pode apagar seus dados do dusking a qualquer momento, sem precisar justificar. Há três caminhos — removendo o perfil dentro do painel, revogando o app nas configurações do Instagram, ou por e-mail.</p>
         <p>O passo a passo completo, com o modelo de mensagem e os prazos, está na página de <a href="/exclusao-de-dados"><strong>instruções de exclusão de dados</strong></a>.</p>
         <div class="note">
           <span class="tag">Atenção</span>
-          <p>Excluir seus dados do dusking <strong>não apaga as publicações que já foram ao ar</strong> no Facebook ou no Instagram: elas passam a pertencer exclusivamente à sua Página e devem ser removidas por lá, se for o caso.</p>
+          <p>Excluir seus dados do dusking <strong>não apaga as publicações que já foram ao ar</strong> no Instagram: elas passam a pertencer exclusivamente à sua conta e devem ser removidas por lá, se for o caso.</p>
         </div>
       </section>
 
