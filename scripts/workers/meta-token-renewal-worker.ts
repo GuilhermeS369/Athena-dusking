@@ -22,9 +22,18 @@
 // repete linhas e perde outras, a armadilha que já invalidou medições neste
 // projeto (ver CLAUDE.md).
 //
+//
+// IMPORTS RELATIVOS, e nao pelo alias `@/`: este worker roda na VPS com `node`
+// puro. O Node 22 faz type stripping nativo de `.ts`, mas NAO resolve o alias do
+// tsconfig -- e a VPS nao tem tsx instalado (65 workers la sao `.mjs`). Caminho
+// relativo e o que permite compartilhar a politica de
+// lib/integrations/meta-token-renewal.ts em vez de duplicar os limiares num
+// `.mjs` separado, que e exatamente o jeito de os dois lados divergirem sem
+// ninguem perceber.
+//
 // USO:
-//   npx tsx scripts/workers/meta-token-renewal-worker.ts           # só relatório
-//   npx tsx scripts/workers/meta-token-renewal-worker.ts --apply   # renova
+//   node scripts/workers/meta-token-renewal-worker.ts           # só relatório
+//   node scripts/workers/meta-token-renewal-worker.ts --apply   # renova
 
 import fs from 'node:fs';
 import process from 'node:process';
@@ -54,14 +63,14 @@ type ProfileRow = {
 };
 
 async function main() {
-  const { createSupabaseAdminClient } = await import('@/lib/supabase/admin');
-  const { decryptToken, encryptToken } = await import('@/lib/security/token-crypto');
-  const { META_GRAPH_API_VERSION } = await import('@/lib/integrations/meta-oauth');
+  const { createSupabaseAdminClient } = await import('../../lib/supabase/admin.ts');
+  const { decryptToken, encryptToken } = await import('../../lib/security/token-crypto.ts');
+  const { META_GRAPH_API_VERSION } = await import('../../lib/integrations/meta-oauth.ts');
   const {
     metaTokenRenewalState,
     metaTokenRenewalLabel,
     summarizeMetaTokenFleet,
-  } = await import('@/lib/integrations/meta-token-renewal');
+  } = await import('../../lib/integrations/meta-token-renewal.ts');
 
   const apply = process.argv.includes('--apply');
   /** Baixa por educação com a Meta, não por limitação nossa: são ~100 refreshes por app. */
