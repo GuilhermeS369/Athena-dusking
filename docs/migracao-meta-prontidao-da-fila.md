@@ -50,7 +50,14 @@ comum.
 
 ---
 
-## BLOQUEADOR 1 — a vazão despenca para 50/min no instante da virada
+## ~~BLOQUEADOR 1~~ — RESOLVIDO em 04/09 (migration 369)
+
+> Linha `meta_official` criada com teto de 1200/min. Verificado replicando a
+> ordenação real da função: `meta_official` agora resolve na própria linha, nas
+> três organizações, e o `zernio` segue na dele. O texto abaixo fica como
+> registro do que estava errado.
+
+### O que estava errado
 
 **Este é o mais grave e o mais barato de corrigir.**
 
@@ -78,7 +85,19 @@ virar qualquer perfil. É um `INSERT`. O que não pode é virar e descobrir depo
 
 ---
 
-## BLOQUEADOR 2 — não existe cota por app, e é ela que passa a importar
+## ~~BLOQUEADOR 2~~ — RESOLVIDO em 04/09 (migration 372)
+
+> Cota por app implementada, **aditiva** à da organização, com o lock passando a
+> ser por app quando há app — porque contar por app dentro do lock por hash de
+> perfil reintroduziria a corrida. O teto nasce **nulo** de propósito: o limite
+> real da Meta é dinâmico (`X-App-Usage`) e não há número publicado para cravar.
+> Com nulo, o comportamento é idêntico ao anterior; a alavanca fica pronta.
+> Ativar: `update public.meta_apps set max_publications_per_minute = N`.
+>
+> Perfis legados com `meta_app_id` nulo seguem no balde por perfil e na cota da
+> organização, conforme combinado com a sessão da migração.
+
+### O que estava errado
 
 Este é o de projeto, não de configuração.
 
@@ -122,7 +141,17 @@ mudança na mesma função, e o padrão de fatiar por chave já está validado.
 
 ---
 
-## RISCO ALTO — o 401 terminal fica mais perigoso, não menos
+## ~~RISCO ALTO~~ — o 401 terminal, CORRIGIDO em 04/09
+
+> Corrigido pela sessão da migração, e o mecanismo não era onde este documento
+> apontava: não é `isPublicationInfrastructureError` (catch-all de transporte),
+> e sim `lib/integrations/instagram-publisher.ts`, onde
+> `retryable = status >= 500 || status === 429 || is_transient` fazia 401 e o
+> código 190 caírem em `retryable: false` na primeira tentativa. Agora está em
+> `lib/integrations/meta-graph-errors.ts` com `isRetryableGraphFailure()`.
+> A conclusão deste documento estava certa; a localização, não.
+
+### O raciocínio original
 
 Um HTTP 401 do provedor vira **falha terminal na primeira tentativa**, sem
 retentativa. Foi isso que transformou a suspensão da Zernio de 04/09 em **3.263
@@ -168,12 +197,19 @@ A correção é no mesmo módulo que já trata o `fetch failed` do incidente de
 | Modelo de dados multi-provedor | **pronto** desde a 053 |
 | Fatiamento do lock | **pronto**, agnóstico |
 | Limite por perfil (24 h, espaçamento) | **pronto** |
-| Linha de rate limit `meta_official` | **FALTA** — vira 50/min |
-| Cota por app | **FALTA** — só existe por organização |
-| 401 como erro transitório | **FALTA** — hoje queima publicação |
-| Leitura de `X-App-Usage` | **FALTA** |
+| Linha de rate limit `meta_official` | **feito** — migration 369 |
+| Cota por app | **feito** — migration 372, teto nulo até ser medido |
+| 401 como erro transitório | **feito** — `isRetryableGraphFailure` |
+| Renovação de token | **feito** — worker + política, 14 tokens renovados |
+| Leitura de `X-App-Usage` | **FALTA** — é o que dá o número da cota por app |
+| Agendamento diário da renovação | **FALTA** — worker existe, ninguém o chama ainda |
 
-A parte difícil — fila, planos, locks, agendamento — está pronta e não precisa
-de trabalho. O que falta é pequeno em código e grande em consequência: sem a
-linha de configuração, a vazão cai 4×; sem cota por app, o limite que passa a
-importar é justamente o que o sistema não consegue contar.
+**Atualização de 04/09:** os três itens que faltavam foram fechados no mesmo dia.
+Sobram dois, e nenhum é bloqueador de virada:
+
+- **`X-App-Usage`** — ninguém lê o cabeçalho ainda. É ele que dá o número real
+  para configurar a cota por app; enquanto não for lido, a cota fica pronta mas
+  desligada.
+- **Agendamento da renovação** — o worker existe e funciona, mas nada o chama de
+  hora em hora. Enquanto for manual, a garantia de 60 dias depende de alguém
+  lembrar, que é exatamente o que ele existe para evitar.
