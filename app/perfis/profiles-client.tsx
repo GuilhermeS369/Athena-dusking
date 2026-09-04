@@ -193,6 +193,7 @@ const connectionErrorMessage: Record<string, string> = {
   meta_app_no_available_slot: 'O app da Meta desta linha ficou sem vaga. Gere uma nova lista no Bulk Meta escolhendo outro app.',
   meta_app_secret_unreadable: 'A chave secreta desse app não pôde ser lida. Cadastre o App Secret novamente em “API da Meta”.',
   meta_group_not_found: 'O grupo dessa linha não existe mais. Gere novamente a lista no Bulk Meta.',
+  meta_profile_conflict: 'Esta conta do Instagram bate com DOIS perfis diferentes no Athena — um pelo identificador da Meta e outro pelo @. Nenhum foi alterado: fundir os dois exige escolher qual histórico fica. Verifique os perfis duplicados antes de reconectar.',
 };
 
 /**
@@ -505,9 +506,11 @@ export default function ProfilesClient({
         ? 'Solicitação de adição enviada. Você já pode fechar este celular; a VPS concluirá a verificação e o resultado aparecerá no histórico abaixo.'
       : connectionResult.connected === 'zernio_empty'
         ? 'A conexão Zernio retornou, mas nenhuma conta Instagram foi encontrada para sincronizar.'
+        : connectionResult.connected === 'takeover'
+      ? `Perfil já existente assumido pela API da Meta: as credenciais da Zernio foram substituídas e o histórico de views, os grupos e os posts foram preservados.${groupAssignmentSuffix}`
         : connectionResult.connected === 'updated'
-      ? 'Perfil reconectado e token atualizado com sucesso.'
-      : 'Perfil conectado e salvo com sucesso.'
+      ? `Perfil reconectado e token atualizado com sucesso.${groupAssignmentSuffix}`
+      : `Perfil conectado e salvo com sucesso.${groupAssignmentSuffix}`
     : connectionResult.error
       ? connectionErrorMessage[connectionResult.error] ?? 'Não foi possível concluir a conexão do perfil.'
       : null;

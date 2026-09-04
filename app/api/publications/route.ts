@@ -378,6 +378,50 @@ export async function POST(request: Request) {
   }
 
   const groupById = new Map((groups ?? []).map((group) => [group.id, group]));
+
+  // Um grupo enfileirava para TODOS os seus membros, sem olhar a situação
+  // deles. Com a frota Zernio em transição para a Meta, isso significaria
+  // agendar milhares de publicações para contas que não publicam — a tela
+  // ainda anuncia "89 perfis" num grupo cujos 89 estão em erro.
+  //
+  // A filtragem acontece aqui, antes das validações, porque a regra de mídia de
+  // uso único pareia uma mídia por perfil: contar membros mortos exigiria mídia
+  // a mais e recusaria o envio por um motivo que não é o real.
+  const memberIds = [...new Set((groups ?? []).flatMap(
+    (group) => (group.profile_group_members ?? []).map((member) => member.profile_id),
+  ))];
+  const onlineMembersResult = memberIds.length === 0
+    ? { data: [] as Array<{ id: string }>, error: null }
+    : await fetchAllRowsByIds<{ id: string }>(memberIds, (chunk, from, to) => supabase
+      .from('instagram_profiles_safe')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('status', 'online')
+      .is('deleted_at', null)
+      .in('id', chunk)
+      .order('id', { ascending: true })
+      .range(from, to));
+
+  if (onlineMembersResult.error) {
+    return NextResponse.json({ error: 'Não foi possível verificar a situação dos perfis do grupo.' }, { status: 500 });
+  }
+
+  const onlineMemberIdSet = new Set((onlineMembersResult.data ?? []).map((row) => row.id));
+  const onlineMembersByGroup = new Map<string, string[]>(
+    (groups ?? []).map((group) => [
+      group.id,
+      (group.profile_group_members ?? [])
+        .map((member) => member.profile_id)
+        .filter((profileId) => onlineMemberIdSet.has(profileId)),
+    ]),
+  );
+  const skippedMembersByGroup = new Map<string, number>(
+    (groups ?? []).map((group) => [
+      group.id,
+      (group.profile_group_members ?? []).length - (onlineMembersByGroup.get(group.id)?.length ?? 0),
+    ]),
+  );
+
   const groupPolicyError = cleanItems.some((item) => {
     if (!item.groupId) return false;
     const group = groupById.get(item.groupId);
@@ -390,7 +434,9 @@ export async function POST(request: Request) {
   const insufficientSingleUseMedia = cleanItems.some((item) => {
     if (!item.groupId) return false;
     const group = groupById.get(item.groupId);
-    return !item.profileId && group?.consumption_mode === 'single_use' && item.mediaIds!.length !== (group.profile_group_members ?? []).length;
+    return !item.profileId
+      && group?.consumption_mode === 'single_use'
+      && item.mediaIds!.length !== (onlineMembersByGroup.get(group.id) ?? []).length;
   });
   if (insufficientSingleUseMedia) {
     return NextResponse.json({ error: 'Em grupos de uso único, selecione exatamente uma mídia compatível para cada perfil do grupo.' }, { status: 400 });
@@ -399,17 +445,24 @@ export async function POST(request: Request) {
   const expandedItems = cleanItems.flatMap((item) => {
     if (item.profileId) return [item];
     const group = item.groupId ? groupById.get(item.groupId) : null;
-    const members = group?.profile_group_members ?? [];
-    return members.map((member, index) => ({
+    const members = group ? onlineMembersByGroup.get(group.id) ?? [] : [];
+    return members.map((profileId, index) => ({
       ...item,
-      profileId: member.profile_id,
+      profileId,
       mediaIds: group?.consumption_mode === 'single_use' ? [item.mediaIds![index]] : item.mediaIds,
       caption: item.caption ?? group?.default_caption ?? null,
     }));
   });
 
+  const skippedGroupMembers = [...skippedMembersByGroup.values()].reduce((total, count) => total + count, 0);
+
   if (expandedItems.length === 0) {
-    return NextResponse.json({ error: 'O grupo selecionado não possui perfis conectados.' }, { status: 400 });
+    return NextResponse.json({
+      error: skippedGroupMembers > 0
+        ? `Nenhum perfil do grupo está online. ${skippedGroupMembers} perfil(is) estão com erro e precisam ser reconectados pela API da Meta antes de publicar.`
+        : 'O grupo selecionado não possui perfis conectados.',
+      skippedGroupMembers,
+    }, { status: 400 });
   }
   if (expandedItems.length > maximumAsyncPublicationItems) {
     return NextResponse.json({ error: `A seleção resulta em mais de ${maximumAsyncPublicationItems.toLocaleString('pt-BR')} publicações. Divida em mais de um envio por enquanto.` }, { status: 400 });
@@ -430,12 +483,23 @@ export async function POST(request: Request) {
   // linhas, a comparação de comprimento abaixo falha e o agendamento é recusado
   // com uma mensagem que não descreve o problema real.
   const [profilesResult, mediaResult] = await Promise.all([
-    fetchAllRowsByIds(profileIds, (chunk, from, to) => supabase.from('instagram_profiles').select('id').eq('organization_id', organizationId).is('deleted_at', null).in('id', chunk).order('id', { ascending: true }).range(from, to)),
+    fetchAllRowsByIds<{ id: string; status: string }>(profileIds, (chunk, from, to) => supabase.from('instagram_profiles').select('id, status').eq('organization_id', organizationId).is('deleted_at', null).in('id', chunk).order('id', { ascending: true }).range(from, to)),
     fetchAllRowsByIds(mediaIds, (chunk, from, to) => supabase.from('media_assets').select('id, kind, mime_type, original_name, storage_path').eq('organization_id', organizationId).is('deleted_at', null).is('deletion_requested_at', null).eq('status', 'ready').in('id', chunk).order('id', { ascending: true }).range(from, to)),
   ]);
 
   if (profilesResult.error || mediaResult.error || profilesResult.data.length !== profileIds.length || mediaResult.data.length !== mediaIds.length) {
     return NextResponse.json({ error: 'Um ou mais perfis ou mídias não pertencem à organização ativa ou não estão prontos.' }, { status: 400 });
+  }
+
+  // Membros de grupo já foram filtrados por situação lá em cima; o que sobra
+  // aqui é perfil escolhido diretamente. Esse caso NÃO é descartado em
+  // silêncio: quem escolheu um perfil específico precisa saber que ele não
+  // publica, em vez de receber um lote menor sem explicação.
+  const offlineSelected = profilesResult.data.filter((profile) => profile.status !== 'online');
+  if (offlineSelected.length > 0) {
+    return NextResponse.json({
+      error: `${offlineSelected.length} perfil(is) selecionado(s) não estão online e precisam ser reconectados pela API da Meta antes de publicar.`,
+    }, { status: 400 });
   }
 
   const storageChecks = await Promise.all((mediaResult.data ?? []).map(async (asset) => {
@@ -531,6 +595,9 @@ export async function POST(request: Request) {
       generationJob: (generationJob as { job?: unknown }).job ?? generationJob,
       acceptedItems: rows.length,
       chunkSize: asyncGenerationChunkSize,
+      // Quantos membros de grupo ficaram de fora por não estarem online. A tela
+      // precisa dizer isso: um lote menor sem explicação parece bug.
+      skippedGroupMembers,
     }, { status: 202 });
   }
 
@@ -580,5 +647,5 @@ export async function POST(request: Request) {
       mode: 'scheduled_queue' as const,
     };
 
-  return NextResponse.json({ batch: result.batch, items: createdItems, dispatch }, { status: 201 });
+  return NextResponse.json({ batch: result.batch, items: createdItems, dispatch, skippedGroupMembers }, { status: 201 });
 }

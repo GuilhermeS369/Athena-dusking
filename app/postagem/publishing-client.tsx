@@ -95,6 +95,7 @@ type PublicationCreateResponse = {
   generationJob?: GenerationJobResponse;
   async?: boolean;
   acceptedItems?: number;
+  skippedGroupMembers?: number;
   error?: string;
   dispatch?: DispatchResponse;
 };
@@ -142,6 +143,7 @@ export default function PublishingClient({
   const [batchName, setBatchName] = useState('');
   const [reviewed, setReviewed] = useState(false);
   const [composerAssets] = useState(assets);
+  const onlineProfileIds = useMemo(() => new Set(profiles.map((profile) => profile.id)), [profiles]);
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [groupDraftItems, setGroupDraftItems] = useState<PublicationDraftItem[]>([]);
@@ -334,6 +336,13 @@ export default function PublishingClient({
         return;
       }
 
+      // Um lote menor do que o grupo anuncia parece bug se ninguém explicar.
+      // Perfis em erro não entram na fila; dizer quantos ficaram de fora é o
+      // que separa "funcionou parcialmente" de "o sistema comeu metade".
+      const skippedNotice = payload.skippedGroupMembers
+        ? ` ${payload.skippedGroupMembers} perfil(is) do grupo ficaram de fora por estarem com erro — reconecte pela API da Meta para incluí-los.`
+        : '';
+
       if (payload.generationJob) {
         const expectedItems = payload.acceptedItems ?? payload.generationJob.expected_items ?? itemsForQueue.length;
         setProfileId('');
@@ -344,7 +353,7 @@ export default function PublishingClient({
         setScheduleMode('immediate');
         setBatchName('');
         setReviewed(false);
-        setMessage(`Agendamento grande enviado para processamento. Job criado com ${expectedItems.toLocaleString('pt-BR')} publicações. Acompanhe em /queue.`);
+        setMessage(`Agendamento grande enviado para processamento. Job criado com ${expectedItems.toLocaleString('pt-BR')} publicações. Acompanhe em /queue.${skippedNotice}`);
         return;
       }
 
@@ -359,6 +368,7 @@ export default function PublishingClient({
       setMessage(payload.dispatch?.mode === 'vps_worker_primary'
         ? 'Publicação enviada para a fila da VPS. Acompanhe em /queue.'
         : payload.dispatch?.started ? 'Publicação iniciada. Acompanhe em /queue.' : payload.dispatch?.error ?? 'Publicação adicionada à fila. Acompanhe em /queue.');
+      if (skippedNotice) setMessage((current) => `${current}${skippedNotice}`);
     } catch {
       setMessage('Não foi possível conectar ao servidor.');
     } finally {
@@ -407,7 +417,7 @@ export default function PublishingClient({
           </div>
 
           <div className="form-grid publishing-basics">
-            <label>Destino<select required value={profileId ? `profile:${profileId}` : groupId ? `group:${groupId}` : ''} onChange={(event) => { const [kind, value] = event.target.value.split(':'); if ((kind === 'profile' || kind === 'group') && value) selectTarget(kind, value); }} disabled={!canManage}><option value="">Selecione um perfil ou grupo</option>{groups.length > 0 && <optgroup label="Grupos">{groups.map((group) => <option key={group.id} value={`group:${group.id}`}>{group.name} · {(group.profile_group_members ?? []).length} perfil(is)</option>)}</optgroup>}<optgroup label="Perfis">{profiles.map((profile) => <option key={profile.id} value={`profile:${profile.id}`}>@{profile.username}{profile.display_name ? ` · ${profile.display_name}` : ''} · {formatProfileMetrics(profile)}</option>)}</optgroup></select></label>
+            <label>Destino<select required value={profileId ? `profile:${profileId}` : groupId ? `group:${groupId}` : ''} onChange={(event) => { const [kind, value] = event.target.value.split(':'); if ((kind === 'profile' || kind === 'group') && value) selectTarget(kind, value); }} disabled={!canManage}><option value="">Selecione um perfil ou grupo</option>{groups.length > 0 && <optgroup label="Grupos">{groups.map((group) => { const total = (group.profile_group_members ?? []).length; const online = (group.profile_group_members ?? []).filter((member) => onlineProfileIds.has(member.profile_id)).length; return <option key={group.id} value={`group:${group.id}`}>{group.name} · {online === total ? `${total} perfil(is)` : `${online} de ${total} perfil(is) online`}</option>; })}</optgroup>}<optgroup label="Perfis">{profiles.map((profile) => <option key={profile.id} value={`profile:${profile.id}`}>@{profile.username}{profile.display_name ? ` · ${profile.display_name}` : ''} · {formatProfileMetrics(profile)}</option>)}</optgroup></select></label>
             <label>Nome interno (opcional)<input maxLength={160} value={batchName} onChange={(event) => setBatchName(event.target.value)} disabled={!canManage} placeholder="Ex.: campanha de sexta" /></label>
           </div>
 

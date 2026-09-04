@@ -53,7 +53,7 @@ function redirectWithError(
 function redirectWithSuccess(
   origin: string,
   returnTo: string,
-  outcome: 'created' | 'updated',
+  outcome: 'created' | 'updated' | 'takeover',
   groupAssignment?: { status: 'assigned' | 'failed'; groupName: string | null; error?: string },
 ) {
   const url = new URL(safeReturnTo(returnTo), origin);
@@ -309,82 +309,79 @@ export async function GET(request: Request) {
       return redirectWithError(url.origin, state.returnTo, 'organization_forbidden');
     }
 
-    const { data: existingProfile, error: existingProfileError } = await supabase
-      .from('instagram_profiles_safe')
-      .select('id, deleted_at')
-      .eq('organization_id', state.organizationId)
-      .eq('instagram_user_id', instagramUserId)
-      .maybeSingle();
-
-    if (existingProfileError) {
-      const diagnostic = JSON.stringify({
-        stage: 'existing_profile_database_lookup',
-        requestId,
-        code: existingProfileError.code,
-        message: existingProfileError.message,
-        details: existingProfileError.details,
-        hint: existingProfileError.hint,
-      });
-      console.error('[meta-oauth] existing_profile_lookup_failed', diagnostic);
-      return redirectWithError(url.origin, state.returnTo, 'profile_lookup_failed', diagnostic);
-    }
-
     // O callback já validou a sessão, o state assinado e o vínculo do usuário
-    // com a organização acima. A gravação usa o cliente privilegiado porque
-    // o perfil contém encrypted_access_token e a tabela base não é legível
+    // com a organização acima. A gravação usa o cliente privilegiado porque o
+    // perfil contém encrypted_access_token e a tabela base não é legível
     // integralmente pelo papel authenticated.
+    //
+    // A resolução de QUAL perfil recebe esta conexão fica na RPC, e não aqui,
+    // porque ela precisa ser atômica: encontrar o alvo e gravar num passo só,
+    // com lock por (organização, @). Ver migration 373 para o raciocínio.
     const admin = createSupabaseAdminClient();
-    const { data: savedProfile, error: saveError } = await admin
-      .from('instagram_profiles')
-      .upsert({
-        ...(existingProfile?.id ? { id: existingProfile.id } : {}),
-        organization_id: state.organizationId,
-        instagram_user_id: instagramUserId,
-        // Só grava o vínculo quando existe app cadastrado: uma autorização
-        // legada não pode apagar o app de um perfil que já tem um.
-        ...(metaApp ? { meta_app_id: metaApp.id } : {}),
-        username: profile.username.trim(),
-        display_name: profile.name ?? null,
-        profile_picture_url: profile.profile_picture_url ?? null,
-        account_type: profile.account_type ?? null,
-        capabilities: {
-          instagram_business_basic: true,
-          instagram_business_content_publish: true,
-        },
-        encrypted_access_token: encryptToken(accessToken),
-        token_expires_at: expiresIn
-          ? new Date(Date.now() + expiresIn * 1000).toISOString()
-          : null,
-        // O token nasce novo aqui. É deste instante que a renovação mede idade
-        // — a Meta só aceita renovar depois de 24 h, e deixa de aceitar depois
-        // de 60 dias. Zerar o histórico de falha junto evita que um erro da
-        // conexão anterior fique alarmando um token que acabou de ser trocado.
-        token_refreshed_at: new Date().toISOString(),
-        token_refresh_attempted_at: null,
-        token_refresh_error: null,
-        token_refresh_failure_count: 0,
-        status: 'no_data',
-        deleted_at: null,
-        created_by: state.userId,
-      }, {
-        onConflict: 'organization_id,instagram_user_id',
-      })
-      .select('id')
-      .maybeSingle();
+    const { data: connectRows, error: connectError } = await admin.rpc('connect_meta_instagram_profile', {
+      p_organization_id: state.organizationId,
+      p_instagram_user_id: instagramUserId,
+      p_username: profile.username,
+      p_display_name: profile.name ?? null,
+      p_profile_picture_url: profile.profile_picture_url ?? null,
+      p_account_type: profile.account_type ?? null,
+      p_encrypted_access_token: encryptToken(accessToken),
+      p_token_expires_at: expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null,
+      p_meta_app_id: metaApp?.id ?? null,
+      p_created_by: state.userId,
+    });
 
-    if (saveError) {
-      const diagnostic = saveError.code ?? 'database_error';
+    if (connectError) {
       console.error('[meta-oauth] profile_save_failed', {
         requestId,
-        code: saveError.code,
-        message: saveError.message,
-        details: saveError.details,
-        hint: saveError.hint,
+        code: connectError.code,
+        message: connectError.message,
         organizationId: state.organizationId,
         instagramUserId,
+        username: profile.username,
       });
-      return redirectWithError(url.origin, state.returnTo, 'profile_save_failed', diagnostic);
+      return redirectWithError(
+        url.origin,
+        state.returnTo,
+        'profile_save_failed',
+        connectError.code ?? 'database_error',
+      );
     }
+
+    const connectResult = (connectRows ?? [])[0] as {
+      profile_id: string | null;
+      outcome: 'created' | 'updated' | 'takeover' | 'conflict';
+      previous_provider: string | null;
+      previous_username: string | null;
+    } | undefined;
+
+    // Duas linhas diferentes reivindicam a mesma conta. Fundir envolve escolher
+    // qual histórico sobrevive, então a conexão para aqui em vez de adivinhar.
+    if (!connectResult || connectResult.outcome === 'conflict' || !connectResult.profile_id) {
+      console.error('[meta-oauth] profile_identity_conflict', {
+        requestId,
+        organizationId: state.organizationId,
+        instagramUserId,
+        username: profile.username,
+        previousProvider: connectResult?.previous_provider,
+      });
+      return redirectWithError(
+        url.origin,
+        state.returnTo,
+        'meta_profile_conflict',
+        JSON.stringify({ username: profile.username, previousUsername: connectResult?.previous_username }),
+      );
+    }
+
+    const savedProfile = { id: connectResult.profile_id };
+
+    console.info('[meta-oauth] profile_connected', {
+      requestId,
+      profileId: connectResult.profile_id,
+      outcome: connectResult.outcome,
+      previousProvider: connectResult.previous_provider,
+      username: profile.username,
+    });
 
     if (savedProfile?.id) {
       await initializeProfileAnalyticsState(savedProfile.id).catch((error) => {
@@ -431,7 +428,7 @@ export async function GET(request: Request) {
     const response = redirectWithSuccess(
       url.origin,
       state.returnTo,
-      existingProfile?.id ? 'updated' : 'created',
+      connectResult.outcome === 'takeover' ? 'takeover' : connectResult.outcome,
       groupAssignment,
     );
     response.cookies.set(META_OAUTH_COOKIE, '', {

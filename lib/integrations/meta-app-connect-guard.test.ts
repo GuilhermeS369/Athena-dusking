@@ -64,11 +64,15 @@ test('o callback troca o código com a credencial do app assinado no state', () 
 });
 
 test('o perfil salvo registra o app que o conectou', () => {
-  assert.match(callbackSource, /meta_app_id: metaApp\.id/);
+  // A gravacao passou a ser feita pela RPC connect_meta_instagram_profile
+  // (migration 373), entao o app viaja como parametro em vez de campo do upsert.
+  assert.match(callbackSource, /p_meta_app_id: metaApp\?\.id \?\? null/);
 });
 
 test('o grupo só é vinculado depois de o perfil existir, e a falha não derruba a conexão', () => {
-  const upsertIndex = callbackSource.indexOf("from('instagram_profiles')");
+  // A gravacao do perfil agora e a RPC; comparar com o upsert antigo deixaria
+  // este teste passando por vacuidade (indexOf devolvendo -1).
+  const upsertIndex = callbackSource.indexOf("rpc('connect_meta_instagram_profile'");
   const assignmentIndex = callbackSource.indexOf('assignProfileToGroup(admin');
 
   assert.notEqual(assignmentIndex, -1);
