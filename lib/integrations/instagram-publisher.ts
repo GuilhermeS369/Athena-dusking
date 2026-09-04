@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { decryptToken } from '@/lib/security/token-crypto';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { createR2SignedUrl } from '@/lib/storage/r2-client';
-import { isRetryableGraphFailure } from '@/lib/integrations/meta-graph-errors';
+import { isRetryableGraphFailure, metaContainerVerdict } from '@/lib/integrations/meta-graph-errors';
 
 // 'supabase' (padrão) usa o Storage do Supabase, que cobra egress por byte
 // transferido. 'r2' usa Cloudflare R2 (egress $0), mantendo o mesmo
@@ -309,29 +309,30 @@ export async function processInstagramPublication(
     const creationId = item.creation_id;
     const status = await containerStatus(creationId, accessToken);
 
-    if (status.status_code === 'FINISHED') {
+    // A decisao vive em metaContainerVerdict, ao lado de isRetryableGraphFailure:
+    // e la que fica registrado por que ERROR adia e EXPIRED encerra, e e la que o
+    // teste trava a regra. Aqui ficam so os efeitos.
+    const veredito = metaContainerVerdict(status.status_code, status.status);
+
+    if (veredito.kind === 'publish') {
       if (beforePublish && !await beforePublish()) return { state: 'deferred', reason: 'daily_profile_limit' };
       const metaMediaId = await publishContainer(item.profile.instagram_user_id, creationId, accessToken);
       return { state: 'published', metaMediaId };
     }
+
     // A resposta do media_publish pode se perder depois que a Meta concluiu a
-    // operação. Na retomada, PUBLISHED é sucesso remoto e nunca deve disparar
+    // operacao. Na retomada, PUBLISHED e sucesso remoto e nunca deve disparar
     // outro media_publish para o mesmo creation_id.
-    if (status.status_code === 'PUBLISHED') {
+    if (veredito.kind === 'already_published') {
       return { state: 'published', metaMediaId: null, recovered: true };
     }
-    if (status.status_code === 'ERROR' || status.status_code === 'EXPIRED') {
-      // O motivo da Meta entra na mensagem quando existe. Sem ele o operador ve
-      // "ERROR" e nao tem por onde comecar -- foi o que travou o diagnostico das
-      // 73 falhas de 04/09.
-      const detalhe = typeof status.status === 'string' && status.status.trim() && status.status.trim() !== status.status_code
-        ? ` Motivo da Meta: ${status.status.trim().slice(0, 400)}`
-        : ' A Meta não informou o motivo.';
+
+    if (veredito.kind === 'fail') {
       return {
         state: 'failed',
-        retryable: false,
-        errorCode: status.status_code,
-        errorMessage: `Instagram informou ${status.status_code} ao preparar a publicação.${detalhe}`,
+        retryable: veredito.retryable,
+        errorCode: status.status_code as string,
+        errorMessage: veredito.message,
       };
     }
 
