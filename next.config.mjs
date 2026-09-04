@@ -14,10 +14,19 @@ const nextConfig = {
   // instruções de exclusão de dados do usuário.
   async rewrites() {
     return [
-      { source: '/sobre', destination: '/sobre.html' },
+      // A raiz é o site institucional: a verificação de negócio da Meta procura
+      // razão social, CNPJ, endereço e telefone no domínio informado, e o
+      // painel autenticado vive em /painel.
+      { source: '/', destination: '/home.html' },
       { source: '/privacidade', destination: '/privacidade.html' },
       { source: '/termos', destination: '/termos.html' },
       { source: '/exclusao-de-dados', destination: '/exclusao-de-dados.html' },
+    ];
+  },
+  async redirects() {
+    return [
+      // /sobre foi absorvida pela raiz.
+      { source: '/sobre', destination: '/', permanent: true },
     ];
   },
 };

@@ -17,7 +17,7 @@ type Organization = {
 type NavigationItem = { label: string; icon: string; href: string };
 
 const generalNavigation: NavigationItem[] = [
-  { label: 'Dashboard', icon: 'grid', href: '/' },
+  { label: 'Dashboard', icon: 'grid', href: '/painel' },
 ];
 
 const instagramNavigation: NavigationItem[] = [

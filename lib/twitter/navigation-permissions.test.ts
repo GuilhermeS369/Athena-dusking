@@ -8,7 +8,10 @@ test('menu separa Instagram e X e mantém páginas gerais fora dos módulos', as
   for (const href of ['/x/analises', '/x/postagem', '/x/fila', '/x/galeria', '/x/perfis', '/x/grupos', '/x/agenda', '/x/zernio', '/x/logs']) assert.match(shell, new RegExp(`href: '${href}'`));
   assert.match(shell, /renderSection\('instagram', 'Instagram'/);
   assert.match(shell, /renderSection\('twitter', 'X\/Twitter'/);
-  assert.match(shell, /label: 'Dashboard'.*href: '\/'/);
+  // A raiz passou a ser o site institucional (verificação de negócio da Meta
+  // exige razão social, CNPJ, endereço e telefone no domínio); o painel vive
+  // em /painel desde 04/09/2026.
+  assert.match(shell, /label: 'Dashboard'.*href: '\/painel'/);
   assert.match(shell, /label: 'Importação em massa'.*href: '\/bulk-import'/);
 });
 
