@@ -17,13 +17,19 @@ export const META_GRAPH_API_VERSION = process.env.META_GRAPH_API_VERSION ?? 'v26
  * A lista aceita ajuste por ambiente para o caso de a Meta recusar alguma
  * permissão no meio de uma migração em andamento — sem isso, destravar
  * dependeria de um deploy novo com a operação parada.
+ *
+ * `manage_comments` e `manage_messages` saíram na preparação da análise do app
+ * (04/09/2026): a Meta exige gravação de tela demonstrando cada permissão, e
+ * nenhuma tela do painel lê comentários ou Direct — permissão pedida sem uso
+ * demonstrado é motivo comum de recusa. Devolver as duas é uma linha aqui, mas
+ * o custo real é o do parágrafo acima: quem já conectou não passa a tê-las, e
+ * a frota inteira precisaria refazer o OAuth. Se a caixa de comentários ou o
+ * Direct entrarem no roadmap, decida ANTES da próxima migração em massa.
  */
 export const META_OAUTH_SCOPES = (process.env.META_OAUTH_SCOPES ?? [
   'instagram_business_basic',
   'instagram_business_content_publish',
   'instagram_business_manage_insights',
-  'instagram_business_manage_comments',
-  'instagram_business_manage_messages',
 ].join(','))
   .split(',')
   .map((scope) => scope.trim())
