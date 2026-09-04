@@ -191,6 +191,8 @@ async function readResponse(response: Response) {
   const body = await response.json().catch(() => ({})) as {
     id?: string;
     status_code?: string;
+    /** Motivo em texto do status. So chega porque containerStatus o pede. */
+    status?: string;
     error?: { code?: number; message?: string; is_transient?: boolean };
   };
 
@@ -226,7 +228,15 @@ async function createContainer(
 
 async function containerStatus(creationId: string, accessToken: string) {
   const url = new URL(graphUrl(encodeURIComponent(creationId)));
-  url.searchParams.set('fields', 'status_code');
+  // `status` junto com `status_code`, e nao so o segundo. O `status_code` diz
+  // apenas ERROR; o `status` traz o motivo em texto, que e a unica coisa que
+  // permite distinguir midia inacessivel de formato recusado de conta bloqueada.
+  //
+  // Medido em 04/09/2026: 73 publicacoes foram encerradas como falha terminal
+  // com a mensagem "Instagram informou ERROR", e nenhuma delas dizia por que --
+  // porque nunca perguntamos. Pior: consultados depois, os mesmos conteineres
+  // respondiam FINISHED, entao o veredito nem sequer se sustentava.
+  url.searchParams.set('fields', 'status_code,status');
   const response = await metaFetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
@@ -311,7 +321,18 @@ export async function processInstagramPublication(
       return { state: 'published', metaMediaId: null, recovered: true };
     }
     if (status.status_code === 'ERROR' || status.status_code === 'EXPIRED') {
-      return { state: 'failed', retryable: false, errorCode: status.status_code, errorMessage: `Instagram informou ${status.status_code} ao preparar a publicação.` };
+      // O motivo da Meta entra na mensagem quando existe. Sem ele o operador ve
+      // "ERROR" e nao tem por onde comecar -- foi o que travou o diagnostico das
+      // 73 falhas de 04/09.
+      const detalhe = typeof status.status === 'string' && status.status.trim() && status.status.trim() !== status.status_code
+        ? ` Motivo da Meta: ${status.status.trim().slice(0, 400)}`
+        : ' A Meta não informou o motivo.';
+      return {
+        state: 'failed',
+        retryable: false,
+        errorCode: status.status_code,
+        errorMessage: `Instagram informou ${status.status_code} ao preparar a publicação.${detalhe}`,
+      };
     }
 
     if (!status.status_code) {
