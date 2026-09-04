@@ -101,7 +101,7 @@ function LoginContent() {
           <div className="brand-mark" aria-hidden="true">✧</div>
           <div>
             <span className="eyebrow">Athena</span>
-            <strong>Scheduler</strong>
+            <strong>Dusking</strong>
           </div>
         </div>
 

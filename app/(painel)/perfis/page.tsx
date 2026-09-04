@@ -3,7 +3,6 @@ import { Suspense } from 'react';
 
 import PageLoadingSkeleton from '@/app/components/page-loading-skeleton';
 import ProfilesClient from '@/app/perfis/profiles-client';
-import { authMirrorLinkStateFromRow, type AuthMirrorLinkRow } from '@/lib/auth/mirror-link';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { getInstagramProfilesCatalogPage } from '@/lib/profiles/catalog';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
@@ -31,7 +30,7 @@ async function ProfilesPageContent({
   if (!context.activeOrganization) redirect('/onboarding');
 
   const supabase = await createSupabaseServerClient();
-  const [profilesCatalog, groupsResult, zernioConnectionsResult, metaAppsResult, authMirrorLinkResult] = await Promise.all([
+  const [profilesCatalog, groupsResult, zernioConnectionsResult, metaAppsResult] = await Promise.all([
     getInstagramProfilesCatalogPage({
       supabase,
       organizationId: context.activeOrganization.id,
@@ -56,17 +55,9 @@ async function ProfilesPageContent({
       .eq('organization_id', context.activeOrganization.id)
       .is('deleted_at', null)
       .order('created_at', { ascending: false }),
-    ['admin', 'operator'].includes(context.activeOrganization.role)
-      ? supabase
-        .from('auth_mirror_links')
-        .select('active, activated_at, created_by_email, last_used_at, use_count')
-        .eq('organization_id', context.activeOrganization.id)
-        .eq('active', true)
-        .maybeSingle<AuthMirrorLinkRow>()
-      : Promise.resolve({ data: null, error: null }),
   ]);
 
-  if (groupsResult.error || zernioConnectionsResult.error || authMirrorLinkResult.error) {
+  if (groupsResult.error || zernioConnectionsResult.error) {
     throw new Error('Não foi possível carregar os perfis do Instagram.');
   }
 
@@ -93,7 +84,6 @@ async function ProfilesPageContent({
       zernioConnections={zernioConnectionsResult.data ?? []}
       metaApps={metaAppsResult.data ?? []}
       metaTokenStates={tokenRows ?? []}
-      authMirrorLink={authMirrorLinkStateFromRow(authMirrorLinkResult.data)}
       connectionResult={await searchParams}
     />
   );

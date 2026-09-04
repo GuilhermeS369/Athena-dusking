@@ -47,6 +47,8 @@ const twitterNavigation: NavigationItem[] = [
 
 const utilityNavigation: NavigationItem[] = [
   { label: 'Importação em massa', icon: 'upload', href: '/bulk-import' },
+  // Só admin abre a página; operador cai no redirect de /administracao/acesso.
+  { label: 'Acesso', icon: 'key', href: '/administracao/acesso' },
 ];
 
 export default function AppShell({
@@ -160,7 +162,7 @@ export default function AppShell({
       <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}>
         <div className="brand-block">
           <div className="brand-mark" aria-hidden="true">✧</div>
-          <div><span className="eyebrow">Athena</span><strong>Scheduler</strong></div>
+          <div><span className="eyebrow">Athena</span><strong>Dusking</strong></div>
         </div>
         <nav className="main-nav" aria-label="Navegação principal">
           {generalNavigation.map((item) => renderNavigationItem(item))}
