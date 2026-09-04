@@ -1,5 +1,11 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+// A decisao sobre o status do conteiner vive em lib/integrations/meta-graph-errors.ts,
+// a MESMA que o publisher do painel usa. Este arquivo ja teve copia propria dela, e
+// foi assim que a correcao de 04/09 nasceu valendo so metade: o painel adiava o
+// ERROR e este worker -- que e quem realmente publica -- continuava encerrando.
+// Import relativo com extensao porque a VPS roda com `node` puro, sem tsx.
+import { metaContainerVerdict } from '../../lib/integrations/meta-graph-errors.ts';
 
 export const PUBLICATION_MAX_ATTEMPTS = 5;
 
@@ -594,7 +600,9 @@ async function createInstagramContainer(profileId, accessToken, fields) {
 
 async function containerStatus(creationId, accessToken) {
   const url = new URL(graphUrl(encodeURIComponent(creationId)));
-  url.searchParams.set('fields', 'status_code');
+  // `status` junto: e o campo que traz o motivo em texto. Pedir so o
+  // `status_code` foi o que deixou 76 falhas de 04/09 sem nenhuma explicacao.
+  url.searchParams.set('fields', 'status_code,status');
   const response = await metaFetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
@@ -651,13 +659,14 @@ async function processInstagramPublication(item, beforePublish, beforeProviderRe
     if (!item.creation_id) return { state: 'processing', creationId: await createParentContainer(item, accessToken) };
 
     const status = await containerStatus(item.creation_id, accessToken);
-    if (status.status_code === 'FINISHED') {
+    const veredito = metaContainerVerdict(status.status_code, status.status);
+    if (veredito.kind === 'publish') {
       if (beforePublish && !await beforePublish()) return { state: 'deferred', reason: 'daily_profile_limit' };
       return { state: 'published', metaMediaId: await publishInstagramContainer(item.profile.instagram_user_id, item.creation_id, accessToken) };
     }
-    if (status.status_code === 'PUBLISHED') return { state: 'published', metaMediaId: null, recovered: true };
-    if (status.status_code === 'ERROR' || status.status_code === 'EXPIRED') {
-      return { state: 'failed', retryable: false, errorCode: status.status_code, errorMessage: `Instagram informou ${status.status_code} ao preparar a publicação.` };
+    if (veredito.kind === 'already_published') return { state: 'published', metaMediaId: null, recovered: true };
+    if (veredito.kind === 'fail') {
+      return { state: 'failed', retryable: veredito.retryable, errorCode: status.status_code, errorMessage: veredito.message };
     }
     if (!status.status_code) {
       const error = new Error('Instagram não retornou o status do contêiner.');
