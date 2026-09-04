@@ -171,6 +171,11 @@ const ALLOWLIST = new Map<string, string>([
     'Hidratação por .in(id) sobre os ids da amostra de latência acima, que já é limitada a 1000.',
   ],
 
+  [
+    'app/api/integrations/meta/data-deletion/route.ts::instagram_profiles',
+    'Callback de exclusão de dados da Meta: a busca fixa instagram_user_id com .eq() e a tabela é única em (organization_id, instagram_user_id), então o retorno é de no máximo uma linha por organização que conectou aquela conta — não cresce com o tamanho da organização. Paginar aqui só esconderia que o teto real é a contagem de organizações.',
+  ],
+
   // --- Leituras limitadas por uma página de cursor a montante (<= 101 itens) ---
   [
     'app/(painel)/perfis/page.tsx::instagram_profiles_safe',

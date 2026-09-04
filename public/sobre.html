@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="canonical" href="https://www.athenadusking.com.br/sobre">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#127750;</text></svg>">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="dusking">
+<meta property="og:title" content="dusking">
+<meta property="og:url" content="https://www.athenadusking.com.br/sobre">
+<title>dusking</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Spectral:wght@500;600&display=swap">
+<style>
+:root{
+  --paper:#F3F5F9; --surface:#FFFFFF; --surface-2:#FAFBFD;
+  --ink:#15161D; --ink-soft:#383D4C; --muted:#6A7083;
+  --rule:#DEE2EB; --rule-soft:#EAEDF3;
+  --accent:#3B4A9C; --accent-ink:#2E3B80; --accent-soft:#EDEFFA; --on-accent:#FFFFFF;
+  --dusk-a:#2A3573; --dusk-b:#6E5A8E; --dusk-c:#C98A5E;
+  --shadow:0 1px 2px rgba(20,22,35,.05), 0 10px 28px -16px rgba(20,22,35,.28);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1016; --surface:#171A22; --surface-2:#1C202A;
+    --ink:#E8EAF2; --ink-soft:#C2C7D6; --muted:#888FA3;
+    --rule:#272B37; --rule-soft:#20242E;
+    --accent:#96A2F2; --accent-ink:#B4BCF7; --accent-soft:#1B2038; --on-accent:#12141D;
+    --dusk-a:#1B2450; --dusk-b:#4A3D66; --dusk-c:#8A5C3C;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -16px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1016; --surface:#171A22; --surface-2:#1C202A;
+  --ink:#E8EAF2; --ink-soft:#C2C7D6; --muted:#888FA3;
+  --rule:#272B37; --rule-soft:#20242E;
+  --accent:#96A2F2; --accent-ink:#B4BCF7; --accent-soft:#1B2038; --on-accent:#12141D;
+  --dusk-a:#1B2450; --dusk-b:#4A3D66; --dusk-c:#8A5C3C;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -16px rgba(0,0,0,.7);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-underline-offset:3px;text-decoration-thickness:1px}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+.wrap{max-width:1080px;margin:0 auto;padding:0 1.5rem}
+
+.topbar{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--rule)}
+.topbar .inner{max-width:1080px;margin:0 auto;padding:.75rem 1.5rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.mark{display:flex;align-items:center;gap:.55rem;font-family:"IBM Plex Mono",monospace;font-size:.78rem;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--ink);font-weight:500;text-decoration:none}
+.dot{width:.5rem;height:.5rem;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.navlinks{display:flex;gap:1.4rem;align-items:center}
+.navlinks a{font-size:.85rem;color:var(--ink-soft);text-decoration:none}
+.navlinks a:hover{color:var(--accent)}
+@media(max-width:620px){.navlinks a.hide-sm{display:none}}
+
+.hero{padding:4rem 0 3rem}
+.horizon{height:3px;background:linear-gradient(90deg,var(--dusk-a),var(--dusk-b) 55%,var(--dusk-c));border-radius:2px;width:5.5rem;margin-bottom:2rem}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:.71rem;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin:0 0 1rem}
+h1{font-family:Spectral,Georgia,"Times New Roman",serif;font-weight:600;font-size:clamp(2.2rem,5.8vw,3.5rem);
+  line-height:1.06;letter-spacing:-.02em;margin:0;text-wrap:balance;max-width:17ch}
+.hero .lead{max-width:58ch;color:var(--ink-soft);font-size:1.1rem;margin:1.4rem 0 0}
+.hero .who{margin:1.75rem 0 0;font-size:.9rem;color:var(--muted);max-width:58ch}
+
+.strip{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:10px;overflow:hidden;
+  grid-template-columns:1fr;margin:2.75rem 0 0}
+@media(min-width:700px){.strip{grid-template-columns:repeat(3,1fr)}}
+.strip div{background:var(--surface);padding:1.1rem 1.25rem}
+.strip dt{font-family:"IBM Plex Mono",monospace;font-size:.64rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 .35rem}
+.strip dd{margin:0;font-size:.93rem;color:var(--ink)}
+
+section{padding:3.25rem 0;border-top:1px solid var(--rule-soft);scroll-margin-top:4.5rem}
+h2{font-family:Spectral,Georgia,serif;font-size:1.7rem;font-weight:600;line-height:1.2;margin:0 0 .7rem;letter-spacing:-.015em;text-wrap:balance}
+.sub{color:var(--ink-soft);max-width:60ch;margin:0 0 2rem}
+
+.cards{display:grid;gap:1.1rem;grid-template-columns:1fr}
+@media(min-width:640px){.cards{grid-template-columns:1fr 1fr}}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:1.4rem 1.5rem;box-shadow:var(--shadow)}
+.card h3{margin:0 0 .5rem;font-size:1.02rem;font-weight:600;color:var(--ink)}
+.card p{margin:0;font-size:.93rem;color:var(--ink-soft)}
+
+.flow{display:grid;gap:1.5rem;grid-template-columns:1fr;counter-reset:step}
+@media(min-width:760px){.flow{grid-template-columns:repeat(3,1fr);gap:2rem}}
+.flow div{position:relative;padding-top:1.6rem;border-top:2px solid var(--accent-soft)}
+.flow div::before{counter-increment:step;content:"Passo " counter(step);position:absolute;top:-.9rem;left:0;
+  font-family:"IBM Plex Mono",monospace;font-size:.63rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--accent-ink);background:var(--paper);padding-right:.6rem}
+.flow h3{margin:0 0 .45rem;font-size:1rem;font-weight:600}
+.flow p{margin:0;font-size:.92rem;color:var(--ink-soft)}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--surface);margin:0 0 1.35rem}
+table{border-collapse:collapse;width:100%;min-width:32rem;font-size:.87rem}
+th,td{text-align:left;padding:.72rem .95rem;border-bottom:1px solid var(--rule-soft);vertical-align:top;color:var(--ink-soft)}
+thead th{font-family:"IBM Plex Mono",monospace;font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--muted);font-weight:500;background:var(--surface-2);border-bottom:1px solid var(--rule)}
+tbody tr:last-child td{border-bottom:0}
+.perm{font-family:"IBM Plex Mono",monospace;font-size:.79rem;color:var(--accent-ink);white-space:nowrap}
+
+.pledge{display:grid;gap:.9rem;grid-template-columns:1fr;margin:0}
+@media(min-width:700px){.pledge{grid-template-columns:1fr 1fr;gap:.9rem 2rem}}
+.pledge li{list-style:none;padding-left:1.5rem;position:relative;font-size:.93rem;color:var(--ink-soft)}
+.pledge li::before{content:"";position:absolute;left:0;top:.62em;width:.5rem;height:.5rem;border-radius:50%;
+  background:var(--accent);opacity:.55}
+ul.pledge{padding:0}
+
+.contact{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:1.6rem 1.75rem;box-shadow:var(--shadow)}
+.contact dl{margin:0;display:grid;grid-template-columns:1fr;gap:1rem}
+@media(min-width:600px){.contact dl{grid-template-columns:1fr 1fr;gap:1.2rem 2rem}}
+.contact dt{font-family:"IBM Plex Mono",monospace;font-size:.64rem;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin-bottom:.3rem}
+.contact dd{margin:0;font-size:.93rem;color:var(--ink);font-variant-numeric:tabular-nums}
+
+.foot{border-top:1px solid var(--rule);background:var(--surface);margin-top:1rem}
+.foot .inner{max-width:1080px;margin:0 auto;padding:2.75rem 1.5rem;display:grid;gap:2rem;grid-template-columns:1fr}
+@media(min-width:760px){.foot .inner{grid-template-columns:1fr auto;align-items:start}}
+.foot p{margin:0 0 .4rem;font-size:.86rem;color:var(--muted);max-width:50ch}
+.foot .name{color:var(--ink);font-weight:600;font-size:.92rem}
+.xlinks{display:flex;flex-direction:column;gap:.55rem}
+.xlinks span{font-family:"IBM Plex Mono",monospace;font-size:.65rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:.15rem}
+.xlinks a{font-size:.88rem}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+
+
+<header class="topbar">
+  <div class="inner">
+    <a class="mark" href="/sobre"><span class="dot"></span>dusking</a>
+    <nav class="navlinks">
+      <a href="#recursos" class="hide-sm">Recursos</a>
+      <a href="#permissoes" class="hide-sm">Permissões</a>
+      <a href="#contato">Contato</a>
+    </nav>
+  </div>
+</header>
+
+<main id="topo">
+  <div class="wrap">
+    <div class="hero">
+      <div class="horizon" aria-hidden="true"></div>
+      <p class="eyebrow">Publicação e gestão de conteúdo</p>
+      <h1>Um painel só para suas Páginas e contas do Instagram</h1>
+      <p class="lead">O dusking conecta as Páginas do Facebook e as contas profissionais do Instagram que você administra, e reúne criação, agendamento, publicação e acompanhamento em um lugar só — sem trocar de aba a cada post.</p>
+      <p class="who">Feito para quem cuida de mais de uma conta: agências, social media, e-commerces e negócios que publicam todos os dias.</p>
+
+      <dl class="strip">
+        <div><dt>Contas conectadas</dt><dd>Páginas do Facebook e Instagram Business</dd></div>
+        <div><dt>Formatos</dt><dd>Foto, vídeo, carrossel e Reels</dd></div>
+        <div><dt>Operação</dt><dd>Sempre por comando seu</dd></div>
+      </dl>
+    </div>
+
+    <section id="recursos">
+      <h2>O que o dusking faz</h2>
+      <p class="sub">Quatro funções, sem excesso: o que uma equipe pequena precisa para manter as contas ativas.</p>
+      <div class="cards">
+        <div class="card">
+          <h3>Conectar contas</h3>
+          <p>Você entra com o Login do Facebook, escolhe quais Páginas e contas do Instagram autorizar e desconecta quando quiser. Nada é conectado sem sua escolha explícita.</p>
+        </div>
+        <div class="card">
+          <h3>Criar e agendar</h3>
+          <p>Monte o post com texto, legenda, hashtags e mídia, salve como rascunho ou modelo, e escolha a data e a hora. O calendário mostra o que já está na fila.</p>
+        </div>
+        <div class="card">
+          <h3>Publicar em vários formatos</h3>
+          <p>Foto, vídeo, carrossel e Reels na conta escolhida, respeitando os formatos e limites definidos pela própria Meta.</p>
+        </div>
+        <div class="card">
+          <h3>Acompanhar o resultado</h3>
+          <p>Status de cada publicação — enviada, agendada ou com erro — e as métricas públicas básicas de desempenho de quem já foi ao ar.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="como">
+      <h2>Como funciona</h2>
+      <p class="sub">Do login à primeira publicação, três passos.</p>
+      <div class="flow">
+        <div>
+          <h3>Conecte</h3>
+          <p>Login com o Facebook e autorização das Páginas e contas do Instagram que você administra.</p>
+        </div>
+        <div>
+          <h3>Programe</h3>
+          <p>Crie o conteúdo, escolha as contas de destino e defina data e hora — ou publique na hora.</p>
+        </div>
+        <div>
+          <h3>Acompanhe</h3>
+          <p>Veja o que foi publicado, o que está na fila e o que falhou, com o motivo do erro em texto claro.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="permissoes">
+      <h2>Permissões que pedimos, e por quê</h2>
+      <p class="sub">Pedimos o mínimo necessário para publicar em seu nome. Nenhuma permissão serve a outra finalidade além da descrita aqui.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Permissão</th><th>Para que serve</th></tr></thead>
+          <tbody>
+            <tr><td><span class="perm">pages_show_list</span></td><td>Listar as Páginas que você administra para você escolher onde publicar</td></tr>
+            <tr><td><span class="perm">pages_manage_posts</span></td><td>Criar, agendar, editar e excluir publicações — sempre por comando seu</td></tr>
+            <tr><td><span class="perm">pages_read_engagement</span></td><td>Mostrar o desempenho público das publicações feitas pelo app</td></tr>
+            <tr><td><span class="perm">instagram_basic</span></td><td>Identificar a conta profissional do Instagram vinculada à Página</td></tr>
+            <tr><td><span class="perm">instagram_content_publish</span></td><td>Publicar fotos, vídeos, carrosséis e Reels na conta escolhida</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:.9rem;color:var(--muted);margin:0">A lista completa, com o detalhe de cada dado acessado, está na Política de Privacidade. Você pode revogar tudo a qualquer momento em Facebook → Configurações → Aplicativos e sites.</p>
+    </section>
+
+    <section id="privacidade">
+      <h2>Nosso compromisso com seus dados</h2>
+      <p class="sub">O dusking é uma ferramenta de trabalho, não um negócio de dados.</p>
+      <ul class="pledge">
+        <li>Não vendemos, alugamos nem cedemos dados pessoais.</li>
+        <li>Não usamos dados da Meta para publicidade direcionada ou corretagem de dados.</li>
+        <li>Nunca vemos sua senha — a autenticação é feita pela própria Meta.</li>
+        <li>Tokens de acesso ficam criptografados e são revogados na desconexão.</li>
+        <li>Você apaga sua conta e seus dados quando quiser, sem justificar.</li>
+        <li>Não acessamos mensagens diretas nem caixa de entrada.</li>
+      </ul>
+    </section>
+
+    <section id="contato">
+      <h2>Contato</h2>
+      <p class="sub">Suporte, dúvidas sobre privacidade e pedidos de exclusão de dados são atendidos no mesmo endereço.</p>
+      <div class="contact">
+        <dl>
+          <div><dt>Razão social</dt><dd>Dusking Negócios Digitais LTDA</dd></div>
+          <div><dt>CNPJ</dt><dd>51.775.668/0001-41</dd></div>
+          <div><dt>E-mail</dt><dd><a href="mailto:guilherme460@yahoo.com.br">guilherme460@yahoo.com.br</a></dd></div>
+          <div><dt>Endereço</dt><dd>Rua Cecília Meireles, 502 — Jardim Miranda D'Aviz, Mauá/SP, CEP 09330-540</dd></div>
+        </dl>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="inner">
+    <div>
+      <p class="name">Dusking Negócios Digitais LTDA</p>
+      <p>CNPJ 51.775.668/0001-41 — Rua Cecília Meireles, 502, Jardim Miranda D'Aviz, Mauá/SP, 09330-540.</p>
+      <p>dusking não é afiliado, patrocinado nem endossado pela Meta Platforms, Inc. Facebook e Instagram são marcas da Meta.</p>
+    </div>
+    <div class="xlinks">
+      <span>Documentos</span>
+      <a href="/privacidade">Política de Privacidade</a>
+      <a href="/termos">Termos de Serviço</a>
+      <a href="/exclusao-de-dados">Exclusão de dados do usuário</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="canonical" href="https://www.athenadusking.com.br/exclusao-de-dados">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#127750;</text></svg>">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="dusking">
+<meta property="og:title" content="Exclusão de Dados dusking">
+<meta property="og:url" content="https://www.athenadusking.com.br/exclusao-de-dados">
+<title>Exclusão de Dados dusking</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Spectral:wght@500;600&display=swap">
+<style>
+:root{
+  --paper:#F3F5F9; --surface:#FFFFFF; --surface-2:#FAFBFD;
+  --ink:#15161D; --ink-soft:#383D4C; --muted:#6A7083;
+  --rule:#DEE2EB; --rule-soft:#EAEDF3;
+  --accent:#3B4A9C; --accent-ink:#2E3B80; --accent-soft:#EDEFFA; --on-accent:#FFFFFF;
+  --warn-bg:#FBF1DE; --warn-ink:#7E5512; --warn-rule:#E4CA9C;
+  --shadow:0 1px 2px rgba(20,22,35,.05), 0 10px 28px -16px rgba(20,22,35,.28);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1016; --surface:#171A22; --surface-2:#1C202A;
+    --ink:#E8EAF2; --ink-soft:#C2C7D6; --muted:#888FA3;
+    --rule:#272B37; --rule-soft:#20242E;
+    --accent:#96A2F2; --accent-ink:#B4BCF7; --accent-soft:#1B2038; --on-accent:#12141D;
+    --warn-bg:#2A2113; --warn-ink:#E7C482; --warn-rule:#4B3B1D;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -16px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1016; --surface:#171A22; --surface-2:#1C202A;
+  --ink:#E8EAF2; --ink-soft:#C2C7D6; --muted:#888FA3;
+  --rule:#272B37; --rule-soft:#20242E;
+  --accent:#96A2F2; --accent-ink:#B4BCF7; --accent-soft:#1B2038; --on-accent:#12141D;
+  --warn-bg:#2A2113; --warn-ink:#E7C482; --warn-rule:#4B3B1D;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -16px rgba(0,0,0,.7);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-underline-offset:3px;text-decoration-thickness:1px}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+
+.topbar{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--rule)}
+.topbar .inner{max-width:1120px;margin:0 auto;padding:.75rem 1.5rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.mark{display:flex;align-items:center;gap:.55rem;font-family:"IBM Plex Mono",monospace;font-size:.78rem;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--ink);font-weight:500;text-decoration:none}
+.dot{width:.5rem;height:.5rem;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.kind{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+
+.hero{max-width:1120px;margin:0 auto;padding:3.5rem 1.5rem 2rem}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:.71rem;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin:0 0 1.1rem}
+h1{font-family:Spectral,Georgia,"Times New Roman",serif;font-weight:600;font-size:clamp(2.1rem,5.5vw,3.2rem);
+  line-height:1.08;letter-spacing:-.018em;margin:0;text-wrap:balance;max-width:18ch}
+.lead{max-width:62ch;color:var(--ink-soft);font-size:1.06rem;margin:1.3rem 0 0}
+.meta{display:flex;flex-wrap:wrap;gap:1.25rem 2.75rem;margin-top:2.25rem;padding-top:1.35rem;border-top:1px solid var(--rule)}
+.meta div{font-family:"IBM Plex Mono",monospace;font-size:.78rem;color:var(--ink);font-variant-numeric:tabular-nums}
+.meta span{display:block;font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:.3rem}
+
+.layout{max-width:1120px;margin:0 auto;padding:0 1.5rem 4.5rem;display:grid;gap:2.5rem;grid-template-columns:1fr}
+@media(min-width:1000px){.layout{grid-template-columns:14rem 1fr;gap:4.5rem;align-items:start}}
+.toc{display:none}
+@media(min-width:1000px){.toc{display:block;position:sticky;top:4.6rem}}
+.toc h2{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 1rem;font-weight:500}
+.toc ol{list-style:none;margin:0;padding:0;counter-reset:toc}
+.toc li{margin-bottom:.6rem}
+.toc a{display:flex;gap:.6rem;font-size:.85rem;color:var(--ink-soft);text-decoration:none;line-height:1.35}
+.toc a:hover{color:var(--accent)}
+.toc a::before{counter-increment:toc;content:counter(toc,decimal-leading-zero);
+  font-family:"IBM Plex Mono",monospace;font-size:.7rem;color:var(--muted);flex:none;padding-top:.15em}
+
+.doc{min-width:0;max-width:70ch}
+.sec{padding:2.4rem 0;border-top:1px solid var(--rule-soft);scroll-margin-top:5rem}
+.sec:first-child{border-top:0;padding-top:.5rem}
+.sec>h2{display:flex;gap:.9rem;align-items:baseline;font-family:Spectral,Georgia,serif;font-size:1.45rem;
+  font-weight:600;line-height:1.25;margin:0 0 1rem;letter-spacing:-.012em}
+.num{font-family:"IBM Plex Mono",monospace;font-size:.76rem;font-weight:500;color:var(--accent);flex:none;padding-top:.4em}
+.doc h3{font-size:.93rem;font-weight:600;margin:1.9rem 0 .6rem;color:var(--ink)}
+.doc p{margin:0 0 1rem;color:var(--ink-soft)}
+.doc ul,.doc ol{margin:0 0 1.1rem;padding-left:1.2rem;color:var(--ink-soft)}
+.doc li{margin-bottom:.5rem}
+.doc li::marker{color:var(--muted)}
+.doc strong{color:var(--ink);font-weight:600}
+
+.routes{list-style:none;margin:0 0 1.25rem;padding:0;display:grid;gap:1rem}
+.route{background:var(--surface);border:1px solid var(--rule);border-radius:9px;padding:1.3rem 1.4rem;
+  box-shadow:var(--shadow);display:flex;gap:1.1rem;align-items:flex-start}
+.route .n{font-family:"IBM Plex Mono",monospace;font-size:.78rem;font-weight:500;color:var(--on-accent);
+  background:var(--accent);width:1.9rem;height:1.9rem;border-radius:50%;display:grid;place-items:center;flex:none;margin-top:.15rem}
+.route .body{min-width:0}
+.route h3{margin:0 0 .45rem;font-size:1.02rem;font-weight:600;color:var(--ink);line-height:1.3}
+.route p{margin:0 0 .6rem;font-size:.92rem}
+.route p:last-child{margin-bottom:0}
+.route ol{margin:.5rem 0 0;padding-left:1.15rem;font-size:.92rem}
+.path{font-family:"IBM Plex Mono",monospace;font-size:.82rem;color:var(--accent-ink);
+  background:var(--accent-soft);padding:.1em .4em;border-radius:3px}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:7px;background:var(--surface);margin:0 0 1.35rem}
+table{border-collapse:collapse;width:100%;min-width:33rem;font-size:.87rem}
+th,td{text-align:left;padding:.72rem .95rem;border-bottom:1px solid var(--rule-soft);vertical-align:top;color:var(--ink-soft)}
+thead th{font-family:"IBM Plex Mono",monospace;font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--muted);font-weight:500;background:var(--surface-2);border-bottom:1px solid var(--rule)}
+tbody tr:last-child td{border-bottom:0}
+
+.note{border-left:2px solid var(--accent);background:var(--accent-soft);padding:1.05rem 1.15rem;margin:1.35rem 0;border-radius:0 6px 6px 0}
+.note p{margin:0;color:var(--ink-soft)}
+.note .tag{font-family:"IBM Plex Mono",monospace;font-size:.65rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--accent-ink);display:block;margin-bottom:.4rem}
+[hidden]{display:none !important}
+.tracker{border:1px solid var(--accent);background:var(--accent-soft);border-radius:9px;padding:1.15rem 1.3rem;margin:0 0 2rem}
+.tracker .tag{font-family:"IBM Plex Mono",monospace;font-size:.65rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink);display:block;margin-bottom:.45rem}
+.tracker p{margin:0;color:var(--ink-soft);font-size:.93rem}
+.tracker .code{font-family:"IBM Plex Mono",monospace;font-size:.95rem;color:var(--ink);letter-spacing:.06em;background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:.1em .45em}
+.warn{border-left:2px solid var(--warn-rule);background:var(--warn-bg);padding:1.05rem 1.15rem;margin:1.35rem 0;border-radius:0 6px 6px 0}
+.warn p{margin:0;color:var(--ink-soft)}
+.warn .tag{font-family:"IBM Plex Mono",monospace;font-size:.65rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--warn-ink);display:block;margin-bottom:.4rem}
+
+.template{background:var(--surface-2);border:1px solid var(--rule);border-radius:8px;padding:1.2rem 1.35rem;margin:0 0 1.35rem;overflow-x:auto}
+.template pre{margin:0;font-family:"IBM Plex Mono",monospace;font-size:.83rem;line-height:1.75;color:var(--ink-soft);white-space:pre-wrap;word-break:break-word}
+.template .field{color:var(--accent-ink);font-weight:500}
+
+.entity{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:1.35rem 1.5rem;box-shadow:var(--shadow);margin-bottom:1.25rem}
+.entity dl{margin:0;display:grid;grid-template-columns:1fr;gap:.85rem}
+@media(min-width:560px){.entity dl{grid-template-columns:1fr 1fr;gap:1rem 2rem}}
+.entity dt{font-family:"IBM Plex Mono",monospace;font-size:.65rem;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin-bottom:.25rem}
+.entity dd{margin:0;font-size:.92rem;color:var(--ink);font-variant-numeric:tabular-nums}
+
+.foot{border-top:1px solid var(--rule);background:var(--surface)}
+.foot .inner{max-width:1120px;margin:0 auto;padding:2.75rem 1.5rem;display:grid;gap:2rem;grid-template-columns:1fr}
+@media(min-width:760px){.foot .inner{grid-template-columns:1fr auto;align-items:start}}
+.foot p{margin:0 0 .4rem;font-size:.86rem;color:var(--muted);max-width:48ch}
+.foot .name{color:var(--ink);font-weight:600;font-size:.92rem}
+.xlinks{display:flex;flex-direction:column;gap:.55rem}
+.xlinks span{font-family:"IBM Plex Mono",monospace;font-size:.65rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:.15rem}
+.xlinks a{font-size:.88rem}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+
+
+<header class="topbar">
+  <div class="inner">
+    <a class="mark" href="/sobre"><span class="dot"></span>dusking</a>
+    <span class="kind">Documento legal · v1.0</span>
+  </div>
+</header>
+
+<main id="topo">
+  <div class="hero">
+    <p class="eyebrow">Instruções de exclusão de dados do usuário</p>
+    <h1>Como apagar seus dados do dusking</h1>
+    <p class="lead">Três caminhos para excluir sua conta e todos os dados que o dusking guardou sobre você e sobre as contas do Facebook e do Instagram que você conectou. Não é preciso justificar o pedido e não há cobrança.</p>
+    <div class="meta">
+      <div><span>Confirmação em</span>Até 5 dias úteis</div>
+      <div><span>Exclusão concluída em</span>Até 30 dias corridos</div>
+      <div><span>Custo</span>Gratuito</div>
+      <div><span>Atualizado em</span>4 de setembro de 2026</div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <nav class="toc" aria-label="Sumário">
+      <h2>Sumário</h2>
+      <ol>
+        <li><a href="#s1">Escolha um caminho</a></li>
+        <li><a href="#s2">Modelo de e-mail</a></li>
+        <li><a href="#s3">O que é apagado</a></li>
+        <li><a href="#s4">O que é retido, e por quê</a></li>
+        <li><a href="#s5">Prazos</a></li>
+        <li><a href="#s6">Posts já publicados</a></li>
+        <li><a href="#s7">Dúvidas e contato</a></li>
+      </ol>
+    </nav>
+
+    <article class="doc">
+      <div class="tracker" id="tracker" hidden>
+        <span class="tag">Pedido registrado</span>
+        <p>Recebemos pelo Facebook seu pedido de exclusão de dados. O código de acompanhamento é <strong class="code" id="tracker-code"></strong> — guarde-o para qualquer contato sobre o pedido. A exclusão é concluída em até 30 dias corridos, e as contas conectadas já foram desligadas do dusking.</p>
+      </div>
+      <section class="sec" id="s1">
+        <h2><span class="num">01</span>Escolha um caminho</h2>
+        <p>Os três levam ao mesmo resultado. O caminho 1 é o mais rápido; o 2 corta o acesso do app na hora; o 3 serve para quem já perdeu o acesso à conta.</p>
+
+        <ol class="routes">
+          <li class="route">
+            <span class="n" aria-hidden="true">1</span>
+            <div class="body">
+              <h3>Excluir a conta dentro do aplicativo</h3>
+              <p>O caminho mais direto — a exclusão é registrada imediatamente.</p>
+              <ol>
+                <li>Entre no dusking com sua conta;</li>
+                <li>Abra <span class="path">Configurações → Conta</span>;</li>
+                <li>Clique em <strong>Excluir minha conta</strong>;</li>
+                <li>Confirme digitando o e-mail cadastrado.</li>
+              </ol>
+              <p>Ao confirmar, os tokens de acesso do Facebook e do Instagram são revogados na hora e as publicações agendadas ainda não enviadas são canceladas.</p>
+            </div>
+          </li>
+
+          <li class="route">
+            <span class="n" aria-hidden="true">2</span>
+            <div class="body">
+              <h3>Remover o app pelas configurações do Facebook</h3>
+              <p>Corta imediatamente o acesso do dusking às suas contas, mesmo sem abrir o aplicativo.</p>
+              <ol>
+                <li>No Facebook, vá em <span class="path">Configurações e privacidade → Configurações</span>;</li>
+                <li>Abra <span class="path">Aplicativos e sites</span>;</li>
+                <li>Localize <strong>dusking</strong> na lista de aplicativos ativos;</li>
+                <li>Clique em <strong>Remover</strong> e marque a opção de excluir as publicações e atividades feitas pelo app, se ela aparecer.</li>
+              </ol>
+              <p>A remoção revoga as permissões e invalida os tokens. Para apagar também o que está guardado nos nossos servidores, complete o pedido pelo caminho 1 ou 3 — a Meta não transmite a exclusão automaticamente.</p>
+            </div>
+          </li>
+
+          <li class="route">
+            <span class="n" aria-hidden="true">3</span>
+            <div class="body">
+              <h3>Pedir a exclusão por e-mail</h3>
+              <p>Use se não tiver mais acesso ao aplicativo ou preferir registro por escrito.</p>
+              <ol>
+                <li>Envie uma mensagem para <a href="mailto:guilherme460@yahoo.com.br">guilherme460@yahoo.com.br</a>;</li>
+                <li>Assunto: <strong>Exclusão de dados — dusking</strong>;</li>
+                <li>Use o modelo da seção seguinte, de preferência a partir do e-mail cadastrado na conta.</li>
+              </ol>
+              <p>Se a mensagem vier de outro endereço, podemos pedir uma informação adicional para confirmar sua identidade — é uma proteção para impedir que terceiros apaguem seus dados.</p>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="sec" id="s2">
+        <h2><span class="num">02</span>Modelo de e-mail</h2>
+        <p>Copie, preencha os campos entre colchetes e envie:</p>
+        <div class="template">
+<pre>Para: guilherme460@yahoo.com.br
+Assunto: Exclusão de dados — dusking
+
+Solicito a exclusão definitiva da minha conta e de todos os
+dados pessoais tratados pelo aplicativo dusking, nos termos
+do art. 18, VI, da Lei 13.709/2018 (LGPD).
+
+Nome completo: <span class="field">[seu nome]</span>
+E-mail cadastrado no dusking: <span class="field">[seu e-mail]</span>
+Páginas ou contas do Instagram conectadas: <span class="field">[nomes ou @]</span>
+
+Peço a confirmação por escrito quando a exclusão for concluída.</pre>
+        </div>
+        <p>Você receberá uma confirmação de recebimento em até 5 dias úteis e um aviso por escrito quando a exclusão for concluída.</p>
+      </section>
+
+      <section class="sec" id="s3">
+        <h2><span class="num">03</span>O que é apagado</h2>
+        <p>Concluído o pedido, eliminamos definitivamente dos nossos sistemas, inclusive dos backups na rotação seguinte:</p>
+        <ul>
+          <li>seu cadastro: nome, e-mail, foto e identificador de usuário do aplicativo;</li>
+          <li>todos os tokens de acesso do Facebook e do Instagram;</li>
+          <li>a lista de Páginas e contas do Instagram conectadas;</li>
+          <li>rascunhos, modelos, calendário editorial e publicações agendadas ainda não enviadas;</li>
+          <li>as mídias que você carregou no aplicativo e ainda estavam armazenadas;</li>
+          <li>o histórico de publicações, métricas e preferências da conta.</li>
+        </ul>
+        <div class="note">
+          <span class="tag">Irreversível</span>
+          <p>Não há período de recuperação depois de concluída a exclusão. Se quiser guardar seu calendário ou suas mídias, exporte antes de pedir.</p>
+        </div>
+      </section>
+
+      <section class="sec" id="s4">
+        <h2><span class="num">04</span>O que é retido, e por quê</h2>
+        <p>Uma parte mínima de registros permanece pelo prazo exigido por lei, isolada e sem uso comercial. Nada disso permite reconstruir seu perfil no aplicativo.</p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Registro</th><th>Prazo</th><th>Fundamento</th></tr></thead>
+            <tbody>
+              <tr><td>Registros de acesso à aplicação (IP, data e hora)</td><td>6 meses</td><td>Art. 15 do Marco Civil da Internet (Lei 12.965/2014)</td></tr>
+              <tr><td>Notas fiscais e registros de faturamento, se houve contratação paga</td><td>5 anos</td><td>Legislação tributária e art. 7º, II, da LGPD</td></tr>
+              <tr><td>Registro do próprio pedido de exclusão</td><td>5 anos</td><td>Comprovação do atendimento ao art. 18 da LGPD</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="sec" id="s5">
+        <h2><span class="num">05</span>Prazos</h2>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Etapa</th><th>Prazo</th></tr></thead>
+            <tbody>
+              <tr><td>Revogação dos tokens e bloqueio do acesso às contas conectadas</td><td>Imediata</td></tr>
+              <tr><td>Confirmação de recebimento do pedido</td><td>Até 5 dias úteis</td></tr>
+              <tr><td>Exclusão concluída em produção e nos backups</td><td>Até 30 dias corridos</td></tr>
+              <tr><td>Aviso por escrito de conclusão</td><td>Junto com a conclusão</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="sec" id="s6">
+        <h2><span class="num">06</span>Publicações que já foram ao ar</h2>
+        <div class="warn">
+          <span class="tag">Leia antes de pedir</span>
+          <p>Excluir seus dados do dusking <strong>não remove as publicações já publicadas</strong> no Facebook ou no Instagram. Depois de publicadas, elas passam a existir apenas dentro da plataforma da Meta, sob controle da sua Página ou conta.</p>
+        </div>
+        <p>Para apagá-las, use as ferramentas da própria Meta:</p>
+        <ul>
+          <li><strong>Facebook:</strong> abra a publicação na Página, toque nos três pontos e escolha <em>Excluir</em> — ou use o Meta Business Suite, em Conteúdo;</li>
+          <li><strong>Instagram:</strong> abra o post, toque nos três pontos e escolha <em>Excluir</em>;</li>
+          <li>Para apagar em lote, o Meta Business Suite permite selecionar várias publicações de uma vez.</li>
+        </ul>
+        <p>Do mesmo modo, dados tratados pela própria Meta seguem as políticas da Meta e devem ser solicitados diretamente a ela.</p>
+      </section>
+
+      <section class="sec" id="s7">
+        <h2><span class="num">07</span>Dúvidas e contato</h2>
+        <p>Qualquer pedido relacionado a dados pessoais — acesso, correção, portabilidade ou exclusão — é atendido pelo encarregado abaixo.</p>
+        <div class="entity">
+          <dl>
+            <div><dt>Controlador</dt><dd>Dusking Negócios Digitais LTDA</dd></div>
+            <div><dt>CNPJ</dt><dd>51.775.668/0001-41</dd></div>
+            <div><dt>Encarregado (DPO)</dt><dd><a href="mailto:guilherme460@yahoo.com.br">guilherme460@yahoo.com.br</a></dd></div>
+            <div><dt>Endereço</dt><dd>Rua Cecília Meireles, 502 — Jardim Miranda D'Aviz, Mauá/SP, CEP 09330-540</dd></div>
+          </dl>
+        </div>
+        <p>Se a resposta não resolver, você pode registrar reclamação na Autoridade Nacional de Proteção de Dados (ANPD).</p>
+      </section>
+    </article>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="inner">
+    <div>
+      <p class="name">Dusking Negócios Digitais LTDA</p>
+      <p>CNPJ 51.775.668/0001-41 — Rua Cecília Meireles, 502, Jardim Miranda D'Aviz, Mauá/SP, 09330-540.</p>
+      <p>dusking não é afiliado, patrocinado nem endossado pela Meta Platforms, Inc. Facebook e Instagram são marcas da Meta.</p>
+    </div>
+    <div class="xlinks">
+      <span>Documentos</span>
+      <a href="/sobre">Site do dusking</a>
+      <a href="/privacidade">Política de Privacidade</a>
+      <a href="/termos">Termos de Serviço</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var code = new URLSearchParams(window.location.search).get('code');
+  if (!code || !/^[0-9A-F]{16}$/.test(code)) return;
+  var slot = document.getElementById('tracker-code');
+  var box = document.getElementById('tracker');
+  if (!slot || !box) return;
+  slot.textContent = code;
+  box.hidden = false;
+})();
+</script>
+</body>
+</html>

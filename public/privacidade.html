@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="canonical" href="https://www.athenadusking.com.br/privacidade">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#127750;</text></svg>">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="dusking">
+<meta property="og:title" content="Política de Privacidade dusking">
+<meta property="og:url" content="https://www.athenadusking.com.br/privacidade">
+<title>Política de Privacidade dusking</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Spectral:wght@500;600&display=swap">
+<style>
+:root{
+  --paper:#F3F5F9; --surface:#FFFFFF; --surface-2:#FAFBFD;
+  --ink:#15161D; --ink-soft:#383D4C; --muted:#6A7083;
+  --rule:#DEE2EB; --rule-soft:#EAEDF3;
+  --accent:#3B4A9C; --accent-ink:#2E3B80; --accent-soft:#EDEFFA; --on-accent:#FFFFFF;
+  --shadow:0 1px 2px rgba(20,22,35,.05), 0 10px 28px -16px rgba(20,22,35,.28);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1016; --surface:#171A22; --surface-2:#1C202A;
+    --ink:#E8EAF2; --ink-soft:#C2C7D6; --muted:#888FA3;
+    --rule:#272B37; --rule-soft:#20242E;
+    --accent:#96A2F2; --accent-ink:#B4BCF7; --accent-soft:#1B2038; --on-accent:#12141D;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -16px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1016; --surface:#171A22; --surface-2:#1C202A;
+  --ink:#E8EAF2; --ink-soft:#C2C7D6; --muted:#888FA3;
+  --rule:#272B37; --rule-soft:#20242E;
+  --accent:#96A2F2; --accent-ink:#B4BCF7; --accent-soft:#1B2038; --on-accent:#12141D;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -16px rgba(0,0,0,.7);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-underline-offset:3px;text-decoration-thickness:1px}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+.mono{font-family:"IBM Plex Mono","SFMono-Regular",Consolas,monospace}
+
+.topbar{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--rule)}
+.topbar .inner{max-width:1120px;margin:0 auto;padding:.75rem 1.5rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.mark{display:flex;align-items:center;gap:.55rem;font-family:"IBM Plex Mono",monospace;font-size:.78rem;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--ink);font-weight:500;text-decoration:none}
+.dot{width:.5rem;height:.5rem;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.kind{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+
+.hero{max-width:1120px;margin:0 auto;padding:3.5rem 1.5rem 2rem}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:.71rem;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin:0 0 1.1rem}
+h1{font-family:Spectral,Georgia,"Times New Roman",serif;font-weight:600;font-size:clamp(2.1rem,5.5vw,3.2rem);
+  line-height:1.08;letter-spacing:-.018em;margin:0;text-wrap:balance;max-width:16ch}
+.lead{max-width:62ch;color:var(--ink-soft);font-size:1.06rem;margin:1.3rem 0 0}
+.meta{display:flex;flex-wrap:wrap;gap:1.25rem 2.75rem;margin-top:2.25rem;padding-top:1.35rem;border-top:1px solid var(--rule)}
+.meta div{font-family:"IBM Plex Mono",monospace;font-size:.78rem;color:var(--ink);font-variant-numeric:tabular-nums}
+.meta span{display:block;font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:.3rem}
+
+.layout{max-width:1120px;margin:0 auto;padding:0 1.5rem 4.5rem;display:grid;gap:2.5rem;grid-template-columns:1fr}
+@media(min-width:1000px){.layout{grid-template-columns:14rem 1fr;gap:4.5rem;align-items:start}}
+.toc{display:none}
+@media(min-width:1000px){.toc{display:block;position:sticky;top:4.6rem}}
+.toc h2{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 1rem;font-weight:500}
+.toc ol{list-style:none;margin:0;padding:0;counter-reset:toc}
+.toc li{margin-bottom:.6rem}
+.toc a{display:flex;gap:.6rem;font-size:.85rem;color:var(--ink-soft);text-decoration:none;line-height:1.35}
+.toc a:hover{color:var(--accent)}
+.toc a::before{counter-increment:toc;content:counter(toc,decimal-leading-zero);
+  font-family:"IBM Plex Mono",monospace;font-size:.7rem;color:var(--muted);flex:none;padding-top:.15em}
+
+.doc{min-width:0;max-width:70ch}
+.sec{padding:2.4rem 0;border-top:1px solid var(--rule-soft);scroll-margin-top:5rem}
+.sec:first-child{border-top:0;padding-top:.5rem}
+.sec>h2{display:flex;gap:.9rem;align-items:baseline;font-family:Spectral,Georgia,serif;font-size:1.45rem;
+  font-weight:600;line-height:1.25;margin:0 0 1rem;letter-spacing:-.012em}
+.num{font-family:"IBM Plex Mono",monospace;font-size:.76rem;font-weight:500;color:var(--accent);flex:none;padding-top:.4em}
+.doc h3{font-size:.93rem;font-weight:600;margin:1.9rem 0 .6rem;color:var(--ink)}
+.doc p{margin:0 0 1rem;color:var(--ink-soft)}
+.doc ul,.doc ol{margin:0 0 1.1rem;padding-left:1.2rem;color:var(--ink-soft)}
+.doc li{margin-bottom:.5rem}
+.doc li::marker{color:var(--muted)}
+.doc strong{color:var(--ink);font-weight:600}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:7px;background:var(--surface);margin:0 0 1.35rem}
+table{border-collapse:collapse;width:100%;min-width:33rem;font-size:.87rem}
+th,td{text-align:left;padding:.72rem .95rem;border-bottom:1px solid var(--rule-soft);vertical-align:top;color:var(--ink-soft)}
+thead th{font-family:"IBM Plex Mono",monospace;font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--muted);font-weight:500;background:var(--surface-2);border-bottom:1px solid var(--rule)}
+tbody tr:last-child td{border-bottom:0}
+.perm{font-family:"IBM Plex Mono",monospace;font-size:.79rem;color:var(--accent-ink);white-space:nowrap}
+
+.note{border-left:2px solid var(--accent);background:var(--accent-soft);padding:1.05rem 1.15rem;margin:1.35rem 0;border-radius:0 6px 6px 0}
+.note p{margin:0;color:var(--ink-soft)}
+.note .tag{font-family:"IBM Plex Mono",monospace;font-size:.65rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--accent-ink);display:block;margin-bottom:.4rem}
+
+.entity{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:1.35rem 1.5rem;box-shadow:var(--shadow);margin-bottom:1.25rem}
+.entity dl{margin:0;display:grid;grid-template-columns:1fr;gap:.85rem}
+@media(min-width:560px){.entity dl{grid-template-columns:1fr 1fr;gap:1rem 2rem}}
+.entity dt{font-family:"IBM Plex Mono",monospace;font-size:.65rem;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin-bottom:.25rem}
+.entity dd{margin:0;font-size:.92rem;color:var(--ink);font-variant-numeric:tabular-nums}
+
+.foot{border-top:1px solid var(--rule);background:var(--surface)}
+.foot .inner{max-width:1120px;margin:0 auto;padding:2.75rem 1.5rem;display:grid;gap:2rem;grid-template-columns:1fr}
+@media(min-width:760px){.foot .inner{grid-template-columns:1fr auto;align-items:start}}
+.foot p{margin:0 0 .4rem;font-size:.86rem;color:var(--muted);max-width:48ch}
+.foot .name{color:var(--ink);font-weight:600;font-size:.92rem}
+.xlinks{display:flex;flex-direction:column;gap:.55rem}
+.xlinks span{font-family:"IBM Plex Mono",monospace;font-size:.65rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:.15rem}
+.xlinks a{font-size:.88rem}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+
+
+<header class="topbar">
+  <div class="inner">
+    <a class="mark" href="/sobre"><span class="dot"></span>dusking</a>
+    <span class="kind">Documento legal · v1.0</span>
+  </div>
+</header>
+
+<main id="topo">
+  <div class="hero">
+    <p class="eyebrow">Privacidade e proteção de dados</p>
+    <h1>Política de Privacidade</h1>
+    <p class="lead">Como o <strong>dusking</strong> coleta, usa, guarda e elimina dados quando você conecta suas Páginas do Facebook e contas do Instagram para publicar e gerenciar conteúdo. Escrito para ser lido — sem letras miúdas.</p>
+    <div class="meta">
+      <div><span>Vigência</span>4 de setembro de 2026</div>
+      <div><span>Última atualização</span>4 de setembro de 2026</div>
+      <div><span>Versão</span>1.0</div>
+      <div><span>Legislação</span>LGPD · Lei 13.709/2018</div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <nav class="toc" aria-label="Sumário">
+      <h2>Sumário</h2>
+      <ol>
+        <li><a href="#s1">Quem é o controlador</a></li>
+        <li><a href="#s2">A quem esta política se aplica</a></li>
+        <li><a href="#s3">Dados que coletamos</a></li>
+        <li><a href="#s4">Permissões da Meta</a></li>
+        <li><a href="#s5">Finalidades e bases legais</a></li>
+        <li><a href="#s6">Com quem compartilhamos</a></li>
+        <li><a href="#s7">Segurança</a></li>
+        <li><a href="#s8">Prazos de retenção</a></li>
+        <li><a href="#s9">Seus direitos</a></li>
+        <li><a href="#s10">Exclusão de dados</a></li>
+        <li><a href="#s11">Cookies</a></li>
+        <li><a href="#s12">Menores de idade</a></li>
+        <li><a href="#s13">Uso de dados da Meta</a></li>
+        <li><a href="#s14">Alterações</a></li>
+        <li><a href="#s15">Contato e encarregado</a></li>
+      </ol>
+    </nav>
+
+    <article class="doc">
+      <section class="sec" id="s1">
+        <h2><span class="num">01</span>Quem é o controlador dos dados</h2>
+        <p>O aplicativo <strong>dusking</strong> é operado pela pessoa jurídica abaixo, que atua como <strong>controladora</strong> dos dados pessoais tratados por meio dele, nos termos do art. 5º, VI, da LGPD.</p>
+        <div class="entity">
+          <dl>
+            <div><dt>Razão social</dt><dd>Dusking Negócios Digitais LTDA</dd></div>
+            <div><dt>CNPJ</dt><dd>51.775.668/0001-41</dd></div>
+            <div><dt>Endereço</dt><dd>Rua Cecília Meireles, 502 — Jardim Miranda D'Aviz, Mauá/SP, CEP 09330-540</dd></div>
+            <div><dt>E-mail de privacidade</dt><dd><a href="mailto:guilherme460@yahoo.com.br">guilherme460@yahoo.com.br</a></dd></div>
+          </dl>
+        </div>
+        <p>Qualquer pedido relacionado a dados pessoais — acesso, correção, exclusão — pode ser feito pelo e-mail acima, e é respondido pela mesma pessoa jurídica identificada aqui.</p>
+      </section>
+
+      <section class="sec" id="s2">
+        <h2><span class="num">02</span>A quem esta política se aplica</h2>
+        <p>Esta política vale para qualquer pessoa que crie uma conta no dusking, conecte uma Página do Facebook ou uma conta profissional do Instagram, ou use o aplicativo para criar, agendar, publicar ou gerenciar conteúdo nessas contas.</p>
+        <p>O dusking é um <strong>aplicativo de terceiro</strong>: não é afiliado, patrocinado nem endossado pela Meta Platforms, Inc. O tratamento de dados feito pela própria Meta dentro do Facebook e do Instagram segue a política de privacidade da Meta, não esta.</p>
+      </section>
+
+      <section class="sec" id="s3">
+        <h2><span class="num">03</span>Dados que coletamos</h2>
+        <p>Coletamos apenas o necessário para o app funcionar. Não compramos listas, não enriquecemos perfis com dados de fora e não coletamos dados de pessoas que não sejam usuárias do dusking, salvo o que aparece publicamente vinculado às publicações que você mesmo gerencia.</p>
+
+        <h3>a) Dados de cadastro e autenticação</h3>
+        <ul>
+          <li>Nome, foto de perfil e endereço de e-mail informados no login com o Facebook;</li>
+          <li>Seu identificador de usuário específico do aplicativo (<span class="perm">app-scoped user ID</span>), que não é o mesmo ID usado por outros apps;</li>
+          <li>Tokens de acesso emitidos pela Meta para o app agir em seu nome.</li>
+        </ul>
+
+        <h3>b) Dados das Páginas e contas conectadas</h3>
+        <ul>
+          <li>Lista de Páginas do Facebook que você administra: ID, nome, categoria e foto;</li>
+          <li>Conta profissional do Instagram vinculada à Página: ID, nome de usuário, foto e número de seguidores;</li>
+          <li>Tokens de acesso de Página necessários para publicar.</li>
+        </ul>
+
+        <h3>c) Conteúdo que você envia pelo app</h3>
+        <ul>
+          <li>Textos, legendas, hashtags, imagens, vídeos e Reels que você carrega para publicar ou agendar;</li>
+          <li>Datas e horários de agendamento, rascunhos e modelos salvos;</li>
+          <li>Identificadores e status das publicações criadas (publicado, agendado, com erro) e métricas públicas básicas de desempenho.</li>
+        </ul>
+
+        <h3>d) Dados técnicos</h3>
+        <ul>
+          <li>Endereço IP, tipo de navegador e sistema operacional;</li>
+          <li>Registros de acesso à aplicação com data e hora, mantidos por exigência do art. 15 do Marco Civil da Internet (Lei 12.965/2014);</li>
+          <li>Registros de erro e de chamadas às APIs da Meta, para diagnóstico.</li>
+        </ul>
+
+        <div class="note">
+          <span class="tag">Não coletamos</span>
+          <p>Senhas do Facebook ou do Instagram — o login é feito pela própria Meta e nunca vemos suas credenciais. Também não acessamos mensagens diretas, caixa de entrada, dados de cartão ou qualquer dado sensível na acepção do art. 5º, II, da LGPD.</p>
+        </div>
+      </section>
+
+      <section class="sec" id="s4">
+        <h2><span class="num">04</span>Permissões da Meta que solicitamos</h2>
+        <p>Pedimos o conjunto mínimo de permissões capaz de entregar a função do app. Cada permissão abaixo tem uma finalidade direta e verificável dentro do produto:</p>
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr><th>Permissão</th><th>Por que precisamos</th><th>O que acessa</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><span class="perm">public_profile</span></td><td>Identificar você no login e exibir seu nome no app</td><td>Nome, foto e ID do app</td></tr>
+              <tr><td><span class="perm">email</span></td><td>Criar sua conta e enviar avisos sobre publicações</td><td>E-mail cadastrado na Meta</td></tr>
+              <tr><td><span class="perm">pages_show_list</span></td><td>Listar as Páginas que você administra para você escolher onde publicar</td><td>ID, nome e categoria das Páginas</td></tr>
+              <tr><td><span class="perm">pages_read_engagement</span></td><td>Mostrar o resultado das publicações feitas pelo app</td><td>Contagens públicas de reações, comentários e alcance</td></tr>
+              <tr><td><span class="perm">pages_manage_posts</span></td><td>Criar, agendar, editar e excluir publicações, sempre por comando seu</td><td>Somente o conteúdo que você envia pelo app</td></tr>
+              <tr><td><span class="perm">pages_manage_metadata</span></td><td>Assinar webhooks para saber se uma publicação foi concluída ou falhou</td><td>Eventos de status da Página</td></tr>
+              <tr><td><span class="perm">instagram_basic</span></td><td>Identificar a conta profissional do Instagram vinculada à Página</td><td>ID, @usuário, foto e contagem de seguidores</td></tr>
+              <tr><td><span class="perm">instagram_content_publish</span></td><td>Publicar fotos, vídeos, carrosséis e Reels na conta escolhida</td><td>Mídia e legendas que você envia</td></tr>
+              <tr><td><span class="perm">business_management</span></td><td>Quando aplicável, identificar os ativos do Gerenciador de Negócios que você administra</td><td>Vínculo entre conta, Página e portfólio comercial</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Você pode revisar e revogar essas permissões a qualquer momento em <strong>Facebook → Configurações e privacidade → Configurações → Aplicativos e sites</strong>. A revogação interrompe imediatamente o acesso do dusking, e as publicações agendadas que dependiam dela deixam de ser enviadas.</p>
+      </section>
+
+      <section class="sec" id="s5">
+        <h2><span class="num">05</span>Finalidades e bases legais</h2>
+        <p>Todo tratamento tem uma finalidade específica e uma base legal do art. 7º da LGPD:</p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Finalidade</th><th>Base legal</th></tr></thead>
+            <tbody>
+              <tr><td>Criar e manter sua conta, conectar Páginas e publicar o conteúdo que você pede</td><td>Execução de contrato (art. 7º, V)</td></tr>
+              <tr><td>Enviar avisos operacionais sobre publicações, falhas e expiração de tokens</td><td>Execução de contrato (art. 7º, V)</td></tr>
+              <tr><td>Prevenir fraude, abuso e uso indevido da conta; manter a segurança da plataforma</td><td>Legítimo interesse (art. 7º, IX)</td></tr>
+              <tr><td>Melhorar o produto a partir de métricas agregadas de uso</td><td>Legítimo interesse (art. 7º, IX)</td></tr>
+              <tr><td>Guardar registros de acesso e documentos fiscais</td><td>Obrigação legal e regulatória (art. 7º, II)</td></tr>
+              <tr><td>Comunicações de marketing sobre novidades do dusking</td><td>Consentimento, revogável a qualquer momento (art. 7º, I)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="sec" id="s6">
+        <h2><span class="num">06</span>Com quem compartilhamos</h2>
+        <p><strong>Não vendemos, alugamos nem cedemos dados pessoais.</strong> Não usamos os dados obtidos por meio das APIs da Meta para publicidade direcionada, corretagem de dados, pontuação de crédito ou qualquer finalidade proibida pelos Termos da Plataforma Meta.</p>
+        <p>Compartilhamos dados apenas com operadores necessários ao funcionamento do serviço, sempre limitados ao mínimo e vinculados por contrato:</p>
+        <ul>
+          <li><strong>Meta Platforms, Inc.</strong> — recebe o conteúdo que você decide publicar, porque é o destino da publicação;</li>
+          <li><strong>Provedores de infraestrutura em nuvem</strong> — hospedagem da aplicação, do banco de dados e dos arquivos de mídia;</li>
+          <li><strong>Provedor de envio de e-mail transacional</strong> — apenas seu e-mail e o conteúdo do aviso;</li>
+          <li><strong>Autoridades públicas</strong> — somente mediante ordem judicial ou requisição legal válida.</li>
+        </ul>
+        <p>Parte desses operadores mantém servidores fora do Brasil. Nessas hipóteses a transferência internacional ocorre com base no art. 33 da LGPD, mediante cláusulas contratuais que garantem nível de proteção compatível com a lei brasileira.</p>
+      </section>
+
+      <section class="sec" id="s7">
+        <h2><span class="num">07</span>Como protegemos os dados</h2>
+        <ul>
+          <li>Todo tráfego entre você, o dusking e a Meta trafega por <strong>HTTPS/TLS</strong>;</li>
+          <li>Os <strong>tokens de acesso são armazenados criptografados</strong> e nunca são exibidos na interface nem enviados por e-mail;</li>
+          <li>Acesso à base de produção restrito por credenciais individuais, com autenticação em duas etapas e registro de acesso;</li>
+          <li>Backups criptografados e princípio do menor privilégio para toda a equipe;</li>
+          <li>Revisão periódica de dependências e de escopos de permissão ativos.</li>
+        </ul>
+        <p>Nenhum sistema é infalível. Se ocorrer um incidente de segurança com risco relevante aos seus direitos, comunicaremos você e a Autoridade Nacional de Proteção de Dados (ANPD) em prazo razoável, conforme o art. 48 da LGPD.</p>
+      </section>
+
+      <section class="sec" id="s8">
+        <h2><span class="num">08</span>Por quanto tempo guardamos</h2>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Dado</th><th>Prazo de retenção</th></tr></thead>
+            <tbody>
+              <tr><td>Tokens de acesso do Facebook e Instagram</td><td>Até você desconectar a conta ou revogar o app — eliminados imediatamente</td></tr>
+              <tr><td>Dados de cadastro e contas conectadas</td><td>Enquanto a conta estiver ativa; até 30 dias após o pedido de exclusão</td></tr>
+              <tr><td>Rascunhos e publicações agendadas ainda não enviadas</td><td>Excluídos junto com a conta</td></tr>
+              <tr><td>Histórico de publicações (ID, data, status)</td><td>12 meses</td></tr>
+              <tr><td>Registros de acesso à aplicação</td><td>6 meses (art. 15 do Marco Civil da Internet)</td></tr>
+              <tr><td>Documentos fiscais e de faturamento</td><td>5 anos (legislação tributária)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Terminado o prazo, os dados são eliminados ou irreversivelmente anonimizados.</p>
+      </section>
+
+      <section class="sec" id="s9">
+        <h2><span class="num">09</span>Seus direitos como titular</h2>
+        <p>O art. 18 da LGPD garante a você, a qualquer momento e gratuitamente, o direito de obter:</p>
+        <ul>
+          <li>confirmação da existência de tratamento;</li>
+          <li>acesso aos dados;</li>
+          <li>correção de dados incompletos, inexatos ou desatualizados;</li>
+          <li>anonimização, bloqueio ou eliminação de dados desnecessários, excessivos ou tratados em desconformidade com a lei;</li>
+          <li>portabilidade a outro fornecedor, mediante requisição expressa;</li>
+          <li>eliminação dos dados tratados com base no seu consentimento;</li>
+          <li>informação sobre as entidades com as quais compartilhamos dados;</li>
+          <li>informação sobre a possibilidade de não consentir e as consequências disso;</li>
+          <li>revogação do consentimento.</li>
+        </ul>
+        <p>Para exercer qualquer um deles, escreva para <a href="mailto:guilherme460@yahoo.com.br">guilherme460@yahoo.com.br</a>. Confirmamos o recebimento em até <strong>5 dias úteis</strong> e respondemos em até <strong>15 dias</strong>. Podemos pedir informações adicionais apenas para confirmar sua identidade e evitar que terceiros acessem seus dados.</p>
+      </section>
+
+      <section class="sec" id="s10">
+        <h2><span class="num">10</span>Exclusão de dados</h2>
+        <p>Você pode apagar seus dados do dusking a qualquer momento, sem precisar justificar. Há três caminhos — pelo próprio aplicativo, removendo o app nas configurações do Facebook, ou por e-mail.</p>
+        <p>O passo a passo completo, com o modelo de mensagem e os prazos, está na página de <a href="/exclusao-de-dados"><strong>instruções de exclusão de dados</strong></a>.</p>
+        <div class="note">
+          <span class="tag">Atenção</span>
+          <p>Excluir seus dados do dusking <strong>não apaga as publicações que já foram ao ar</strong> no Facebook ou no Instagram: elas passam a pertencer exclusivamente à sua Página e devem ser removidas por lá, se for o caso.</p>
+        </div>
+      </section>
+
+      <section class="sec" id="s11">
+        <h2><span class="num">11</span>Cookies e armazenamento local</h2>
+        <p>Usamos apenas cookies e armazenamento local <strong>estritamente necessários</strong>: manter sua sessão aberta, lembrar preferências de interface e proteger contra falsificação de requisição (CSRF). Não usamos cookies de publicidade nem rastreamento entre sites.</p>
+        <p>Se um dia adotarmos analytics, esta política será atualizada antes da ativação e você poderá recusar.</p>
+      </section>
+
+      <section class="sec" id="s12">
+        <h2><span class="num">12</span>Menores de idade</h2>
+        <p>O dusking é uma ferramenta profissional destinada a maiores de 18 anos. Não coletamos intencionalmente dados de crianças ou adolescentes. Se identificarmos uma conta criada por menor, ela será encerrada e os dados eliminados. Se você é responsável e acredita que isso ocorreu, escreva para o e-mail de privacidade.</p>
+      </section>
+
+      <section class="sec" id="s13">
+        <h2><span class="num">13</span>Uso de dados obtidos pelas APIs da Meta</h2>
+        <p>O uso e a transferência de informações recebidas das APIs da Meta seguem os <strong>Termos da Plataforma Meta</strong> e as Políticas para Desenvolvedores. Especificamente, comprometemo-nos a:</p>
+        <ul>
+          <li>usar os dados apenas para entregar as funções descritas nesta política e nos Termos de Serviço;</li>
+          <li>não transferir dados da plataforma a redes de anúncios, corretores de dados ou serviços de monetização de dados;</li>
+          <li>não usar os dados para tomar decisões sobre elegibilidade a crédito, seguro, emprego ou habitação;</li>
+          <li>eliminar os dados da plataforma quando você revogar o acesso, quando encerrarmos o app ou quando a Meta solicitar;</li>
+          <li>manter medidas de segurança compatíveis com os requisitos da Meta e cooperar com auditorias quando cabível.</li>
+        </ul>
+      </section>
+
+      <section class="sec" id="s14">
+        <h2><span class="num">14</span>Alterações desta política</h2>
+        <p>Podemos atualizar esta política para refletir mudanças no produto, na legislação ou nas exigências da Meta. A data de vigência no topo sempre indica a versão em vigor. Mudanças relevantes — nova finalidade, nova permissão ou novo compartilhamento — são comunicadas por e-mail ou dentro do aplicativo com pelo menos 15 dias de antecedência.</p>
+      </section>
+
+      <section class="sec" id="s15">
+        <h2><span class="num">15</span>Contato e encarregado pelo tratamento</h2>
+        <p>Dúvidas, pedidos e reclamações sobre privacidade devem ser enviados ao encarregado (DPO) indicado abaixo:</p>
+        <div class="entity">
+          <dl>
+            <div><dt>Encarregado (DPO)</dt><dd>Guilherme — Dusking Negócios Digitais LTDA</dd></div>
+            <div><dt>E-mail</dt><dd><a href="mailto:guilherme460@yahoo.com.br">guilherme460@yahoo.com.br</a></dd></div>
+            <div><dt>Endereço para correspondência</dt><dd>Rua Cecília Meireles, 502 — Jardim Miranda D'Aviz, Mauá/SP, CEP 09330-540</dd></div>
+            <div><dt>Prazo de resposta</dt><dd>Até 15 dias corridos</dd></div>
+          </dl>
+        </div>
+        <p>Você também pode apresentar reclamação diretamente à Autoridade Nacional de Proteção de Dados (ANPD).</p>
+      </section>
+    </article>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="inner">
+    <div>
+      <p class="name">Dusking Negócios Digitais LTDA</p>
+      <p>CNPJ 51.775.668/0001-41 — Rua Cecília Meireles, 502, Jardim Miranda D'Aviz, Mauá/SP, 09330-540.</p>
+      <p>dusking não é afiliado, patrocinado nem endossado pela Meta Platforms, Inc. Facebook e Instagram são marcas da Meta.</p>
+    </div>
+    <div class="xlinks">
+      <span>Documentos</span>
+      <a href="/sobre">Site do dusking</a>
+      <a href="/termos">Termos de Serviço</a>
+      <a href="/exclusao-de-dados">Exclusão de dados do usuário</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
