@@ -40,11 +40,39 @@ export function dashboardCoverageNotes(input: {
   coverage: DashboardCoverageSummary | null | undefined;
   periodEndDate: string;
   todayDate: string;
+  /**
+   * Perfis do escopo com a situação de cada um. Opcional: sem a lista, os
+   * avisos abaixo continuam exatamente como eram.
+   */
+  profiles?: Array<{ status: string }>;
 }): DashboardCoverageNote[] {
   const { coverage, periodEndDate, todayDate } = input;
   if (!coverage) return [];
 
   const notes: DashboardCoverageNote[] = [];
+
+  // A migração da Zernio para a API da Meta divide a frota em duas: quem já
+  // reconectou publica, quem não reconectou não publica. Sem este aviso a
+  // dashboard soma o histórico dos dois grupos e passa a impressão de uma
+  // operação inteira em pé — foi exatamente a leitura errada que a tela
+  // permitia em 04/09/2026, com 1.565 perfis no escopo e ~120 capazes de
+  // publicar.
+  //
+  // O aviso NÃO filtra o histórico de propósito: as visualizações já
+  // coletadas continuam valendo e somando. O que ele corrige é a leitura de
+  // CAPACIDADE, que é o número em que a operação se planeja.
+  const scoped = input.profiles;
+  if (scoped && scoped.length > 0) {
+    const offline = scoped.filter((profile) => profile.status !== 'online').length;
+    if (offline > 0) {
+      const online = scoped.length - offline;
+      notes.push({
+        tone: 'alert',
+        message: `${online} de ${scoped.length} ${plural(scoped.length, 'perfil está', 'perfis estão')} online e ${plural(offline, 'publica', 'publicam')} agora. `
+          + `${offline} ${plural(offline, 'aguarda', 'aguardam')} reconexão pela API da Meta — o histórico deles continua somando nos números acima, mas eles não publicam até serem reconectados.`,
+      });
+    }
+  }
   const pending = coverage.profiles_pending_collection;
   const published = coverage.profiles_with_publications;
   const periodIncludesToday = periodEndDate === todayDate;

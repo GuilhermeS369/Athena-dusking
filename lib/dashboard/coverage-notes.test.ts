@@ -94,3 +94,45 @@ test('singular e plural saem corretos nas duas notas', () => {
   assert.match(texto, /1 perfil publicou neste período e ainda está sem métrica/);
   assert.match(texto, /1 de 2 perfil não publicou/);
 });
+
+test('a dashboard diz quantos perfis realmente publicam, sem esconder o historico', () => {
+  // 04/09/2026: a migracao da Zernio para a Meta deixou a frota dividida. Somar
+  // o historico dos dois grupos num numero so fazia a tela sugerir uma operacao
+  // inteira em pe, quando a maioria nao publicava.
+  const notes = dashboardCoverageNotes({
+    coverage: coverage(),
+    periodEndDate: '2026-09-03',
+    todayDate: '2026-09-04',
+    profiles: [
+      ...Array.from({ length: 120 }, () => ({ status: 'online' })),
+      ...Array.from({ length: 1445 }, () => ({ status: 'reauthorization_required' })),
+    ],
+  });
+
+  const capacidade = notes.find((note) => note.message.includes('online'));
+  assert.ok(capacidade, 'deveria existir um aviso de capacidade');
+  assert.equal(capacidade.tone, 'alert');
+  assert.match(capacidade.message, /120 de 1565/);
+  assert.match(capacidade.message, /1445 aguardam reconexão pela API da Meta/);
+  // O historico continua somando: o aviso explica, nao filtra.
+  assert.match(capacidade.message, /continua somando/);
+});
+
+test('frota inteira online nao gera aviso de capacidade', () => {
+  const notes = dashboardCoverageNotes({
+    coverage: coverage(),
+    periodEndDate: '2026-09-03',
+    todayDate: '2026-09-04',
+    profiles: Array.from({ length: 40 }, () => ({ status: 'online' })),
+  });
+
+  assert.equal(notes.some((note) => note.message.includes('aguardam reconexão')), false);
+});
+
+test('sem a lista de perfis os avisos antigos seguem intactos', () => {
+  const semLista = dashboardCoverageNotes({ coverage: coverage(), periodEndDate: '2026-09-03', todayDate: '2026-09-04' });
+  const listaVazia = dashboardCoverageNotes({ coverage: coverage(), periodEndDate: '2026-09-03', todayDate: '2026-09-04', profiles: [] });
+
+  assert.deepEqual(semLista, listaVazia);
+  assert.equal(semLista.some((note) => note.message.includes('aguardam reconexão')), false);
+});

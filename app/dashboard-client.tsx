@@ -328,7 +328,10 @@ export default function DashboardClient({
     coverage: v2Analytics?.coverage,
     periodEndDate: periodRange.endDate,
     todayDate: saoPauloDateKey(),
-  }), [periodRange.endDate, v2Analytics]);
+    // Os perfis já filtrados pela seleção da tela: o aviso de capacidade fala
+    // do escopo que o operador está olhando, não da organização inteira.
+    profiles: filteredProfiles,
+  }), [filteredProfiles, periodRange.endDate, v2Analytics]);
 
   return (
     <section className="analytics-page">
