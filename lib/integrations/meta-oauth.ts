@@ -2,10 +2,32 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const META_OAUTH_COOKIE = 'athena-meta-oauth';
 export const META_GRAPH_API_VERSION = process.env.META_GRAPH_API_VERSION ?? 'v26.0';
-export const META_OAUTH_SCOPES = [
+/**
+ * Permissões pedidas na autorização.
+ *
+ * O QUE ESTÁ EM JOGO NA ORDEM DAS COISAS: a permissão é concedida no momento em
+ * que a pessoa aceita, e vale para aquele token. Acrescentar uma permissão
+ * depois NÃO alcança quem já conectou — exige refazer o OAuth conta por conta.
+ * Numa frota de 1.551 perfis, descobrir a permissão faltando depois da migração
+ * significa fazer a migração duas vezes.
+ *
+ * `manage_insights` é a que destrava a dashboard: sem ela o token lê o perfil e
+ * publica, mas não enxerga visualizações, alcance nem impressões.
+ *
+ * A lista aceita ajuste por ambiente para o caso de a Meta recusar alguma
+ * permissão no meio de uma migração em andamento — sem isso, destravar
+ * dependeria de um deploy novo com a operação parada.
+ */
+export const META_OAUTH_SCOPES = (process.env.META_OAUTH_SCOPES ?? [
   'instagram_business_basic',
   'instagram_business_content_publish',
-];
+  'instagram_business_manage_insights',
+  'instagram_business_manage_comments',
+  'instagram_business_manage_messages',
+].join(','))
+  .split(',')
+  .map((scope) => scope.trim())
+  .filter(Boolean);
 
 type OAuthState = {
   organizationId: string;

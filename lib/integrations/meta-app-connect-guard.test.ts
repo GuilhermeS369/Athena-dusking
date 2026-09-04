@@ -63,6 +63,21 @@ test('o callback troca o código com a credencial do app assinado no state', () 
   assert.match(callbackSource, /resolveMetaAppCredentials\(state\.organizationId, state\.metaAppId/);
 });
 
+test('a autorizacao pede a permissao que destrava a dashboard', () => {
+  // Permissao so vale para o token emitido no aceite. Acrescentar uma depois
+  // NAO alcanca quem ja conectou: exige refazer o OAuth conta por conta. Numa
+  // frota de 1.551 perfis, faltar `manage_insights` aqui significa migrar duas
+  // vezes -- e a dashboard e justamente o que ela destrava.
+  assert.match(oauthSource, /instagram_business_manage_insights/);
+  assert.match(oauthSource, /instagram_business_content_publish/);
+  assert.match(oauthSource, /instagram_business_basic/);
+});
+
+test('o perfil registra as permissoes concedidas, e diz se a Meta confirmou', () => {
+  assert.match(callbackSource, /permissions_confirmed_by_meta/);
+  assert.match(callbackSource, /longLived\.permissions \?\? shortLived\.permissions/);
+});
+
 test('o perfil salvo registra o app que o conectou', () => {
   // A gravacao passou a ser feita pela RPC connect_meta_instagram_profile
   // (migration 373), entao o app viaja como parametro em vez de campo do upsert.

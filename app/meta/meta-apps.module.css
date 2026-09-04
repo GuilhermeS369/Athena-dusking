@@ -39,11 +39,18 @@
 
 .form { display: grid; gap: 12px; padding: 18px; border: 1px dashed var(--border-strong); border-radius: 15px; background: var(--surface); }
 .formTitle { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 800; }
-.formGrid { display: grid; grid-template-columns: 1fr 1fr 1fr 128px; gap: 10px; }
+/* minmax(0,1fr) e nao 1fr: sem isso, um valor longo dentro do campo empurra a
+   coluna e desalinha a linha inteira. "Vagas" cabe 4 digitos, entao ganha
+   largura fixa em vez de dividir o espaco por igual com os outros tres. */
+.formGrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 104px; gap: 10px; align-items: end; }
 .formGrid label { display: grid; gap: 5px; color: var(--text-subtle); font-size: 11px; font-weight: 700; }
 .formGrid input { min-height: 42px; padding: 0 12px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface-raised); color: var(--text); font-size: 13px; }
 .formGrid input:focus { border-color: #b579f4; outline: none; }
-.formHint { margin: 0; color: var(--text-subtle); font-size: 11px; }
+.formHint { max-width: 62ch; margin: 0; color: var(--text-subtle); font-size: 11px; line-height: 1.5; }
+/* A dica e o botao dividem a mesma linha: com o botao sozinho embaixo, sobrava
+   um vazio grande na direita do cartao. */
+.formFooter { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.formFooter .button { flex: 0 0 auto; }
 
 .renewal { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 18px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 15px; background: var(--surface-raised); }
 .renewalAttention { border-color: #e7b74e66; background: #241c0e; }
@@ -77,6 +84,7 @@
 
 @media (max-width: 900px) {
   .formGrid { grid-template-columns: 1fr; }
+  .formFooter { align-items: stretch; flex-direction: column; }
   .renewal { grid-template-columns: 1fr; }
   .card { align-items: stretch; flex-direction: column; }
   .capacity { flex: 1 1 auto; }

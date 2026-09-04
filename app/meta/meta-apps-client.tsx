@@ -643,11 +643,11 @@ export default function MetaAppsClient({
               />
             </label>
           </div>
-          <p className={styles.formHint}>
-            O secret é criptografado antes de ser salvo e nunca volta para a tela. Cada app precisa ter a mesma URL de
-            redirecionamento configurada no painel da Meta.
-          </p>
-          <div>
+          <div className={styles.formFooter}>
+            <p className={styles.formHint}>
+              O secret é criptografado antes de ser salvo e nunca volta para a tela. Cada app precisa ter a mesma URL de
+              redirecionamento configurada no painel da Meta.
+            </p>
             <button className={`button button-primary${saving ? ' button-saving' : ''}`} type="submit" disabled={saving}>
               {saving ? 'Cadastrando…' : 'Adicionar app'}
             </button>

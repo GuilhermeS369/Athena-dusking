@@ -13,6 +13,7 @@ import {
 import {
   legacyMetaAppCredentials,
   metaRedirectUri,
+  META_OAUTH_SCOPES,
   META_GRAPH_API_VERSION,
   META_OAUTH_COOKIE,
   safeReturnTo,
@@ -23,6 +24,8 @@ type MetaTokenResponse = {
   access_token?: string;
   user_id?: string | number;
   expires_in?: number;
+  /** Lista concedida de fato, quando a Meta a devolve. */
+  permissions?: string | string[];
   error_type?: string;
   error_message?: string;
   error?: { message?: string; type?: string; code?: number; fbtrace_id?: string };
@@ -374,6 +377,30 @@ export async function GET(request: Request) {
     }
 
     const savedProfile = { id: connectResult.profile_id };
+
+    // Registra o que a conta REALMENTE concedeu. A Meta nem sempre devolve a
+    // lista; quando não devolve, o pedido é a melhor informação disponível — e
+    // fica explícito na chave `granted` qual dos dois casos é este, para não
+    // parecer que a permissão foi confirmada quando não foi.
+    const grantedPermissions = (() => {
+      const raw = longLived.permissions ?? shortLived.permissions;
+      const list = Array.isArray(raw)
+        ? raw
+        : typeof raw === 'string' ? raw.split(',') : null;
+      const scopes = list?.map((scope) => scope.trim()).filter(Boolean);
+      return scopes?.length ? { scopes, granted: true } : { scopes: META_OAUTH_SCOPES, granted: false };
+    })();
+
+    await admin
+      .from('instagram_profiles')
+      .update({
+        capabilities: Object.fromEntries([
+          ...grantedPermissions.scopes.map((scope) => [scope, true]),
+          ['permissions_confirmed_by_meta', grantedPermissions.granted],
+        ]),
+      })
+      .eq('id', savedProfile.id)
+      .eq('organization_id', state.organizationId);
 
     console.info('[meta-oauth] profile_connected', {
       requestId,
