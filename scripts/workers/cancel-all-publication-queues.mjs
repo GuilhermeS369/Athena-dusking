@@ -83,18 +83,39 @@ async function profilesWithWork(organizationId) {
 }
 
 async function cancelProfile(organizationId, requestedBy, profileId) {
-  const { data: operation, error: insertError } = await supabase
+  // Retoma a operação que já existe em 'running' para este perfil, em vez de
+  // abrir outra. Uma execução interrompida no meio (foi o que aconteceu em
+  // 04/09, quando o gatilho de organização barrou 1.155 perfis) deixa a linha
+  // durável para trás, e `begin_publication_queue_cancellation` devolveria
+  // justamente essa quando chamada pela tela. Criar uma segunda faria a
+  // interface mostrar progresso de uma operação que ninguém está executando.
+  const { data: existing } = await supabase
     .from('publication_queue_cancellation_operations')
-    .insert({
-      organization_id: organizationId,
-      requested_by: requestedBy,
-      idempotency_key: randomUUID(),
-      scope: 'account',
-      target_id: profileId,
-    })
     .select('id')
-    .single();
-  if (insertError) return { profileId, state: 'erro', reason: insertError.message };
+    .eq('organization_id', organizationId)
+    .eq('scope', 'account')
+    .eq('target_id', profileId)
+    .eq('status', 'running')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let operation = existing;
+  if (!operation) {
+    const { data: created, error: insertError } = await supabase
+      .from('publication_queue_cancellation_operations')
+      .insert({
+        organization_id: organizationId,
+        requested_by: requestedBy,
+        idempotency_key: randomUUID(),
+        scope: 'account',
+        target_id: profileId,
+      })
+      .select('id')
+      .single();
+    if (insertError) return { profileId, state: 'erro', reason: insertError.message };
+    operation = created;
+  }
 
   for (let round = 0; round < MAX_ROUNDS; round += 1) {
     const { error } = await supabase.rpc('execute_server_publication_queue_cancellation', {
