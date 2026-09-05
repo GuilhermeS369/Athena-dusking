@@ -105,6 +105,13 @@ async function main() {
   // Stories voltam para a fila. `creation_id` é PRESERVADO de propósito: o
   // contêiner está FINISHED e vale 24 h, então republicar não reenvia mídia —
   // o worker consulta o status, vê FINISHED e publica.
+  //
+  // `archived_at` PRECISA ser limpo, e a primeira versão deste script esqueceu.
+  // Uma falha terminal é arquivada pela rotina de limpeza (migration 335), e o
+  // despachante ignora tudo que tem `archived_at`. Sem limpar, o item volta a
+  // `waiting` e fica invisível: não publica, não falha, e nem aparece como
+  // atraso na tela — porque o snapshot de operação também filtra arquivados.
+  // Foram 48 stories parados assim entre 04/09 23:29 e 05/09 00:05.
   let reenfileirados = 0;
   for (let i = 0; i < stories.length; i += 50) {
     const bloco = stories.slice(i, i + 50).map((item) => item.id);
@@ -116,6 +123,8 @@ async function main() {
       lease_until: null,
       last_error_code: null,
       last_error_message: null,
+      archived_at: null,
+      archived_by: null,
     }).in('id', bloco);
     if (error) { console.error(`  erro ao reenfileirar bloco: ${error.message}`); continue; }
     reenfileirados += bloco.length;

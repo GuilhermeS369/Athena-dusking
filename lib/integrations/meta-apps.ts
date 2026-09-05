@@ -2,12 +2,23 @@
  * Regras de capacidade e de escrita em massa dos apps próprios da Meta.
  *
  * Um app da Meta comporta um número fixo de contas (100 por padrão). Diferente
- * da Zernio, aqui não existe inventário remoto para consultar: a ocupação é
- * exatamente a quantidade de perfis ativos que entraram por aquele app, um
- * número que o próprio Athena controla. Por isso a contagem é confiável e o
- * Bulk Meta pode recusar de imediato um pedido maior que a vaga — em vez de
- * entregar uma lista menor e deixar o operador descobrir a falta no meio da
- * operação, como acontece na régua da Zernio.
+ * da Zernio, aqui não existe inventário remoto para consultar: quem sabe da
+ * ocupação é o próprio Athena. Por isso a contagem pode recusar de imediato um
+ * pedido maior que a vaga — em vez de entregar uma lista menor e deixar o
+ * operador descobrir a falta no meio da operação, como acontece na régua da
+ * Zernio.
+ *
+ * Só que "o Athena sabe" não é o mesmo que "o Athena contava". Até 05/09/2026 a
+ * ocupação era só o número de perfis ativos, e um perfil derrubado pela Meta
+ * saía dessa conta no instante da queda. No painel da Meta ele continuava lá: a
+ * conexão só some quando alguém a apaga à mão, e a Graph API não expõe essa
+ * lista para conferirmos sozinhos. Eram 512 vagas fantasma em 28 apps, com
+ * NOVE apps lotados aparecendo com 2 a 27 vagas livres — e cada vaga fantasma
+ * virava um celular apontado para um app sem espaço.
+ *
+ * Daí a ocupação ter duas parcelas: os perfis que publicam e as quedas ainda
+ * não confirmadas em /meta. A vaga presa só volta quando o operador diz que
+ * apagou a conexão no Meta Developers.
  */
 
 export const META_APP_DEFAULT_SLOT_LIMIT = 100;
@@ -17,7 +28,7 @@ export const META_APP_DEFAULT_SLOT_LIMIT = 100;
  * proíbe exportar qualquer coisa além dos handlers de um arquivo de rota.
  */
 export const META_APP_SAFE_COLUMNS =
-  'id, organization_id, label, app_id, instagram_slot_limit, active, last_connected_at, instagram_profile_count, created_at, updated_at';
+  'id, organization_id, label, app_id, instagram_slot_limit, active, last_connected_at, instagram_profile_count, pending_slot_release_count, api_blocked_at, api_block_until, api_block_error_message, api_block_window_count, api_block_ignored_count, api_last_unblocked_at, created_at, updated_at';
 
 export type NamedMetaApp = {
   id: string;
@@ -26,6 +37,13 @@ export type NamedMetaApp = {
   active: boolean;
   instagram_slot_limit: number | null;
   instagram_profile_count: number | null;
+  /**
+   * Quedas registradas neste app que ainda não foram confirmadas em /meta.
+   * Obrigatório de propósito: quem esquecer de trazer a coluna não recebe zero
+   * em silêncio — recebe erro de tipo. Zero aqui é a diferença entre "app com
+   * 13 vagas" e "app lotado", e foi ela que mandou celular para app sem espaço.
+   */
+  pending_slot_release_count: number | null;
 };
 
 export type NamedProfileGroup = {
@@ -35,6 +53,14 @@ export type NamedProfileGroup = {
 
 export type MetaAppCapacity = {
   slotLimit: number;
+  /** Perfis vivos, que ainda publicam por este app. */
+  activeProfiles: number;
+  /**
+   * Quedas ainda não confirmadas: o Athena já removeu o perfil, mas a conexão
+   * segue ocupando o app no painel da Meta até alguém apagá-la lá.
+   */
+  trappedSlots: number;
+  /** O que a Meta enxerga como ocupado: perfis vivos + vagas presas. */
   usedSlots: number;
   freeSlots: number;
   /** Só um app ativo e com vaga pode receber uma conexão nova. */
@@ -43,11 +69,18 @@ export type MetaAppCapacity = {
 
 export function metaAppCapacity(app: NamedMetaApp): MetaAppCapacity {
   const slotLimit = Math.max(0, app.instagram_slot_limit ?? META_APP_DEFAULT_SLOT_LIMIT);
-  const usedSlots = Math.max(0, app.instagram_profile_count ?? 0);
+  const activeProfiles = Math.max(0, app.instagram_profile_count ?? 0);
+  const trappedSlots = Math.max(0, app.pending_slot_release_count ?? 0);
+  // Sem teto no limite: um app com 96 ativos e 13 quedas está com 109 conexões
+  // no painel da Meta, e esconder isso atrás de "100/100" apagaria justamente o
+  // tamanho do estrago. `freeSlots` já não fica negativo.
+  const usedSlots = activeProfiles + trappedSlots;
   const freeSlots = Math.max(0, slotLimit - usedSlots);
 
   return {
     slotLimit,
+    activeProfiles,
+    trappedSlots,
     usedSlots,
     freeSlots,
     connectable: app.active && freeSlots > 0,
@@ -71,6 +104,48 @@ export function sortMetaAppsByFillOrder<T extends NamedMetaApp>(apps: T[]) {
       return firstCapacity.freeSlots - secondCapacity.freeSlots;
     }
     return first.label.localeCompare(second.label, 'pt-BR', { sensitivity: 'variant' });
+  });
+}
+
+/**
+ * A ordem alfabética usada quando o critério é achar um app pelo nome.
+ *
+ * `numeric` mantém “BIEL 2” antes de “BIEL 10”, que é como o operador lê os
+ * nomes numerados da planilha; sem ela a ordem seria a de string pura e “10”
+ * viria antes de “2”.
+ */
+function compareLabel(first: NamedMetaApp, second: NamedMetaApp) {
+  return first.label.localeCompare(second.label, 'pt-BR', { numeric: true, sensitivity: 'base' });
+}
+
+/**
+ * Ordena por nome para quem precisa achar um app específico na lista, e não
+ * receber a sugestão de qual preencher.
+ */
+export function sortMetaAppsByLabel<T extends NamedMetaApp>(apps: T[]) {
+  return [...apps].sort(compareLabel);
+}
+
+/**
+ * Ordem da tela de controle: primeiro quem tem trabalho pendente.
+ *
+ * Os apps com conta caída sobem, os sem descem, e dentro de cada bloco a ordem
+ * é alfabética. É diferente da ordem de preenchimento de propósito: lá a
+ * pergunta é “onde conecto o próximo celular”, aqui é “qual app eu abro agora
+ * no Meta Developers”. Com 28 apps e a limpeza feita em várias sessões, uma
+ * lista ordenada por vaga livre obrigava a caçar de novo, do zero, onde a
+ * pessoa tinha parado.
+ */
+export function sortMetaAppsByPendingRemoval<T extends NamedMetaApp>(apps: T[]) {
+  return [...apps].sort((first, second) => {
+    const firstPending = (first.pending_slot_release_count ?? 0) > 0;
+    const secondPending = (second.pending_slot_release_count ?? 0) > 0;
+
+    // Só a PRESENÇA de queda separa os blocos, não a quantidade: um app com 63
+    // e outro com 1 estão os dois na mesma situação — têm o que limpar —, e
+    // ordenar por volume quebraria o alfabeto que faz a lista ser percorrível.
+    if (firstPending !== secondPending) return firstPending ? -1 : 1;
+    return compareLabel(first, second);
   });
 }
 
@@ -182,6 +257,8 @@ export type MetaBulkPlan = {
   freeSlots: number;
   slotLimit: number;
   usedSlots: number;
+  /** Parcela de `usedSlots` que some assim que a limpeza for confirmada em /meta. */
+  trappedSlots: number;
   blocked: boolean;
   reason: MetaBulkPlanReason;
   text: string;
@@ -211,6 +288,7 @@ export function buildBulkMetaRows(
     freeSlots: capacity?.freeSlots ?? 0,
     slotLimit: capacity?.slotLimit ?? 0,
     usedSlots: capacity?.usedSlots ?? 0,
+    trappedSlots: capacity?.trappedSlots ?? 0,
     text: '',
   };
 
@@ -229,14 +307,26 @@ export function buildBulkMetaRows(
     freeSlots: capacity.freeSlots,
     slotLimit: capacity.slotLimit,
     usedSlots: capacity.usedSlots,
+    trappedSlots: capacity.trappedSlots,
     blocked: false,
     reason: 'ok',
     text: rows.join('\n'),
   };
 }
 
+/**
+ * Explica a recusa dizendo o que dá para fazer a respeito.
+ *
+ * Vaga presa ganha frase própria porque o desfecho é outro: "cadastre outro
+ * app" não serve para quem tem 13 vagas esperando uma limpeza no Meta
+ * Developers. Sem essa distinção, a tela mandaria criar app novo em cima de
+ * espaço que já existe.
+ */
 export function metaBulkPlanMessage(plan: MetaBulkPlan, appLabel: string | null) {
   const name = appLabel ? `“${appLabel}”` : 'o app selecionado';
+  const trapped = plan.trappedSlots > 0
+    ? ` ${plan.trappedSlots} vaga(s) estão presas em quedas ainda não confirmadas: apague essas conexões no Meta Developers e confirme em /meta para liberá-las.`
+    : '';
 
   switch (plan.reason) {
     case 'no_app_selected':
@@ -246,10 +336,10 @@ export function metaBulkPlanMessage(plan: MetaBulkPlan, appLabel: string | null)
     case 'inactive_app':
       return `O app ${name} está desativado e não recebe conexões novas.`;
     case 'app_full':
-      return `O app ${name} está com as ${plan.slotLimit} vagas ocupadas. Cadastre outro app da Meta.`;
+      return `O app ${name} está com as ${plan.slotLimit} vagas ocupadas.${trapped || ' Cadastre outro app da Meta.'}`;
     case 'insufficient_slots':
-      return `Não há vaga para essa API: ${name} tem ${plan.freeSlots} vaga(s) livre(s) e você pediu ${plan.requested}.`;
+      return `Não há vaga para essa API: ${name} tem ${plan.freeSlots} vaga(s) livre(s) e você pediu ${plan.requested}.${trapped}`;
     default:
-      return `${plan.rows.length} linha(s) prontas. Restarão ${plan.freeSlots - plan.rows.length} vaga(s) em ${name} depois dessas conexões.`;
+      return `${plan.rows.length} linha(s) prontas. Restarão ${plan.freeSlots - plan.rows.length} vaga(s) em ${name} depois dessas conexões.${trapped}`;
   }
 }

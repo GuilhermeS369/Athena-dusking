@@ -150,9 +150,14 @@ async function main() {
     const bloco = doFormato.slice(i, i + 50).map((item) => item.id);
     // `creation_id` preservado: o contêiner está pronto e vale 24 h, então o
     // worker consulta, vê FINISHED e publica sem reenviar a mídia.
+    //
+    // `archived_at` limpo junto: a rotina de limpeza arquiva falha terminal, e o
+    // despachante ignora item arquivado. Devolver a `waiting` sem desarquivar
+    // cria um item que não publica nem aparece atrasado na tela.
     const { error } = await supabase.from('publication_items').update({
       status: 'waiting', attempt_count: 0, next_attempt_at: null,
       claimed_by: null, lease_until: null, last_error_code: null, last_error_message: null,
+      archived_at: null, archived_by: null,
     }).in('id', bloco);
     if (error) { console.error(`  erro no bloco: ${error.message}`); continue; }
     devolvidos += bloco.length;

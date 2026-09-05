@@ -5,6 +5,7 @@ import {
   type PublicationFormat,
   type PublicationWorkItem,
 } from '@/lib/integrations/instagram-publisher';
+import { isMetaAppApiBlocked } from '@/lib/integrations/meta-graph-errors';
 import { processZernioInstagramPublication } from '@/lib/integrations/zernio-publisher';
 import { PUBLICATION_MAX_ATTEMPTS } from '@/lib/publications/attempts';
 import { isPublicationInfrastructureError } from '@/lib/publications/infrastructure-error';
@@ -431,6 +432,21 @@ async function processClaimedItem(item: ClaimedItem, workerId: string) {
       });
       if (error) throw error;
       return { itemId: item.id, state: 'zernio_profile_recycling_scheduled' };
+    }
+
+    // Bloqueio de API é do app, não deste item: `flag_meta_app_api_blocked` abre
+    // uma janela de uma hora e marca como `ignored` tudo que vence nela. Vem
+    // antes de `complete_publication_item` justamente para o item NÃO virar
+    // falha terminal — falha terminal alimenta o disjuntor, e foi assim que em
+    // 05/09 três lotes pausaram e um deles congelou 6.120 itens de um app são.
+    if (!('state' in workItem) && result.state === 'failed' && workItem.profile.provider === 'meta_official'
+      && isMetaAppApiBlocked(result)) {
+      const { error } = await supabase.rpc('flag_meta_app_api_blocked', {
+        p_item_id: item.id, p_worker_id: workerId,
+        p_error_code: result.errorCode, p_error_message: result.errorMessage,
+      });
+      if (error) throw error;
+      return { itemId: item.id, state: 'meta_app_api_blocked' };
     }
 
     if (!('state' in workItem) && result.state === 'failed' && workItem.profile.provider === 'meta_official'

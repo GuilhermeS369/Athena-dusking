@@ -92,3 +92,30 @@ export function metaContainerVerdict(
 
   return { kind: 'wait' };
 }
+
+/**
+ * Reconhece o bloqueio de API no nível do APP, e não do perfil nem do item.
+ *
+ * Em 05/09/2026 a Meta passou a responder `código 200` com a mensagem
+ * `API access blocked.` para 4 dos 28 apps — 169 perfis de uma vez. O código
+ * tratou aquilo como falha de item: 200 não é retentável, então 136 reels
+ * morreram em definitivo, o disjuntor contou falhas consecutivas e pausou três
+ * lotes. Um deles misturava dois apps do mesmo cliente, e a pausa congelou
+ * 6.120 publicações de um app que estava saudável.
+ *
+ * A unidade errada era o item; a certa é o app. Enquanto o bloqueio durar,
+ * nenhum perfil daquele app publica, e cada tentativa só multiplica o prejuízo.
+ * Quem trata isso é `flag_meta_app_api_blocked`, que abre uma janela de uma
+ * hora no app e marca o que vence nela como `ignored` — nunca `failed`, para o
+ * disjuntor não contar e nenhum lote pausar.
+ *
+ * O `200` sozinho não basta: ele é o código genérico de permissão da Graph API
+ * e cobre desde escopo faltando até papel de desenvolvedor errado. Só a
+ * mensagem `API access blocked` diz que o app inteiro está fechado, e é por
+ * isso que a checagem exige as duas coisas — a mesma guarda existe do lado do
+ * Postgres, para que nenhum chamador consiga bloquear um app por engano.
+ */
+export function isMetaAppApiBlocked(result: { errorCode?: string; errorMessage?: string }) {
+  if (String(result.errorCode ?? '').trim() !== '200') return false;
+  return /api access blocked/i.test(result.errorMessage ?? '');
+}

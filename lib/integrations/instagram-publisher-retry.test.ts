@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { isRetryableGraphFailure, META_AUTHENTICATION_ERROR_CODE, metaContainerVerdict } from './meta-graph-errors.ts';
+import { isMetaAppApiBlocked, isRetryableGraphFailure, META_AUTHENTICATION_ERROR_CODE, metaContainerVerdict } from './meta-graph-errors.ts';
 
 test('token vencido ou revogado adia a publicação, nunca a encerra', () => {
   // Era este o caso que matava o post na primeira tentativa. Depois da migração
@@ -71,4 +71,30 @@ test('FINISHED publica, PUBLISHED não republica, IN_PROGRESS espera', () => {
   assert.equal(metaContainerVerdict('PUBLISHED').kind, 'already_published');
   assert.equal(metaContainerVerdict('IN_PROGRESS').kind, 'wait');
   assert.equal(metaContainerVerdict(undefined).kind, 'wait');
+});
+
+test('"API access blocked" é reconhecido como bloqueio do app', () => {
+  // A mensagem exata que a Meta devolveu em 05/09/2026 para 4 dos 28 apps.
+  assert.equal(isMetaAppApiBlocked({ errorCode: '200', errorMessage: 'API access blocked.' }), true);
+  assert.equal(isMetaAppApiBlocked({ errorCode: '200', errorMessage: '(#200) API access blocked' }), true);
+});
+
+test('o 200 sozinho não bloqueia app nenhum', () => {
+  // 200 é o código genérico de permissão da Graph API. Sem a mensagem certa,
+  // tratar como bloqueio de app pararia ~100 perfis por um erro de escopo de um
+  // único perfil — exatamente o erro de unidade que este tratamento corrige.
+  assert.equal(
+    isMetaAppApiBlocked({ errorCode: '200', errorMessage: '(#200) Requires instagram_content_publish permission' }),
+    false,
+  );
+  assert.equal(isMetaAppApiBlocked({ errorCode: '200', errorMessage: '' }), false);
+  assert.equal(isMetaAppApiBlocked({ errorCode: '200' }), false);
+});
+
+test('bloqueio de app não se confunde com token inválido', () => {
+  // 190 tem tratamento próprio: remove o perfil. Se a mensagem de bloqueio
+  // chegasse com 190, remover ~100 perfis de um app que só está fechado
+  // temporariamente seria irreversível pelo painel.
+  assert.equal(isMetaAppApiBlocked({ errorCode: '190', errorMessage: 'API access blocked.' }), false);
+  assert.equal(isMetaAppApiBlocked({ errorCode: '', errorMessage: 'API access blocked.' }), false);
 });

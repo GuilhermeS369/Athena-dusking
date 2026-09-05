@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 // foi assim que a correcao de 04/09 nasceu valendo so metade: o painel adiava o
 // ERROR e este worker -- que e quem realmente publica -- continuava encerrando.
 // Import relativo com extensao porque a VPS roda com `node` puro, sem tsx.
-import { metaContainerVerdict } from '../../lib/integrations/meta-graph-errors.ts';
+import { metaContainerVerdict, isMetaAppApiBlocked } from '../../lib/integrations/meta-graph-errors.ts';
 
 export const PUBLICATION_MAX_ATTEMPTS = 5;
 
@@ -1733,6 +1733,21 @@ async function scheduleZernioProfileDisconnection(workItem, workerId, result) {
   return data;
 }
 
+// O bloqueio de API e do APP, nao deste item. A funcao abre uma janela de uma
+// hora e marca como `ignored` tudo daquele app que vence nela -- nunca
+// `failed`, para o disjuntor nao contar e nenhum lote pausar.
+async function flagMetaAppApiBlocked(workItem, workerId, result) {
+  const supabase = createSupabase();
+  const { data, error } = await supabase.rpc('flag_meta_app_api_blocked', {
+    p_item_id: workItem.id,
+    p_worker_id: workerId,
+    p_error_code: result.errorCode ?? '200',
+    p_error_message: result.errorMessage ?? 'API access blocked.',
+  });
+  if (error) throw error;
+  return data;
+}
+
 async function finalizeMetaProfileDisconnection(workItem, workerId, result) {
   const supabase = createSupabase();
   const { data, error } = await supabase.rpc('finalize_meta_profile_disconnection', {
@@ -2103,6 +2118,14 @@ export async function processClaimedItem(item, workerId, options = {}) {
       await scheduleZernioProfileDisconnection(workItem, workerId, result);
       if (capacityReserved) await releasePublicationDispatchCapacity(item.id);
       return { itemId: item.id, state: 'zernio_profile_recycling_scheduled' };
+    }
+
+    if (workItem.profile.provider === 'meta_official'
+      && result.state === 'failed'
+      && isMetaAppApiBlocked(result)) {
+      const block = await flagMetaAppApiBlocked(workItem, workerId, result);
+      if (capacityReserved) await releasePublicationDispatchCapacity(item.id);
+      return { itemId: item.id, state: 'meta_app_api_blocked', block };
     }
 
     if (workItem.profile.provider === 'meta_official'
