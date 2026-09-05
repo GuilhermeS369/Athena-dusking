@@ -1,21 +1,25 @@
-// Avisos de cobertura da dashboard de Análises.
+// Situação da cobertura da dashboard de Análises — em UMA linha, no máximo.
 //
-// O aviso antigo era uma fração só: "598/1105 perfis com métricas". Ele mistura
-// três situações que pedem reações opostas:
-//   1. o perfil publicou e continua sem métrica  -> problema de coleta, nosso;
-//   2. o perfil não publicou nada no período     -> nada a fazer;
-//   3. o dia corrente ainda está maturando       -> esperar, não é falha.
+// POR QUE ISTO ENCOLHEU. Esta função já devolveu até seis avisos ao mesmo
+// tempo, cada um virando uma tarja roxa empilhada acima dos filtros: capacidade
+// da frota, coleta pendente, perfis sem publicação, "as métricas de hoje sobem
+// ao longo do dia", cobertura parcial, e ainda o estado da atualização em
+// curso. Seis mensagens não informam seis vezes mais — elas empurram os
+// gráficos para fora da tela e treinam o operador a não ler nenhuma.
 //
-// Medido em 30/08/2026 (organização Pomodoro, período "Hoje"): o aviso acendia
-// como 598/1105 enquanto apenas uma parte era coleta pendente. No fim da tarde,
-// com a coleta destravada, o mesmo período estava em 1051/1103 — e desses, só
-// 10 perfis tinham publicado sem receber métrica; 42 simplesmente não
-// publicaram. Uma fração única nunca vai distinguir esses dois grupos.
+// A regra agora é: **um aviso por vez, e só quando houver ação possível.**
 //
-// Os campos novos (`profiles_with_publications`, `profiles_pending_collection`)
-// vêm da migração 339. Enquanto ela não estiver aplicada eles chegam como
-// undefined e o texto antigo continua valendo — a dashboard não quebra no
-// intervalo entre o deploy do app e o da migração.
+//   * "publicou e está sem métrica" -> é problema nosso, e some sozinho;
+//   * "sem métrica nova depois de X" -> a coleta parou, e isso pede olhar;
+//   * "não publicou nada no período" -> não é problema de ninguém. Saiu.
+//   * "hoje ainda está consolidando" -> é permanente e previsível. Virou dica
+//     no seletor de período, não tarja.
+//
+// A capacidade da frota (quantos perfis publicam agora) deixou de ser aviso e
+// virou número fixo no cabeçalho: ela é verdade o tempo todo desde que a Zernio
+// caiu, e o que é permanente não deve piscar como alarme. O histórico dos
+// perfis que aguardam reconexão continua somando nos números da tela — o
+// indicador fala de CAPACIDADE, não de histórico.
 
 export type DashboardCoverageSummary = {
   selected_profiles: number;
@@ -32,91 +36,83 @@ export type DashboardCoverageNote = {
   message: string;
 };
 
+export type DashboardCoverageStatus = {
+  /** Quantos perfis do escopo publicam agora. `null` quando todos publicam. */
+  capacity: { online: number; offline: number; total: number } | null;
+  /** No máximo um aviso, e só quando existe algo a fazer a respeito. */
+  note: DashboardCoverageNote | null;
+};
+
 function plural(count: number, singular: string, pluralForm: string) {
   return count === 1 ? singular : pluralForm;
 }
 
-export function dashboardCoverageNotes(input: {
+export function dashboardCoverageStatus(input: {
   coverage: DashboardCoverageSummary | null | undefined;
   periodEndDate: string;
   todayDate: string;
-  /**
-   * Perfis do escopo com a situação de cada um. Opcional: sem a lista, os
-   * avisos abaixo continuam exatamente como eram.
-   */
+  /** Perfis do escopo com a situação de cada um. */
   profiles?: Array<{ status: string }>;
-}): DashboardCoverageNote[] {
+}): DashboardCoverageStatus {
   const { coverage, periodEndDate, todayDate } = input;
-  if (!coverage) return [];
 
-  const notes: DashboardCoverageNote[] = [];
+  const scoped = input.profiles ?? [];
+  const offline = scoped.filter((profile) => profile.status !== 'online').length;
+  const capacity = scoped.length > 0 && offline > 0
+    ? { online: scoped.length - offline, offline, total: scoped.length }
+    : null;
 
-  // A migração da Zernio para a API da Meta divide a frota em duas: quem já
-  // reconectou publica, quem não reconectou não publica. Sem este aviso a
-  // dashboard soma o histórico dos dois grupos e passa a impressão de uma
-  // operação inteira em pé — foi exatamente a leitura errada que a tela
-  // permitia em 04/09/2026, com 1.565 perfis no escopo e ~120 capazes de
-  // publicar.
-  //
-  // O aviso NÃO filtra o histórico de propósito: as visualizações já
-  // coletadas continuam valendo e somando. O que ele corrige é a leitura de
-  // CAPACIDADE, que é o número em que a operação se planeja.
-  const scoped = input.profiles;
-  if (scoped && scoped.length > 0) {
-    const offline = scoped.filter((profile) => profile.status !== 'online').length;
-    if (offline > 0) {
-      const online = scoped.length - offline;
-      notes.push({
-        tone: 'alert',
-        message: `${online} de ${scoped.length} ${plural(scoped.length, 'perfil está', 'perfis estão')} online e ${plural(offline, 'publica', 'publicam')} agora. `
-          + `${offline} ${plural(offline, 'aguarda', 'aguardam')} reconexão pela API da Meta — o histórico deles continua somando nos números acima, mas eles não publicam até serem reconectados.`,
-      });
-    }
-  }
+  if (!coverage) return { capacity, note: null };
+
   const pending = coverage.profiles_pending_collection;
-  const published = coverage.profiles_with_publications;
-  const periodIncludesToday = periodEndDate === todayDate;
 
-  if (typeof pending === 'number' && typeof published === 'number') {
-    if (pending > 0) {
-      notes.push({
+  // 1. Publicou e continua sem métrica: o único caso em que a coleta falhou de
+  //    verdade. Ele se resolve sozinho, então o texto diz isso — senão vira
+  //    chamado de suporte para algo que já está em andamento.
+  if (typeof pending === 'number' && pending > 0) {
+    return {
+      capacity,
+      note: {
         tone: 'alert',
-        message: `${pending} ${plural(pending, 'perfil publicou', 'perfis publicaram')} neste período e ainda ${plural(pending, 'está', 'estão')} sem métrica. A coleta repete sozinha em alguns minutos.`,
-      });
-    }
+        message: `${pending} ${plural(pending, 'perfil publicou', 'perfis publicaram')} e ainda ${plural(pending, 'está', 'estão')} sem métrica — a coleta repete sozinha em minutos.`,
+      },
+    };
+  }
 
-    // Só vale mencionar quem não publicou quando isso de fato explica um vazio
-    // na tela; caso contrário é ruído permanente para quem cadastra contas todo
-    // dia.
-    const withoutPublications = coverage.selected_profiles - published;
-    if (withoutPublications > 0 && coverage.profiles_with_metrics < coverage.selected_profiles) {
-      notes.push({
+  // 2. O período não tem NENHUMA métrica. É diferente de "deu zero": zero é um
+  //    número medido, e aqui não há medição. Sem este aviso a tela mostra 0
+  //    visualizações para um dia com mil publicações, e quem lê conclui que os
+  //    posts não performaram — foi exatamente a dúvida levantada em 05/09/2026.
+  if (coverage.profiles_with_metrics === 0 && coverage.selected_profiles > 0) {
+    return {
+      capacity,
+      note: {
         tone: 'info',
-        message: `${withoutPublications} de ${coverage.selected_profiles} ${plural(withoutPublications, 'perfil não publicou', 'perfis não publicaram')} no período — sem publicação não há métrica a exibir.`,
-      });
-    }
-  } else if (
-    coverage.profiles_with_metrics < coverage.selected_profiles
-    || coverage.last_metric_date !== periodEndDate
-  ) {
-    // Sem a migração 339 aplicada, mantém o texto conhecido.
-    notes.push({
-      tone: 'info',
-      message: `Cobertura parcial: ${coverage.profiles_with_metrics}/${coverage.selected_profiles} perfis com métricas; última data disponível ${coverage.last_metric_date ?? 'indisponível'}.`,
-    });
+        message: periodEndDate === todayDate
+          ? 'Ainda não há métrica coletada para hoje. Os números do dia entram conforme a Meta os devolve — não significa zero.'
+          : 'Nenhuma métrica coletada neste período.',
+      },
+    };
   }
 
-  if (periodIncludesToday) {
-    notes.push({
-      tone: 'info',
-      message: 'As métricas de hoje sobem ao longo do dia: o Instagram leva horas para consolidar visualizações dos posts recentes. Para comparar desempenho, use os dias já fechados.',
-    });
-  } else if (coverage.last_metric_date && coverage.last_metric_date < periodEndDate) {
-    notes.push({
-      tone: 'alert',
-      message: `Sem métrica coletada depois de ${coverage.last_metric_date} neste período.`,
-    });
+  // 3. Período já fechado e nenhuma métrica depois de certa data: a coleta
+  //    parou. Este é o aviso que merece olhar humano.
+  if (periodEndDate !== todayDate && coverage.last_metric_date && coverage.last_metric_date < periodEndDate) {
+    return {
+      capacity,
+      note: {
+        tone: 'alert',
+        message: `Sem métrica coletada depois de ${coverage.last_metric_date} neste período.`,
+      },
+    };
   }
 
-  return notes;
+  return { capacity, note: null };
 }
+
+/**
+ * Dica fixa do seletor de período. Não é aviso: é a explicação de por que o dia
+ * corrente aparece menor do que vai terminar. Vive como `title`, onde quem tem
+ * a dúvida encontra e quem não tem não esbarra.
+ */
+export const DASHBOARD_TODAY_HINT = 'As métricas de hoje sobem ao longo do dia: o Instagram leva horas para consolidar as visualizações dos posts recentes. Para comparar desempenho, use os dias já fechados.';

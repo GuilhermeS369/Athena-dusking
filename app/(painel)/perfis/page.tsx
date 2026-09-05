@@ -51,7 +51,7 @@ async function ProfilesPageContent({
     // O papel viewer não os enxerga por RLS, então o erro é ignorado abaixo.
     supabase
       .from('meta_apps_safe')
-      .select('id, label, app_id, active, instagram_slot_limit, instagram_profile_count')
+      .select('id, label, app_id, active, instagram_slot_limit, instagram_profile_count, pending_slot_release_count')
       .eq('organization_id', context.activeOrganization.id)
       .is('deleted_at', null)
       .order('created_at', { ascending: false }),

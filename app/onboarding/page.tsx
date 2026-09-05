@@ -26,7 +26,7 @@ export default function OnboardingPage() {
         return;
       }
 
-      window.location.assign('/');
+      window.location.assign('/painel');
     } catch {
       setMessage('Não foi possível conectar ao servidor.');
     } finally {
@@ -38,7 +38,7 @@ export default function OnboardingPage() {
     <main className="auth-shell">
       <section className="auth-card" aria-labelledby="onboarding-title">
         <div className="brand-block auth-brand">
-          <div className="brand-mark" aria-hidden="true">✧</div>
+          <div className="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><use href="#icon-athena" /></svg></div>
           <div>
             <span className="eyebrow">Athena</span>
             <strong>Primeiro workspace</strong>

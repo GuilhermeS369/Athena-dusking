@@ -12,6 +12,7 @@ import {
   metaBulkPlanMessage,
   resolveMetaBulkTarget,
   sortMetaAppsByFillOrder,
+  sortMetaAppsByLabel,
 } from '@/lib/integrations/meta-apps';
 import {
   metaTokenRenewalLabel,
@@ -145,6 +146,7 @@ type MetaApp = {
   active: boolean;
   instagram_slot_limit: number | null;
   instagram_profile_count: number | null;
+  pending_slot_release_count: number | null;
 };
 
 type MetaTokenState = MetaTokenProfile & { id: string };
@@ -527,6 +529,9 @@ export default function ProfilesClient({
   const pastedMetaConnectUrl = pastedMetaMatch.valid && pastedMetaMatch.app
     ? `/api/integrations/meta/start?returnTo=%2Fperfis&appId=${encodeURIComponent(pastedMetaMatch.app.id)}${pastedMetaMatch.group ? `&groupId=${encodeURIComponent(pastedMetaMatch.group.id)}` : ''}`
     : '';
+  // O select do Bulk Meta é para procurar um app pelo nome; a ordem de
+  // preenchimento continua valendo para a seleção inicial e para as demais telas.
+  const bulkMetaAppOptions = useMemo(() => sortMetaAppsByLabel(metaApps), [metaApps]);
   const bulkMetaApp = metaApps.find((app) => app.id === bulkMetaAppId) ?? null;
   const bulkMetaGroup = groups.find((group) => group.id === bulkMetaGroupId) ?? null;
   const bulkMetaPlan = useMemo(
@@ -1740,7 +1745,7 @@ export default function ProfilesClient({
                   <label htmlFor="meta-bulk-app">
                     App da Meta
                     <select id="meta-bulk-app" value={bulkMetaAppId} onChange={(event) => { setBulkMetaAppId(event.target.value); setBulkMetaCopyMessage(''); }}>
-                      {metaApps.map((app) => {
+                      {bulkMetaAppOptions.map((app) => {
                         const capacity = metaAppCapacity(app);
                         return (
                           <option key={app.id} value={app.id}>
@@ -1902,7 +1907,9 @@ export default function ProfilesClient({
 
                 {bulkDeletePreview.metaCount > 0 && (
                   <p className={styles.deleteDetail}>
-                    {bulkDeletePreview.metaCount} perfil(is) não passam pela Zernio e saem imediatamente — sem liberar vaga nenhuma.
+                    {bulkDeletePreview.metaCount} perfil(is) da Meta saem do Athena imediatamente, mas a conexão deles
+                    continua ocupando a vaga do app no Meta Developers. Eles aparecem em /meta como “removido”, para
+                    você apagar lá e confirmar — só então a vaga volta.
                   </p>
                 )}
 

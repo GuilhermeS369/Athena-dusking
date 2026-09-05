@@ -61,6 +61,38 @@ export async function DELETE(
     }
   }
 
+  // Perfil Meta sai pelo caminho canônico de remoção, o mesmo do bulk de
+  // /perfis, da exclusão de grupo e do botão de /recuperacao. Até aqui esta
+  // rota fazia à mão só as duas últimas etapas — desvincular do grupo e marcar
+  // `deleted_at` — e pulava a contenção inteira: as publicações já agendadas
+  // continuavam vivas apontando para um perfil excluído, e só iam falhar
+  // depois, uma a uma. Agora ela também registra a vaga que fica presa no Meta
+  // Developers, que é o que a migration 391 passou a exigir de toda saída.
+  if (profile.provider === 'meta_official') {
+    const { error: removalError } = await supabase.rpc('enqueue_instagram_profile_removal', {
+      p_organization_id: organization.id,
+      p_profile_ids: [profile.id],
+      p_actor_label: 'operator: /perfis (exclusão individual)',
+    });
+
+    if (removalError) {
+      return NextResponse.json({ error: 'Não foi possível excluir o perfil.' }, { status: 400 });
+    }
+
+    await softDeleteProfileAnalytics(profile.id).catch((error) => {
+      console.error('Falha ao remover snapshots de analytics do perfil excluído.', { profileId: profile.id, error });
+    });
+
+    return NextResponse.json({ ok: true });
+  }
+
+  // Zernio continua pelo caminho antigo, DE PROPÓSITO. Lá a exclusão local só
+  // pode acontecer depois que o worker de reciclagem confirmar o DELETE remoto
+  // — apagar antes esconderia da tela um perfil que ainda ocupa a vaga na
+  // Zernio —, e esta rota tem um `disconnectZernio` que já fez a chamada remota
+  // logo acima. Trocar isso é mexer no pipeline de um provedor que está sendo
+  // substituído, sem ganho para a vaga da Meta. O buraco da contenção continua
+  // aberto só para ele.
   const { error: membershipError } = await supabase
     .from('profile_group_members')
     .delete()

@@ -29,11 +29,49 @@ type Profile = {
 };
 
 type Membership = { group_id: string; profile_id: string; created_at: string };
+type DeleteScope = 'media' | 'media_profiles';
+
+/** Resumo do dry-run que alimenta o passo de impacto do modal. */
+type DeletionSummary = {
+  profileTotal: number;
+  zernioCount: number;
+  metaCount: number;
+  connectionLabels: string[];
+  mediaExclusive: number;
+  mediaShared: number;
+  mediaInActivePlan: number;
+  scheduledItems: number;
+  historyItems: number;
+  activePlanCount: number;
+};
+
+type DeletionFailure = { kind: 'media' | 'profile'; label: string; detail: string | null; message: string };
+
+type DeletionJob = {
+  id: string;
+  groupId: string;
+  groupName: string;
+  scope: DeleteScope;
+  status: string;
+  terminal: boolean;
+  total: number;
+  done: number;
+  failed: number;
+  percent: number;
+  media: { total: number; deleted: number; failed: number; detached: number; skipped: number };
+  profiles: { total: number; done: number; failed: number };
+  historyItemsDeleted: number;
+  lastErrorMessage: string | null;
+  failures: DeletionFailure[];
+  createdAt: string;
+  finishedAt: string | null;
+};
 type MemberSort = 'recent' | 'oldest' | 'username';
 type MemberModalTab = 'available' | 'members';
 type FallenCount = { group_id: string; fallen_profile_count: number };
 
 type ExportRow = {
+  group_id: string;
   group_name: string;
   group_consumption_mode: Group['consumption_mode'];
   row_kind: 'current' | 'fallen';
@@ -43,6 +81,8 @@ type ExportRow = {
   profile_status: Profile['status'] | 'fallen';
   fallen_at: string | null;
   fall_reason: string | null;
+  total_views: number | null;
+  analytics_synced_at: string | null;
 };
 
 type FormState = {
@@ -60,6 +100,79 @@ const statusLabel: Record<Profile['status'], string> = {
   offline: 'Desconectado',
   reauthorization_required: 'Reautorizar',
 };
+
+function fileSafeName(value: string) {
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return normalized.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'grupo';
+}
+
+function fileDateStamp() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date());
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? '';
+  return `${part('year')}${part('month')}${part('day')}-${part('hour')}${part('minute')}`;
+}
+
+function formatDate(value: string | null) {
+  if (!value) return '';
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(new Date(value));
+}
+
+function exportStatusLabel(status: ExportRow['profile_status']) {
+  return status === 'fallen' ? 'Caiu' : statusLabel[status];
+}
+
+const exportHeaders = ['Nome do grupo', 'Modo do grupo', '@ do perfil', 'Zernio', 'Data de adição ao sistema', 'Situação', 'Status atual', 'Views totais', 'Views atualizadas em', 'Data da queda', 'Motivo da queda'];
+const exportColumnWidths = [30, 18, 20, 28, 24, 12, 22, 14, 22, 22, 70];
+
+/**
+ * A planilha de um grupo e a de todos são a mesma planilha com recortes
+ * diferentes, então a montagem é uma só: mudar coluna aqui muda nos dois.
+ *
+ * O grupo abre a linha porque no arquivo com todos ele é a primeira pergunta de
+ * quem lê ("de qual grupo é esta linha?"); no arquivo de um grupo só a coluna
+ * repete o mesmo valor e serve de cabeçalho do que foi exportado.
+ *
+ * "Views totais" vem de profile_analytics_current — o mesmo número da tela de
+ * perfis. Perfil sem sincronia de analytics fica vazio de propósito: zero seria
+ * uma afirmação, vazio é o que se sabe. Na linha de queda o valor é o congelado
+ * no instante da queda, porque dali em diante o perfil parou de sincronizar.
+ */
+function buildExportSheet(XLSX: typeof import('xlsx'), rows: ExportRow[]) {
+  const body = rows.map((row) => [
+    row.group_name,
+    row.group_consumption_mode === 'reusable' ? 'Reutilizável' : 'Uso único',
+    `@${row.username}`,
+    row.zernio_connection_label ?? 'Não informado',
+    formatDate(row.profile_added_at),
+    row.row_kind === 'fallen' ? 'Caiu' : 'Atual',
+    exportStatusLabel(row.profile_status),
+    row.total_views ?? '',
+    formatDate(row.analytics_synced_at),
+    formatDate(row.fallen_at),
+    row.fall_reason ?? '',
+  ]);
+  const worksheet = XLSX.utils.aoa_to_sheet([exportHeaders, ...body]);
+  worksheet['!cols'] = exportColumnWidths.map((wch) => ({ wch }));
+  worksheet['!autofilter'] = { ref: `A1:K${Math.max(body.length + 1, 2)}` };
+  worksheet['!freeze'] = { xSplit: 0, ySplit: 1 };
+  return worksheet;
+}
+
+function totalViewsOf(rows: ExportRow[]) {
+  return rows.reduce((total, row) => total + (row.total_views ?? 0), 0);
+}
 
 function ProfileAvatar({ profile, size = 'regular' }: { profile: Profile; size?: 'small' | 'regular' }) {
   const [imageFailed, setImageFailed] = useState(false);
@@ -104,6 +217,7 @@ export default function GroupsClient({
 
   useEffect(() => setGroups(initialGroups), [initialGroups]);
   useEffect(() => setMemberships(initialMemberships), [initialMemberships]);
+
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -120,6 +234,79 @@ export default function GroupsClient({
   const [saving, setSaving] = useState(false);
   const [savingMembers, setSavingMembers] = useState(false);
   const [exportingGroupId, setExportingGroupId] = useState<string | null>(null);
+  const [exportingAll, setExportingAll] = useState(false);
+  const [deletionJobs, setDeletionJobs] = useState<DeletionJob[]>([]);
+  const [dismissedJobIds, setDismissedJobIds] = useState<string[]>([]);
+  // Contador bumpado no clique para religar o laço de acompanhamento sem
+  // depender do array otimista, que muda por outros motivos.
+  const [deletionNonce, setDeletionNonce] = useState(0);
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+  const [deleteGroupTarget, setDeleteGroupTarget] = useState<Group | null>(null);
+  const [deleteScope, setDeleteScope] = useState<DeleteScope | null>(null);
+  const [deleteSummary, setDeleteSummary] = useState<DeletionSummary | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState<'preview' | 'deleting' | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  // Marcação otimista: começa no clique, sem esperar a primeira volta do
+  // acompanhamento. Sem isto sobra uma janela de segundos com o card destravado,
+  // aceitando "editar" e "gerenciar perfis" sobre um grupo que está saindo.
+  const [justDeletedGroupIds, setJustDeletedGroupIds] = useState<string[]>([]);
+
+  // ACOMPANHAMENTO QUE SOBREVIVE AO F5.
+  //
+  // O laco roda no MOUNT, nao a partir do clique. Essa e a diferenca em relacao
+  // a /perfis e /galeria, onde o estado comeca `null` e o poll so liga depois de
+  // uma exclusao ser disparada nesta aba: la, atualizar a pagina faz o progresso
+  // sumir mesmo com a operacao viva no banco. Aqui a tela nao guarda nada — ela
+  // pergunta ao servidor quem esta saindo, e o servidor sabe.
+  //
+  // O laco se desliga sozinho quando nao ha job ativo, para uma tela parada nao
+  // ficar batendo no servidor a cada 5s para sempre.
+  useEffect(() => {
+    let alive = true;
+    let timer: number | null = null;
+    // Contagem da volta anterior, guardada aqui e nao em estado: ela decide
+    // apenas quando recarregar, e um estado a mais religaria o laco.
+    let previousActive = 0;
+
+    async function tick() {
+      try {
+        const response = await fetch('/api/groups/deletion-jobs', { cache: 'no-store' });
+        if (!alive) return;
+        if (response.ok) {
+          const payload = await response.json() as { jobs?: DeletionJob[] };
+          const jobs = payload.jobs ?? [];
+          setDeletionJobs(jobs);
+          const active = jobs.filter((job) => !job.terminal);
+          // Solta a marcacao otimista assim que o servidor assume o caso — ou
+          // quando o job termina, para o card nao ficar travado para sempre se
+          // a exclusao falhar logo na abertura.
+          const activeIds = new Set(active.map((job) => job.groupId));
+          setJustDeletedGroupIds((current) => current.filter(
+            (id) => activeIds.has(id) || !jobs.some((job) => job.groupId === id),
+          ));
+
+          // A fila esvaziou nesta volta: o grupo saiu da listagem no finalize, e
+          // recarregar e o que o faz sumir da tela sem exigir F5. Comparar com a
+          // volta anterior evita recarregar a cada 5s numa tela que so tem jobs
+          // antigos no painel.
+          if (!active.length) {
+            timer = null;
+            if (previousActive > 0) router.refresh();
+            previousActive = 0;
+            return;
+          }
+          previousActive = active.length;
+        }
+      } catch {
+        // Uma leitura perdida nao derruba a tela; a proxima volta resolve.
+      }
+      if (alive) timer = window.setTimeout(() => { void tick(); }, 5000);
+    }
+
+    void tick();
+    return () => { alive = false; if (timer) window.clearTimeout(timer); };
+  }, [deletionNonce, router]);
 
   const profileById = useMemo(() => new Map(profiles.map((profile) => [profile.id, profile])), [profiles]);
   const fallenCountByGroup = useMemo(() => new Map(fallenCounts.map((item) => [item.group_id, item.fallen_profile_count])), [fallenCounts]);
@@ -165,6 +352,16 @@ export default function GroupsClient({
     return availableProfiles.filter((profile) => `${profile.username} ${profile.display_name ?? ''}`.toLocaleLowerCase('pt-BR').includes(term));
   }, [availableProfiles, search]);
   const groupedProfileCount = groupByProfileId.size;
+  // Quem esta saindo: o que o servidor reporta como job ativo, mais o que esta
+  // aba acabou de disparar. A uniao e o que trava o card.
+  const deletingGroupIds = useMemo(() => new Set([
+    ...deletionJobs.filter((job) => !job.terminal).map((job) => job.groupId),
+    ...justDeletedGroupIds,
+  ]), [deletionJobs, justDeletedGroupIds]);
+  const visibleJobs = useMemo(
+    () => deletionJobs.filter((job) => !dismissedJobIds.includes(job.id)),
+    [deletionJobs, dismissedJobIds],
+  );
   const otherGroups = useMemo(() => memberModalGroup ? sortedGroups.filter((group) => group.id !== memberModalGroup.id) : [], [sortedGroups, memberModalGroup]);
 
   function closeForm() {
@@ -272,16 +469,100 @@ export default function GroupsClient({
     }
   }
 
-  async function deleteGroup(group: Group) {
-    if (!window.confirm(`Excluir o grupo “${group.name}”? Os históricos serão preservados.`)) return;
-    const response = await fetch(`/api/groups/${group.id}`, { method: 'DELETE' });
-    const payload = await response.json() as { error?: string };
-    if (!response.ok) {
-      setMessage(payload.error ?? 'Não foi possível excluir o grupo.');
-      return;
+  function openDeleteModal(group: Group) {
+    setMessage('');
+    setDeleteError('');
+    setDeleteScope(null);
+    setDeleteSummary(null);
+    setDeleteConfirmation('');
+    setDeleteBusy(null);
+    setDeleteGroupTarget(group);
+  }
+
+  function closeDeleteModal() {
+    if (deleteBusy === 'deleting') return;
+    setDeleteGroupTarget(null);
+    setDeleteScope(null);
+    setDeleteSummary(null);
+    setDeleteConfirmation('');
+    setDeleteError('');
+  }
+
+  /** Escolhido o escopo, o dry-run traz os números do passo de impacto. */
+  async function chooseDeleteScope(group: Group, scope: DeleteScope) {
+    setDeleteScope(scope);
+    setDeleteSummary(null);
+    setDeleteConfirmation('');
+    setDeleteError('');
+    setDeleteBusy('preview');
+    try {
+      const response = await fetch(`/api/groups/${group.id}/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope, dryRun: true }),
+      });
+      const payload = await response.json() as { summary?: DeletionSummary; error?: string };
+      if (!response.ok || !payload.summary) {
+        setDeleteError(payload.error ?? 'Não foi possível medir o que será excluído.');
+        return;
+      }
+      setDeleteSummary(payload.summary);
+    } catch {
+      setDeleteError('Não foi possível conectar ao servidor.');
+    } finally {
+      setDeleteBusy(null);
     }
-    setGroups((current) => current.filter((item) => item.id !== group.id));
-    setMemberships((current) => current.filter((item) => item.group_id !== group.id));
+  }
+
+  async function confirmDeleteGroup(group: Group, scope: DeleteScope) {
+    setDeleteBusy('deleting');
+    setDeleteError('');
+    try {
+      const response = await fetch(`/api/groups/${group.id}/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope, confirmation: deleteConfirmation }),
+      });
+      const payload = await response.json() as { job?: { id: string }; warning?: string; error?: string };
+      if (!response.ok || !payload.job) {
+        setDeleteError(payload.error ?? 'Não foi possível excluir o grupo.');
+        return;
+      }
+      // Trava o card antes da primeira volta do acompanhamento.
+      setJustDeletedGroupIds((current) => [...new Set([...current, group.id])]);
+      setDeletionNonce((current) => current + 1);
+      setDeleteGroupTarget(null);
+      setDeleteScope(null);
+      setDeleteSummary(null);
+      setDeleteConfirmation('');
+      setMessage(payload.warning ?? `Exclusão de “${group.name}” iniciada. Acompanhe o andamento acima.`);
+    } catch {
+      setDeleteError('Não foi possível conectar ao servidor.');
+    } finally {
+      setDeleteBusy(null);
+    }
+  }
+
+  async function retryDeletion(job: DeletionJob) {
+    setRetryingJobId(job.id);
+    setMessage('');
+    try {
+      const response = await fetch(`/api/groups/deletion-jobs/${job.id}/retry`, { method: 'POST' });
+      const payload = await response.json() as { requeuedMedia?: number; reopenedProfiles?: number; warning?: string; error?: string };
+      if (!response.ok) {
+        setMessage(payload.error ?? 'Não foi possível retomar a exclusão.');
+        return;
+      }
+      const parts: string[] = [];
+      if (payload.requeuedMedia) parts.push(`${payload.requeuedMedia} mídia(s) de volta na fila`);
+      if (payload.reopenedProfiles) parts.push(`${payload.reopenedProfiles} perfil(is) reabertos`);
+      setMessage(parts.length ? `${parts.join(' · ')}.` : (payload.warning ?? 'Nada a retomar.'));
+      setDeletionNonce((current) => current + 1);
+    } catch {
+      setMessage('Não foi possível conectar ao servidor.');
+    } finally {
+      setRetryingJobId(null);
+    }
   }
 
   async function addSelectedProfiles() {
@@ -409,38 +690,6 @@ export default function GroupsClient({
     }
   }
 
-  function fileSafeName(value: string) {
-    const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    return normalized.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'grupo';
-  }
-
-  function fileDateStamp() {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Sao_Paulo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    }).formatToParts(new Date());
-    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? '';
-    return `${part('year')}${part('month')}${part('day')}-${part('hour')}${part('minute')}`;
-  }
-
-  function formatDate(value: string | null) {
-    if (!value) return '';
-    return new Intl.DateTimeFormat('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
-      dateStyle: 'short',
-      timeStyle: 'short',
-    }).format(new Date(value));
-  }
-
-  function exportStatusLabel(status: ExportRow['profile_status']) {
-    return status === 'fallen' ? 'Caiu' : statusLabel[status];
-  }
-
   async function exportGroup(group: Group) {
     setExportingGroupId(group.id);
     setMessage('');
@@ -454,32 +703,52 @@ export default function GroupsClient({
       }
 
       const XLSX = await import('xlsx');
-      const headers = ['@ do perfil', 'Zernio', 'Data de adição ao sistema', 'Nome do grupo', 'Modo do grupo', 'Situação', 'Status atual', 'Data da queda', 'Motivo da queda'];
-      const rows = payload.rows.map((row) => [
-        `@${row.username}`,
-        row.zernio_connection_label ?? 'Não informado',
-        formatDate(row.profile_added_at),
-        row.group_name,
-        row.group_consumption_mode === 'reusable' ? 'Reutilizável' : 'Uso único',
-        row.row_kind === 'fallen' ? 'Caiu' : 'Atual',
-        exportStatusLabel(row.profile_status),
-        formatDate(row.fallen_at),
-        row.fall_reason ?? '',
-      ]);
-      const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-      worksheet['!cols'] = [20, 28, 24, 28, 18, 12, 22, 22, 70].map((wch) => ({ wch }));
-      worksheet['!autofilter'] = { ref: `A1:I${Math.max(rows.length + 1, 2)}` };
-      worksheet['!freeze'] = { xSplit: 0, ySplit: 1 };
-
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Perfis do grupo');
+      XLSX.utils.book_append_sheet(workbook, buildExportSheet(XLSX, payload.rows), 'Perfis do grupo');
       const filename = `grupo-${fileSafeName(payload.group.name)}-${fileDateStamp()}.xlsx`;
       XLSX.writeFile(workbook, filename, { bookType: 'xlsx' });
-      setMessage(`Arquivo ${filename} gerado com ${rows.length} perfil(is).`);
+      setMessage(`Arquivo ${filename} gerado com ${payload.rows.length} perfil(is) e ${totalViewsOf(payload.rows).toLocaleString('pt-BR')} views.`);
     } catch {
       setMessage('Não foi possível gerar o arquivo Excel.');
     } finally {
       setExportingGroupId(null);
+    }
+  }
+
+  /**
+   * Mesmas colunas da exportação por grupo, numa aba só, com todos os grupos —
+   * e a coluna "Nome do grupo" abrindo cada linha para dizer de quem ela é.
+   * Grupo sem nenhum perfil e sem nenhuma queda não gera linha, porque a view
+   * projeta vínculos e não grupos; por isso a mensagem diz quantos grupos
+   * entraram em vez de repetir o total da tela.
+   */
+  async function exportAllGroups() {
+    setExportingAll(true);
+    setMessage('');
+
+    try {
+      const response = await fetch('/api/groups/export-all');
+      const payload = await response.json() as { rows?: ExportRow[]; error?: string };
+      if (!response.ok || !payload.rows) {
+        setMessage(payload.error ?? 'Não foi possível preparar a exportação dos grupos.');
+        return;
+      }
+      if (payload.rows.length === 0) {
+        setMessage('Não há nada para exportar: nenhum grupo tem perfis ou quedas registradas.');
+        return;
+      }
+
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, buildExportSheet(XLSX, payload.rows), 'Perfis por grupo');
+      const filename = `grupos-${fileSafeName(activeOrganization.name)}-${fileDateStamp()}.xlsx`;
+      XLSX.writeFile(workbook, filename, { bookType: 'xlsx' });
+      const groupCount = new Set(payload.rows.map((row) => row.group_id)).size;
+      setMessage(`Arquivo ${filename} gerado com ${payload.rows.length} perfil(is) de ${groupCount} grupo(s) e ${totalViewsOf(payload.rows).toLocaleString('pt-BR')} views.`);
+    } catch {
+      setMessage('Não foi possível gerar o arquivo Excel.');
+    } finally {
+      setExportingAll(false);
     }
   }
 
@@ -511,14 +780,23 @@ export default function GroupsClient({
     });
   }
 
-  return <main className="standalone-page groups-page">
+  return <main className={`standalone-page groups-page ${styles.page}`}>
     <header className={`${styles.header} standalone-header`}>
       <div>
         <span className="section-kicker">{activeOrganization.name} · Organização</span>
         <h1>Grupos de perfis</h1>
         <p>Organize seus perfis para publicar com mais clareza. Cada perfil pode participar de apenas um grupo.</p>
       </div>
-      {canManage && <button className="button button-primary" type="button" onClick={openCreateForm}>Criar grupo</button>}
+      <div className={styles.headerActions}>
+        <button
+          className="button button-ghost"
+          type="button"
+          title="Baixa um único .xlsx com os perfis de todos os grupos, nas mesmas colunas da exportação por grupo."
+          disabled={exportingAll || exportingGroupId !== null || groups.length === 0}
+          onClick={exportAllGroups}
+        >{exportingAll ? 'Exportando…' : '⇩ Exportar todos'}</button>
+        {canManage && <button className="button button-primary" type="button" onClick={openCreateForm}>Criar grupo</button>}
+      </div>
     </header>
 
     <section className={styles.summary} aria-label="Resumo dos grupos">
@@ -526,6 +804,78 @@ export default function GroupsClient({
       <span><strong>{groupedProfileCount}</strong> perfis agrupados</span>
       <span><strong>{availableProfiles.length}</strong> perfis disponíveis</span>
     </section>
+
+    {visibleJobs.map((job) => {
+      const doneWidth = job.total > 0 ? (job.done / job.total) * 100 : (job.terminal ? 100 : 0);
+      const failedWidth = job.total > 0 ? (job.failed / job.total) * 100 : 0;
+      return <section className={`panel ${styles.removalPanel}`} key={job.id} aria-label={`Andamento da exclusão de ${job.groupName}`} aria-live="polite">
+        <div className={styles.removalHeader}>
+          <span className="section-kicker">{job.terminal ? 'Exclusão concluída' : 'Excluindo grupo'}</span>
+          <strong>{job.groupName}</strong>
+          <span className={styles.removalPercent}>{job.percent}%</span>
+          {job.terminal && <button
+            className={styles.removalDismiss}
+            type="button"
+            onClick={() => setDismissedJobIds((current) => [...current, job.id])}
+          >Dispensar</button>}
+        </div>
+
+        <div
+          className={styles.removalTrack}
+          role="progressbar"
+          aria-valuenow={job.percent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`Andamento da exclusão de ${job.groupName}`}
+        >
+          {/* Duas faixas na mesma barra: o que saiu e o que falhou. Uma barra só,
+              com a falha escondida no denominador, esconde justamente o que
+              precisa de ação. */}
+          <span className={styles.removalFillDone} style={{ width: `${doneWidth}%` }} />
+          <span className={styles.removalFillFailed} style={{ width: `${failedWidth}%` }} />
+        </div>
+
+        <p className={styles.removalHint}>
+          {job.media.total > 0 && <>{job.media.deleted} de {job.media.total} mídia(s) apagadas</>}
+          {job.media.total > 0 && job.profiles.total > 0 && ' · '}
+          {job.profiles.total > 0 && <>{job.profiles.done} de {job.profiles.total} perfil(is) removidos do Athena e da Zernio</>}
+          {job.media.total === 0 && job.profiles.total === 0 && 'Nada a apagar neste grupo.'}
+          {!job.terminal && ' · O worker de mídia e o de publicação drenam a fila em ciclos; a barra anda sozinha e sobrevive a atualizar a página.'}
+        </p>
+
+        {(job.media.detached > 0 || job.media.skipped > 0 || job.historyItemsDeleted > 0) && <p className={styles.removalHint}>
+          {job.media.detached > 0 && <>{job.media.detached} mídia(s) compartilhada(s) foram preservadas e só saíram deste grupo. </>}
+          {/* Migration 358: mídia presa em plano ativo já ficou bloqueada em
+              silêncio uma vez, e ninguém descobriu pela tela. Aqui ela é dita. */}
+          {job.media.skipped > 0 && <>{job.media.skipped} mídia(s) não saíram por estarem presas a um agendamento em massa ainda ativo. </>}
+          {job.historyItemsDeleted > 0 && <>{job.historyItemsDeleted} publicação(ões) apagadas do histórico.</>}
+        </p>}
+
+        {job.lastErrorMessage && <p className={`inline-message inline-message-error ${styles.removalHint}`} role="alert">{job.lastErrorMessage}</p>}
+
+        {job.failures.length > 0 && <>
+          <ul className={styles.removalFailures}>
+            {job.failures.map((failure, index) => <li key={`${job.id}-${failure.kind}-${index}`}>
+              <strong>{failure.label}</strong>
+              {failure.detail && <span>{failure.detail}</span>}
+              <small>{failure.message}</small>
+            </li>)}
+          </ul>
+          {job.failed > job.failures.length && <p className={styles.removalHint}>
+            e mais {job.failed - job.failures.length} falha(s) não listadas.
+          </p>}
+        </>}
+
+        {job.failed > 0 && <div className={styles.removalActions}>
+          <button
+            className="button button-ghost"
+            type="button"
+            disabled={retryingJobId === job.id}
+            onClick={() => retryDeletion(job)}
+          >{retryingJobId === job.id ? 'Retomando…' : `Tentar novamente (${job.failed})`}</button>
+        </div>}
+      </section>;
+    })}
 
     {message && <p className="inline-message" role="alert">{message}</p>}
 
@@ -537,15 +887,20 @@ export default function GroupsClient({
     </section> : <section className={styles.grid} aria-label="Grupos de perfis">
       {sortedGroups.map((group) => {
         const memberProfiles = (membershipsByGroup.get(group.id) ?? []).map((membership) => profileById.get(membership.profile_id)).filter((profile): profile is Profile => Boolean(profile));
-        return <article className={`panel ${styles.card}`} key={group.id}>
+        const deleting = deletingGroupIds.has(group.id);
+        return <article className={`panel ${styles.card} ${deleting ? styles.cardDeleting : ''}`} key={group.id} aria-busy={deleting}>
           <div className={styles.cardHeader}>
             <div>
               <span className="section-kicker">{group.consumption_mode === 'reusable' ? 'Reutilizável' : 'Uso único'}</span>
               <h2>{group.name}</h2>
             </div>
             <div className={styles.cardCounts}>
-              <span className={styles.fallenCount}>{fallenCountByGroup.get(group.id) ?? 0} caíram</span>
-              <span className={styles.memberCount}>{memberProfiles.length} {memberProfiles.length === 1 ? 'perfil' : 'perfis'}</span>
+              {deleting
+                ? <span className={styles.deletingBadge}><span aria-hidden="true" />excluindo…</span>
+                : <>
+                  <span className={styles.fallenCount}>{fallenCountByGroup.get(group.id) ?? 0} caíram</span>
+                  <span className={styles.memberCount}>{memberProfiles.length} {memberProfiles.length === 1 ? 'perfil' : 'perfis'}</span>
+                </>}
             </div>
           </div>
           {group.description && <p className={styles.description}>{group.description}</p>}
@@ -570,25 +925,137 @@ export default function GroupsClient({
                 <input
                   type="checkbox"
                   checked={group.recovery_enabled}
-                  disabled={recoveryBusyId === group.id}
+                  disabled={recoveryBusyId === group.id || deleting}
                   onChange={(event) => toggleRecovery(group, event.target.checked)}
                 />
                 <span className={styles.recoveryTrack} aria-hidden="true" />
                 Recuperação
               </label>}
           <div className={styles.actions}>
-            <button className={styles.exportButton} type="button" aria-label={`Exportar perfis do grupo ${group.name}`} title="Exportar perfis" disabled={exportingGroupId !== null} onClick={() => exportGroup(group)}>
+            <button className={styles.exportButton} type="button" aria-label={`Exportar perfis do grupo ${group.name}`} title="Exportar perfis" disabled={exportingGroupId !== null || exportingAll || deleting} onClick={() => exportGroup(group)}>
               <span aria-hidden="true">{exportingGroupId === group.id ? '…' : '⇩'}</span>
             </button>
           {canManage && <>
-            <button className="button button-primary" type="button" onClick={() => openMemberModal(group.id)}>Gerenciar perfis</button>
-            <button className="button button-ghost" type="button" onClick={() => beginEdit(group)}>Editar</button>
-            <button className={styles.deleteButton} type="button" onClick={() => deleteGroup(group)}>Excluir</button>
+            <button className="button button-primary" type="button" disabled={deleting} onClick={() => openMemberModal(group.id)}>Gerenciar perfis</button>
+            <button className="button button-ghost" type="button" disabled={deleting} onClick={() => beginEdit(group)}>Editar</button>
+            <button className={styles.deleteButton} type="button" disabled={deleting} onClick={() => openDeleteModal(group)}>
+              {deleting ? 'Excluindo…' : 'Excluir'}
+            </button>
           </>}
           </div>
         </article>;
       })}
     </section>}
+
+    {deleteGroupTarget && <div className={styles.backdrop} role="presentation" onMouseDown={closeDeleteModal}>
+      <section className={`panel ${styles.modal} ${styles.deleteModal}`} role="dialog" aria-modal="true" aria-labelledby="group-delete-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header className={styles.modalHeader}>
+          <div>
+            <span className="section-kicker">Ação irreversível</span>
+            {/* "Como excluir" e nao "Tem certeza": a pergunta aqui e sobre o
+                escopo, e as duas saidas sao legitimas. */}
+            <h2 id="group-delete-title">Como excluir o grupo “{deleteGroupTarget.name}”?</h2>
+          </div>
+          <button className={styles.closeButton} type="button" aria-label="Fechar" disabled={deleteBusy === 'deleting'} onClick={closeDeleteModal}>×</button>
+        </header>
+
+        {deleteError && <p className={`inline-message inline-message-error ${styles.modalMessage}`} role="alert">{deleteError}</p>}
+
+        {!deleteScope ? <>
+          <p className="bulk-modal-help">
+            As duas opções apagam o grupo e as mídias que só pertencem a ele, junto com o histórico de publicações delas.
+            A diferença está nos perfis.
+          </p>
+          <div className={styles.deleteChoices}>
+            <button className={styles.deleteChoice} type="button" onClick={() => chooseDeleteScope(deleteGroupTarget, 'media')}>
+              <strong>Grupo e mídias</strong>
+              <span>Os perfis continuam existindo e ficam sem grupo, prontos para entrar em outro.</span>
+            </button>
+            <button className={`${styles.deleteChoice} ${styles.deleteChoiceDanger}`} type="button" onClick={() => chooseDeleteScope(deleteGroupTarget, 'media_profiles')}>
+              <strong>Grupo, mídias e perfis</strong>
+              <span>Os perfis também saem do Athena e são desconectados na Zernio, liberando a vaga da chave. Não volta.</span>
+            </button>
+          </div>
+          <footer className={styles.modalActions}>
+            <button className="button button-secondary" type="button" onClick={closeDeleteModal}>Cancelar</button>
+          </footer>
+        </> : deleteBusy === 'preview' || !deleteSummary ? <>
+          <p className="bulk-modal-help">Medindo o que será excluído…</p>
+          <footer className={styles.modalActions}>
+            <button className="button button-ghost" type="button" onClick={() => { setDeleteScope(null); setDeleteError(''); }}>Voltar</button>
+          </footer>
+        </> : <>
+          <p className="bulk-modal-help">
+            {deleteScope === 'media_profiles'
+              ? 'Confira o que sai antes de confirmar. Perfis desconectados na Zernio não voltam.'
+              : 'Confira o que sai antes de confirmar. Os arquivos apagados saem do Storage e não voltam.'}
+          </p>
+
+          <dl className={styles.deleteImpact}>
+            <div>
+              <dt>Mídias apagadas</dt>
+              <dd>{deleteSummary.mediaExclusive}</dd>
+            </div>
+            {deleteSummary.mediaShared > 0 && <div>
+              <dt>Mídias preservadas</dt>
+              <dd>{deleteSummary.mediaShared} <small>estão em outro grupo; só saem deste</small></dd>
+            </div>}
+            {deleteSummary.mediaInActivePlan > 0 && <div>
+              <dt>Mídias que ficam</dt>
+              <dd>{deleteSummary.mediaInActivePlan} <small>presas a um agendamento em massa ativo</small></dd>
+            </div>}
+            <div>
+              <dt>Publicações agendadas canceladas</dt>
+              <dd>{deleteSummary.scheduledItems}</dd>
+            </div>
+            <div>
+              <dt>Publicações apagadas do histórico</dt>
+              <dd>{deleteSummary.historyItems}</dd>
+            </div>
+            {deleteScope === 'media_profiles' ? <div>
+              <dt>Perfis excluídos</dt>
+              <dd>
+                {deleteSummary.profileTotal}
+                {deleteSummary.zernioCount > 0 && <small>
+                  {deleteSummary.zernioCount} na Zernio{deleteSummary.connectionLabels.length > 0 ? ` (${deleteSummary.connectionLabels.join(', ')})` : ''}
+                  {deleteSummary.metaCount > 0 ? ` · ${deleteSummary.metaCount} da Meta, a remover no Meta Developers (veja /meta)` : ''}
+                </small>}
+              </dd>
+            </div> : <div>
+              <dt>Perfis que ficam sem grupo</dt>
+              <dd>{deleteSummary.profileTotal}</dd>
+            </div>}
+            {deleteSummary.activePlanCount > 0 && <div>
+              <dt>Agendamentos em massa ativos</dt>
+              <dd>{deleteSummary.activePlanCount} <small>continuam existindo; as mídias deles não serão apagadas</small></dd>
+            </div>}
+          </dl>
+
+          <label className={styles.deleteConfirmLabel}>
+            Digite <strong>EXCLUIR</strong> para confirmar
+            <input
+              value={deleteConfirmation}
+              onChange={(event) => setDeleteConfirmation(event.target.value)}
+              placeholder="EXCLUIR"
+              autoComplete="off"
+              autoFocus
+              disabled={deleteBusy === 'deleting'}
+            />
+          </label>
+
+          <footer className={styles.modalActions}>
+            <button className="button button-ghost" type="button" disabled={deleteBusy === 'deleting'} onClick={() => { setDeleteScope(null); setDeleteSummary(null); setDeleteConfirmation(''); setDeleteError(''); }}>Voltar</button>
+            <button className="button button-secondary" type="button" disabled={deleteBusy === 'deleting'} onClick={closeDeleteModal}>Cancelar</button>
+            <button
+              className="button button-danger"
+              type="button"
+              disabled={deleteBusy === 'deleting' || deleteConfirmation.trim().toUpperCase() !== 'EXCLUIR'}
+              onClick={() => confirmDeleteGroup(deleteGroupTarget, deleteScope)}
+            >{deleteBusy === 'deleting' ? 'Iniciando…' : deleteScope === 'media_profiles' ? 'Excluir grupo, mídias e perfis' : 'Excluir grupo e mídias'}</button>
+          </footer>
+        </>}
+      </section>
+    </div>}
 
     {formOpen && <div className={styles.backdrop} role="presentation" onMouseDown={closeForm}>
       <section className={`panel ${styles.modal}`} role="dialog" aria-modal="true" aria-labelledby="group-form-title" onMouseDown={(event) => event.stopPropagation()}>

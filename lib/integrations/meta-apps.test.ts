@@ -8,6 +8,8 @@ import {
   parseMetaBulkTarget,
   resolveMetaBulkTarget,
   sortMetaAppsByFillOrder,
+  sortMetaAppsByLabel,
+  sortMetaAppsByPendingRemoval,
   type NamedMetaApp,
 } from './meta-apps.ts';
 
@@ -18,6 +20,7 @@ function app(overrides: Partial<NamedMetaApp> & { label: string }): NamedMetaApp
     active: true,
     instagram_slot_limit: 100,
     instagram_profile_count: 0,
+    pending_slot_release_count: 0,
     ...overrides,
   };
 }
@@ -140,4 +143,133 @@ test('a ordem de preenchimento fecha um app antes de abrir o próximo', () => {
   ]);
 
   assert.deepEqual(ordered.map((item) => item.label), ['quase', 'vazio', 'cheio']);
+});
+
+test('a ordem alfabética do select do Bulk Meta ignora vaga e lê número como número', () => {
+  const ordered = sortMetaAppsByLabel([
+    app({ label: 'BIEL 10-IG', instagram_profile_count: 0 }),
+    app({ label: 'duskingapp', instagram_profile_count: 98 }),
+    app({ label: 'BIEL 2-IG', instagram_profile_count: 100 }),
+    app({ label: 'Chrys', instagram_profile_count: 0, active: false }),
+  ]);
+
+  assert.deepEqual(ordered.map((item) => item.label), ['BIEL 2-IG', 'BIEL 10-IG', 'Chrys', 'duskingapp']);
+});
+
+test('queda ainda não confirmada continua ocupando a vaga do app', () => {
+  // O caso medido em 05/09/2026: a tela mostrava 13 vagas livres em "BIEL 1",
+  // e as 13 estavam ocupadas por conexões que o Athena tinha desistido mas o
+  // painel da Meta ainda guardava.
+  const capacity = metaAppCapacity(app({
+    label: 'BIEL 04-09 1-IG',
+    instagram_profile_count: 87,
+    pending_slot_release_count: 13,
+  }));
+
+  assert.equal(capacity.activeProfiles, 87);
+  assert.equal(capacity.trappedSlots, 13);
+  assert.equal(capacity.usedSlots, 100);
+  assert.equal(capacity.freeSlots, 0);
+  assert.equal(capacity.connectable, false);
+});
+
+test('ocupação acima do limite aparece inteira, mas a vaga livre para em zero', () => {
+  const capacity = metaAppCapacity(app({
+    label: 'estourado',
+    instagram_profile_count: 96,
+    pending_slot_release_count: 13,
+  }));
+
+  assert.equal(capacity.usedSlots, 109);
+  assert.equal(capacity.freeSlots, 0);
+});
+
+test('o Bulk Meta recusa a lista quando a vaga está presa, e diz onde destravar', () => {
+  const cheio = app({ label: 'Igor Lote 1', instagram_profile_count: 73, pending_slot_release_count: 27 });
+  const plan = buildBulkMetaRows(cheio, 10);
+
+  assert.equal(plan.blocked, true);
+  assert.equal(plan.reason, 'app_full');
+  assert.equal(plan.rows.length, 0);
+  assert.equal(plan.trappedSlots, 27);
+
+  const message = metaBulkPlanMessage(plan, cheio.label);
+  assert.match(message, /27 vaga\(s\) estão presas/);
+  assert.match(message, /Meta Developers/);
+  // "Cadastre outro app" some quando o espaço já existe: ele só precisa ser
+  // liberado. Mandar criar app novo aqui seria o conselho errado.
+  assert.doesNotMatch(message, /Cadastre outro app/);
+});
+
+test('app sem queda pendente mantém a mensagem antiga de app cheio', () => {
+  const cheio = app({ label: 'lotado de verdade', instagram_profile_count: 100 });
+  const message = metaBulkPlanMessage(buildBulkMetaRows(cheio, 5), cheio.label);
+
+  assert.match(message, /Cadastre outro app da Meta/);
+  assert.doesNotMatch(message, /presas/);
+});
+
+test('a ordem de preenchimento leva em conta a vaga presa', () => {
+  // "quase cheio" tem menos vaga REAL que "meio vazio" mesmo tendo menos
+  // perfis vivos; é ele que deve ser oferecido primeiro para fechar um app
+  // por vez, em vez de espalhar contas.
+  const ordered = sortMetaAppsByFillOrder([
+    app({ label: 'meio vazio', instagram_profile_count: 50 }),
+    app({ label: 'quase cheio', instagram_profile_count: 40, pending_slot_release_count: 55 }),
+  ]);
+
+  assert.deepEqual(ordered.map((item) => item.label), ['quase cheio', 'meio vazio']);
+});
+
+test('a tela de controle sobe quem tem conta caída e mantém A-Z nos dois blocos', () => {
+  const ordered = sortMetaAppsByPendingRemoval([
+    app({ label: 'Zeca', instagram_profile_count: 10 }),
+    app({ label: 'Bruna', instagram_profile_count: 10, pending_slot_release_count: 19 }),
+    app({ label: 'Ana', instagram_profile_count: 10 }),
+    app({ label: 'Yuna', instagram_profile_count: 10, pending_slot_release_count: 1 }),
+  ]);
+
+  assert.deepEqual(ordered.map((item) => item.label), ['Bruna', 'Yuna', 'Ana', 'Zeca']);
+});
+
+test('o bloco de cima ignora o volume: 63 e 1 são a mesma situação', () => {
+  // Ordenar por quantidade quebraria o alfabeto, que é o que torna 28 apps
+  // percorríveis quando a limpeza acontece em várias sessões.
+  const ordered = sortMetaAppsByPendingRemoval([
+    app({ label: 'Tia Lau', pending_slot_release_count: 1 }),
+    app({ label: 'PeachySara', pending_slot_release_count: 63 }),
+  ]);
+
+  assert.deepEqual(ordered.map((item) => item.label), ['PeachySara', 'Tia Lau']);
+});
+
+test('a ordem alfabética é numérica: BIEL 2 antes de BIEL 10', () => {
+  const ordered = sortMetaAppsByPendingRemoval([
+    app({ label: 'BIEL 10', pending_slot_release_count: 3 }),
+    app({ label: 'BIEL 2', pending_slot_release_count: 3 }),
+  ]);
+
+  assert.deepEqual(ordered.map((item) => item.label), ['BIEL 2', 'BIEL 10']);
+});
+
+test('vaga presa zerada devolve o app para o bloco de baixo', () => {
+  // É o que acontece assim que a limpeza é confirmada: o app sai da fila de
+  // trabalho na hora, sem esperar recarregar a página.
+  const ordered = sortMetaAppsByPendingRemoval([
+    app({ label: 'Zeca', pending_slot_release_count: 0 }),
+    app({ label: 'Ana', pending_slot_release_count: 0 }),
+  ]);
+
+  assert.deepEqual(ordered.map((item) => item.label), ['Ana', 'Zeca']);
+});
+
+test('a ordem de preenchimento do Bulk Meta não mudou', () => {
+  // Duas perguntas diferentes: aqui é "onde conecto o próximo celular", e a
+  // resposta continua sendo o app de menos vaga livre — não o alfabeto.
+  const ordered = sortMetaAppsByFillOrder([
+    app({ label: 'Ana', instagram_profile_count: 10 }),
+    app({ label: 'Zeca', instagram_profile_count: 95 }),
+  ]);
+
+  assert.deepEqual(ordered.map((item) => item.label), ['Zeca', 'Ana']);
 });

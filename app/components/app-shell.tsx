@@ -150,7 +150,7 @@ export default function AppShell({
           onClick={() => setOpen(!open)}
         >
           <span>{label}</span>
-          <span className={`nav-chevron ${open ? 'nav-chevron-open' : ''}`} aria-hidden="true">⌄</span>
+          <span className={`nav-chevron ${open ? 'nav-chevron-open' : ''}`} aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><use href="#icon-chevron" /></svg></span>
         </button>
         {open && <div className="nav-section-items" id={`nav-section-${id}`}>{items.map((item) => renderNavigationItem(item, true))}</div>}
       </div>
@@ -161,7 +161,7 @@ export default function AppShell({
     <div className="app-shell">
       <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}>
         <div className="brand-block">
-          <div className="brand-mark" aria-hidden="true">✧</div>
+          <div className="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><use href="#icon-athena" /></svg></div>
           <div><span className="eyebrow">Athena</span><strong>Dusking</strong></div>
         </div>
         <nav className="main-nav" aria-label="Navegação principal">
@@ -182,7 +182,7 @@ export default function AppShell({
       <main className="main-content" aria-busy={Boolean(pendingHref)}>
         <header className="mobile-header">
           <button className="icon-button" onClick={() => setMenuOpen(true)} aria-label="Abrir menu" type="button">☰</button>
-          <div className="mobile-brand"><span className="brand-mark small">✧</span><strong>Athena</strong></div>
+          <div className="mobile-brand"><span className="brand-mark small" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><use href="#icon-athena" /></svg></span><strong>Athena</strong></div>
           <span aria-hidden="true" />
         </header>
         <div className="mobile-organization-switcher organization-switcher">

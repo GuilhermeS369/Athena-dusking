@@ -94,6 +94,12 @@ const SCALING_RELATIONS = [
   'recovery_candidates',
   'recovery_cohort_observations',
 
+  // Quedas da Meta: uma linha por perfil derrubado, e elas vêm em onda — em
+  // 05/09/2026 foram 493 num único dia, contra 513 no histórico inteiro. A tela
+  // de /meta precisa da lista completa para o operador percorrer, então é
+  // exatamente o caso em que o teto cortaria sem avisar.
+  'meta_profile_disconnection_incidents',
+
   // Analytics e cadastros do módulo X, pelo mesmo critério.
   'twitter_profile_follower_daily_metrics',
   'twitter_post_analytics_current',
@@ -130,6 +136,7 @@ const RELATION_KEYS = new Map<string, string[]>([
   ['twitter_program_shortfalls', ['program_id', 'profile_id']],
   ['twitter_connections', ['id']],
   ['zernio_connections', ['id']],
+  ['meta_profile_disconnection_incidents', ['id']],
   ['profile_analytics_daily_metrics', ['profile_id', 'provider', 'metric_date']],
   ['profile_analytics_current', ['profile_id']],
   ['profile_analytics_snapshots', ['id']],

@@ -771,7 +771,9 @@ export default function RecoveryClient({
       await Promise.all([refreshOverview(), refreshCohort()]);
       setMessage({
         tone: 'success',
-        text: `${payload.deletedLocal ?? 0} excluídos e ${payload.queued ?? 0} enfileirados na Zernio. A vaga só volta depois que o worker confirmar a remoção remota.`,
+        text: `${payload.deletedLocal ?? 0} excluídos e ${payload.queued ?? 0} enfileirados na Zernio. `
+          + 'Nenhuma vaga volta agora: a da Zernio espera o worker confirmar a remoção remota, e a da Meta espera '
+          + 'você apagar a conexão no Meta Developers e confirmar em /meta, onde os excluídos já aparecem.',
       });
     } catch (error) {
       if (naoEnfileirados.length) {

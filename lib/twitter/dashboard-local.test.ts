@@ -42,7 +42,15 @@ test('Dashboard X preserva o fluxo e endpoint V2 do Instagram', async () => {
   const client = await readFile(new URL('../../app/dashboard-client.tsx', import.meta.url), 'utf8');
   assert.match(client, /\/api\/dashboard\/analytics-v2/);
   assert.match(client, /selectedPlatform !== 'instagram'/);
-  assert.match(client, /requestMetricsRefresh/);
-  assert.match(client, /ProfileRankingCard/);
+  // O botão "atualizar" saiu: a coleta acontece em três horários fixos e a tela
+  // apenas informa (migration 387). O que este teste protege segue igual — a
+  // metade do Instagram não pode ser engolida pela do X.
+  assert.match(client, /CollectionIndicator/);
+  // O ranking virou `RankingCard` na reconstrução de 05/09/2026 (o seletor de
+  // métrica por cartão saiu; agora quem manda é a aba do topo). O que este
+  // teste protege continua sendo o mesmo: a metade do Instagram não pode ser
+  // engolida pela do X.
+  assert.match(client, /RankingCard/);
   assert.match(client, /TopPostsCard/);
+  assert.match(client, /DashboardAreaChart/);
 });

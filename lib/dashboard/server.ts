@@ -79,6 +79,15 @@ export type DashboardData = {
     }>;
     publishedItems: Array<{ id: string; profile_id: string; published_at: string }>;
     publicationRollups: Array<{ kind: string; profile_id: string; label: string; total: number }>;
+    /**
+     * Contagem de perfis por situação de coleta.
+     *
+     * Existe para o cartão de saúde das fontes poder dizer "1.402 ativos" sem
+     * que as 1.402 linhas viajem até o navegador — ver a migration 383, que
+     * cortou o bootstrap de 633 KB reduzindo `analytics_state` à lista de
+     * problemas.
+     */
+    stateCounts: Record<string, number>;
   };
 };
 
@@ -330,8 +339,15 @@ export async function getDashboardData(organizationId: string): Promise<Dashboar
       posts: (postsResult.data ?? []) as DashboardData['analytics']['posts'],
       publishedItems: ((publishedItemsResult.data ?? []) as DashboardData['analytics']['publishedItems']).slice().reverse(),
       publicationRollups: (publicationRollupsResult.data ?? []) as DashboardData['analytics']['publicationRollups'],
+      stateCounts: countByStatus(usableSnapshots),
     },
   };
+}
+
+function countByStatus(rows: Array<{ sync_status: string }>) {
+  const counts: Record<string, number> = {};
+  for (const row of rows) counts[row.sync_status] = (counts[row.sync_status] ?? 0) + 1;
+  return counts;
 }
 
 function dashboardDataFromV2Bootstrap(bootstrap: DashboardV2Bootstrap): DashboardData {
@@ -394,6 +410,9 @@ function dashboardDataFromV2Bootstrap(bootstrap: DashboardV2Bootstrap): Dashboar
       posts: [],
       publishedItems: [],
       publicationRollups: [],
+      // Sem a migration 383 o campo não vem; a contagem cai para o que a lista
+      // de atenção mostra, que é o comportamento anterior.
+      stateCounts: bootstrap.analytics_state_counts ?? countByStatus(bootstrap.analytics_state),
     },
   };
 }

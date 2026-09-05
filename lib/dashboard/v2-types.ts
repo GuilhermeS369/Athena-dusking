@@ -18,6 +18,12 @@ export type DashboardV2Bootstrap = {
   generated_at: string;
   profiles: DashboardV2Profile[];
   groups: DashboardV2Group[];
+  /**
+   * Só os perfis que PRECISAM de atenção, no máximo 60 (migration 383). Antes
+   * vinha a frota inteira — 2.024 linhas para alimentar um cartão que mostra
+   * oito. Perfil ausente daqui está sincronizado; quem responde por ele é
+   * `analytics_state_counts`.
+   */
   analytics_state: Array<{
     profile_id: string;
     sync_status: string;
@@ -25,6 +31,8 @@ export type DashboardV2Bootstrap = {
     period_end: string;
     last_error_code: string | null;
   }>;
+  /** Contagem por situação de coleta. Opcional enquanto a 383 não é aplicada. */
+  analytics_state_counts?: Record<string, number>;
   summary: {
     connections_total: number;
     connections_healthy: number;
@@ -54,7 +62,12 @@ export type DashboardV2Analytics = {
     group_id: string | null;
   };
   kpis: {
-    posts: number;
+    /**
+     * Saiu para `DashboardV2Operations.posts` na migration 382: contar
+     * publicações custava 226 mil linhas na mesma chamada que agrega 12 mil de
+     * métrica. Fica opcional aqui para clientes e respostas antigas.
+     */
+    posts?: number;
     impressions: number;
     reach: number;
     views: number;
@@ -69,13 +82,25 @@ export type DashboardV2Analytics = {
     followers_baseline_profiles: number;
   };
   metric_series: Array<{ date: string; value: number }>;
-  post_series: Array<{ date: string; value: number }>;
+  /**
+   * A série de TODAS as métricas na mesma resposta (migration 382). Sai da
+   * mesma CTE já materializada, então custa quase nada — e é o que deixa a
+   * troca de métrica na tela ser instantânea, sem nova ida ao servidor.
+   */
+  series_by_metric?: Record<DashboardMetric, Array<{ date: string; value: number }>>;
+  /** Ver `posts` acima: agora vem de `get_dashboard_operations_v2`. */
+  post_series?: Array<{ date: string; value: number }>;
   follower_series: Array<{ date: string; value: number }>;
   metric_per_source: Array<{ label: string; value: number }>;
   metric_per_group: Array<{ id: string; label: string; value: number }>;
-  ranking: Array<{ profile_id: string; username: string; display_name: string | null; value: number }>;
-  publication_status: Array<{ label: string; value: number }>;
-  publication_format: Array<{ label: string; value: number }>;
+  /**
+   * `removed` marca perfil já excluído que continua no histórico (migration
+   * 386). A tela precisa dele: mostrar um @ que não abre é pior do que não
+   * mostrar.
+   */
+  ranking: Array<{ profile_id: string; username: string; display_name: string | null; value: number; removed?: boolean }>;
+  publication_status?: Array<{ label: string; value: number }>;
+  publication_format?: Array<{ label: string; value: number }>;
   coverage: {
     selected_profiles: number;
     profiles_with_metrics: number;
@@ -114,4 +139,22 @@ export type DashboardV2Section<T> = {
   status: 'ok' | 'unavailable';
   data: T;
   error?: string;
+};
+
+/**
+ * A metade operacional da dashboard, servida por `get_dashboard_operations_v2`.
+ *
+ * Ela existe separada porque lê `publication_items`, que cresce com a operação
+ * (550 mil linhas na Pomodoro em 05/09/2026) enquanto a metade de métrica lê
+ * dezenas de milhares. A tela pede as duas em paralelo e desenha cada uma
+ * quando chega. Ver a migration 382.
+ */
+export type DashboardV2Operations = {
+  generated_at: string;
+  posts: number;
+  post_series: Array<{ date: string; value: number }>;
+  publication_status: Array<{ label: string; value: number }>;
+  publication_format: Array<{ label: string; value: number }>;
+  profiles_with_publications: number;
+  profiles_pending_collection: number;
 };

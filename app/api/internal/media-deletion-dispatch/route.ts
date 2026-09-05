@@ -89,7 +89,28 @@ export async function POST(request: Request) {
       dispatchMediaDeletionJobs({ workerId, limit, chunkSize, leaseSeconds }),
       dispatchMediaGroupAssignmentJobs({ workerId: workerId ? `${workerId}:groups` : undefined, limit: groupAssignmentLimit, chunkSize: groupAssignmentChunkSize, leaseSeconds }),
     ]);
-    return NextResponse.json({ deletion, groupAssignment });
+    // Fechamento das exclusões de grupo, DEPOIS do dispatch: é a metade de mídia
+    // que acabou de rodar acima, e o finalize precisa vê-la terminada para
+    // fechar o job. Fica aqui, e não num worker novo, porque este processo já
+    // roda a cada 5s e já é o dono dessa metade.
+    //
+    // Ele não roda quando a rota sai antes por pressão de geração — e está certo
+    // que não rode, porque a purga de histórico é mutação em massa. Quem está
+    // com /grupos aberto fecha o job pelo GET de andamento; quem fechou a aba
+    // espera a pressão passar.
+    let groupDeletionsClosed = 0;
+    const { data: closed, error: finalizeError } = await admin.rpc('finalize_profile_group_deletion_jobs', {
+      p_organization_id: null,
+    });
+    if (finalizeError) {
+      console.error('Falha ao finalizar exclusões de grupo.', {
+        code: finalizeError.code, message: finalizeError.message,
+      });
+    } else {
+      groupDeletionsClosed = Number(closed ?? 0);
+    }
+
+    return NextResponse.json({ deletion, groupAssignment, groupDeletionsClosed });
   } catch (error) {
     console.error('Dispatcher de mídia indisponível.', { error: errorMessage(error), details: error });
     return NextResponse.json({ error: errorMessage(error) }, { status: 503 });

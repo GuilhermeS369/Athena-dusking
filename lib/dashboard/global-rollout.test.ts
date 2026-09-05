@@ -32,13 +32,16 @@ test('dashboard V2 e refresh manual não reutilizam resposta analítica obsoleta
   assert.match(route, /Cache-Control': 'private, no-store, max-age=0/);
   assert.match(route, /X-Dashboard-Version/);
   assert.match(client, /cache: 'no-store'/);
+  // Depois de atualizar, a tela precisa buscar os agregados de novo: sem isto o
+  // botão coleta métrica nova e continua mostrando a antiga.
   assert.match(client, /analyticsRevision/);
-  assert.match(client, /pendingRefreshMessageRef/);
-  // O aviso de cobertura deixou de ser uma fração única e passou a separar
-  // "publicou e não coletamos" de "não publicou" e "hoje ainda maturando"
-  // (lib/dashboard/coverage-notes.ts). O texto antigo continua existindo lá
-  // como fallback enquanto a migração 339 não estiver aplicada.
-  assert.match(client, /dashboardCoverageNotes/);
+  assert.match(client, /setAnalyticsRevision\(\(revision\) => revision \+ 1\)/);
+  // A pilha de até seis tarjas virou UM ícone com balão no hover (StatusChip).
+  // As duas asserções abaixo protegem isso: existe um único ponto que decide a
+  // mensagem, e nenhuma faixa de largura inteira voltou para o cabeçalho.
+  assert.match(client, /dashboardCoverageStatus/);
+  assert.equal(client.split('<StatusChip').length - 1, 1);
+  assert.doesNotMatch(client, /analytics-refresh-status|analytics-status-line/);
   assert.match(server, /order\('metric_date', \{ ascending: false \}\)/);
   assert.match(server, /priorize os dias recentes/);
 });

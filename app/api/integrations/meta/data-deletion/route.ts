@@ -14,8 +14,20 @@ export const dynamic = 'force-dynamic';
  *
  * A exclusão roda em todas as organizações que tenham o perfil conectado: quem
  * pede exclusão pede para o serviço inteiro, não para um cliente específico.
- * O caminho é o mesmo da exclusão manual em `/perfis` — sai dos grupos, o
- * perfil recebe `deleted_at` e os snapshots de analytics são removidos.
+ *
+ * A contenção é a mesma da exclusão pedida em /perfis: além de sair dos grupos e
+ * receber `deleted_at`, o perfil tem a fila agendada cancelada. Antes isso não
+ * acontecia, e as publicações já marcadas continuavam vivas apontando para um
+ * perfil que não existia mais.
+ *
+ * O QUE ESTE CAMINHO NÃO FAZ, e é decisão consciente: não grava incidente de
+ * vaga presa. São duas razões que apontam para o mesmo lado. A primeira é que a
+ * vaga não fica presa — quem dispara este callback é a própria Meta, porque a
+ * pessoa retirou o app nas configurações dela; a conexão já está sendo desfeita
+ * do lado de lá, então não há nada para o operador apagar no Meta Developers. A
+ * segunda é que o incidente guarda `username_snapshot`, e criar um registro novo
+ * com o @ de quem acabou de pedir exclusão de dados contraria o próprio pedido
+ * que estamos atendendo.
  */
 export async function POST(request: Request) {
   const body = new URLSearchParams(await request.text());
@@ -50,31 +62,26 @@ export async function POST(request: Request) {
   }
 
   for (const profile of profiles ?? []) {
-    const { error: membershipError } = await admin
-      .from('profile_group_members')
-      .delete()
-      .eq('organization_id', profile.organization_id)
-      .eq('profile_id', profile.id);
+    // `p_finalize_local` cuida do desvínculo de grupo e do `deleted_at` que
+    // esta rota fazia à mão; o resto da função é o que faltava — ignorar as
+    // publicações abertas, soltar as reservas de slot e cancelar planos,
+    // horizontes e chunks. `p_defer_batch_sync` fica falso porque um pedido de
+    // exclusão toca pouquíssimos perfis: não há laço para amortizar.
+    const { error: containError } = await admin.rpc('contain_instagram_profile_for_removal', {
+      p_organization_id: profile.organization_id,
+      p_profile_id: profile.id,
+      p_incident_id: null,
+      p_reason_code: 'profile_removed_by_data_deletion',
+      p_reason_message: 'Exclusão de dados solicitada à Meta; publicação cancelada.',
+      p_actor_label: 'system: meta-data-deletion',
+      p_finalize_local: true,
+      p_defer_batch_sync: false,
+    });
 
-    if (membershipError) {
-      console.error('[meta-data-deletion] membership_delete_failed', {
-        profileId: profile.id,
-        message: membershipError.message,
-      });
-
-      return NextResponse.json({ error: 'Falha ao remover o perfil dos grupos.' }, { status: 500 });
-    }
-
-    const { error: deleteError } = await admin
-      .from('instagram_profiles')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('id', profile.id)
-      .is('deleted_at', null);
-
-    if (deleteError) {
+    if (containError) {
       console.error('[meta-data-deletion] profile_delete_failed', {
         profileId: profile.id,
-        message: deleteError.message,
+        message: containError.message,
       });
 
       return NextResponse.json({ error: 'Falha ao excluir o perfil.' }, { status: 500 });

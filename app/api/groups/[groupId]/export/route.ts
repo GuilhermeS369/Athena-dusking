@@ -15,6 +15,9 @@ type ExportRow = {
   profile_status: 'no_data' | 'online' | 'offline' | 'reauthorization_required' | 'fallen';
   fallen_at: string | null;
   fall_reason: string | null;
+  profile_id: string;
+  total_views: number | null;
+  analytics_synced_at: string | null;
 };
 
 export async function GET(
@@ -47,22 +50,21 @@ export async function GET(
     return NextResponse.json({ error: 'Grupo não encontrado.' }, { status: 404 });
   }
 
-  // Grupos podem ter mais linhas que o teto do PostgREST (1000). Sem paginar, o
-  // CSV sai truncado sem aviso nenhum e o operador o usa como fonte de verdade.
-  // A ordem (row_kind, username) já existia e é determinística, então paginar
-  // por range é seguro aqui.
+  // Grupos podem ter mais linhas que o teto do PostgREST. Sem paginar, a
+  // planilha sai truncada sem aviso nenhum e o operador a usa como fonte de
+  // verdade. Com o group_id fixado pelo .eq(), (row_kind, username, profile_id,
+  // fallen_at) é ordem total: no ramo 'current' o perfil aparece uma vez só, e
+  // no 'fallen' o counted_at separa quedas do mesmo perfil. Só empata se o
+  // mesmo perfil cair duas vezes no mesmo instante.
   const { data, error } = await fetchAllRows<ExportRow>((from, to) => supabase
     .from('group_profile_export_rows')
-    .select('group_id, group_name, group_consumption_mode, row_kind, username, zernio_connection_label, profile_added_at, profile_status, fallen_at, fall_reason')
+    .select('group_id, group_name, group_consumption_mode, row_kind, username, zernio_connection_label, profile_added_at, profile_status, fallen_at, fall_reason, profile_id, total_views, analytics_synced_at')
     .eq('organization_id', organizationId)
     .eq('group_id', groupId)
     .order('row_kind', { ascending: true })
     .order('username', { ascending: true })
-    // A view (migration 205) não expõe nenhuma chave única — nem profile_id —
-    // e um mesmo username pode reaparecer no ramo 'fallen'. profile_added_at é
-    // o melhor desempate disponível daqui; a ordem só deixa de ser total se o
-    // mesmo perfil cair duas vezes com o mesmo created_at.
-    .order('profile_added_at', { ascending: true })
+    .order('profile_id', { ascending: true })
+    .order('fallen_at', { ascending: true })
     .range(from, to));
 
   if (error) {

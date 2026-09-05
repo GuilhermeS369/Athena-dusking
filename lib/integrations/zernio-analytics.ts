@@ -11,6 +11,7 @@ import {
   type ZernioFollowerHistoryResponse,
   type ZernioInstagramAccountInsightsResponse,
 } from '@/lib/integrations/zernio-client';
+import { runMetaAnalyticsRefresh } from '@/lib/integrations/meta-analytics-refresh';
 import { latestFollowerRow, normalizeAnalyticsSourceClasses, normalizedDailyMetrics, normalizeFollowerRows, numberValue, shouldRetryDailyAggregation, type AnalyticsSourceClass } from '@/lib/integrations/zernio-analytics-normalizers';
 import { currentFollowersFromAccount, currentFollowersFromFollowerStats } from '@/lib/integrations/zernio-analytics-normalizers';
 
@@ -297,20 +298,35 @@ export async function syncProfileAnalytics(profileId: string, options: SyncProfi
     : `profile_analytics_${sourceClasses.join('_')}`;
   const runId = await timed('sync_run_create', () => createRun(admin, typedProfile, syncKind, periodStart, periodEnd));
 
+  // Perfil da API oficial: a coleta é outra e vive em meta-analytics-refresh.
+  //
+  // Até 05/09/2026 este ramo gravava um snapshot ZERADO com
+  // `sync_status = 'not_configured'`. Como a dashboard lê o snapshot mais
+  // recente de cada perfil, o efeito era apagar da tela o histórico de 944
+  // contas religadas — o oposto do que a tomada de perfil (migrations 373/375)
+  // tinha acabado de preservar. A regra que substituiu aquilo: **falha não
+  // escreve linha de período**; quem falha atualiza só o estado compacto.
   if (typedProfile.provider !== 'zernio') {
-    await admin.from('profile_analytics_snapshots').upsert({
-      organization_id: typedProfile.organization_id,
-      profile_id: typedProfile.id,
-      provider: typedProfile.provider,
-      period_start: periodStart,
-      period_end: periodEnd,
-      sync_status: 'not_configured',
-      unavailable_reason: 'Meta oficial ainda não tem coleta de analytics configurada no Athena.',
-      synced_at: new Date().toISOString(),
-    }, { onConflict: 'organization_id,profile_id,provider,period_start,period_end' });
-
-    await finishRun(admin, runId, 'not_configured', { provider: typedProfile.provider });
-    return { status: 'not_configured' as AnalyticsStatus, skipped: false, message: 'Analytics da Meta oficial ainda não configurado.' };
+    const summary = await runMetaAnalyticsRefresh({
+      organizationId: typedProfile.organization_id,
+      profileIds: [typedProfile.id],
+      staleMinutes: options.force ? 0 : 30,
+      days: 2,
+      collectPosts: sourceClasses.includes('posts'),
+      limit: 1,
+    });
+    const status: AnalyticsStatus = summary.synced > 0
+      ? 'synced'
+      : summary.partial > 0
+        ? 'partial'
+        : summary.failed > 0 ? 'failed' : summary.processed === 0 ? 'pending' : 'no_data';
+    await finishRun(admin, runId, status, { provider: typedProfile.provider, source: 'meta_graph', ...summary });
+    return {
+      status,
+      skipped: summary.processed === 0,
+      message: summary.errors[0]?.message
+        ?? (status === 'synced' ? 'Métricas coletadas pela API da Meta.' : 'A Meta não devolveu métricas nesta janela.'),
+    };
   }
 
   if (!typedProfile.zernio_account_id) {

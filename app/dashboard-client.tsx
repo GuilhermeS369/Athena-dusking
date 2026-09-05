@@ -4,9 +4,10 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 
 import type { DashboardData } from '@/lib/dashboard/server';
-import { buildDailyMetricTimeSeries, dailyMetricRanking, dailyMetricValue, dashboardPeriodRange, filterDailyMetricsForPeriod, saoPauloDateKey, sumDailyMetrics, type DashboardMetric } from '@/lib/dashboard/analytics-period';
-import { dashboardCoverageNotes } from '@/lib/dashboard/coverage-notes';
-import type { DashboardV2Analytics, DashboardV2Section, DashboardV2TopPost } from '@/lib/dashboard/v2-types';
+import { dailyMetricRanking, dailyMetricValue, dashboardPeriodRange, filterDailyMetricsForPeriod, previousPeriodRange, saoPauloDateKey, sumDailyMetrics, type DashboardDailyMetric, type DashboardMetric } from '@/lib/dashboard/analytics-period';
+import { DASHBOARD_TODAY_HINT, dashboardCoverageStatus, type DashboardCoverageNote } from '@/lib/dashboard/coverage-notes';
+import type { DashboardV2Analytics, DashboardV2Operations, DashboardV2Section, DashboardV2TopPost } from '@/lib/dashboard/v2-types';
+import { DashboardAreaChart, type ChartSeries } from './dashboard-chart';
 import twitterStyles from './x/twitter-dashboard.module.css';
 
 type Organization = {
@@ -17,8 +18,28 @@ type Organization = {
   role: 'admin' | 'operator' | 'viewer';
 };
 
-type RefreshJobSummary = { job_id: string; status: string; total_count: number; reason: string };
-type RefreshJobStatus = { status: string; total_count: number; processed_count: number; synced_count: number; partial_count: number; failed_count: number; last_error_message: string | null };
+/**
+ * Estado das três coletas do dia (migration 387). É o que o indicador do
+ * cabeçalho mostra no lugar do antigo botão "atualizar".
+ */
+type CollectionStatus = {
+  slots: string[];
+  next_slot: string;
+  run: {
+    slot_label: string;
+    slot_date: string;
+    started_at: string;
+    finished_at: string | null;
+    total_profiles: number;
+    processed_profiles: number;
+    synced_profiles: number;
+    failed_profiles: number;
+    daily_rows: number;
+    post_rows: number;
+    percent: number;
+  } | null;
+};
+
 type TwitterMetric = 'impressions' | 'views' | 'likes' | 'comments' | 'shares' | 'engagement';
 type TwitterDashboardData = {
   summary: { followers: number; followerDelta: number; impressions: number; views: number; likes: number; comments: number; shares: number; engagement: number; engagementRate: number; posts: number; lastCapturedAt: string | null };
@@ -36,6 +57,57 @@ type TwitterDashboardData = {
   metric: TwitterMetric;
 };
 
+/**
+ * Períodos como pílulas, e "Hoje" primeiro.
+ *
+ * O padrão era 30 dias, o que respondia a pergunta errada: quem abre a tela de
+ * manhã quer saber do dia, não da média do mês. Períodos longos continuam a um
+ * clique — e agora dizem quanto tempo cobrem sem precisar abrir um select.
+ */
+const INSTAGRAM_PERIODS = [
+  { value: '1', label: 'Hoje' },
+  { value: 'ontem', label: 'Ontem' },
+  { value: '3', label: '3 dias' },
+  { value: '7', label: '7 dias' },
+  { value: '15', label: '15 dias' },
+  { value: '30', label: '30 dias' },
+  { value: '90', label: '90 dias' },
+];
+
+/** O X só tem métrica consolidada por janelas maiores. */
+const TWITTER_PERIODS = [
+  { value: '7', label: '7 dias' },
+  { value: '30', label: '30 dias' },
+  { value: '90', label: '90 dias' },
+];
+
+type DashboardTabKey = 'reach' | 'likes' | 'comments' | 'interactions' | 'followers' | 'posts';
+
+/**
+ * As abas são os indicadores E o seletor do gráfico ao mesmo tempo.
+ *
+ * `metric` é a métrica que as abas de baixo (ranking, por fonte, por grupo)
+ * passam a mostrar. Seguidores e Posts não são métricas de post, então elas
+ * trocam só o gráfico e deixam os cartões de baixo como estavam — trocar para
+ * "interações" sem pedir seria mexer no que o operador não pediu.
+ */
+const DASH_TABS: Array<{ key: DashboardTabKey; label: string; metric: DashboardMetric | null }> = [
+  { key: 'reach', label: 'Alcance / views', metric: 'reach' },
+  { key: 'likes', label: 'Curtidas', metric: 'likes' },
+  { key: 'comments', label: 'Comentários', metric: 'comments' },
+  { key: 'interactions', label: 'Interações', metric: 'interactions' },
+  { key: 'followers', label: 'Seguidores', metric: null },
+  { key: 'posts', label: 'Posts', metric: null },
+];
+
+/**
+ * Duas cores, e só. Um gráfico de operação não precisa de paleta: precisa de
+ * contraste contra o fundo escuro e de duas séries distinguíveis por quem não
+ * enxerga bem vermelho e verde — daí violeta e turquesa, que diferem em
+ * matiz E em luminosidade.
+ */
+const SERIES_COLORS = { primary: '#a78bfa', secondary: '#2dd4bf' };
+
 export default function DashboardClient({
   activeOrganization,
   data,
@@ -51,21 +123,62 @@ export default function DashboardClient({
   const [selectedProfileId, setSelectedProfileId] = useState('all');
   const [selectedSource, setSelectedSource] = useState('all');
   const [selectedGroupId, setSelectedGroupId] = useState('all');
-  const [selectedPeriod, setSelectedPeriod] = useState('30');
-  const [selectedMetric, setSelectedMetric] = useState<DashboardMetric>('likes');
-  const [activeRefreshJobId, setActiveRefreshJobId] = useState<string | null>(null);
-  const [refreshMessage, setRefreshMessage] = useState('');
+  const [selectedPeriod, setSelectedPeriod] = useState('1');
+  const [selectedMetric, setSelectedMetric] = useState<DashboardMetric>('reach');
+  const [selectedTab, setSelectedTab] = useState<DashboardTabKey>('reach');
   const [v2Analytics, setV2Analytics] = useState<DashboardV2Analytics | null>(null);
   const [v2TopPosts, setV2TopPosts] = useState<DashboardV2TopPost[]>([]);
   const [v2Loading, setV2Loading] = useState(data.version === 'v2');
   const [v2Error, setV2Error] = useState('');
+  const [v2Operations, setV2Operations] = useState<DashboardV2Operations | null>(null);
+  const [v2Previous, setV2Previous] = useState<DashboardV2Analytics | null>(null);
+  const [v2ChartWindow, setV2ChartWindow] = useState<DashboardV2Analytics | null>(null);
+  const [collection, setCollection] = useState<CollectionStatus | null>(null);
   const [analyticsRevision, setAnalyticsRevision] = useState(0);
-  const pendingRefreshMessageRef = useRef<string | null>(null);
   const [twitterDashboard, setTwitterDashboard] = useState<TwitterDashboardData | null>(null);
   const [twitterLoading, setTwitterLoading] = useState(false);
   const [twitterLocalError, setTwitterLocalError] = useState('');
   const [twitterConnectionId, setTwitterConnectionId] = useState('all');
   const [twitterMetric, setTwitterMetric] = useState<TwitterMetric>('engagement');
+
+  /**
+   * Enquanto a rodada corre, pergunta de meio em meio minuto; parada, uma vez só.
+   *
+   * Meio minuto porque o indicador mostra porcentagem: mais lento que isso e o
+   * número fica visivelmente travado; mais rápido é conversa à toa com o
+   * servidor para uma informação que muda devagar.
+   */
+  useEffect(() => {
+    let cancelado = false;
+    async function ler() {
+      try {
+        const resposta = await fetch('/api/dashboard/collection-status', { cache: 'no-store' });
+        const payload = await resposta.json().catch(() => ({})) as { status?: CollectionStatus | null };
+        if (cancelado) return;
+        setCollection((anterior) => {
+          // A rodada acabou de terminar enquanto a tela estava aberta: busca os
+          // agregados de novo. Sem isto o operador ficaria olhando o número
+          // velho até trocar um filtro — e o indicador ao lado dele dizendo
+          // "concluída", o que é pior do que não ter indicador nenhum.
+          const estavaRodando = Boolean(anterior?.run && !anterior.run.finished_at);
+          const terminouAgora = Boolean(payload.status?.run?.finished_at);
+          if (estavaRodando && terminouAgora) setAnalyticsRevision((revision) => revision + 1);
+          return payload.status ?? null;
+        });
+      } catch {
+        if (!cancelado) setCollection(null);
+      }
+    }
+    void ler();
+    const emAndamento = collection?.run && !collection.run.finished_at;
+    const intervalo = emAndamento ? window.setInterval(() => void ler(), 30_000) : null;
+    return () => {
+      cancelado = true;
+      if (intervalo) window.clearInterval(intervalo);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collection?.run?.finished_at, collection?.run?.slot_label]);
+
 
   useEffect(() => {
     if (selectedPlatform !== 'twitter' || !twitterEnabled) return;
@@ -85,93 +198,14 @@ export default function DashboardClient({
     return () => controller.abort();
   }, [selectedGroupId, selectedPeriod, selectedPlatform, selectedProfileId, twitterConnectionId, twitterEnabled, twitterMetric]);
 
-  async function requestMetricsRefresh(trigger: 'page_view' | 'manual') {
-    try {
-      if (trigger === 'manual') setRefreshMessage('Agendando atualização das métricas…');
-      const selectedGroupProfileIds = selectedGroupId !== 'all'
-        ? (data.analytics.groups.find((group) => group.id === selectedGroupId)?.profile_ids ?? [])
-        : null;
-      const manualProfileIds = selectedProfileId !== 'all'
-        ? [selectedProfileId]
-        : selectedGroupProfileIds;
-
-      if (trigger === 'manual' && manualProfileIds?.length === 0) {
-        setRefreshMessage('O grupo selecionado não possui perfis para atualizar.');
-        return;
-      }
-
-      const response = await fetch('/api/profile-analytics/refresh-jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          trigger,
-          // No escopo global, atualiza somente perfis stale. Um perfil ou
-          // grupo explicitamente selecionado pode ser forçado pelo usuário.
-          force: trigger === 'manual' && Boolean(manualProfileIds),
-          profileIds: trigger === 'manual' ? manualProfileIds : undefined,
-        }),
-      });
-      const payload = await response.json().catch(() => ({})) as { job?: RefreshJobSummary | null; error?: string };
-      if (!response.ok) {
-        if (trigger === 'manual') setRefreshMessage(payload.error ?? 'Não foi possível atualizar as métricas.');
-        return;
-      }
-      if (payload.job?.job_id) {
-        setActiveRefreshJobId(payload.job.job_id);
-        setRefreshMessage(payload.job.reason === 'nothing_stale'
-          ? 'As métricas já estão atualizadas.'
-          : manualProfileIds
-            ? `Atualizando ${payload.job.total_count} perfil(is) do escopo selecionado…`
-            : `Atualizando ${payload.job.total_count} perfil(is) com dados desatualizados…`);
-      } else if (trigger === 'manual') {
-        setRefreshMessage('As métricas já estão atualizadas.');
-      }
-    } catch {
-      if (trigger === 'manual') setRefreshMessage('Não foi possível conectar ao servidor.');
-    }
-  }
-
-  useEffect(() => {
-    if (!activeRefreshJobId) return;
-    let cancelled = false;
-    async function poll() {
-      const response = await fetch(`/api/profile-analytics/refresh-jobs/${activeRefreshJobId}`, { cache: 'no-store' });
-      const payload = await response.json().catch(() => ({})) as { job?: RefreshJobStatus };
-      if (cancelled || !response.ok || !payload.job) return;
-      const job = payload.job;
-      setRefreshMessage(`Atualizando métricas… ${job.processed_count}/${job.total_count}`);
-      if (!['completed', 'completed_with_errors', 'failed', 'cancelled'].includes(job.status)) return;
-      setActiveRefreshJobId(null);
-      if (job.status === 'completed' || job.status === 'completed_with_errors') {
-        const completionMessage = job.failed_count > 0
-          ? `Métricas atualizadas; ${job.failed_count} perfil(is) mantiveram o último dado válido.`
-          : 'Métricas atualizadas agora.';
-        if (data.version === 'v2') {
-          pendingRefreshMessageRef.current = completionMessage;
-          setRefreshMessage('Coleta concluída; carregando os novos indicadores…');
-          setAnalyticsRevision((revision) => revision + 1);
-        } else {
-          setRefreshMessage(completionMessage);
-        }
-        router.refresh();
-      } else {
-        setRefreshMessage(job.last_error_message ?? 'A atualização falhou; exibindo o último dado válido.');
-      }
-    }
-    void poll();
-    const interval = window.setInterval(() => void poll(), 5000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [activeRefreshJobId, data.version, router]);
 
   useEffect(() => {
     if (data.version !== 'v2' || selectedPlatform !== 'instagram') { setV2Loading(false); return; }
     const controller = new AbortController();
+    const range = dashboardPeriodRange(selectedPeriod);
     const params = new URLSearchParams({
-      start: dashboardPeriodRange(selectedPeriod).startDate,
-      end: dashboardPeriodRange(selectedPeriod).endDate,
+      start: range.startDate,
+      end: range.endDate,
       metric: selectedMetric,
     });
     if (analyticsRevision > 0) params.set('_refresh', String(analyticsRevision));
@@ -191,10 +225,6 @@ export default function DashboardClient({
         if (!response.ok || !payload.analytics?.data) throw new Error(payload.error ?? 'Analytics indisponível.');
         setV2Analytics(payload.analytics.data);
         setV2TopPosts(payload.topPosts?.data ?? []);
-        if (pendingRefreshMessageRef.current) {
-          setRefreshMessage(pendingRefreshMessageRef.current);
-          pendingRefreshMessageRef.current = null;
-        }
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -203,6 +233,63 @@ export default function DashboardClient({
       .finally(() => {
         if (!controller.signal.aborted) setV2Loading(false);
       });
+
+    // A metade operacional vai em paralelo e tem vida própria: ela varre a fila
+    // de publicação (226 mil linhas num período de 30 dias, medido em
+    // 05/09/2026) enquanto a de cima agrega 12 mil de métrica. Esperar as duas
+    // na mesma resposta era o que fazia o gráfico de curtidas demorar 5s para
+    // aparecer. Se esta falhar, a tela continua: os cartões que dependem dela
+    // mostram travessão, e nenhum aviso é aceso por isso.
+    // A janela anterior, do mesmo tamanho: é ela que dá sentido à variação
+    // percentual ao lado de cada número. Custa outra chamada à metade barata.
+    const previous = previousPeriodRange(range);
+    const previousParams = new URLSearchParams(params);
+    previousParams.set('start', previous.startDate);
+    previousParams.set('end', previous.endDate);
+    fetch(`/api/dashboard/analytics-v2?${previousParams}`, { cache: 'no-store', signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({})) as { analytics?: DashboardV2Section<DashboardV2Analytics> };
+        if (!response.ok || !payload.analytics?.data) throw new Error('sem período anterior');
+        setV2Previous(payload.analytics.data);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setV2Previous(null);
+      });
+
+    // Período de UM dia (Hoje, Ontem) renderiza um ponto só — o que é um
+    // gráfico inútil. Os números continuam sendo os do dia escolhido; o desenho
+    // passa a mostrar a semana que termina nele, para o ponto de hoje ter
+    // contra o que ser lido. O rótulo do gráfico diz isso.
+    const singleDay = range.startDate === range.endDate;
+    if (singleDay) {
+      const chartParams = new URLSearchParams(params);
+      chartParams.set('start', shiftDay(range.endDate, -6));
+      chartParams.set('end', range.endDate);
+      fetch(`/api/dashboard/analytics-v2?${chartParams}`, { cache: 'no-store', signal: controller.signal })
+        .then(async (response) => {
+          const payload = await response.json().catch(() => ({})) as { analytics?: DashboardV2Section<DashboardV2Analytics> };
+          if (!response.ok || !payload.analytics?.data) throw new Error('sem janela do gráfico');
+          setV2ChartWindow(payload.analytics.data);
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setV2ChartWindow(null);
+        });
+    } else {
+      setV2ChartWindow(null);
+    }
+
+    const operationParams = new URLSearchParams(params);
+    operationParams.delete('metric');
+    fetch(`/api/dashboard/operations-v2?${operationParams}`, { cache: 'no-store', signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({})) as { operations?: DashboardV2Operations };
+        if (!response.ok || !payload.operations) throw new Error('Operações indisponíveis.');
+        setV2Operations(payload.operations);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setV2Operations(null);
+      });
+
     return () => controller.abort();
   }, [analyticsRevision, data.version, selectedGroupId, selectedMetric, selectedPeriod, selectedPlatform, selectedProfileId, selectedSource]);
 
@@ -257,15 +344,9 @@ export default function DashboardClient({
   const followersDelta = useMemo(() => filteredFollowerHistory.reduce((sum, point) => sum + point.followers_gained - point.followers_lost, 0), [filteredFollowerHistory]);
 
   const engagementRate = dailyTotals.reach > 0 ? (dailyTotals.interactions / dailyTotals.reach) * 100 : 0;
-  const topPost = useMemo(() => [...filteredPosts].sort((a, b) => (
-    postMetricValue(b, selectedMetric) - postMetricValue(a, selectedMetric)
-    || b.total_interactions - a.total_interactions
-  ))[0], [filteredPosts, selectedMetric]);
   // Publicações são uma métrica operacional: contam itens efetivamente
   // publicados no Athena, e não o postCount parcial retornado pela analytics.
   const postsThisPeriod = publishedItemsThisPeriod.length;
-  const postsPerPlatform = [{ label: 'Instagram', value: postsThisPeriod }];
-  const postsOverTime = buildPublishedItemTimeSeries(publishedItemsThisPeriod);
   const metricPerSource = [
     { label: 'API oficial', value: filteredDailyMetrics.filter((item) => profileProvider(data, item.profile_id) === 'meta_official').reduce((sum, item) => sum + dailyMetricValue(item, selectedMetric), 0) },
     { label: 'Integração externa', value: filteredDailyMetrics.filter((item) => profileProvider(data, item.profile_id) === 'zernio').reduce((sum, item) => sum + dailyMetricValue(item, selectedMetric), 0) },
@@ -276,36 +357,38 @@ export default function DashboardClient({
       .filter((item) => group.profile_ids.includes(item.profile_id))
       .reduce((sum, item) => sum + dailyMetricValue(item, selectedMetric), 0),
   })), [data.analytics.groups, filteredDailyMetrics, selectedMetric]);
-  const metricOverTime = buildDailyMetricTimeSeries(filteredDailyMetrics, selectedMetric);
-  const followerSeries = buildFollowerSeries(filteredFollowerHistory);
   const rankingValues = useMemo(() => dailyMetricRanking(filteredDailyMetrics, filteredProfiles.map((profile) => profile.id), selectedMetric), [filteredDailyMetrics, filteredProfiles, selectedMetric]);
   const profileRanking = useMemo(() => filteredProfiles.map((profile) => ({
     profile,
     value: rankingValues.get(profile.id) ?? 0,
   })).sort((a, b) => b.value - a.value || a.profile.username.localeCompare(b.profile.username)).slice(0, 10), [filteredProfiles, rankingValues]);
-  const bestHours = buildBestHours(filteredPosts);
-  const sourceHealth = filteredProfiles.map((profile) => {
-    const snapshot = filteredSnapshots.find((item) => item.profile_id === profile.id);
-    return { profile, status: snapshot?.sync_status ?? 'pending' };
-  });
+  // O cartão de saúde mostra QUEM está com problema, não os oito primeiros em
+  // ordem alfabética. Desde a migration 383 o bootstrap manda só a lista de
+  // atenção (no máximo 60) e a contagem por situação — perfil ausente daqui
+  // está sincronizado, e presumir "pendente" pela ausência seria acender alarme
+  // falso em toda a frota.
+  const sourceHealth = useMemo(() => {
+    const statusByProfile = new Map(filteredSnapshots.map((snapshot) => [snapshot.profile_id, snapshot.sync_status]));
+    return filteredProfiles
+      .filter((profile) => {
+        const status = statusByProfile.get(profile.id);
+        return status !== undefined && status !== 'synced';
+      })
+      .map((profile) => ({ profile, status: statusByProfile.get(profile.id)! }));
+  }, [filteredProfiles, filteredSnapshots]);
   const effectiveDailyTotals = v2Analytics?.kpis ?? dailyTotals;
   const effectiveFollowersTotal = v2Analytics?.kpis.followers_total ?? followersTotal;
   const effectiveFollowersDelta = v2Analytics?.kpis.followers_delta ?? followersDelta;
   const effectiveEngagementRate = v2Analytics?.kpis.engagement_rate ?? engagementRate;
-  const effectivePostsThisPeriod = v2Analytics?.kpis.posts ?? postsThisPeriod;
+  const effectivePostsThisPeriod = v2Operations?.posts ?? v2Analytics?.kpis.posts ?? postsThisPeriod;
+  // "Ainda não sei" só vale enquanto NENHUMA das duas metades trouxe o número.
+  // Antes da migration 382 ele vem junto com os agregados, e nesse caso mostrar
+  // travessão seria esconder um dado que já está na mão.
+  const postsUnknown = data.version === 'v2' && !v2Operations && v2Analytics?.kpis.posts === undefined;
   const effectiveMetricPerSource = v2Analytics
     ? v2Analytics.metric_per_source.map((item) => ({ label: item.label === 'meta_official' ? 'API oficial' : item.label === 'zernio' ? 'Integração externa' : item.label, value: item.value }))
     : metricPerSource;
   const effectiveMetricPerGroup = v2Analytics?.metric_per_group ?? metricPerGroup;
-  const effectiveMetricOverTime = v2Analytics
-    ? v2Analytics.metric_series.map((point) => ({ label: point.date.slice(5), value: point.value }))
-    : metricOverTime;
-  const effectivePostsOverTime = v2Analytics
-    ? v2Analytics.post_series.map((point) => ({ label: point.date.slice(5), value: point.value }))
-    : postsOverTime;
-  const effectiveFollowerSeries = v2Analytics
-    ? v2Analytics.follower_series.map((point) => ({ label: point.date.slice(5), value: point.value }))
-    : followerSeries;
   const effectiveProfileRanking = v2Analytics
     ? v2Analytics.ranking.map((item) => ({
       profile: data.analytics.profiles.find((profile) => profile.id === item.profile_id) ?? {
@@ -316,97 +399,243 @@ export default function DashboardClient({
         status: 'no_data',
       },
       value: item.value,
+      removed: item.removed === true,
     }))
     : profileRanking;
   const effectiveTopPosts = data.version === 'v2' ? v2TopPosts : filteredPosts;
-  const effectiveStatusRollups = v2Analytics?.publication_status;
-  const effectiveFormatRollups = v2Analytics?.publication_format;
-  // Uma fração única ("598/1105") tratava "publicou e não coletamos", "não
-  // publicou nada" e "hoje ainda está maturando" como o mesmo alarme.
-  // Ver lib/dashboard/coverage-notes.ts.
-  const v2CoverageNotes = useMemo(() => dashboardCoverageNotes({
-    coverage: v2Analytics?.coverage,
+  const effectiveStatusRollups = v2Operations?.publication_status ?? v2Analytics?.publication_status;
+  const effectiveFormatRollups = v2Operations?.publication_format ?? v2Analytics?.publication_format;
+  const previousRange = useMemo(() => previousPeriodRange(periodRange), [periodRange]);
+  const previousPeriodLabel = previousRange.startDate === previousRange.endDate
+    ? formatShortDate(previousRange.startDate)
+    : `${formatShortDate(previousRange.startDate)}–${formatShortDate(previousRange.endDate)}`;
+
+  /**
+   * A série de cada métrica.
+   *
+   * Desde a migration 382 a resposta traz TODAS as métricas de uma vez
+   * (`series_by_metric`), então trocar de aba redesenha o gráfico na hora, sem
+   * ir ao servidor. Os `??` cobrem o intervalo entre o deploy do app e o da
+   * migração, e o modo de contingência (v1), que agrega no próprio navegador.
+   */
+  const chartSource = v2ChartWindow ?? v2Analytics;
+  const seriesFor = (metric: DashboardMetric) => chartSource?.series_by_metric?.[metric]
+    ?? (metric === selectedMetric ? chartSource?.metric_series : undefined)
+    ?? dailyDateSeries(filteredDailyMetrics, metric);
+
+  const chartSeries: ChartSeries[] = useMemo(() => {
+    if (selectedTab === 'followers') {
+      return [{ key: 'followers', label: 'Seguidores', color: SERIES_COLORS.primary, points: chartSource?.follower_series ?? [] }];
+    }
+    if (selectedTab === 'posts') {
+      return [{ key: 'posts', label: 'Publicações', color: SERIES_COLORS.primary, points: v2Operations?.post_series ?? [] }];
+    }
+    if (selectedTab === 'reach') {
+      return [
+        { key: 'reach', label: 'Alcance', color: SERIES_COLORS.primary, points: seriesFor('reach') },
+        { key: 'views', label: 'Visualizações', color: SERIES_COLORS.secondary, points: seriesFor('views') },
+      ];
+    }
+    return [{ key: selectedTab, label: metricLabel(selectedTab), color: SERIES_COLORS.primary, points: seriesFor(selectedTab) }];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTab, chartSource, v2Operations, filteredDailyMetrics, selectedMetric]);
+
+  const tabValue = (key: DashboardTabKey, totals = effectiveDailyTotals, followers = effectiveFollowersTotal) => {
+    if (key === 'reach') return totals.reach;
+    if (key === 'followers') return followers;
+    if (key === 'posts') return effectivePostsThisPeriod;
+    return totals[key];
+  };
+
+  /**
+   * Sem NENHUMA linha de métrica no período, o número é desconhecido — não é
+   * zero. Mostrar "0" ali afirma que os posts do dia não tiveram visualização,
+   * que é uma conclusão que a tela não tem como sustentar.
+   */
+  const metricsUnknown = data.version === 'v2'
+    && Boolean(v2Analytics)
+    && v2Analytics!.coverage.profiles_with_metrics === 0;
+
+  const tabHeadline = (key: DashboardTabKey) => {
+    if (key === 'posts') return postsUnknown ? '—' : formatCompact(effectivePostsThisPeriod);
+    // Seguidores vêm da foto diária, não da métrica de post: eles continuam
+    // válidos mesmo quando a janela não tem insight nenhum.
+    if (key === 'followers') return formatCompact(tabValue(key));
+    if (metricsUnknown) return '—';
+    if (key === 'reach') return `${formatCompact(effectiveDailyTotals.reach)} · ${formatCompact(effectiveDailyTotals.views)}`;
+    return formatCompact(tabValue(key));
+  };
+
+  // Sem número anterior não há variação — e inventar "+100%" contra zero seria
+  // pior do que não mostrar nada. Posts ficam de fora porque a contagem vem da
+  // metade cara, e buscá-la duas vezes pagaria caro por um enfeite.
+  const tabDelta = useMemo(() => {
+    if (selectedTab === 'posts' || !v2Previous) return null;
+    if (metricsUnknown && selectedTab !== 'followers') return null;
+    const previous = tabValue(selectedTab, v2Previous.kpis, v2Previous.kpis.followers_total);
+    if (!previous) return null;
+    return ((tabValue(selectedTab) - previous) / previous) * 100;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTab, v2Previous, metricsUnknown, effectiveDailyTotals, effectiveFollowersTotal, effectivePostsThisPeriod]);
+
+  const coverageStatus = useMemo(() => dashboardCoverageStatus({
+    // A cobertura tem uma perna em cada metade: quantos perfis têm métrica vem
+    // dos agregados, e quantos publicaram sem receber métrica vem da fila.
+    coverage: v2Analytics?.coverage && {
+      ...v2Analytics.coverage,
+      profiles_with_publications: v2Operations?.profiles_with_publications ?? v2Analytics.coverage.profiles_with_publications,
+      profiles_pending_collection: v2Operations?.profiles_pending_collection ?? v2Analytics.coverage.profiles_pending_collection,
+    },
     periodEndDate: periodRange.endDate,
     todayDate: saoPauloDateKey(),
-    // Os perfis já filtrados pela seleção da tela: o aviso de capacidade fala
-    // do escopo que o operador está olhando, não da organização inteira.
+    // Os perfis já filtrados pela seleção da tela: a capacidade fala do escopo
+    // que o operador está olhando, não da organização inteira.
     profiles: filteredProfiles,
-  }), [filteredProfiles, periodRange.endDate, v2Analytics]);
+  }), [filteredProfiles, periodRange.endDate, v2Analytics, v2Operations]);
+
+  /**
+   * A tela mostra UMA linha de estado, nunca uma pilha.
+   *
+   * A ordem é a da urgência: erro de carregamento antes de tudo, porque nada
+   * abaixo dele é confiável; depois a cobertura. "Carregando" virou barra fina
+   * no cabeçalho, e o estado da coleta virou o indicador ao lado dos botões —
+   * cada coisa no peso que merece.
+   */
+  const statusLine: DashboardCoverageNote | null = selectedPlatform !== 'instagram'
+    ? null
+    : v2Error
+      ? { tone: 'alert', message: `${v2Error} Os cartões operacionais continuam válidos.` }
+      : data.version === 'v1'
+        ? { tone: 'alert', message: 'Analytics em contingência: períodos longos podem ter cobertura parcial.' }
+        : coverageStatus.note;
 
   return (
-    <section className="analytics-page">
+    <section className="analytics-page dash-page">
       <header className="analytics-page-header">
         <div>
-          <h1>Análises</h1>
-          <p>{activeOrganization.name} · desempenho, conteúdo, caixa de entrada e saúde operacional.</p>
+          <h1>Dashboard {v2Loading && <span className="analytics-header-spinner" role="status" aria-label="Carregando indicadores" />}</h1>
+          <p>
+            {activeOrganization.name}
+            {coverageStatus.capacity && (
+              <>
+                {' · '}
+                <span
+                  className="analytics-capacity-chip"
+                  title={`${coverageStatus.capacity.offline} perfis aguardam reconexão pela API da Meta. O histórico deles continua somando nos números desta tela — o que muda é a capacidade de publicar agora.`}
+                >
+                  <strong>{formatCompact(coverageStatus.capacity.online)}</strong> de {formatCompact(coverageStatus.capacity.total)} publicando
+                </span>
+              </>
+            )}
+          </p>
         </div>
+        {/* Ícone e nada mais. Os dois botões viviam no canto superior direito com
+            texto de até 22 caracteres cada — "↻ Atualizar dados desatualizados"
+            e "＋ Nova postagem" —, ocupando um quinto da largura do cabeçalho
+            para duas ações que qualquer um reconhece pelo símbolo. O nome
+            continua acessível: `title` para quem passa o mouse e `aria-label`
+            para leitor de tela. */}
         <div className="analytics-page-actions">
-          {selectedPlatform === 'twitter' ? <button className="button button-ghost" type="button" onClick={() => window.location.assign('/x/analises')}>Abrir Análises X</button> : <button className="button button-ghost" type="button" onClick={() => void requestMetricsRefresh('manual')} disabled={Boolean(activeRefreshJobId)}>{activeRefreshJobId ? 'Atualizando dados recentes…' : selectedProfileId !== 'all' ? '↻ Atualizar perfil' : selectedGroupId !== 'all' ? '↻ Atualizar grupo' : '↻ Atualizar dados desatualizados'}</button>}
-          <button className="button button-primary" type="button" onClick={() => window.location.assign(selectedPlatform === 'twitter' ? '/x/postagem' : '/postagem')}>＋ Nova postagem</button>
+          {statusLine && <StatusChip note={statusLine} />}
+          {selectedPlatform === 'twitter'
+            ? <IconButton label="Abrir Análises X" icon="activity" onClick={() => window.location.assign('/x/analises')} />
+            : <CollectionIndicator status={collection} />}
+          <IconButton label="Nova postagem" icon="plus" primary onClick={() => window.location.assign(selectedPlatform === 'twitter' ? '/x/postagem' : '/postagem')} />
         </div>
       </header>
 
-      {refreshMessage && <div className="analytics-refresh-status" role="status">{refreshMessage}</div>}
-      {selectedPlatform === 'instagram' && data.version === 'v1' && <div className="analytics-refresh-status" role="alert">Analytics em modo de contingência. Os dias mais recentes permanecem visíveis, mas períodos extensos podem ter cobertura parcial.</div>}
-      {selectedPlatform === 'instagram' && data.version === 'v2' && v2Loading && <div className="analytics-refresh-status" role="status">Carregando agregados do filtro…</div>}
-      {selectedPlatform === 'instagram' && data.version === 'v2' && v2Error && <div className="analytics-refresh-status" role="alert">{v2Error} O resumo operacional continua disponível.</div>}
-      {selectedPlatform === 'instagram' && data.version === 'v2' && v2CoverageNotes.map((note) => (
-        <div key={note.message} className="analytics-refresh-status" role={note.tone === 'alert' ? 'alert' : 'status'}>{note.message}</div>
-      ))}
 
-      <section className="analytics-filter-panel analytics-filter-panel-compact panel" aria-label="Filtros de analytics">
-        <label>Plataforma<select value={selectedPlatform} onChange={(event) => { setSelectedPlatform(event.target.value); setSelectedProfileId('all'); setSelectedGroupId('all'); setTwitterConnectionId('all'); }}><option value="instagram">Instagram</option>{twitterEnabled?<option value="twitter">X / Twitter</option>:null}</select></label>
-        {selectedPlatform==='instagram'?<><label>Perfil<select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}><option value="all">Todos os perfis</option>{data.analytics.profiles.map((profile) => <option key={profile.id} value={profile.id}>@{profile.username}</option>)}</select></label>
-        <label>Fonte<select value={selectedSource} onChange={(event) => setSelectedSource(event.target.value)}><option value="all">Todas as fontes</option><option value="meta_official">API oficial</option><option value="zernio">Integração externa</option></select></label>
-        <label>Grupo<select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)}><option value="all">Todos os grupos</option>{data.analytics.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-        <label>Período<select value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}><option value="1">Hoje</option><option value="2">Ontem</option><option value="3">Anteontem</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="180">Últimos 6 meses</option><option value="365">Último ano</option></select></label></>:<><label>Zernio<select value={twitterConnectionId} onChange={(event) => { setTwitterConnectionId(event.target.value); setSelectedProfileId('all'); }}><option value="all">Todas as Zernios</option>{twitterDashboard?.filters.connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.label}{connection.analytics_enabled ? '' : ' · desligada'}</option>)}</select></label><label>Perfil<select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}><option value="all">Todos os perfis</option>{twitterDashboard?.filters.profiles.map((profile) => <option key={profile.id} value={profile.id}>@{profile.username}</option>)}</select></label><label>Grupo<select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)}><option value="all">Todos os grupos</option>{twitterDashboard?.filters.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><label>Período<select value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)}><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option><option value="180">Últimos 6 meses</option><option value="365">Último ano</option></select></label><label>Métrica<select value={twitterMetric} onChange={(event) => setTwitterMetric(event.target.value as TwitterMetric)}><option value="engagement">Engajamento</option><option value="impressions">Impressões</option><option value="views">Visualizações</option><option value="likes">Curtidas</option><option value="comments">Comentários</option><option value="shares">Compartilhamentos</option></select></label></>}
+      <section className="dash-toolbar" aria-label="Filtros da dashboard">
+        <div className="dash-pills" role="group" aria-label="Período">
+          {(selectedPlatform === 'instagram' ? INSTAGRAM_PERIODS : TWITTER_PERIODS).map((period) => (
+            <button
+              key={period.value}
+              type="button"
+              className={period.value === selectedPeriod ? 'dash-pill dash-pill-active' : 'dash-pill'}
+              aria-pressed={period.value === selectedPeriod}
+              title={period.value === '1' ? DASHBOARD_TODAY_HINT : undefined}
+              onClick={() => setSelectedPeriod(period.value)}
+            >{period.label}</button>
+          ))}
+        </div>
+
+        <div className="dash-selects">
+          {twitterEnabled && (
+            <select aria-label="Plataforma" value={selectedPlatform} onChange={(event) => { const platform = event.target.value; setSelectedPlatform(platform); setSelectedProfileId('all'); setSelectedGroupId('all'); setTwitterConnectionId('all'); if (platform === 'twitter' && Number(selectedPeriod) < 7) setSelectedPeriod('7'); }}>
+              <option value="instagram">Instagram</option>
+              <option value="twitter">X / Twitter</option>
+            </select>
+          )}
+          {selectedPlatform === 'instagram' ? <>
+            <select aria-label="Perfil" value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}><option value="all">Todos os perfis</option>{data.analytics.profiles.map((profile) => <option key={profile.id} value={profile.id}>@{profile.username}</option>)}</select>
+            <select aria-label="Grupo" value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)}><option value="all">Todos os grupos</option>{data.analytics.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
+            <select aria-label="Fonte" value={selectedSource} onChange={(event) => setSelectedSource(event.target.value)}><option value="all">Todas as fontes</option><option value="meta_official">API da Meta</option><option value="zernio">Integração externa</option></select>
+          </> : <>
+            <select aria-label="Zernio" value={twitterConnectionId} onChange={(event) => { setTwitterConnectionId(event.target.value); setSelectedProfileId('all'); }}><option value="all">Todas as Zernios</option>{twitterDashboard?.filters.connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.label}{connection.analytics_enabled ? '' : ' · desligada'}</option>)}</select>
+            <select aria-label="Perfil" value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)}><option value="all">Todos os perfis</option>{twitterDashboard?.filters.profiles.map((profile) => <option key={profile.id} value={profile.id}>@{profile.username}</option>)}</select>
+            <select aria-label="Grupo" value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)}><option value="all">Todos os grupos</option>{twitterDashboard?.filters.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
+            <select aria-label="Métrica" value={twitterMetric} onChange={(event) => setTwitterMetric(event.target.value as TwitterMetric)}><option value="engagement">Engajamento</option><option value="impressions">Impressões</option><option value="views">Visualizações</option><option value="likes">Curtidas</option><option value="comments">Comentários</option><option value="shares">Compartilhamentos</option></select>
+          </>}
+        </div>
       </section>
 
-      {selectedPlatform === 'twitter' ? <TwitterDashboard dashboard={twitterDashboard} loading={twitterLoading} error={twitterLocalError} metric={twitterMetric} period={periodLabel(periodDays)} /> : <><section className="analytics-kpi-strip" aria-label="Indicadores de análise de postagens">
-        <KpiCard label="Taxa de engajamento" value={`${effectiveEngagementRate.toFixed(1)}%`} />
-        <KpiCard label="Alcance total" value={formatCompact(effectiveDailyTotals.reach)} icon="◉" />
-        <KpiCard label="Seguidores totais" value={formatCompact(effectiveFollowersTotal)} icon="♙" caption={`${effectiveFollowersDelta >= 0 ? '+' : ''}${formatCompact(effectiveFollowersDelta)} no período`} />
-        <KpiCard label="Posts no período" value={String(effectivePostsThisPeriod)} icon="▤" />
-        <KpiCard label="Visualizações totais" value={formatCompact(effectiveDailyTotals.views)} icon="▷" />
+      {selectedPlatform === 'twitter' ? <TwitterDashboard dashboard={twitterDashboard} loading={twitterLoading} error={twitterLocalError} metric={twitterMetric} period={periodLabel(periodDays)} /> : <>
+      {/* O bloco principal: as abas SÃO os indicadores, e clicar numa delas
+          troca o gráfico inteiro. A tela antiga tinha um seletor de métrica
+          dentro de cada cartão, então trocar de métrica exigia repetir a
+          escolha em cada um — e os cartões discordavam entre si. */}
+      <section className="dash-metrics" aria-label="Indicadores">
+        <div className="dash-tabs" role="tablist" aria-label="Métrica exibida no gráfico">
+          {DASH_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={tab.key === selectedTab}
+              className={tab.key === selectedTab ? 'dash-tab dash-tab-active' : 'dash-tab'}
+              onClick={() => { setSelectedTab(tab.key); if (tab.metric) setSelectedMetric(tab.metric); }}
+            >
+              <span>{tab.label}</span>
+              <strong>{tabHeadline(tab.key)}</strong>
+            </button>
+          ))}
+        </div>
+
+        <div className="dash-chart-panel">
+          <div className="dash-chart-head">
+            <div className="dash-chart-headline">
+              <strong>{tabHeadline(selectedTab)}</strong>
+              {tabDelta !== null && (
+                <em className={tabDelta >= 0 ? 'dash-delta dash-delta-up' : 'dash-delta dash-delta-down'}>
+                  {tabDelta >= 0 ? '▲' : '▼'} {Math.abs(tabDelta).toFixed(1)}%
+                </em>
+              )}
+              <small>{tabDelta === null ? 'sem período anterior para comparar' : `vs. ${previousPeriodLabel}`}</small>
+            </div>
+            <div className="dash-legend">
+              {v2ChartWindow && <span className="dash-legend-note">gráfico: últimos 7 dias</span>}
+              {chartSeries.map((serie) => <span key={serie.key}><i style={{ background: serie.color }} />{serie.label}</span>)}
+            </div>
+          </div>
+          <DashboardAreaChart
+            series={chartSeries}
+            baseline={selectedTab === 'followers' ? 'auto' : 'zero'}
+            empty={selectedTab === 'posts' && postsUnknown ? 'Carregando publicações…' : 'Sem dados coletados neste período'}
+          />
+        </div>
       </section>
 
-      <section className="analytics-board" aria-label="Análise de postagens">
-        <ProfileRankingCard items={effectiveProfileRanking} metric={selectedMetric} period={periodLabel(periodDays)} action={<MetricSelector value={selectedMetric} onChange={setSelectedMetric} />} />
-        <ChartCard title="Posts por plataforma" subtitle="Posts nesta janela" items={[{ label: 'Instagram', value: effectivePostsThisPeriod }]} empty="Nenhum post ainda" />
-        <TimeSeriesCard title="Posts ao longo do tempo" subtitle={`Posts por semana · ${periodLabel(periodDays).toLowerCase()}`} points={effectivePostsOverTime} empty="Nenhum post ainda" />
-         <ChartCard title={`${metricLabel(selectedMetric)} por fonte`} subtitle={`${metricLabel(selectedMetric)} no período selecionado`} items={effectiveMetricPerSource} empty={`Sem dados de ${metricLabel(selectedMetric).toLowerCase()} ainda`} action={<MetricSelector value={selectedMetric} onChange={setSelectedMetric} />} />
-         <ChartCard title={`${metricLabel(selectedMetric)} por grupo`} subtitle={`${metricLabel(selectedMetric)} no período selecionado`} items={effectiveMetricPerGroup} empty={`Sem dados de ${metricLabel(selectedMetric).toLowerCase()} por grupo ainda`} />
-        <TimeSeriesCard title={`${metricLabel(selectedMetric)} ao longo do tempo`} subtitle={`${metricLabel(selectedMetric)} no período selecionado`} points={effectiveMetricOverTime} empty={`Sem dados de ${metricLabel(selectedMetric).toLowerCase()} ainda`} />
-        <SkeletonInsightCard />
-        <BestHourCard items={bestHours} />
-        <FollowerHistoryCard points={effectiveFollowerSeries} />
+      <section className="dash-grid" aria-label="Detalhamento">
+        <RankingCard items={effectiveProfileRanking} metric={selectedMetric} />
+        <BreakdownCard title={`${metricLabel(selectedMetric)} por fonte`} items={effectiveMetricPerSource} empty="Sem dados no período" />
+        <BreakdownCard title={`${metricLabel(selectedMetric)} por grupo`} items={effectiveMetricPerGroup} empty="Nenhum grupo com dados no período" />
         <TopPostsCard posts={effectiveTopPosts} />
       </section>
 
-      <section className="analytics-section-title"><h2>Análise da caixa de entrada</h2><p>Mensagens, conversas, resposta e volume por horário quando uma fonte liberar dados de caixa de entrada.</p></section>
-      <section className="analytics-kpi-strip analytics-kpi-strip-six" aria-label="Indicadores de inbox">
-        <KpiCard label="Recebidas" value="0" icon="✉" />
-        <KpiCard label="Enviadas" value="0" icon="↗" />
-        <KpiCard label="Lidas" value="0" icon="◎" />
-        <KpiCard label="Falhas" value="0" icon="△" />
-        <KpiCard label="Conversas" value="0" icon="◌" />
-        <KpiCard label="Resposta mediana" value="—" icon="◷" />
-      </section>
-
-      <section className="analytics-board" aria-label="Análise da caixa de entrada">
-        <TimeSeriesCard title="Mensagens ao longo do tempo" subtitle="Recebidas vs enviadas vs lidas por dia" points={[]} empty="Sem dados de caixa de entrada nesta janela" />
-        <ChartCard title="Mensagens por plataforma" subtitle="Sem dados nesta janela" items={[{ label: 'Instagram', value: 0 }]} empty="Sem mensagens por plataforma ainda" />
-        <EmptyPanel title="Tempo de resposta" subtitle="Tempo até enviar a primeira resposta depois de uma mensagem recebida" empty="Nenhuma conversa pareada ainda" />
-        <EmptyPanel title="Principais contas por volume" subtitle="Contas conectadas ordenadas pelo total de mensagens nesta janela" empty="Sem dados nesta janela" />
-        <EmptyPanel title="Saídas por fonte" subtitle="Mensagens enviadas agrupadas por fonte" empty="Sem mensagens enviadas nesta janela" />
-        <HeatmapPanel />
-      </section>
-
-      <section className="analytics-section-title"><h2>Operação e conteúdo</h2><p>Resumo operacional no fim da tela, sem travar ranking nem roubar espaço dos gráficos.</p></section>
-      <section className="analytics-board analytics-board-compact" aria-label="Operação e conteúdo">
-        <ChartCard title="Publicações por status" subtitle="Agenda interna" items={effectiveStatusRollups ? publicationStatusItemsV2(effectiveStatusRollups) : publicationStatusItems(filteredPublicationRollups)} empty="Nenhuma publicação no filtro" />
-        <ChartCard title="Publicações por formato" subtitle="Imagem, reel, story e carrossel" items={effectiveFormatRollups ? publicationFormatItemsV2(effectiveFormatRollups) : publicationFormatItems(filteredPublicationRollups)} empty="Nenhum formato no filtro" />
-        <SourceHealthCard items={sourceHealth} unavailable={data.summary.analyticsUnavailableProfiles} failedPublications={data.review.failedPublications} />
+      <section className="dash-grid dash-grid-ops" aria-label="Operação">
+        <BreakdownCard title="Publicações por situação" items={effectiveStatusRollups ? publicationStatusItemsV2(effectiveStatusRollups) : publicationStatusItems(filteredPublicationRollups)} empty="Nenhuma publicação no filtro" />
+        <BreakdownCard title="Publicações por formato" items={effectiveFormatRollups ? publicationFormatItemsV2(effectiveFormatRollups) : publicationFormatItems(filteredPublicationRollups)} empty="Nenhum formato no filtro" />
+        <SourceHealthCard items={sourceHealth} counts={data.analytics.stateCounts} unavailable={data.summary.analyticsUnavailableProfiles} failedPublications={data.review.failedPublications} />
         <ScheduleCard data={data} />
       </section>
       </>}
@@ -464,64 +693,199 @@ function twitterMetricLabel(metric: TwitterMetric) {
   return ({ impressions: 'Impressões', views: 'Visualizações', likes: 'Curtidas', comments: 'Comentários', shares: 'Compartilhamentos', engagement: 'Engajamento' })[metric];
 }
 
-function KpiCard({ label, value, icon, caption }: { label: string; value: string; icon?: string; caption?: string }) {
-  return <article className="analytics-kpi-card"><span>{label}</span><strong>{icon && <em>{icon}</em>}{value}</strong>{caption && <small>{caption}</small>}</article>;
+
+
+function RankingCard({ items, metric }: { items: Array<{ profile: DashboardData['analytics']['profiles'][number]; value: number; removed?: boolean }>; metric: DashboardMetric }) {
+  const top = items.filter((item) => item.value > 0).slice(0, 8);
+  const max = Math.max(1, ...top.map((item) => item.value));
+  return <article className="dash-card"><h3>Perfis com mais {metricLabel(metric).toLowerCase()}</h3>{top.length
+    ? <div className="dash-rank">{top.map((item, index) => {
+      // Perfil removido continua no ranking porque o que ele entregou aconteceu
+      // (migration 386) — mas sem link: o @ não abre mais, e um link morto faz
+      // o operador concluir que a tela está quebrada.
+      const conteudo = <>
+        <b>{index + 1}</b>
+        <span>@{item.profile.username}{item.removed && <i className="dash-rank-gone">removido</i>}</span>
+        <em><i style={{ width: `${Math.max(2, (item.value / max) * 100)}%` }} /></em>
+        <strong>{formatCompact(item.value)}</strong>
+      </>;
+      return item.removed
+        ? <div key={item.profile.id} className="dash-rank-inactive" title="Perfil removido — o histórico dele continua contando nos números acima">{conteudo}</div>
+        : <a key={item.profile.id} href={instagramProfileUrl(item.profile.username)} target="_blank" rel="noreferrer">{conteudo}</a>;
+    })}</div>
+    : <p className="dash-card-empty">Nenhum perfil com {metricLabel(metric).toLowerCase()} neste período</p>}</article>;
 }
 
-function MetricSelector({ value, onChange }: { value: DashboardMetric; onChange: (value: DashboardMetric) => void }) {
-  return <select className="analytics-card-select" value={value} onChange={(event) => onChange(event.target.value as DashboardMetric)}><option value="likes">Curtidas</option><option value="comments">Comentários</option><option value="views">Visualizações</option><option value="reach">Alcance</option><option value="shares">Compartilhamentos</option><option value="saves">Salvos</option><option value="interactions">Interações</option></select>;
+/**
+ * Barra horizontal com rótulo, valor e participação.
+ *
+ * O cartão antigo desenhava a barra e escondia o quanto ela representava, então
+ * "Instagram 1,2 mil" não dizia se era tudo ou um terço. A porcentagem à
+ * direita responde isso sem ocupar mais uma linha.
+ */
+function BreakdownCard({ title, items, empty }: { title: string; items: Array<{ label: string; value: number }>; empty: string }) {
+  const ordered = [...items].sort((left, right) => right.value - left.value).slice(0, 6);
+  const max = Math.max(1, ...ordered.map((item) => item.value));
+  const total = ordered.reduce((sum, item) => sum + item.value, 0);
+  return <article className="dash-card"><h3>{title}</h3>{ordered.some((item) => item.value > 0)
+    ? <div className="dash-bars">{ordered.map((item) => <div key={item.label} title={`${item.label}: ${item.value.toLocaleString('pt-BR')}`}>
+      <span>{item.label}</span>
+      <em><i style={{ width: `${Math.max(2, (item.value / max) * 100)}%` }} /></em>
+      <strong>{formatCompact(item.value)}</strong>
+      <small>{total > 0 ? `${Math.round((item.value / total) * 100)}%` : '—'}</small>
+    </div>)}</div>
+    : <p className="dash-card-empty">{empty}</p>}</article>;
 }
 
-function ProfileRankingCard({ items, metric, period, action }: { items: Array<{ profile: DashboardData['analytics']['profiles'][number]; value: number }>; metric: DashboardMetric; period: string; action: ReactNode }) {
-  return <article className="analytics-card analytics-card-wide"><header><div><h3>Ranking de perfis por {metricLabel(metric).toLowerCase()}</h3><p>Top 10 · {period}</p></div>{action}</header>{items.length ? <div className="analytics-profile-ranking">{items.map((item, index) => <div key={item.profile.id}><strong>{index + 1}</strong><span><a href={instagramProfileUrl(item.profile.username)} target="_blank" rel="noreferrer">@{item.profile.username} <i aria-hidden="true">↗</i></a>{item.profile.display_name && <small>{item.profile.display_name}</small>}</span><em>{formatCompact(item.value)}</em></div>)}</div> : <div className="analytics-empty-center">Nenhum perfil no filtro selecionado</div>}</article>;
-}
 
-function ChartCard({ title, subtitle, items, empty, action }: { title: string; subtitle: string; items: Array<{ label: string; value: number }>; empty: string; action?: ReactNode }) {
-  const max = Math.max(1, ...items.map((item) => item.value));
-  const hasData = items.some((item) => item.value > 0);
-  return <article className="analytics-card analytics-card-tall"><header><div><h3>{title}</h3><p>{subtitle}</p></div>{action}</header>{hasData ? <div className="analytics-bar-list analytics-bar-list-large">{items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{formatCompact(item.value)}</strong><em style={{ width: `${Math.max(4, (item.value / max) * 100)}%` }} /></div>)}</div> : <div className="analytics-empty-center">{empty}</div>}</article>;
-}
 
-function TimeSeriesCard({ title, subtitle, points, empty }: { title: string; subtitle: string; points: Array<{ label: string; value: number }>; empty: string }) {
-  const max = Math.max(1, ...points.map((point) => point.value));
-  return <article className="analytics-card analytics-card-tall"><header><div><h3>{title}</h3><p>{subtitle}</p></div></header>{points.length ? <div className="analytics-line-area"><div className="analytics-line-grid" /><div className="analytics-spark-bars analytics-spark-bars-line">{points.map((point) => <div key={point.label} title={`${point.label}: ${point.value}`}><span style={{ height: `${Math.max(8, (point.value / max) * 100)}%` }} /><small>{point.label}</small></div>)}</div></div> : <div className="analytics-empty-center">{empty}</div>}</article>;
-}
 
-function SkeletonInsightCard() {
-  return <article className="analytics-card analytics-skeleton-card"><div>{Array.from({ length: 4 }, (_, column) => <section key={column}>{Array.from({ length: 6 }, (_, row) => <span key={row} />)}</section>)}</div><strong>Dados incrementais preparados</strong></article>;
-}
 
-function BestHourCard({ items }: { items: Array<{ label: string; value: number }> }) {
-  return <article className="analytics-card"><header><div><h3>Melhor horário para postar</h3><p>Janelas com maior amostra no filtro atual</p></div></header>{items.length ? <div className="best-hour-list">{items.map((item, index) => <div key={item.label}><strong>{index + 1}</strong><span>{item.label}</span><em>{item.value} posts</em></div>)}</div> : <div className="analytics-empty-center analytics-empty-left">Ainda não há dados suficientes. Publique mais para ver os melhores horários.</div>}</article>;
-}
-
-function FollowerHistoryCard({ points }: { points: Array<{ label: string; value: number }> }) {
-  return <article className="analytics-card"><header><div><h3>Histórico de seguidores</h3><p>Seguidores coletados ao longo do tempo</p></div></header>{points.length ? <TimeBars points={points} /> : <div className="analytics-empty-icon"><span>♙</span><strong>Sem dados disponíveis</strong><p>O histórico de seguidores aparecerá aqui quando os dados forem coletados.</p></div>}</article>;
+/**
+ * O número mostrado é o MESMO que ordenou a lista.
+ *
+ * Antes o cartão ordenava por curtidas (a métrica escolhida) e exibia
+ * visualizações, então a coluna aparecia fora de ordem — 1,1 mil, 813, 65,2
+ * mil — e a lista parecia quebrada quando estava certa.
+ */
+function topPostValue(post: DashboardData['analytics']['posts'][number] | DashboardV2TopPost) {
+  return 'metric_value' in post ? post.metric_value : post.views || post.total_interactions;
 }
 
 function TopPostsCard({ posts }: { posts: DashboardData['analytics']['posts'] | DashboardV2TopPost[] }) {
-  return <article className="analytics-card analytics-card-wide"><header><div><h3>Posts com melhor performance</h3><p>Posts com engajamento nesta janela</p></div></header>{posts.length ? <div className="analytics-post-ranking">{posts.slice(0, 8).map((post, index) => <article key={post.id}><span>{index + 1}</span>{post.thumbnail_url ? <img src={post.thumbnail_url} alt="" /> : <em>◌</em>}<div><strong>{post.content?.slice(0, 100) || post.media_type || 'Post'}</strong><small>{post.published_at ? new Date(post.published_at).toLocaleString('pt-BR') : 'Sem data'} · {statusLabel(post.sync_status)}</small></div><dl><div><dt>Visualizações</dt><dd>{formatCompact(post.views)}</dd></div><div><dt>Alcance</dt><dd>{formatCompact(post.reach)}</dd></div><div><dt>Eng.</dt><dd>{formatCompact(post.total_interactions)}</dd></div></dl>{post.platform_post_url && <a href={post.platform_post_url} target="_blank" rel="noreferrer">Abrir</a>}</article>)}</div> : <div className="analytics-empty-center">Nenhum post com engajamento nesta janela</div>}</article>;
+  return <article className="dash-card"><h3>Posts com melhor desempenho</h3>{posts.length
+    ? <div className="dash-posts">{posts.slice(0, 5).map((post) => <a key={post.id} href={post.platform_post_url ?? '#'} target="_blank" rel="noreferrer" className={post.platform_post_url ? undefined : 'dash-posts-nolink'}>
+      {post.thumbnail_url ? <img src={post.thumbnail_url} alt="" loading="lazy" /> : <i aria-hidden="true">▤</i>}
+      <span>
+        <strong>{post.content?.slice(0, 60) || post.media_type || 'Publicação'}</strong>
+        <small>{post.published_at ? new Date(post.published_at).toLocaleDateString('pt-BR') : 'sem data'}</small>
+      </span>
+      <b>{formatCompact(topPostValue(post))}</b>
+    </a>)}</div>
+    : <p className="dash-card-empty">Nenhum post com métrica coletada nesta janela</p>}</article>;
 }
 
-function EmptyPanel({ title, subtitle, empty }: { title: string; subtitle: string; empty: string }) {
-  return <article className="analytics-card analytics-card-tall"><header><div><h3>{title}</h3><p>{subtitle}</p></div></header><div className="analytics-empty-center">{empty}</div></article>;
-}
 
-function HeatmapPanel() {
-  return <article className="analytics-card analytics-card-tall"><header><div><h3>Quando as mensagens chegam</h3><p>Volume por dia da semana e hora</p></div></header><div className="analytics-heatmap analytics-heatmap-large">{Array.from({ length: 7 * 12 }, (_, index) => <span key={index} />)}</div><div className="analytics-empty-center analytics-empty-under">Ainda sem volume de mensagens</div></article>;
-}
 
-function SourceHealthCard({ items, unavailable, failedPublications }: { items: Array<{ profile: DashboardData['analytics']['profiles'][number]; status: string }>; unavailable: number; failedPublications: number }) {
-  return <article className="analytics-card"><header><div><h3>Saúde das fontes</h3><p>Permissões, coleta e falhas</p></div></header><div className="source-health-list source-health-list-compact">{items.slice(0, 8).map((item) => <article key={item.profile.id} className="source-health-row"><div><strong>@{item.profile.username}</strong><small>{sourceLabel(item.profile.provider)} · {item.profile.status}</small></div><span>{statusLabel(item.status)}</span></article>)}</div><div className="analytics-mini-summary"><span>Sem analytics: <strong>{unavailable}</strong></span><span>Falhas: <strong>{failedPublications}</strong></span></div></article>;
+/**
+ * Saúde das fontes sem barra de rolagem.
+ *
+ * A versão anterior listava perfil por perfil dentro de uma caixa rolável — a
+ * lista nunca cabia, e rolar dentro de um cartão para ver o oitavo de mil e
+ * quatrocentos não ajuda ninguém. Aqui o cartão resume por SITUAÇÃO (que é a
+ * pergunta real: tem algo quebrado?) e nomeia no máximo três exemplos.
+ */
+function SourceHealthCard({ items, counts, unavailable, failedPublications }: { items: Array<{ profile: DashboardData['analytics']['profiles'][number]; status: string }>; counts: Record<string, number>; unavailable: number; failedPublications: number }) {
+  const attention = Object.entries(counts)
+    .filter(([status]) => status !== 'synced')
+    .sort((left, right) => right[1] - left[1]);
+  return <article className="dash-card"><h3>Saúde das fontes</h3>
+    <div className="dash-health">
+      <div className="dash-health-top"><strong>{formatCompact(counts.synced ?? 0)}</strong><span>coletando normalmente</span></div>
+      {attention.length === 0
+        ? <p className="dash-card-empty">Nenhuma fonte pedindo atenção.</p>
+        : <ul>{attention.slice(0, 4).map(([status, value]) => <li key={status}><span>{statusLabel(status)}</span><b>{value}</b></li>)}</ul>}
+      {items.length > 0 && <small>{items.slice(0, 3).map((item) => `@${item.profile.username}`).join(', ')}{items.length > 3 ? ` +${items.length - 3}` : ''}</small>}
+    </div>
+    <div className="dash-card-foot"><span>Sem analytics <b>{unavailable}</b></span><span>Falhas <b>{failedPublications}</b></span></div>
+  </article>;
 }
 
 function ScheduleCard({ data }: { data: DashboardData }) {
-  return <article className="analytics-card"><header><div><h3>Agenda</h3><p>Fila e próximos posts</p></div></header><div className="summary-list"><div><span>Total de posts</span><strong>{data.summary.totalPosts}</strong></div><div><span>Publicados</span><strong>{data.summary.publishedPosts}</strong></div><div><span>Agendados</span><strong>{data.scheduled.total}</strong></div><div><span>Próximo horário</span><strong>{data.summary.nextScheduleAt ? new Date(data.summary.nextScheduleAt).toLocaleString('pt-BR') : '—'}</strong></div></div></article>;
+  return <article className="dash-card"><h3>Fila</h3><dl className="dash-facts">
+    <div><dt>Agendados</dt><dd>{formatCompact(data.scheduled.total)}</dd></div>
+    <div><dt>Publicados</dt><dd>{formatCompact(data.summary.publishedPosts)}</dd></div>
+    <div><dt>Total na agenda</dt><dd>{formatCompact(data.summary.totalPosts)}</dd></div>
+    <div><dt>Próximo horário</dt><dd>{data.summary.nextScheduleAt ? new Date(data.summary.nextScheduleAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</dd></div>
+  </dl></article>;
 }
 
-function TimeBars({ points }: { points: Array<{ label: string; value: number }> }) {
-  const max = Math.max(1, ...points.map((point) => point.value));
-  return <div className="analytics-spark-bars analytics-spark-bars-line">{points.map((point) => <div key={point.label} title={`${point.label}: ${point.value}`}><span style={{ height: `${Math.max(8, (point.value / max) * 100)}%` }} /><small>{point.label}</small></div>)}</div>;
+
+/**
+ * O estado da tela em um ícone.
+ *
+ * Era uma faixa amarela ocupando a largura inteira, acesa a maior parte do
+ * tempo — e um aviso permanente é indistinguível de decoração: some da vista em
+ * dois dias e continua roubando espaço. Aqui ele é um botão do tamanho dos
+ * outros, ao lado deles, com a cor dizendo o tom; o texto aparece ao passar o
+ * mouse ou ao focar pelo teclado.
+ *
+ * É `<button>` e não um `<span title="…">` de propósito: o `title` do navegador
+ * demora ~1s, não aceita quebra de linha e não abre no toque. Como botão, ele
+ * recebe foco (teclado) e clique (celular), e o balão é nosso.
+ */
+function StatusChip({ note }: { note: DashboardCoverageNote }) {
+  return <span className={`dash-status-chip dash-status-chip-${note.tone}`}>
+    <button type="button" aria-label={note.message}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#icon-alert" /></svg>
+    </button>
+    <span role={note.tone === 'alert' ? 'alert' : 'status'} className="dash-status-pop">{note.message}</span>
+  </span>;
+}
+
+/**
+ * O estado da coleta, sem botão.
+ *
+ * O "atualizar" saiu porque ele custava caro e não resolvia nada: cada clique
+ * varria a frota, e a pergunta real do operador é "esse número está fresco?".
+ * Aqui a resposta está sempre visível — girando durante a rodada, apagado fora
+ * dela — e o detalhe (progresso, horário da última, horário da próxima) fica no
+ * balão, onde não ocupa espaço de quem não perguntou.
+ */
+function CollectionIndicator({ status }: { status: CollectionStatus | null }) {
+  if (!status) return null;
+
+  const run = status.run;
+  const hoje = new Date().toISOString().slice(0, 10);
+  const rodadaDeHoje = run && run.slot_date === hoje ? run : null;
+  const emAndamento = Boolean(rodadaDeHoje && !rodadaDeHoje.finished_at);
+
+  const hora = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const detalhe = emAndamento && rodadaDeHoje
+    ? `Coleta das ${rodadaDeHoje.slot_label} em andamento — ${rodadaDeHoje.processed_profiles.toLocaleString('pt-BR')} de ${rodadaDeHoje.total_profiles.toLocaleString('pt-BR')} perfis (${rodadaDeHoje.percent}%)`
+    : rodadaDeHoje?.finished_at
+      ? `Coleta das ${rodadaDeHoje.slot_label} concluída às ${hora(rodadaDeHoje.finished_at)} · próxima às ${status.next_slot}`
+      : `Próxima coleta às ${status.next_slot}`;
+
+  return <span className={`dash-collection${emAndamento ? ' dash-collection-running' : ''}`}>
+    <span aria-hidden="true" />
+    <span className="dash-collection-pop" role="status">
+      {detalhe}
+      <small>As métricas são atualizadas em {status.slots.join(', ')}.</small>
+    </span>
+  </span>;
+}
+
+function IconButton({ label, icon, onClick, primary, disabled, spinning }: { label: string; icon: string; onClick: () => void; primary?: boolean; disabled?: boolean; spinning?: boolean }) {
+  return <button
+    className={`dash-icon-button${primary ? ' dash-icon-button-primary' : ''}${spinning ? ' dash-icon-button-spinning' : ''}`}
+    type="button"
+    title={label}
+    aria-label={label}
+    disabled={disabled}
+    onClick={onClick}
+  ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href={`#icon-${icon}`} /></svg></button>;
+}
+
+function shiftDay(date: string, days: number) {
+  const moment = new Date(`${date}T12:00:00Z`);
+  moment.setUTCDate(moment.getUTCDate() + days);
+  return moment.toISOString().slice(0, 10);
+}
+
+function formatShortDate(date: string) {
+  const [, month, day] = date.split('-');
+  return month && day ? `${day}/${month}` : date;
+}
+
+/**
+ * Série por data a partir das linhas diárias — só o caminho de contingência
+ * (v1), em que o navegador agrega o que o servidor não agregou.
+ */
+function dailyDateSeries(rows: DashboardDailyMetric[], metric: DashboardMetric) {
+  const grouped = new Map<string, number>();
+  for (const row of rows) grouped.set(row.date, (grouped.get(row.date) ?? 0) + dailyMetricValue(row, metric));
+  return [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, value]) => ({ date, value }));
 }
 
 function formatCompact(value: number) {
@@ -589,31 +953,8 @@ function latestSnapshotsByProfile(snapshots: DashboardData['analytics']['snapsho
   return Array.from(latest.values());
 }
 
-function buildFollowerSeries(points: DashboardData['analytics']['followerHistory']) {
-  const grouped = new Map<string, number>();
-  points.forEach((point) => grouped.set(point.snapshot_date, (grouped.get(point.snapshot_date) ?? 0) + point.followers_count));
-  return Array.from(grouped.entries()).slice(-30).map(([label, value]) => ({ label: label.slice(5), value }));
-}
 
-function buildPublishedItemTimeSeries(items: DashboardData['analytics']['publishedItems']) {
-  const grouped = new Map<string, number>();
-  items.forEach((item) => {
-    const date = item.published_at.slice(0, 10);
-    grouped.set(date, (grouped.get(date) ?? 0) + 1);
-  });
-  return Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b)).slice(-30).map(([label, value]) => ({ label: label.slice(5), value }));
-}
 
-function buildBestHours(posts: DashboardData['analytics']['posts']) {
-  const grouped = new Map<string, number>();
-  posts.forEach((post) => {
-    if (!post.published_at) return;
-    const date = new Date(post.published_at);
-    const label = `${['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][date.getDay()]} ${String(date.getHours()).padStart(2, '0')}h`;
-    grouped.set(label, (grouped.get(label) ?? 0) + 1);
-  });
-  return Array.from(grouped.entries()).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value).slice(0, 6);
-}
 
 function rollupItems(rollups: DashboardData['analytics']['publicationRollups'], kind: string) {
   const grouped = new Map<string, number>();

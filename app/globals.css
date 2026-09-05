@@ -14,7 +14,13 @@
   --green: #55d19a;
   --yellow: #e7b74e;
   --danger: #ef6b83;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* `--font-ui` vem do next/font (app/layout.tsx), que serve a Inter do nosso
+     próprio domínio. Sem ela, a pilha nativa assume — e o painel fica com a
+     cara do sistema operacional, que é o comportamento desejado, não uma
+     degradação. */
+  font-family: var(--font-ui), system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
   color-scheme: dark;
 }
 
@@ -25,30 +31,50 @@ button { color: inherit; font: inherit; }
 button:focus-visible { outline: 3px solid var(--purple-bright); outline-offset: 3px; }
 
 .app-shell { display: flex; min-height: 100vh; background: radial-gradient(circle at 70% -10%, #211438 0, transparent 35%), var(--bg); }
-.sidebar { width: 268px; min-height: 100vh; padding: 25px 18px 18px; background: rgba(15, 15, 21, .96); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 20; }
-.brand-block, .mobile-brand { display: flex; align-items: center; gap: 12px; }
-.brand-mark { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 15px; background: linear-gradient(145deg, #8f21ec, #4a0790); color: #fff; font-size: 27px; box-shadow: 0 12px 30px #5e12a044; }
-.brand-mark.small { width: 31px; height: 31px; border-radius: 10px; font-size: 19px; }
-.eyebrow, .section-kicker { display: block; color: #c79bff; font-size: 11px; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
-.brand-block strong { display: block; margin-top: 3px; font-size: 17px; }
-.main-nav { display: grid; gap: 7px; margin-top: 48px; }
-.nav-section { display: grid; gap: 5px; }
-.nav-section-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 11px 15px; border: 1px solid transparent; border-radius: 13px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 12px; font-weight: 850; letter-spacing: .08em; text-align: left; text-transform: uppercase; transition: .2s ease; }
-.nav-section-toggle:hover, .nav-section-current { border-color: var(--border); background: #171620; color: var(--text); }
-.nav-section-items { display: grid; gap: 4px; padding: 0 0 4px 9px; }
-.nav-item-nested { min-height: 39px; padding: 9px 12px; font-size: 13px; }
-.nav-item-nested .nav-icon { width: 18px; height: 18px; }
-.nav-chevron { display: inline-block; font-size: 18px; line-height: 1; transition: transform .2s ease; }
+/* Menu lateral.
+   Ele era construído como uma pilha de caixas: cada seção virava um botão com
+   borda, fundo e canto de 13px, do mesmo tamanho dos itens de navegação — então
+   "INSTAGRAM" competia visualmente com "Postagem", e abrir/fechar fazia uma
+   moldura inteira aparecer e sumir. Agora cabeçalho de seção é rótulo (não
+   botão-caixa), e os itens de dentro ganham um trilho fino à esquerda que diz
+   "estes pertencem àquele" sem desenhar mais nenhuma borda. */
+.sidebar { width: 250px; min-height: 100vh; padding: 22px 14px 16px; background: rgba(15, 15, 21, .96); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 20; }
+.brand-block, .mobile-brand { display: flex; align-items: center; gap: 11px; }
+/* A marca não vive mais dentro de um quadrado roxo: ela É a forma. Sem
+   moldura, sem sombra, sem fundo — o que sobra é o desenho, na cor da marca.
+   `place-items: center` num SVG centraliza de verdade: a caixa do desenho é a
+   caixa do glifo, sem métrica de fonte no meio. */
+.brand-mark { display: grid; place-items: center; width: 34px; height: 34px; color: #b98cff; }
+.brand-mark svg { width: 30px; height: 30px; fill: currentColor; stroke: none; }
+.brand-mark.small { width: 24px; height: 24px; }
+.brand-mark.small svg { width: 22px; height: 22px; }
+.eyebrow, .section-kicker { display: block; color: #b98cff; font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+.brand-block strong { display: block; margin-top: 2px; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+.main-nav { display: grid; gap: 2px; margin-top: 26px; }
+.nav-section { display: grid; gap: 2px; margin-top: 12px; }
+.nav-section-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 6px 12px 6px 14px; border: 0; border-radius: 8px; background: transparent; color: var(--text-subtle); cursor: pointer; font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-align: left; text-transform: uppercase; transition: color .15s ease; }
+.nav-section-toggle:hover { color: var(--text-muted); }
+.nav-section-current { color: #b98cff; }
+/* O trilho substitui a moldura: uma linha de 1px que agrupa sem enquadrar. */
+.nav-section-items { display: grid; gap: 2px; margin-left: 20px; padding-left: 10px; border-left: 1px solid #2a2635; }
+.nav-item-nested { min-height: 34px; padding: 7px 11px; font-size: 13px; }
+.nav-item-nested .nav-icon { width: 17px; height: 17px; }
+.nav-item-nested .nav-icon svg { width: 16px; height: 16px; }
+.nav-chevron { display: grid; place-items: center; width: 16px; height: 16px; transition: transform .18s ease; }
+.nav-chevron svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
 .nav-chevron-open { transform: rotate(180deg); }
 .organization-switcher { display: grid; gap: 7px; }
 .organization-switcher label { color: var(--text-subtle); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .organization-switcher select { width: 100%; min-height: 42px; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; outline: none; }
 .organization-switcher select:focus { border-color: var(--purple-bright); box-shadow: 0 0 0 3px #9f4cff33; }
 .organization-switcher small { color: var(--text-subtle); font-size: 11px; }
-.sidebar-organization-switcher { margin-top: 27px; padding: 13px; border: 1px solid var(--border); border-radius: 14px; background: rgba(29, 28, 41, .55); }
-.nav-item { display: flex; align-items: center; gap: 13px; width: 100%; padding: 12px 15px; border: 0; border-radius: 13px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 14px; font-weight: 650; text-align: left; text-decoration: none; transition: .2s ease; }
-.nav-item:hover { background: var(--surface-soft); color: var(--text); }
-.nav-item-active { background: linear-gradient(100deg, #6810b8, #8522df); color: #fff; box-shadow: 0 10px 24px #5d14a233; }
+.sidebar-organization-switcher { margin-top: 22px; padding: 11px; border: 1px solid #2a2635; border-radius: 11px; background: rgba(29, 28, 41, .45); }
+.nav-item { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 36px; padding: 8px 12px; border: 0; border-radius: 9px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 13.5px; font-weight: 550; text-align: left; text-decoration: none; transition: background .15s ease, color .15s ease; }
+.nav-item:hover { background: #191823; color: var(--text); }
+/* Sem gradiente nem sombra: o item ativo precisa ser reconhecível, não saltar
+   da tela. A cor cheia já resolve, e sem sombra ele para de parecer um botão
+   flutuando sobre a lista. */
+.nav-item-active, .nav-item-active:hover { background: #6b21c8; color: #fff; font-weight: 600; }
 .icon-sprite { position: absolute; pointer-events: none; }
 .nav-icon { display: grid; place-items: center; width: 20px; height: 20px; color: currentColor; }
 .nav-icon svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
@@ -885,7 +911,198 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 .analytics-page-header h1 { margin: 0; font-size: clamp(2.2rem, 4vw, 4.4rem); letter-spacing: -.06em; }
 .analytics-page-header p { margin-top: 8px; color: #c8c1d2; font-size: 14px; line-height: 1.55; }
 .analytics-page-actions { display: flex; align-items: center; gap: 10px; }
-.analytics-refresh-status { padding: 10px 14px; border: 1px solid rgba(154, 84, 255, .28); border-radius: 12px; background: rgba(91, 33, 182, .1); color: #d9cbef; font-size: 13px; }
+/* O estado da tela não é mais faixa nenhuma: virou o ícone `.dash-status-chip`
+   lá embaixo, ao lado dos botões do cabeçalho. Primeiro foram seis tarjas
+   roxas empilhadas, depois uma só amarela — e mesmo uma, acesa o dia inteiro,
+   vira decoração e continua roubando a largura da tela. Ver
+   lib/dashboard/coverage-notes.ts para a regra de qual mensagem aparece. */
+/* Carregar deixou de ser mensagem: virou este ponto girando ao lado do título,
+   que é o peso certo para um estado que dura dois segundos. */
+.analytics-header-spinner { display: inline-block; width: 13px; height: 13px; margin-left: 8px; border: 2px solid rgba(182, 138, 255, .28); border-top-color: #b68aff; border-radius: 50%; vertical-align: middle; animation: analytics-spin .7s linear infinite; }
+@keyframes analytics-spin { to { transform: rotate(360deg); } }
+/* Capacidade da frota: número fixo no cabeçalho, não alarme. Enquanto a
+   religação pela API da Meta não termina, ele é verdade o dia inteiro — e o
+   que é permanente não pode piscar. */
+.analytics-capacity-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid #3a3446; border-radius: 999px; background: rgba(17, 16, 24, .9); color: #bdb4c9; font-size: 11px; cursor: help; }
+.analytics-capacity-chip strong { color: #fff; font-weight: 700; }
+@media (prefers-reduced-motion: reduce) { .analytics-header-spinner { animation-duration: 2.4s; } }
+
+/* ==========================================================================
+   Dashboard (antiga "Análises") — reconstruída em 05/09/2026.
+
+   O que a versão anterior errava, na ordem em que incomodava:
+     * abria em 30 dias, quando a pergunta da manhã é sobre HOJE;
+     * cada cartão tinha o próprio seletor de métrica, então os cartões
+       discordavam entre si e trocar de métrica exigia repetir o clique;
+     * gráficos eram barrinhas sem eixo, sem tooltip e sem interação;
+     * uma seção inteira de caixa de entrada — seis cartões — mostrava zero,
+       porque não existe fonte de dados de inbox;
+     * "melhor horário para postar" nunca teve amostra suficiente;
+     * "saúde das fontes" era uma lista rolável de mil e quatrocentos perfis;
+     * a página tinha mais de três telas de altura.
+
+   A régua desta folha: tudo o que não responde a uma pergunta da operação sai.
+   ========================================================================== */
+
+.dash-page { gap: 14px; }
+.dash-page .analytics-page-header h1 { font-size: clamp(1.5rem, 2.2vw, 2.1rem); letter-spacing: -.03em; }
+.dash-page .analytics-page-header p { margin-top: 4px; font-size: 13px; }
+
+/* Barra de filtros: período em pílulas (o filtro mais usado, sempre visível) e
+   o resto em selects compactos à direita. */
+.dash-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dash-pills { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid #322c3d; border-radius: 999px; background: rgba(17, 16, 24, .92); }
+.dash-pill { padding: 6px 14px; border: 0; border-radius: 999px; background: none; color: #a79fb4; font-size: 12px; font-weight: 600; cursor: pointer; transition: background .14s, color .14s; }
+.dash-pill:hover { color: #fff; }
+.dash-pill-active { background: #241f31; color: #fff; box-shadow: inset 0 0 0 1px #4a3f63; }
+.dash-selects { display: flex; gap: 8px; flex-wrap: wrap; }
+.dash-selects select { min-height: 34px; max-width: 190px; padding: 0 26px 0 10px; border: 1px solid #322c3d; border-radius: 9px; background: #0f0e16; color: #ded7e8; font-size: 12px; font-weight: 600; }
+
+/* Bloco principal: abas-indicador + gráfico. É o mesmo objeto — clicar na aba
+   troca o gráfico —, por isso vivem dentro da mesma moldura. */
+.dash-metrics { overflow: hidden; border: 1px solid #2c2738; border-radius: 14px; background: rgba(15, 14, 22, .96); }
+.dash-tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-bottom: 1px solid #2c2738; }
+.dash-tab { position: relative; padding: 12px 14px; border: 0; border-right: 1px solid #221e2c; background: none; color: #9b93a8; text-align: left; cursor: pointer; transition: background .14s; }
+.dash-tab:last-child { border-right: 0; }
+.dash-tab:hover { background: rgba(255, 255, 255, .022); }
+.dash-tab span { display: block; overflow: hidden; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.dash-tab strong { display: block; margin-top: 5px; color: #e8e3f0; font-size: 19px; font-weight: 700; letter-spacing: -.03em; }
+.dash-tab-active { background: rgba(167, 139, 250, .07); color: #c9b6ff; }
+.dash-tab-active strong { color: #fff; }
+/* A aba ativa é marcada por uma linha no topo, como no material impresso: ela
+   aponta para o gráfico que está logo abaixo. */
+.dash-tab-active::before { position: absolute; top: 0; right: 0; left: 0; height: 2px; background: #a78bfa; content: ''; }
+
+.dash-chart-panel { padding: 16px 18px 12px; }
+.dash-chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.dash-chart-headline strong { color: #fff; font-size: 27px; font-weight: 700; letter-spacing: -.04em; }
+.dash-chart-headline small { display: block; margin-top: 3px; color: #7d768c; font-size: 11px; }
+.dash-delta { margin-left: 8px; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-style: normal; font-weight: 700; vertical-align: 5px; }
+.dash-delta-up { background: rgba(45, 212, 191, .14); color: #5eead4; }
+.dash-delta-down { background: rgba(248, 113, 113, .13); color: #fca5a5; }
+.dash-legend { display: flex; gap: 14px; color: #9b93a8; font-size: 11.5px; }
+.dash-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dash-legend i { width: 8px; height: 8px; border-radius: 2px; }
+.dash-legend-note { color: #6d6679; font-size: 10.5px; }
+
+/* Estado da tela: um ícone do tamanho dos botões, com o texto num balão que
+   abre no hover e no foco. Substitui a faixa amarela de largura inteira. */
+.dash-status-chip { position: relative; display: inline-flex; }
+.dash-status-chip button { display: grid; width: 38px; height: 38px; padding: 0; border: 1px solid #3a3348; border-radius: 10px; background: rgba(17, 16, 24, .92); color: #8a8397; cursor: default; place-items: center; transition: border-color .15s, color .15s; }
+.dash-status-chip svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.dash-status-chip-alert button { border-color: rgba(245, 158, 11, .45); color: #f59e0b; }
+.dash-status-chip:hover button, .dash-status-chip:focus-within button { border-color: #6a5b8f; color: #fff; }
+.dash-status-chip-alert:hover button, .dash-status-chip-alert:focus-within button { border-color: #f59e0b; color: #fbbf24; }
+.dash-status-pop { position: absolute; top: calc(100% + 8px); right: 0; z-index: 5; width: max-content; max-width: 340px; padding: 9px 11px; border: 1px solid #3a3348; border-radius: 9px; background: rgba(12, 11, 18, .98); color: #cfc7da; font-size: 12px; line-height: 1.45; opacity: 0; pointer-events: none; transform: translateY(-3px); transition: opacity .14s ease, transform .14s ease; box-shadow: 0 10px 28px rgba(0, 0, 0, .55); }
+.dash-status-chip:hover .dash-status-pop, .dash-status-chip:focus-within .dash-status-pop { opacity: 1; transform: translateY(0); }
+.dash-status-chip-alert .dash-status-pop { border-color: rgba(245, 158, 11, .38); color: #f4d9a5; }
+
+/* Indicador de coleta — ocupa o lugar do antigo botão "atualizar".
+   Um ponto, e só. Girando durante a rodada, apagado fora dela; o detalhe vive
+   no balão do hover, onde não rouba espaço de quem não perguntou. */
+.dash-collection { position: relative; display: grid; width: 38px; height: 38px; place-items: center; cursor: help; }
+.dash-collection > span:first-child { width: 9px; height: 9px; border-radius: 50%; background: #4a4458; transition: background .2s ease; }
+.dash-collection-running > span:first-child { width: 13px; height: 13px; border: 2px solid rgba(167, 139, 250, .25); border-top-color: #a78bfa; border-radius: 50%; background: none; animation: analytics-spin .8s linear infinite; }
+.dash-collection:hover > span:first-child { background: #6d6679; }
+.dash-collection-running:hover > span:first-child { background: none; }
+.dash-collection-pop { position: absolute; top: calc(100% + 8px); right: 0; z-index: 5; display: grid; gap: 5px; width: max-content; max-width: 300px; padding: 9px 11px; border: 1px solid #3a3348; border-radius: 9px; background: rgba(12, 11, 18, .98); color: #cfc7da; font-size: 12px; line-height: 1.45; opacity: 0; pointer-events: none; transform: translateY(-3px); transition: opacity .14s ease, transform .14s ease; box-shadow: 0 10px 28px rgba(0, 0, 0, .55); }
+.dash-collection-pop small { color: #7d768c; font-size: 10.5px; }
+.dash-collection:hover .dash-collection-pop, .dash-collection:focus-within .dash-collection-pop { opacity: 1; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) { .dash-collection-running > span:first-child { animation-duration: 3s; } }
+
+/* Ações do cabeçalho: só o ícone. O nome vive no `title` e no `aria-label`. */
+.dash-icon-button { display: grid; width: 38px; height: 38px; padding: 0; border: 1px solid #3a3348; border-radius: 10px; background: rgba(17, 16, 24, .92); color: #cfc7da; cursor: pointer; place-items: center; transition: border-color .15s, background .15s, color .15s; }
+.dash-icon-button:hover:not(:disabled) { border-color: #6a5b8f; background: #1c1927; color: #fff; }
+.dash-icon-button:disabled { cursor: not-allowed; opacity: .6; }
+.dash-icon-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.dash-icon-button-primary { border-color: #8b5cf6; background: linear-gradient(135deg, #8b45d5, #6330a8); color: #fff; }
+.dash-icon-button-primary:hover:not(:disabled) { border-color: #d1a7ff; background: linear-gradient(135deg, #a15bea, #7541bd); }
+.dash-icon-button-spinning svg { animation: analytics-spin .9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .dash-icon-button-spinning svg { animation-duration: 3s; } }
+
+/* Gráfico. O SVG estica na horizontal (preserveAspectRatio="none"), então
+   NENHUM texto vive dentro dele — rótulos e tooltip são HTML posicionado por
+   porcentagem, com a mesma fórmula que posiciona os pontos. */
+.dash-chart { position: relative; padding-left: 38px; padding-bottom: 18px; }
+.dash-chart-plot { position: relative; height: 100%; }
+.dash-chart-plot svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.dash-chart-grid-labels { position: absolute; top: 0; bottom: 18px; left: 0; width: 36px; }
+.dash-chart-grid-labels span { position: absolute; right: 6px; color: #6d6679; font-size: 10px; transform: translateY(-50%); }
+.dash-chart-axis { position: absolute; right: 0; bottom: 0; left: 38px; height: 16px; }
+.dash-chart-axis span { position: absolute; color: #6d6679; font-size: 10px; transform: translateX(-50%); white-space: nowrap; }
+.dash-chart-dot { position: absolute; width: 9px; height: 9px; border: 2px solid #0d0c13; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); }
+.dash-chart-hit { position: absolute; inset: 0; cursor: crosshair; }
+.dash-chart-tooltip { position: absolute; top: 8px; z-index: 2; display: grid; gap: 4px; min-width: 132px; padding: 8px 10px; border: 1px solid #3a3348; border-radius: 9px; background: rgba(12, 11, 18, .97); box-shadow: 0 8px 24px rgba(0, 0, 0, .5); pointer-events: none; }
+.dash-chart-tooltip strong { color: #cfc7da; font-size: 11px; font-weight: 700; }
+.dash-chart-tooltip span { display: flex; align-items: center; gap: 6px; color: #a79fb4; font-size: 11.5px; white-space: nowrap; }
+.dash-chart-tooltip i { width: 7px; height: 7px; flex: none; border-radius: 2px; }
+.dash-chart-tooltip b { margin-left: auto; color: #fff; font-variant-numeric: tabular-nums; }
+.dash-chart-empty { display: grid; color: #6d6679; font-size: 12px; place-items: center; }
+
+/* Cartões. Altura pequena e igual: o que não cabe em cinco linhas não é
+   resumo, é relatório — e relatório tem tela própria. */
+.dash-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.dash-card { display: flex; min-width: 0; flex-direction: column; gap: 10px; padding: 14px 15px; border: 1px solid #2c2738; border-radius: 12px; background: rgba(15, 14, 22, .96); }
+.dash-card h3 { margin: 0; color: #cfc7da; font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+.dash-card-empty { margin: auto 0; color: #6d6679; font-size: 11.5px; line-height: 1.45; }
+.dash-card-foot { display: flex; justify-content: space-between; margin-top: auto; padding-top: 8px; border-top: 1px solid #241f2e; color: #8a8397; font-size: 11px; }
+.dash-card-foot b { color: #e8e3f0; }
+
+.dash-bars { display: grid; gap: 7px; }
+.dash-bars > div { display: grid; align-items: center; gap: 4px 8px; grid-template-columns: minmax(0, 1fr) auto auto; }
+.dash-bars span { overflow: hidden; color: #a79fb4; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.dash-bars strong { color: #fff; font-size: 12px; font-variant-numeric: tabular-nums; }
+.dash-bars small { min-width: 30px; color: #6d6679; font-size: 10.5px; text-align: right; }
+.dash-bars em { display: block; height: 4px; border-radius: 3px; background: #221d2e; grid-column: 1 / -1; }
+.dash-bars em i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, #7c5cf0, #a78bfa); }
+
+.dash-rank { display: grid; gap: 6px; }
+.dash-rank a { display: grid; align-items: center; gap: 3px 8px; grid-template-columns: 14px minmax(0, 1fr) auto; color: inherit; text-decoration: none; }
+.dash-rank a:hover span { color: #fff; text-decoration: underline; }
+.dash-rank b { color: #6d6679; font-size: 10.5px; font-weight: 700; }
+.dash-rank span { overflow: hidden; color: #a79fb4; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.dash-rank strong { color: #fff; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.dash-rank em { display: block; height: 3px; border-radius: 3px; background: #221d2e; grid-column: 2 / -1; }
+.dash-rank em i { display: block; height: 100%; border-radius: 3px; background: #a78bfa; }
+/* Perfil removido no ranking: presente, mas visivelmente fora do ar. */
+.dash-rank-inactive { display: grid; align-items: center; gap: 3px 8px; grid-template-columns: 14px minmax(0, 1fr) auto; cursor: help; opacity: .62; }
+.dash-rank-inactive em i { background: #6d6679; }
+.dash-rank-gone { margin-left: 6px; padding: 1px 5px; border-radius: 4px; background: #2a2635; color: #8a8397; font-size: 9px; font-style: normal; letter-spacing: .04em; text-transform: uppercase; vertical-align: 1px; }
+
+.dash-posts { display: grid; gap: 8px; }
+.dash-posts a { display: grid; align-items: center; gap: 9px; grid-template-columns: 30px minmax(0, 1fr) auto; color: inherit; text-decoration: none; }
+.dash-posts a:hover strong { color: #fff; }
+.dash-posts-nolink { pointer-events: none; }
+.dash-posts img, .dash-posts i { width: 30px; height: 30px; border-radius: 7px; object-fit: cover; }
+.dash-posts i { display: grid; background: #201b2b; color: #6d6679; font-size: 12px; font-style: normal; place-items: center; }
+.dash-posts strong { display: block; overflow: hidden; color: #cfc7da; font-size: 11.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.dash-posts small { color: #6d6679; font-size: 10.5px; }
+.dash-posts b { color: #fff; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.dash-health { display: grid; gap: 8px; }
+.dash-health-top { display: flex; align-items: baseline; gap: 7px; }
+.dash-health-top strong { color: #5eead4; font-size: 21px; font-weight: 700; letter-spacing: -.03em; }
+.dash-health-top span { color: #8a8397; font-size: 11px; }
+.dash-health ul { display: grid; margin: 0; padding: 0; gap: 4px; list-style: none; }
+.dash-health li { display: flex; justify-content: space-between; color: #a79fb4; font-size: 11.5px; }
+.dash-health li b { color: #f4d9a5; }
+.dash-health small { overflow: hidden; color: #6d6679; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+
+.dash-facts { display: grid; margin: 0; gap: 7px; }
+.dash-facts div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.dash-facts dt { color: #8a8397; font-size: 11.5px; }
+.dash-facts dd { margin: 0; color: #fff; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1180px) {
+  .dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dash-tab { border-bottom: 1px solid #221e2c; }
+}
+@media (max-width: 620px) {
+  .dash-grid { grid-template-columns: minmax(0, 1fr); }
+  .dash-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-toolbar { align-items: stretch; flex-direction: column; }
+}
 .analytics-filter-panel-compact { grid-template-columns: repeat(4, minmax(150px, 1fr)); margin-top: 4px; padding: 14px 16px; border-radius: 16px; background: rgba(15, 14, 22, .92); }
 .analytics-filter-panel-compact label { color: #d8cee4; }
 .analytics-filter-panel-compact select, .analytics-card-select { min-height: 40px; border-color: #51485f; background: #0f0e16; color: #fff; font-size: 12px; font-weight: 800; }
@@ -970,6 +1187,15 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
   .analytics-page-header { align-items: stretch; flex-direction: column; }
   .analytics-page-header .button { width: 100%; }
   .analytics-page-actions { width: 100%; flex-direction: column; }
+  /* Os botões do cabeçalho da dashboard viraram ícones de 38px (aviso,
+     coleta, nova postagem). A regra acima foi escrita para botões com texto,
+     que em tela estreita fazem sentido empilhados e em largura cheia — três
+     quadradinhos empilhados e centralizados no meio da página, não. Eles ficam
+     em linha, alinhados à esquerda como o título. */
+  .dash-page .analytics-page-actions { width: auto; flex-direction: row; justify-content: flex-start; }
+  /* E os balões seguem a âncora: com as ações à esquerda, abrir para a esquerda
+     joga o texto para fora da tela — foi o que aconteceu no primeiro teste. */
+  .dash-page .dash-status-pop, .dash-page .dash-collection-pop { right: auto; left: 0; }
   .analytics-filter-panel-compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .analytics-board { grid-template-columns: 1fr; }
   .analytics-card-wide, .analytics-skeleton-card { grid-column: auto; }
