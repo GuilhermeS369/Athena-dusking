@@ -55,6 +55,22 @@ export type PublicationResult =
 
 const graphVersion = process.env.META_GRAPH_API_VERSION ?? 'v26.0';
 const metaRequestTimeoutMs = 25_000;
+/**
+ * `media_publish` ganha limite proprio, e maior. Diagnosticado em 05/09/2026,
+ * depois que os timeouts passaram a ser rotulados por operacao: TODOS estouravam
+ * em `meta_timeout_publicar` -- nenhum ao criar o conteiner, nenhum ao consultar
+ * o status. Faz sentido: consultar status e leitura barata e criar conteiner e
+ * registro, enquanto publicar e a operacao em que a Meta faz trabalho de verdade.
+ *
+ * Dar 25 s aos tres produzia atrito so na terceira. E o limite dos outros dois
+ * FICA onde esta de proposito: consultar status demorando 25 s seria sinal de
+ * problema, e afrouxar isso nos cegaria de novo.
+ *
+ * Retentar aqui e seguro: se a Meta ja tiver publicado quando o tempo estoura, a
+ * proxima rodada le `status_code = PUBLISHED` e devolve sucesso sem republicar.
+ * Verificado em 1.905 publicacoes: zero `creation_id` publicado duas vezes.
+ */
+const metaPublishTimeoutMs = 60_000;
 const mediaProbeTimeoutMs = 12_000;
 const maxConcurrentMetaRequests = 5;
 let activeMetaRequests = 0;
@@ -86,7 +102,7 @@ async function withMetaRequestLimit<T>(operation: () => Promise<T>): Promise<T> 
  *
  * O timeout continua retentável: é transitório por definição.
  */
-function metaFetch(input: RequestInfo | URL, init: RequestInit, operacao = 'meta') {
+function metaFetch(input: RequestInfo | URL, init: RequestInit, operacao = 'meta', limiteMs = metaRequestTimeoutMs) {
   return withMetaRequestLimit(async () => {
     try {
       return await fetch(input, init);
@@ -94,7 +110,7 @@ function metaFetch(input: RequestInfo | URL, init: RequestInit, operacao = 'meta
       const nome = (error as { name?: string } | null)?.name;
       if (nome !== 'TimeoutError' && nome !== 'AbortError') throw error;
       const rotulado = new Error(
-        `Tempo esgotado ao ${operacao} na Meta (limite de ${metaRequestTimeoutMs / 1000}s).`,
+        `Tempo esgotado ao ${operacao} na Meta (limite de ${limiteMs / 1000}s).`,
       ) as Error & { retryable?: boolean; code?: string };
       rotulado.retryable = true;
       rotulado.code = `meta_timeout_${operacao}`;
@@ -272,8 +288,8 @@ async function publishContainer(profileId: string, creationId: string, accessTok
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ creation_id: creationId }),
     cache: 'no-store',
-    signal: AbortSignal.timeout(metaRequestTimeoutMs),
-  }, 'publicar');
+    signal: AbortSignal.timeout(metaPublishTimeoutMs),
+  }, 'publicar', metaPublishTimeoutMs);
   const result = await readResponse(response);
   if (!result.id) throw new Error('Instagram não retornou o media_id publicado.');
   return result.id;

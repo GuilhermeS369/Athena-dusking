@@ -47,6 +47,14 @@ async function getR2Client() {
 
 const graphVersion = process.env.META_GRAPH_API_VERSION ?? 'v26.0';
 const metaRequestTimeoutMs = 25_000;
+// `media_publish` ganha limite proprio, e maior. Diagnosticado em 05/09/2026
+// depois que os timeouts passaram a ser rotulados: TODOS estouravam em
+// `meta_timeout_publicar` -- nenhum ao criar conteiner, nenhum ao consultar
+// status. Os outros dois FICAM em 25 s de proposito: consultar status demorando
+// tanto seria sinal de problema, e afrouxar isso nos cegaria.
+// Retentar e seguro -- se a Meta ja publicou, a proxima rodada le PUBLISHED e
+// nao republica. Verificado em 1.905 publicacoes, zero duplicata.
+const metaPublishTimeoutMs = 60_000;
 const maxConcurrentMetaRequests = integerEnv('PUBLICATION_WORKER_META_CONCURRENCY', 5, 1, 20);
 const zernioBaseUrl = process.env.ZERNIO_API_BASE_URL ?? 'https://zernio.com/api';
 const zernioRequestTimeoutMs = integerEnv('ZERNIO_REQUEST_TIMEOUT_MS', 45_000, 25_000, 90_000);
@@ -150,14 +158,14 @@ async function withMetaRequestLimit(operation) {
 // apareceram 112 falhas com "The operation was aborted due to timeout" e nao
 // havia como saber se estourava ao CRIAR o conteiner, ao CONSULTAR o status ou
 // ao PUBLICAR -- e sem isso qualquer ajuste no limite de 25 s seria chute.
-function metaFetch(input, init, operacao = 'meta') {
+function metaFetch(input, init, operacao = 'meta', limiteMs = metaRequestTimeoutMs) {
   return withMetaRequestLimit(async () => {
     try {
       return await fetch(input, init);
     } catch (error) {
       const expirou = error?.name === 'TimeoutError' || error?.name === 'AbortError';
       if (!expirou) throw error;
-      const rotulado = new Error(`Tempo esgotado ao ${operacao} na Meta (limite de ${metaRequestTimeoutMs / 1000}s).`);
+      const rotulado = new Error(`Tempo esgotado ao ${operacao} na Meta (limite de ${limiteMs / 1000}s).`);
       rotulado.retryable = true;
       rotulado.code = `meta_timeout_${operacao}`;
       throw rotulado;
@@ -632,8 +640,8 @@ async function publishInstagramContainer(profileId, creationId, accessToken) {
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ creation_id: creationId }),
     cache: 'no-store',
-    signal: AbortSignal.timeout(metaRequestTimeoutMs),
-  }, 'publicar');
+    signal: AbortSignal.timeout(metaPublishTimeoutMs),
+  }, 'publicar', metaPublishTimeoutMs);
   const result = await readInstagramResponse(response);
   if (!result.id) throw new Error('Instagram não retornou o media_id publicado.');
   return result.id;
