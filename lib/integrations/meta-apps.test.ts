@@ -336,3 +336,24 @@ test('janela vencida deixa de bloquear sem ninguém limpar nada', () => {
   assert.equal(metaAppCapacity(expirado).connectable, true);
   assert.equal(buildBulkMetaRows(expirado, 5).rows.length, 5);
 });
+
+test('linha colada apontando para app bloqueado não vira link de conexão', () => {
+  // Sem isto a tela montaria o link e só o servidor recusaria — depois de a
+  // pessoa já ter clicado e autorizado no Instagram.
+  const bloqueado = app({
+    label: 'Lari Lote 1 / 04-09-IG',
+    api_block_until: new Date(Date.now() + 30 * 60_000).toISOString(),
+  });
+  const resolvido = resolveMetaBulkTarget([bloqueado], [], 'Lari Lote 1 / 04-09-IG');
+
+  assert.equal(resolvido.appStatus, 'api_blocked');
+  assert.equal(resolvido.valid, false);
+});
+
+test('app saudável com o mesmo nome de lote segue conectável', () => {
+  const saudavel = app({ label: 'Lari Lote 1 / 05-09-IG' });
+  const resolvido = resolveMetaBulkTarget([saudavel], [], 'Lari Lote 1 / 05-09-IG');
+
+  assert.equal(resolvido.appStatus, 'found');
+  assert.equal(resolvido.valid, true);
+});

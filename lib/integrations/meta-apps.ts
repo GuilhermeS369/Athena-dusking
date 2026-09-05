@@ -206,7 +206,7 @@ export function parseMetaBulkTarget(value: string): ParsedMetaBulkTarget {
   return { kind: 'valid', appName, groupName };
 }
 
-export type MetaAppMatchStatus = 'empty' | 'found' | 'missing' | 'duplicate' | 'inactive' | 'full';
+export type MetaAppMatchStatus = 'empty' | 'found' | 'missing' | 'duplicate' | 'inactive' | 'api_blocked' | 'full';
 export type MetaGroupMatchStatus = 'not_requested' | 'found' | 'missing' | 'duplicate' | 'invalid';
 
 export type ResolvedMetaBulkTarget = {
@@ -245,9 +245,15 @@ export function resolveMetaBulkTarget(
       ? 'missing'
       : !matchedApp.active
         ? 'inactive'
-        : capacity && capacity.freeSlots === 0
-          ? 'full'
-          : 'found';
+        // Antes da vaga, pela mesma razão de `buildBulkMetaRows`: o app
+        // bloqueado e vazio parece o melhor destino e é o pior. Sem isto a tela
+        // montaria o link de conexão e só o servidor recusaria, depois de a
+        // pessoa já ter clicado.
+        : capacity && capacity.apiBlocked
+          ? 'api_blocked'
+          : capacity && capacity.freeSlots === 0
+            ? 'full'
+            : 'found';
 
   const groupMatches = parsed.groupName === null
     ? []

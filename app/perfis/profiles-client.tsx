@@ -1628,7 +1628,9 @@ export default function ProfilesClient({
                                   ? `O app “${pastedMetaMatch.parsed.appName}” está sem vaga. Gere uma nova linha no Bulk Meta com outro app.`
                                   : pastedMetaMatch.appStatus === 'inactive'
                                     ? `O app “${pastedMetaMatch.parsed.appName}” está desativado.`
-                                    : `App “${pastedMetaMatch.parsed.appName}” não encontrado.`}
+                                    : pastedMetaMatch.appStatus === 'api_blocked'
+                                      ? `A Meta bloqueou o acesso à API do app “${pastedMetaMatch.parsed.appName}”. Uma conta conectada nele não publicaria — escolha outro app.`
+                                      : `App “${pastedMetaMatch.parsed.appName}” não encontrado.`}
                           </p>
                           {pastedMetaMatch.groupStatus === 'not_requested' ? (
                             <p className="zernio-target-validation-neutral"><span>—</span>Sem grupo: o perfil será apenas conectado.</p>
