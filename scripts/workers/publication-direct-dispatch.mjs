@@ -146,8 +146,23 @@ async function withMetaRequestLimit(operation) {
   }
 }
 
-function metaFetch(input, init) {
-  return withMetaRequestLimit(() => fetch(input, init));
+// `operacao` existe porque um timeout sem rotulo nao diz nada. Em 04/09/2026
+// apareceram 112 falhas com "The operation was aborted due to timeout" e nao
+// havia como saber se estourava ao CRIAR o conteiner, ao CONSULTAR o status ou
+// ao PUBLICAR -- e sem isso qualquer ajuste no limite de 25 s seria chute.
+function metaFetch(input, init, operacao = 'meta') {
+  return withMetaRequestLimit(async () => {
+    try {
+      return await fetch(input, init);
+    } catch (error) {
+      const expirou = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+      if (!expirou) throw error;
+      const rotulado = new Error(`Tempo esgotado ao ${operacao} na Meta (limite de ${metaRequestTimeoutMs / 1000}s).`);
+      rotulado.retryable = true;
+      rotulado.code = `meta_timeout_${operacao}`;
+      throw rotulado;
+    }
+  });
 }
 
 function wait(milliseconds) {
@@ -592,7 +607,7 @@ async function createInstagramContainer(profileId, accessToken, fields) {
     body: new URLSearchParams(fields),
     cache: 'no-store',
     signal: AbortSignal.timeout(metaRequestTimeoutMs),
-  });
+  }, 'criar_container');
   const result = await readInstagramResponse(response);
   if (!result.id) throw new Error('Instagram não retornou o creation_id do contêiner.');
   return result.id;
@@ -607,7 +622,7 @@ async function containerStatus(creationId, accessToken) {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: 'no-store',
     signal: AbortSignal.timeout(metaRequestTimeoutMs),
-  });
+  }, 'consultar_status');
   return readInstagramResponse(response);
 }
 
@@ -618,7 +633,7 @@ async function publishInstagramContainer(profileId, creationId, accessToken) {
     body: new URLSearchParams({ creation_id: creationId }),
     cache: 'no-store',
     signal: AbortSignal.timeout(metaRequestTimeoutMs),
-  });
+  }, 'publicar');
   const result = await readInstagramResponse(response);
   if (!result.id) throw new Error('Instagram não retornou o media_id publicado.');
   return result.id;
