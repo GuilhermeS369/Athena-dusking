@@ -76,3 +76,9 @@ npm-debug.log*
 zernio-phase0-baseline-*.json
 .vercel
 .env*
+
+# Dumps operacionais e scripts de observacao de uso unico, gerados fora do app.
+# Ficam aqui tambem para nao subirem no deploy: sem .vercelignore no repo, a
+# Vercel usa este arquivo para decidir o que enviar em `vercel --prod`.
+/zernio-contas-funcionando.txt
+/.vigia-fila.mjs
