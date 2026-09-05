@@ -40,6 +40,9 @@ export type MetaApp = {
   last_connected_at: string | null;
   instagram_profile_count: number;
   pending_slot_release_count: number;
+  // Perfis que saíram deste app para outro e cuja conexão ainda não foi apagada
+  // no Meta Developers — vaga presa pela mesma razão da queda, causa diferente.
+  transferred_out_count: number;
   // Bloqueio de API do app. "Bloqueado agora" é `api_block_until` no futuro:
   // a janela expira sozinha, e é isso que dispensa qualquer sonda.
   api_blocked_at: string | null;
@@ -939,6 +942,17 @@ export default function MetaAppsClient({
                       A fila tenta de novo sozinha em {apiBlock.minutesLeft} min. O que vencer até lá é ignorado —
                       destrave o app no Meta Developers e use o botão para retomar na hora.
                     </p>
+                    <p className={styles.apiBlockText}>
+                      {/* A saída quando o app não volta: reconectar as contas por
+                          outro app. O perfil é o mesmo — fila agendada, grupos e
+                          histórico continuam, porque tudo aponta para o perfil e
+                          não para o app. Ver migration 399. */}
+                      Se o app não voltar, reconecte as contas por outro app pelo <strong>Bulk Meta</strong>, em
+                      Perfis. O perfil continua o mesmo: fila agendada, grupos e histórico vão junto.
+                      {app.transferred_out_count > 0
+                        && ` ${app.transferred_out_count} conta(s) já saíram daqui — a conexão delas continua
+                            ocupando vaga neste app até ser apagada no Meta Developers.`}
+                    </p>
                     {canAdmin && (
                       <button
                         className="button button-ghost"
@@ -1000,6 +1014,15 @@ export default function MetaAppsClient({
                   {capacity.trappedSlots > 0 && (
                     <span className={styles.capacityBreakdown}>
                       {capacity.activeProfiles} publicando + {capacity.trappedSlots} presa(s)
+                      {app.transferred_out_count > 0 && (
+                        // Vaga presa tem duas causas e elas pedem ações
+                        // diferentes: a queda exige apagar a conexão no Meta
+                        // Developers, a transferência é a conta que já está
+                        // publicando por outro app. Somar sem separar esconderia
+                        // qual das duas é.
+                        <> · {app.pending_slot_release_count} por queda
+                        {' · '}{app.transferred_out_count} movido(s) para outro app</>
+                      )}
                     </span>
                   )}
                 </div>

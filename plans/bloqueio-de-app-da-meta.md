@@ -144,3 +144,66 @@ A expiração da primeira janela, entre 21:55 e 22:01. É a única parte do dese
 ainda não exercitada em produção: janela vence, a fila tenta um item, a Meta
 recusa de novo, e uma janela nova abre (`api_block_window_count` vai a 2). Se a
 Meta tiver liberado, o app volta a publicar sem ninguém tocar em nada.
+
+
+## Troca de app: investigação e caminho garantido (05/09, noite)
+
+Pedido do operador depois de descobrir que um dos dois administradores do app
+banido está inacessível — pode não haver como destravá-lo pelo painel da Meta.
+A saída é reconectar as contas por um app saudável.
+
+### O que a investigação encontrou
+
+**A troca já funcionava, e melhor do que eu esperava.**
+`connect_meta_instagram_profile` casa o perfil por `instagram_user_id` (ou pelo
+@) e faz `update` na MESMA linha, sobrescrevendo `meta_app_id`. Logo a conta
+troca de app sem virar perfil novo: fila agendada, grupos, histórico e analytics
+seguem, porque todos apontam para `profile_id`, nunca para o app.
+
+**Só duas colunas no banco inteiro referenciam `meta_apps`:**
+`instagram_profiles.meta_app_id` (o vínculo vivo) e
+`meta_profile_disconnection_incidents.meta_app_id` (histórico). Não há terceira
+tabela para migrar.
+
+**A renovação de token é indiferente ao app.** `ig_refresh_token` usa só o
+próprio token, não o App Secret — então mudar de app não quebra a renovação.
+
+**A cota e o lock de despacho leem `profile.meta_app_id` no momento do
+despacho** (migration 372), então a conta passa a consumir o balde do app novo
+na hora, sem nenhum passo extra.
+
+### Os quatro buracos, e o que foi feito
+
+1. **Dava para conectar uma conta PARA DENTRO de um app bloqueado.**
+   `resolveMetaAppCredentials` conferia app inexistente, inativo e sem vaga —
+   não o bloqueio. O caminho mais perigoso era o de **reautorização**, que
+   resolve o app sozinho a partir do perfil e devolveria a conta para o app
+   fechado. Agora recusa com `meta_app_api_blocked`.
+
+2. **O Bulk Meta oferecia app bloqueado.** `buildBulkMetaRows` ganhou a razão
+   `api_blocked`, testada antes da vaga — o caso perigoso é o app bloqueado e
+   VAZIO, que exibe cem vagas livres e é o pior destino possível.
+
+3. **A troca não deixava rastro e mentia sobre capacidade.** O app de origem
+   perdia a conta na hora e parecia ganhar vaga, mas do lado da Meta a conexão
+   continua lá. Mesma vaga fantasma da migration 389, por outra porta. Agora
+   `meta_profile_app_transfers` registra cada saída, e `transferred_out_count`
+   entra em `meta_apps_safe` e soma na vaga presa. Volta para o app de origem
+   marca a transferência como resolvida.
+
+4. **A tela não dizia nada disso.** O cartão passa a separar as duas causas —
+   "N por queda · N movido(s) para outro app" — e o aviso de bloqueio aponta a
+   saída pelo Bulk Meta, com a ressalva de que a conexão antiga continua
+   ocupando vaga até ser apagada no Meta Developers.
+
+### O que continua manual, e não tem como não ser
+
+Cada conta precisa autorizar de novo no Instagram. São 259 perfis nos cinco apps
+bloqueados, e isso é do fluxo OAuth da Meta, não do Athena.
+
+### Ordem recomendada
+
+1. um perfil do `PeachySara Lote 1` (o menor, 10 contas) para um app vazio;
+2. conferir que é a MESMA linha — mesmo `id`, `meta_app_id` novo, fila intacta;
+3. esperar ele publicar o próximo agendado;
+4. só então mover o resto, app por app.

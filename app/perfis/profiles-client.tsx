@@ -147,6 +147,11 @@ type MetaApp = {
   instagram_slot_limit: number | null;
   instagram_profile_count: number | null;
   pending_slot_release_count: number | null;
+  // Vaga presa por transferência, e janela de bloqueio da API. Sem os dois, o
+  // Bulk Meta ofereceria vaga que não existe ou mandaria conta para um app que
+  // a Meta fechou.
+  transferred_out_count: number | null;
+  api_block_until: string | null;
 };
 
 type MetaTokenState = MetaTokenProfile & { id: string };
@@ -185,6 +190,7 @@ const connectionErrorMessage: Record<string, string> = {
   meta_app_not_found: 'O app da Meta usado nesta linha não existe mais. Gere novamente a lista no Bulk Meta.',
   meta_app_inactive: 'O app da Meta desta linha está desativado e não recebe contas novas.',
   meta_app_no_available_slot: 'O app da Meta desta linha ficou sem vaga. Gere uma nova lista no Bulk Meta escolhendo outro app.',
+  meta_app_api_blocked: 'A Meta bloqueou o acesso à API deste app. Conecte a conta por outro app — o Bulk Meta já não oferece os bloqueados.',
   meta_app_secret_unreadable: 'A chave secreta desse app não pôde ser lida. Cadastre o App Secret novamente em “API da Meta”.',
   meta_group_not_found: 'O grupo dessa linha não existe mais. Gere novamente a lista no Bulk Meta.',
   meta_profile_conflict: 'Esta conta do Instagram bate com DOIS perfis diferentes no Athena — um pelo identificador da Meta e outro pelo @. Nenhum foi alterado: fundir os dois exige escolher qual histórico fica. Verifique os perfis duplicados antes de reconectar.',

@@ -15,6 +15,7 @@ export class MetaAppUnavailableError extends Error {
     readonly code:
       | 'meta_app_not_found'
       | 'meta_app_inactive'
+      | 'meta_app_api_blocked'
       | 'meta_app_no_available_slot'
       | 'meta_app_secret_unreadable',
     message: string,
@@ -42,7 +43,7 @@ export async function resolveMetaAppCredentials(
   const admin = createSupabaseAdminClient();
   const { data: app } = await admin
     .from('meta_apps')
-    .select('id, label, app_id, encrypted_app_secret, instagram_slot_limit, active')
+    .select('id, label, app_id, encrypted_app_secret, instagram_slot_limit, active, api_block_until')
     .eq('id', metaAppId)
     .eq('organization_id', organizationId)
     .is('deleted_at', null)
@@ -59,6 +60,20 @@ export async function resolveMetaAppCredentials(
     throw new MetaAppUnavailableError(
       'meta_app_inactive',
       `O app “${app.label}” está desativado e não recebe conexões novas.`,
+    );
+  }
+
+  // Vem antes da vaga: um app bloqueado pela Meta pode estar vazio e ainda ser o
+  // pior destino possível. A conta entraria, e nenhum item dela publicaria
+  // enquanto o bloqueio durasse — inclusive no caminho de reautorização, que é
+  // o mais perigoso, porque ele resolve o app sozinho a partir do perfil e
+  // devolveria a conta para dentro do app que está fechado.
+  const blockedUntil = app.api_block_until ? Date.parse(app.api_block_until) : Number.NaN;
+  if (Number.isFinite(blockedUntil) && blockedUntil > Date.now()) {
+    throw new MetaAppUnavailableError(
+      'meta_app_api_blocked',
+      `O app “${app.label}” está com o acesso à API bloqueado pela Meta e não publica. `
+        + 'Conecte esta conta por outro app, pelo Bulk Meta.',
     );
   }
 

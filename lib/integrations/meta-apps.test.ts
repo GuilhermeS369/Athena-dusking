@@ -20,6 +20,7 @@ function app(overrides: Partial<NamedMetaApp> & { label: string }): NamedMetaApp
     active: true,
     instagram_slot_limit: 100,
     instagram_profile_count: 0,
+    transferred_out_count: 0,
     pending_slot_release_count: 0,
     ...overrides,
   };
@@ -272,4 +273,66 @@ test('a ordem de preenchimento do Bulk Meta não mudou', () => {
   ]);
 
   assert.deepEqual(ordered.map((item) => item.label), ['Zeca', 'Ana']);
+});
+
+test('perfil movido para outro app continua ocupando vaga no app de origem', () => {
+  // A conta sai da contagem do Athena na hora, mas a conexão continua no painel
+  // da Meta: ela só some de lá quando alguém apagar. Contar a vaga como livre
+  // mandaria celular para um app que não tem espaço — o mesmo estrago que a
+  // migration 389 corrigiu para a queda por checkpoint.
+  const capacidade = metaAppCapacity(app({
+    label: 'origem',
+    instagram_slot_limit: 100,
+    instagram_profile_count: 90,
+    transferred_out_count: 10,
+  }));
+
+  assert.equal(capacidade.activeProfiles, 90);
+  assert.equal(capacidade.trappedSlots, 10);
+  assert.equal(capacidade.usedSlots, 100);
+  assert.equal(capacidade.freeSlots, 0);
+});
+
+test('queda e transferência somam na mesma vaga presa', () => {
+  const capacidade = metaAppCapacity(app({
+    label: 'misto',
+    instagram_slot_limit: 100,
+    instagram_profile_count: 80,
+    pending_slot_release_count: 7,
+    transferred_out_count: 6,
+  }));
+
+  assert.equal(capacidade.trappedSlots, 13);
+  // 80 publicando + 13 presas = 93 das 100. Sem somar a transferência, a tela
+  // ofereceria 13 vagas onde existem 7.
+  assert.equal(capacidade.usedSlots, 93);
+  assert.equal(capacidade.freeSlots, 7);
+});
+
+test('app com API bloqueada não recebe conexão, mesmo vazio', () => {
+  // O caso perigoso é justamente o app vazio: ele tem cem vagas livres e é o
+  // pior destino possível, porque a conta entraria e não publicaria enquanto o
+  // bloqueio durasse.
+  const bloqueado = app({
+    label: 'bloqueado',
+    instagram_profile_count: 0,
+    api_block_until: new Date(Date.now() + 30 * 60_000).toISOString(),
+  });
+
+  assert.equal(metaAppCapacity(bloqueado).apiBlocked, true);
+  assert.equal(metaAppCapacity(bloqueado).connectable, false);
+  assert.equal(buildBulkMetaRows(bloqueado, 5).reason, 'api_blocked');
+  assert.equal(buildBulkMetaRows(bloqueado, 5).rows.length, 0);
+});
+
+test('janela vencida deixa de bloquear sem ninguém limpar nada', () => {
+  // É isto que dispensa a sonda de desbloqueio: a pergunta é feita ao relógio.
+  const expirado = app({
+    label: 'expirado',
+    api_block_until: new Date(Date.now() - 60_000).toISOString(),
+  });
+
+  assert.equal(metaAppCapacity(expirado).apiBlocked, false);
+  assert.equal(metaAppCapacity(expirado).connectable, true);
+  assert.equal(buildBulkMetaRows(expirado, 5).rows.length, 5);
 });

@@ -28,7 +28,7 @@ export const META_APP_DEFAULT_SLOT_LIMIT = 100;
  * proíbe exportar qualquer coisa além dos handlers de um arquivo de rota.
  */
 export const META_APP_SAFE_COLUMNS =
-  'id, organization_id, label, app_id, instagram_slot_limit, active, last_connected_at, instagram_profile_count, pending_slot_release_count, api_blocked_at, api_block_until, api_block_error_message, api_block_window_count, api_block_ignored_count, api_last_unblocked_at, created_at, updated_at';
+  'id, organization_id, label, app_id, instagram_slot_limit, active, last_connected_at, instagram_profile_count, pending_slot_release_count, transferred_out_count, api_blocked_at, api_block_until, api_block_error_message, api_block_window_count, api_block_ignored_count, api_last_unblocked_at, created_at, updated_at';
 
 export type NamedMetaApp = {
   id: string;
@@ -44,6 +44,17 @@ export type NamedMetaApp = {
    * 13 vagas" e "app lotado", e foi ela que mandou celular para app sem espaço.
    */
   pending_slot_release_count: number | null;
+  /**
+   * Perfis que SAIRAM deste app para outro e cuja conexao ainda nao foi apagada
+   * no Meta Developers. Mesma natureza da vaga presa acima, outra causa: aqui a
+   * conta nao caiu, foi movida. Ver migration 399.
+   */
+  transferred_out_count: number | null;
+  /**
+   * Fim da janela de bloqueio de API. No futuro = app fechado pela Meta agora,
+   * e nenhum perfil dele publica. Nulo ou no passado = sem bloqueio ativo.
+   */
+  api_block_until?: string | null;
 };
 
 export type NamedProfileGroup = {
@@ -63,14 +74,33 @@ export type MetaAppCapacity = {
   /** O que a Meta enxerga como ocupado: perfis vivos + vagas presas. */
   usedSlots: number;
   freeSlots: number;
-  /** Só um app ativo e com vaga pode receber uma conexão nova. */
+  /** A Meta fechou a API deste app e a janela de bloqueio ainda está aberta. */
+  apiBlocked: boolean;
+  /** Só um app ativo, com vaga e sem bloqueio pode receber conexão nova. */
   connectable: boolean;
 };
+
+/**
+ * "Bloqueado agora" e a janela ainda aberta, nao uma flag guardada.
+ *
+ * A janela expira sozinha e e isso que faz a fila voltar a testar o app sem
+ * nenhuma sonda. Por isso a pergunta e feita ao relogio, e nao a um booleano
+ * que alguem precisaria lembrar de limpar.
+ */
+export function isMetaAppApiBlockedNow(app: { api_block_until?: string | null }, now = Date.now()) {
+  if (!app.api_block_until) return false;
+  const until = Date.parse(app.api_block_until);
+  return Number.isFinite(until) && until > now;
+}
 
 export function metaAppCapacity(app: NamedMetaApp): MetaAppCapacity {
   const slotLimit = Math.max(0, app.instagram_slot_limit ?? META_APP_DEFAULT_SLOT_LIMIT);
   const activeProfiles = Math.max(0, app.instagram_profile_count ?? 0);
-  const trappedSlots = Math.max(0, app.pending_slot_release_count ?? 0);
+  // Queda e transferencia produzem a MESMA vaga fantasma: nos dois casos o
+  // perfil sumiu da contagem do Athena e a conexao continua no painel da Meta.
+  // Somar as duas e o que impede a tela de oferecer vaga que nao existe.
+  const trappedSlots = Math.max(0, app.pending_slot_release_count ?? 0)
+    + Math.max(0, app.transferred_out_count ?? 0);
   // Sem teto no limite: um app com 96 ativos e 13 quedas está com 109 conexões
   // no painel da Meta, e esconder isso atrás de "100/100" apagaria justamente o
   // tamanho do estrago. `freeSlots` já não fica negativo.
@@ -83,7 +113,10 @@ export function metaAppCapacity(app: NamedMetaApp): MetaAppCapacity {
     trappedSlots,
     usedSlots,
     freeSlots,
-    connectable: app.active && freeSlots > 0,
+    // App com API bloqueada nao recebe conexao: mandar uma conta para dentro
+    // dele agora e garantir que ela nao publique. Ver migration 392.
+    apiBlocked: isMetaAppApiBlockedNow(app),
+    connectable: app.active && freeSlots > 0 && !isMetaAppApiBlockedNow(app),
   };
 }
 
@@ -248,6 +281,7 @@ export type MetaBulkPlanReason =
   | 'no_app_selected'
   | 'invalid_quantity'
   | 'inactive_app'
+  | 'api_blocked'
   | 'app_full'
   | 'insufficient_slots';
 
@@ -295,6 +329,10 @@ export function buildBulkMetaRows(
   if (!app || !capacity) return { ...empty, blocked: true, reason: 'no_app_selected' };
   if (requested === 0) return { ...empty, blocked: true, reason: 'invalid_quantity' };
   if (!app.active) return { ...empty, blocked: true, reason: 'inactive_app' };
+  // Antes da vaga: um app com a API bloqueada pela Meta pode estar vazio e
+  // ainda assim ser o pior destino possível — a conta entraria e não
+  // publicaria. Ver migration 392.
+  if (capacity.apiBlocked) return { ...empty, blocked: true, reason: 'api_blocked' };
   if (capacity.freeSlots === 0) return { ...empty, blocked: true, reason: 'app_full' };
   if (requested > capacity.freeSlots) return { ...empty, blocked: true, reason: 'insufficient_slots' };
 
