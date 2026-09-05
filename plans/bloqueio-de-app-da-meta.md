@@ -82,7 +82,7 @@ no `PeachySara`. O teste de retomada custa 1 item por app por hora.
 - [x] 9. Testes
 - [x] 10a. `db push --dry-run` e migrations aplicadas em produção
 - [x] 10b. Worker da VPS trocado e reiniciado
-- [ ] 10c. Deploy da Vercel — **pendente**, ver abaixo
+- [x] 10c. Deploy da Vercel — feito pelo operador em 05/09 21:0x
 - [x] 11. Retomar o lote do Julio, que hoje congela 6.120 itens de app saudável
 
 ## Dívida registrada, fora do escopo de hoje
@@ -117,15 +117,30 @@ no ar e os três lotes pausaram de novo em 40 segundos. É a demonstração dire
 do que a mudança faz: mesmo erro, mesma fila, mesmo minuto -- muda só quem
 trata.
 
-## Pendência
+## O bloqueio se espalhou durante a implantação
 
-O deploy da Vercel não foi feito. A árvore de trabalho tem ~70 arquivos do outro
-chat (dashboard novo, analytics da Meta, exclusão de grupos, site institucional)
-e `vercel --prod` sobe a árvore inteira, não só o que é meu. Precisa da decisão
-do operador.
+Às 15:50 eram 4 apps; às 21:00, 5. O `Julio Lote 1` caiu no meio do caminho, e
+foi marcado pelo tratamento novo sem ninguém intervir.
 
-Sem esse deploy faltam duas coisas: o aviso e o botão na tela `/meta`, e o ramo
-novo no dispatcher da Vercel. O segundo é uma corrida estreita -- se o cron da
-Vercel pegar o PRIMEIRO item de um app bloqueado antes do worker da VPS, ele
-marca `failed` em vez de abrir a janela. Depois que a janela abre, a migration
-394 mantém todo mundo fora, inclusive o dispatcher velho.
+Varredura dos 29 apps às 21:02, um `GET /me` em cada um:
+
+```
+BLOQUEADOS NA META:  5   todos marcados pelo sistema
+RESPONDENDO OK:     24   nenhum marcado indevidamente
+sem perfil testável: 10
+```
+
+Os cinco são `Julio Lote 1`, `Julio Lote 2`, `Lari Lote 1`, `Lari Lote 2` e
+`PeachySara Lote 1` -- todos criados em 04/09. Igor, BIEL, CHRYS, LAURINHA,
+LEXY, Tia Lau, YUNA e Bruna seguem publicando.
+
+Consequência para o registro: os 6.120 itens do `Julio Lote 1` que estavam
+congelados no lote pausado não teriam publicado de qualquer forma. O dano
+colateral existiu das 11:42 às ~21:00 e depois virou prejuízo do mesmo bloqueio.
+
+## O que resta observar
+
+A expiração da primeira janela, entre 21:55 e 22:01. É a única parte do desenho
+ainda não exercitada em produção: janela vence, a fila tenta um item, a Meta
+recusa de novo, e uma janela nova abre (`api_block_window_count` vai a 2). Se a
+Meta tiver liberado, o app volta a publicar sem ninguém tocar em nada.
