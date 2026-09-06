@@ -15,6 +15,7 @@
     "worker:publication-generation:once": "node scripts/workers/publication-generation-worker.mjs --once",
     "worker:media-maintenance": "node scripts/workers/media-maintenance-worker.mjs",
     "worker:media-maintenance:once": "node scripts/workers/media-maintenance-worker.mjs --once",
+    "worker:log-retention:once": "node scripts/workers/log-retention-drain.mjs --once",
     "worker:profile-analytics": "node scripts/workers/profile-analytics-refresh-worker.mjs",
     "worker:profile-analytics:once": "node scripts/workers/profile-analytics-refresh-worker.mjs --once",
     "worker:profile-analytics:direct": "tsx scripts/workers/profile-analytics-direct-worker.ts",

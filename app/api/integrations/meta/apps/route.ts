@@ -21,7 +21,14 @@ export async function GET() {
     .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
-  if (error) return NextResponse.json({ error: 'Não foi possível carregar os apps da Meta.' }, { status: 500 });
+  if (error) {
+    // O gêmeo do throw da página. Aqui a falha não derruba tela nenhuma, mas
+    // sumia do mesmo jeito: 500 sem código nenhum no log.
+    console.error('[meta] falha ao carregar meta_apps_safe', {
+      code: error.code, message: error.message, details: error.details, hint: error.hint,
+    });
+    return NextResponse.json({ error: 'Não foi possível carregar os apps da Meta.' }, { status: 500 });
+  }
   return NextResponse.json({ apps: data ?? [] });
 }
 

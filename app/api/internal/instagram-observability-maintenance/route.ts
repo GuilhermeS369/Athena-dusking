@@ -5,13 +5,29 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Janela de retenção dos logs, em dias.
+ *
+ * Era 14 e passou a 7 em 05/09/2026, quando o banco chegou a ~15 GB vindo de
+ * ~600 MB em duas semanas. Metade disso é log: `instagram_observability_events`
+ * sozinha guardava 2,66 milhões de linhas em 13 índices, e a fatia com mais de 7
+ * dias eram ~570 mil.
+ *
+ * Sete e não cinco porque o piso combinado é cinco dias de histórico — e um piso
+ * sem folga vira teto no primeiro dia em que a manutenção falhar. O piso mora no
+ * clamp das funções da 401: nenhum chamador consegue pedir menos que isso.
+ */
+const RETENTION_DAYS = 7;
+
 const HOT_DAILY_SOURCES = [
   "partitions", "default_events", "event_rollups", "worker_rollups",
-  "incident_actions", "resolved_incidents",
+  "incident_actions", "incident_entities", "resolved_incidents",
 ] as const;
 const LEGACY_SOURCES = [
   "publication_events", "worker_cycles", "sync_logs",
   "request_anomalies", "request_rollups",
+  "media_delivery_attempts", "analytics_step_events",
+  "analytics_item_events", "batch_terminal_outcomes",
 ] as const;
 
 function authorized(request: Request) {
@@ -72,7 +88,7 @@ export async function POST(request: Request) {
       attempts += 1;
       result = await admin.rpc(rpc, {
         p_source: source,
-        p_retention_days: 14,
+        p_retention_days: RETENTION_DAYS,
         p_batch_size: batchSize,
       });
       if (!result.error) break;
@@ -101,11 +117,11 @@ export async function POST(request: Request) {
 
   const failures: Array<{ source: string; error: string }> = [];
   const apiMetricsResult = await admin.rpc("instagram_purge_observability_api_metrics", {
-    p_retention_days: 14,
+    p_retention_days: RETENTION_DAYS,
   });
   const boundaryResult = await admin.rpc("maintain_instagram_observability_hot_source", {
     p_source: "boundary_events",
-    p_retention_days: 14,
+    p_retention_days: RETENTION_DAYS,
     p_batch_size: 500,
   });
   const rollupResult = await admin.rpc("refresh_instagram_observability_rollups_recent", {

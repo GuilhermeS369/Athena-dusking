@@ -1,1 +1,7 @@
 */5 * * * * flock -n /run/lock/athena-instagram-observability-maintenance.lock /opt/athena-worker/bin/instagram-observability-maintenance.sh >> /var/log/athena-instagram-observability-maintenance.log 2>&1
+# Retencao por fonte. Estava escrita em observability-maintenance-daily.sh desde
+# 26/08 e nunca foi agendada: medido em 05/09/2026, zernio_publication_request_rollups
+# guardava 18 dias e publication_worker_cycle_events 21, com janela declarada de 14.
+# De hora em hora, e nao uma vez por dia, porque cada fonte apaga um lote de 500
+# por chamada — uma passada diaria nao acompanha 200 mil linhas/dia de entrada.
+7 * * * * flock -n /run/lock/athena-instagram-observability-retention.lock /opt/athena-worker/bin/instagram-observability-maintenance-daily.sh >> /var/log/athena-instagram-observability-retention.log 2>&1

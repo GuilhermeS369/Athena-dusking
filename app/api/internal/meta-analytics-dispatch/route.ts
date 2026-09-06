@@ -173,13 +173,25 @@ export async function POST(request: Request) {
   let faxina: Record<string, unknown> | null = null;
   if (deepPass || body.prune === true) {
     try {
-      const [removidos, antigos] = await Promise.all([
+      const [removidos, antigos, payloadsMortos] = await Promise.all([
         admin.rpc('purge_removed_profile_post_analytics', { p_limit: 5000 }),
         admin.rpc('prune_profile_post_analytics', { p_retention_days: 90, p_limit: 5000 }),
+        // Arquivo de payload das classes que ninguem le. A coleta Meta nao
+        // escreve payload (decisao no topo de lib/integrations/meta-analytics.ts),
+        // entao isto e rastro da coleta Zernio, encerrada em 03/09: 96.797 linhas
+        // de 42 KB de media. `current` fica — e a unica classe com leitor, a tela
+        // de detalhe do perfil. Lote menor que os vizinhos porque cada linha aqui
+        // pesa 40x mais que uma linha de metrica.
+        admin.rpc('purge_profile_analytics_payload_archives', {
+          p_source_classes: ['posts', 'daily'],
+          p_retention_days: 0,
+          p_limit: 1000,
+        }),
       ]);
       faxina = {
         perfisRemovidos: (removidos.data as Array<{ deleted_count: number; has_more: boolean }> | null)?.[0] ?? removidos.error?.message,
         retencao90d: (antigos.data as Array<{ deleted_count: number; has_more: boolean }> | null)?.[0] ?? antigos.error?.message,
+        payloadsMortos: (payloadsMortos.data as Array<{ deleted_count: number; has_more: boolean }> | null)?.[0] ?? payloadsMortos.error?.message,
       };
     } catch (pruneError) {
       faxina = { error: pruneError instanceof Error ? pruneError.message : 'falha na faxina' };
