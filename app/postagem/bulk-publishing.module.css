@@ -21,6 +21,9 @@
 .profileGroupFilter select:focus-visible { border-color: var(--bulk-accent-bright); box-shadow: 0 0 0 3px #9f4cff2e; }
 .profileList { display: grid; align-content: start; gap: 5px; max-height: 580px; overflow: auto; overscroll-behavior: contain; padding-right: 4px; scrollbar-color: #68498a #17131f; scrollbar-width: thin; }
 .profileList > p { color: var(--text-subtle); font-size: 11px; text-align: center; }
+.profileScopeEmpty { color: var(--text-subtle); font-size: 11px; line-height: 1.5; text-align: center; padding: 18px 12px; }
+.profileScopeLoading { color: var(--text-subtle); font-size: 11px; text-align: center; padding: 18px 12px; animation: profileScopePulse 1.1s ease-in-out infinite; }
+@keyframes profileScopePulse { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
 .profileLoadMore { min-height: 36px; margin-top: 4px; border: 1px solid #704a91; border-radius: 9px; background: #241633; color: #dec8f7; cursor: pointer; font-size: 10px; font-weight: 800; transition: .16s ease; }
 .profileRow { display: grid; grid-template-columns: auto 30px minmax(0, 1fr) minmax(64px, auto); align-items: center; gap: 8px; min-height: 52px; padding: 7px 8px; border: 1px solid transparent; border-radius: 10px; cursor: pointer; user-select: none; transition: border-color .14s ease, background .14s ease; }
 .profileRow:hover, .profileRowActive { border-color: #784baa; background: #28183a; }.profileRow:focus-within { border-color: var(--bulk-accent-bright); box-shadow: inset 0 0 0 1px #c58cff55; }

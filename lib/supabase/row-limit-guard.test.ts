@@ -314,18 +314,22 @@ const ORDERING_ALLOWLIST = new Map<string, string>([
  * mantém a regra viva — uma paginação opaca NOVA no mesmo arquivo ainda cai.
  */
 const OPAQUE_PAGINATION_ALLOWLIST = new Map<string, { count: number; reason: string }>([
-  [
-    'app/(painel)/postagem/page.tsx',
-    { count: 1, reason: 'RPC get_posting_composer_profile_summaries paginada por .order(profile_id): a função devolve uma linha por perfil, então profile_id é ordem total. A página passa POSTGREST_MAX_ROWS como tamanho de página, e não o padrão de 1.000: o PostgREST aplica o .range() depois de a função ter agregado tudo, então página a mais é agregação inteira a mais.' },
-  ],
+  // app/(painel)/postagem/page.tsx saiu daqui em 06/09/2026: a página não pagina
+  // mais RPC nenhuma. As contagens por perfil deixaram de ser agregadas para a
+  // organização inteira no SSR — passaram a estourar o statement_timeout — e são
+  // lidas por destino em /api/publications/composer/summaries, que consulta em
+  // blocos de 250 perfis e não usa .range(). A exceção some junto com o motivo
+  // dela: mantida, daria passe livre a uma paginação opaca nova no arquivo.
   [
     'app/(painel)/x/postagem/page.tsx',
     { count: 2, reason: 'RPCs de resumo de fila X paginadas por .order(profile_id): uma linha por perfil, ordem total.' },
   ],
-  [
-    'app/api/bulk-publications/profiles/route.ts',
-    { count: 1, reason: 'RPC get_posting_composer_profile_summaries paginada por .order(profile_id): uma linha por perfil, ordem total. Mesmo motivo da /postagem para o tamanho de página ser POSTGREST_MAX_ROWS.' },
-  ],
+  // app/api/bulk-publications/profiles/route.ts saiu daqui em 06/09/2026 junto
+  // com o próprio arquivo: a rota agregava as contagens da organização inteira,
+  // não tinha um só chamador em todo o repositório e passou a devolver 500 nas
+  // organizações grandes quando a agregação estourou o statement_timeout.
+  // Convertê-la para o padrão da migration 411 a deixaria idêntica a
+  // /api/publications/composer/summaries, que já existe e é usada.
   [
     'lib/twitter/bulk-service.ts',
     { count: 1, reason: 'RPC twitter_bulk_profile_queue_summary paginada por .order(profile_id): uma linha por perfil, ordem total.' },

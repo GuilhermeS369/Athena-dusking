@@ -67,6 +67,11 @@ export function usePublicationQueue({
   const [summary, setSummary] = useState<QueueSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summaryErrors, setSummaryErrors] = useState<Record<QueueAggregateTab, string | null>>({ account: null, batch: null, group: null });
+  // Grupo escolhido para a aba "Por conta". Nulo = nada buscado ainda, e a aba
+  // fica vazia. O ref espelha o estado porque refreshSummary e chamada tambem
+  // pelo polling e pelo "Recarregar", fora do ciclo de render.
+  const [accountGroupId, setAccountGroupId] = useState<string | null>(null);
+  const accountScopeRef = useRef<string | null>(null);
   const [summaryLoadedScopes, setSummaryLoadedScopes] = useState<Record<QueueAggregateTab, boolean>>({ account: false, batch: false, group: false });
   const [summaryPages, setSummaryPages] = useState<Record<QueueAggregateTab, QueueSummaryPage>>({
     account: { scope: 'account', offset: 0, limit: 25, totalCount: 0, hasMore: false },
@@ -105,6 +110,12 @@ export function usePublicationQueue({
   async function refreshSummary(scope: QueueAggregateTab = aggregateTab, append = false) {
     const currentPage = summaryPages[scope];
     if (append && (!currentPage.hasMore || summaryLoading)) return;
+    // "Por conta" nunca busca sozinha: agrega uma linha por perfil (1.526 na
+    // organização Pomodoro, contra dezenas de grupos) e é a aba que o operador
+    // nem sempre quer. Ela só sai daqui depois de escolher um grupo e clicar em
+    // buscar — inclusive no polling e no "Recarregar", que passam por esta mesma
+    // função.
+    if (scope === 'account' && !accountScopeRef.current) return;
     lastSummaryPollAtRef.current = Date.now();
     const offset = append ? currentPage.offset + currentPage.limit : 0;
     const requestSeq = summaryRequestSeqRef.current[scope] + 1;
@@ -114,6 +125,11 @@ export function usePublicationQueue({
     if (!append) setSummaryErrors((current) => ({ ...current, [scope]: null }));
     try {
       const params = new URLSearchParams({ scope, limit: String(currentPage.limit), offset: String(offset) });
+      // So a aba de contas recorta por grupo. Os totais do topo continuam
+      // sendo da fila inteira, em qualquer aba.
+      if (scope === 'account' && accountScopeRef.current && accountScopeRef.current !== 'all') {
+        params.set('groupId', accountScopeRef.current);
+      }
       const response = await fetch(`/api/publications/summary?${params.toString()}`, { cache: 'no-store' });
       const payload = await response.json() as {
         snapshotAt?: string | null;
@@ -242,6 +258,8 @@ export function usePublicationQueue({
   }, []);
 
   useEffect(() => {
+    // A aba de contas e a excecao: abrir nao busca nada, quem busca e o botao.
+    if (aggregateTab === 'account' && !accountScopeRef.current) return;
     void refreshSummary(aggregateTab);
   // Cada aba busca somente a sua primeira pagina; nenhum item detalhado e carregado.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -712,7 +730,29 @@ export function usePublicationQueue({
     setSelectedMediaIndex(0);
   }
 
+  /**
+   * Busca a aba "Por conta" para um escopo escolhido: o id de um grupo, ou
+   * 'all' para todos os perfis. E o unico caminho que carrega essa aba.
+   */
+  function searchAccounts(scope: string) {
+    if (!scope) return;
+    accountScopeRef.current = scope;
+    setAccountGroupId(scope);
+    setSummaryPages((current) => ({ ...current, account: { ...current.account, offset: 0 } }));
+    void refreshSummary('account');
+  }
+
+  function clearAccountScope() {
+    accountScopeRef.current = null;
+    setAccountGroupId(null);
+    setSummaryLoadedScopes((current) => ({ ...current, account: false }));
+    setSummaryErrors((current) => ({ ...current, account: null }));
+  }
+
   return {
+    accountGroupId,
+    searchAccounts,
+    clearAccountScope,
     batches,
     visibleBatches,
     message,

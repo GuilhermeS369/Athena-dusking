@@ -4,6 +4,7 @@ import { FormEvent, useMemo, useRef, useState } from 'react';
 import { BulkPlanProgressFeed } from '@/app/components/bulk-plan-progress-list';
 import { formatSaoPauloDateTime, ScheduledCountsByFormat, ScheduledSlotsByFormat } from '@/lib/publications/composer';
 import { ProfilePublicationMetrics } from '@/lib/publications/composer';
+import { composerSummaryFromRow, type ComposerProfileSummary, type ComposerSummaryRow } from '@/lib/publications/composer-summaries';
 import BulkPublishingClient from './bulk-publishing-client';
 import GroupComposer, { GroupRunMode, PublicationDraftItem } from './group-composer-next';
 
@@ -33,6 +34,7 @@ type Profile = {
 };
 
 type SlotsResponse = { slots?: Record<string, ScheduledSlotsByFormat>; error?: string };
+type SummariesResponse = { summaries?: Record<string, ComposerSummaryRow>; error?: string };
 
 const composerFormats: Array<keyof ScheduledSlotsByFormat> = ['reel', 'story', 'image', 'carousel'];
 
@@ -113,12 +115,6 @@ function formatDate(value: string | null) {
   return formatSaoPauloDateTime(value);
 }
 
-function formatProfileMetrics(profile: Profile) {
-  const metrics = profile.publication_metrics;
-  if (!metrics) return `${profile.scheduled_post_count} agendada(s)`;
-  return `Ag R${metrics.scheduled.reel} S${metrics.scheduled.story} I${metrics.scheduled.image} C${metrics.scheduled.carousel} · Pub R${metrics.published.reel} S${metrics.published.story} I${metrics.published.image} C${metrics.published.carousel}`;
-}
-
 export default function PublishingClient({
   activeOrganization,
   profiles,
@@ -157,23 +153,37 @@ export default function PublishingClient({
   // para os perfis do destino escolhido, e nunca para a organização inteira.
   const [slotsByProfileId, setSlotsByProfileId] = useState<Record<string, ScheduledSlotsByFormat>>({});
   const [slotsState, setSlotsState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  // As CONTAGENS seguem o mesmo caminho desde 06/09/2026, e pelo mesmo motivo:
+  // lidas para a organização inteira no SSR, elas passaram a estourar o tempo
+  // limite do banco e a tela mostrava todo perfil com 0. Vêm no mesmo laço dos
+  // horários porque dependem do mesmo destino e servem ao mesmo spinner.
+  const [summariesByProfileId, setSummariesByProfileId] = useState<Record<string, ComposerProfileSummary>>({});
   // Trocar de destino durante uma busca em andamento não pode deixar a resposta
   // antiga chegar depois e virar a agenda do destino novo.
   const slotsRequestRef = useRef(0);
 
   const composerProfiles = useMemo(() => profiles.map((profile) => {
     const byFormat = slotsByProfileId[profile.id];
-    if (!byFormat) return profile;
+    const summary = summariesByProfileId[profile.id];
+    if (!byFormat && !summary) return profile;
     return {
       ...profile,
-      scheduled_execute_ats_by_format: byFormat,
-      // O array plano é a união exata dos quatro formatos, então a API não o
-      // transporta — seria o mesmo conjunto duas vezes. A ordem aqui não
-      // importa: todo consumidor em lib/publications/composer.ts o converte
-      // para Set antes de usar.
-      scheduled_execute_ats: composerFormats.flatMap((format) => byFormat[format] ?? []),
+      ...(summary ? {
+        publication_metrics: summary.metrics,
+        scheduled_post_count: summary.scheduled_post_count,
+        scheduled_by_time: summary.scheduled_by_time,
+        scheduled_by_format_and_time: summary.scheduled_by_format_and_time,
+      } : {}),
+      ...(byFormat ? {
+        scheduled_execute_ats_by_format: byFormat,
+        // O array plano é a união exata dos quatro formatos, então a API não o
+        // transporta — seria o mesmo conjunto duas vezes. A ordem aqui não
+        // importa: todo consumidor em lib/publications/composer.ts o converte
+        // para Set antes de usar.
+        scheduled_execute_ats: composerFormats.flatMap((format) => byFormat[format] ?? []),
+      } : {}),
     };
-  }), [profiles, slotsByProfileId]);
+  }), [profiles, slotsByProfileId, summariesByProfileId]);
 
   const selectedGroup = groups.find((group) => group.id === groupId);
   const selectedProfile = composerProfiles.find((profile) => profile.id === profileId);
@@ -213,6 +223,7 @@ export default function PublishingClient({
   function resetSlots() {
     slotsRequestRef.current += 1;
     setSlotsByProfileId({});
+    setSummariesByProfileId({});
     setSlotsState('idle');
   }
 
@@ -221,23 +232,40 @@ export default function PublishingClient({
     slotsRequestRef.current = requestId;
     if (!profileIds.length) {
       setSlotsByProfileId({});
+      setSummariesByProfileId({});
       setSlotsState('ready');
       return;
     }
     setSlotsState('loading');
     try {
-      const response = await fetch('/api/publications/composer/slots', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profileIds }),
-      });
-      const payload = await response.json() as SlotsResponse;
+      // Em paralelo porque são duas leituras independentes do mesmo destino, e
+      // a tela só fica pronta com as duas: os horários evitam conflito de
+      // minuto, as contagens alimentam o seletor de horário e o resumo do perfil.
+      const [slotsResponse, summariesResponse] = await Promise.all([
+        fetch('/api/publications/composer/slots', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profileIds }),
+        }),
+        fetch('/api/publications/composer/summaries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profileIds }),
+        }),
+      ]);
+      const [slotsPayload, summariesPayload] = await Promise.all([
+        slotsResponse.json() as Promise<SlotsResponse>,
+        summariesResponse.json() as Promise<SummariesResponse>,
+      ]);
       if (requestId !== slotsRequestRef.current) return;
-      if (!response.ok) {
+      if (!slotsResponse.ok || !summariesResponse.ok) {
         setSlotsState('error');
         return;
       }
-      setSlotsByProfileId(payload.slots ?? {});
+      setSlotsByProfileId(slotsPayload.slots ?? {});
+      setSummariesByProfileId(Object.fromEntries(
+        Object.entries(summariesPayload.summaries ?? {}).map(([id, row]) => [id, composerSummaryFromRow(row)]),
+      ));
       setSlotsState('ready');
     } catch {
       if (requestId !== slotsRequestRef.current) return;
@@ -417,7 +445,7 @@ export default function PublishingClient({
           </div>
 
           <div className="form-grid publishing-basics">
-            <label>Destino<select required value={profileId ? `profile:${profileId}` : groupId ? `group:${groupId}` : ''} onChange={(event) => { const [kind, value] = event.target.value.split(':'); if ((kind === 'profile' || kind === 'group') && value) selectTarget(kind, value); }} disabled={!canManage}><option value="">Selecione um perfil ou grupo</option>{groups.length > 0 && <optgroup label="Grupos">{groups.map((group) => { const total = (group.profile_group_members ?? []).length; const online = (group.profile_group_members ?? []).filter((member) => onlineProfileIds.has(member.profile_id)).length; return <option key={group.id} value={`group:${group.id}`}>{group.name} · {online === total ? `${total} perfil(is)` : `${online} de ${total} perfil(is) online`}</option>; })}</optgroup>}<optgroup label="Perfis">{profiles.map((profile) => <option key={profile.id} value={`profile:${profile.id}`}>@{profile.username}{profile.display_name ? ` · ${profile.display_name}` : ''} · {formatProfileMetrics(profile)}</option>)}</optgroup></select></label>
+            <label>Destino<select required value={profileId ? `profile:${profileId}` : groupId ? `group:${groupId}` : ''} onChange={(event) => { const [kind, value] = event.target.value.split(':'); if ((kind === 'profile' || kind === 'group') && value) selectTarget(kind, value); }} disabled={!canManage}><option value="">Selecione um perfil ou grupo</option>{groups.length > 0 && <optgroup label="Grupos">{groups.map((group) => { const total = (group.profile_group_members ?? []).length; const online = (group.profile_group_members ?? []).filter((member) => onlineProfileIds.has(member.profile_id)).length; return <option key={group.id} value={`group:${group.id}`}>{group.name} · {online === total ? `${total} perfil(is)` : `${online} de ${total} perfil(is) online`}</option>; })}</optgroup>}<optgroup label="Perfis">{profiles.map((profile) => <option key={profile.id} value={`profile:${profile.id}`}>@{profile.username}{profile.display_name ? ` · ${profile.display_name}` : ''}</option>)}</optgroup></select></label>
             <label>Nome interno (opcional)<input maxLength={160} value={batchName} onChange={(event) => setBatchName(event.target.value)} disabled={!canManage} placeholder="Ex.: campanha de sexta" /></label>
           </div>
 

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { composerSummaryFromRow, type ComposerProfileSummary, type ComposerSummaryRow } from '@/lib/publications/composer-summaries';
 
 import {
   BULK_PROFILE_RENDER_BATCH,
@@ -178,6 +179,15 @@ function progressPercent(progress: PlanProgress) {
   return Number((handled * BigInt(10000)) / expected) / 100;
 }
 
+type SummariesResponse = { summaries?: Record<string, ComposerSummaryRow>; error?: string };
+
+/**
+ * Mesmo tamanho de bloco da rota: 250 perfis custaram ~1 s na organização
+ * Pomodoro em 06/09/2026, contra estouro do limite de 8 s para a organização
+ * inteira. Fatiado aqui também, para a lista ir se preenchendo.
+ */
+const SUMMARY_CHUNK_SIZE = 250;
+
 export default function BulkPublishingClient({ canManage, profiles, groups, onDirtyChange, onPlanConfirmed }: BulkPublishingClientProps) {
   const origins = useMemo<BulkOrigin[]>(() => [
     { type: 'ungrouped', groupId: null, name: 'Sem grupo' },
@@ -185,7 +195,18 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
   ], [groups]);
   const [profileSelection, setProfileSelection] = useState({ ids: [] as string[], anchorId: null as string | null });
   const [profileSearch, setProfileSearch] = useState('');
-  const [profileGroupId, setProfileGroupId] = useState('');
+  // '' = nada escolhido ainda, 'all' = organização inteira, ou o id de um grupo.
+  // Antes desta mudança o valor vazio significava "sem filtro", e a tela abria
+  // listando todos os perfis com suas contagens — era isso que obrigava o SSR a
+  // agregar publication_items da organização inteira, leitura que passou a
+  // estourar o `statement_timeout` de 8 s em 06/09/2026 e fazia todo perfil
+  // aparecer com 0. Agora o escopo é uma escolha, e a consulta vem depois dela.
+  const [profileScope, setProfileScope] = useState('');
+  const [summariesByProfileId, setSummariesByProfileId] = useState<Record<string, ComposerProfileSummary>>({});
+  const [summariesState, setSummariesState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  // O cache é por PERFIL, não por escopo: voltar para um grupo já carregado, ou
+  // abrir um grupo cujos perfis vieram no "todos", não repete consulta nenhuma.
+  const summariesRequestRef = useRef(0);
   const [renderedProfileLimit, setRenderedProfileLimit] = useState(BULK_PROFILE_RENDER_BATCH);
   const [name, setName] = useState('');
   const [format, setFormat] = useState<BulkFormat>('reel');
@@ -222,17 +243,99 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
   const reviewDialogRef = useRef<HTMLElement>(null);
   const reviewTriggerRef = useRef<HTMLButtonElement>(null);
 
+  /**
+   * Carrega as contagens dos perfis de um escopo, em blocos, preenchendo a tela
+   * conforme cada bloco chega.
+   *
+   * O tamanho do bloco é o mesmo medido para a rota (250 perfis ≈ 1 s na
+   * organização Pomodoro, contra estouro dos 8 s para a organização inteira).
+   * Fatiar aqui, e não só no servidor, é o que faz "Todos os perfis" aparecer
+   * aos poucos em vez de uma requisição só de dez segundos — e mantém cada
+   * requisição curta o bastante para não esbarrar no limite da função na Vercel.
+   */
+  async function loadScopeSummaries(scopeProfileIds: string[]) {
+    const requestId = summariesRequestRef.current + 1;
+    summariesRequestRef.current = requestId;
+    // Só o que ainda não está em cache. Trocar entre grupos já vistos não custa
+    // requisição nenhuma.
+    const missing = scopeProfileIds.filter((id) => !summariesByProfileId[id]);
+    if (!missing.length) {
+      setSummariesState('ready');
+      return;
+    }
+    setSummariesState('loading');
+    for (let index = 0; index < missing.length; index += SUMMARY_CHUNK_SIZE) {
+      const chunk = missing.slice(index, index + SUMMARY_CHUNK_SIZE);
+      try {
+        const response = await fetch('/api/publications/composer/summaries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profileIds: chunk }),
+        });
+        const payload = await response.json() as SummariesResponse;
+        // Trocar de escopo no meio do carregamento descarta o que ainda chegar:
+        // o cache é por perfil, mas o estado de carregamento é do escopo atual.
+        if (requestId !== summariesRequestRef.current) return;
+        if (!response.ok) {
+          setSummariesState('error');
+          return;
+        }
+        setSummariesByProfileId((current) => {
+          const next = { ...current };
+          for (const [id, row] of Object.entries(payload.summaries ?? {})) {
+            next[id] = composerSummaryFromRow(row);
+          }
+          return next;
+        });
+      } catch {
+        if (requestId !== summariesRequestRef.current) return;
+        setSummariesState('error');
+        return;
+      }
+    }
+    if (requestId !== summariesRequestRef.current) return;
+    setSummariesState('ready');
+  }
+
+  function selectProfileScope(value: string) {
+    setProfileScope(value);
+    setProfileSearch('');
+    if (!value) {
+      summariesRequestRef.current += 1;
+      setSummariesState('idle');
+      return;
+    }
+    const ids = value === 'all'
+      ? profiles.map((profile) => profile.id)
+      : (groups.find((group) => group.id === value)?.profile_group_members ?? [])
+        .map((member) => member.profile_id)
+        .filter((id) => profiles.some((profile) => profile.id === id));
+    void loadScopeSummaries(ids);
+  }
+
   const origin = origins.find((candidate) => `${candidate.type}:${candidate.groupId ?? ''}` === originKey) ?? null;
   const coverOrigin = origins.find((candidate) => `${candidate.type}:${candidate.groupId ?? ''}` === coverOriginKey) ?? null;
+  const scopeProfiles = useMemo(() => {
+    if (!profileScope) return [];
+    if (profileScope === 'all') return profiles;
+    const selectedGroup = groups.find((group) => group.id === profileScope);
+    if (!selectedGroup) return [];
+    const memberIds = new Set((selectedGroup.profile_group_members ?? []).map((member) => member.profile_id));
+    return profiles.filter((profile) => memberIds.has(profile.id));
+  }, [groups, profileScope, profiles]);
+
   const filteredProfiles = useMemo(() => {
     const query = profileSearch.trim().toLocaleLowerCase('pt-BR');
-    const selectedGroup = profileGroupId ? groups.find((group) => group.id === profileGroupId) : null;
-    const memberIds = selectedGroup
-      ? new Set((selectedGroup.profile_group_members ?? []).map((member) => member.profile_id))
-      : null;
-    const visible = filterBulkProfiles(profiles, query, memberIds);
+    // As contagens vêm do cache preenchido pela busca do escopo. Um perfil ainda
+    // sem contagem entra na lista mesmo assim, marcando 0: a ordenação por fila
+    // se corrige sozinha quando o bloco dele chega.
+    const withMetrics = scopeProfiles.map((profile) => {
+      const summary = summariesByProfileId[profile.id];
+      return summary ? { ...profile, publication_metrics: summary.metrics } : profile;
+    });
+    const visible = filterBulkProfiles(withMetrics, query, null);
     return sortBulkProfilesByQueue(visible, format);
-  }, [format, groups, profileGroupId, profileSearch, profiles]);
+  }, [format, profileSearch, scopeProfiles, summariesByProfileId]);
   const renderedProfiles = useMemo(
     () => filteredProfiles.slice(0, renderedProfileLimit),
     [filteredProfiles, renderedProfileLimit],
@@ -264,7 +367,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
 
   useEffect(() => {
     setRenderedProfileLimit(BULK_PROFILE_RENDER_BATCH);
-  }, [format, profileGroupId, profileSearch]);
+  }, [format, profileScope, profileSearch]);
 
   useEffect(() => {
     if (!origin) {
@@ -640,9 +743,10 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
               </div>
             </div>
             <label className={styles.profileGroupFilter}>
-              <span>Filtrar perfis por grupo</span>
-              <select value={profileGroupId} onChange={(event) => setProfileGroupId(event.target.value)}>
-                <option value="">Sem grupo selecionado</option>
+              <span>Quais perfis carregar</span>
+              <select value={profileScope} onChange={(event) => selectProfileScope(event.target.value)}>
+                <option value="">Selecione para carregar</option>
+                <option value="all">Todos os perfis ({formatInteger(profiles.length)})</option>
                 {groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
               </select>
             </label>
@@ -663,7 +767,13 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
               }}
               aria-label="Lista de perfis online"
             >
-              {filteredProfiles.length === 0 ? <p>Nenhum perfil online encontrado.</p> : renderedProfiles.map((profile) => {
+              {!profileScope ? (
+                <p className={styles.profileScopeEmpty}>Escolha acima se quer carregar todos os perfis ou um grupo. As contagens de cada perfil são lidas nesse momento, só para o que você escolher.</p>
+              ) : summariesState === 'loading' && !filteredProfiles.length ? (
+                <p className={styles.profileScopeLoading} role="status">Carregando perfis e contagens…</p>
+              ) : summariesState === 'error' ? (
+                <p className={styles.profileScopeEmpty} role="alert">Não foi possível carregar as contagens. Selecione o escopo de novo para tentar mais uma vez.</p>
+              ) : filteredProfiles.length === 0 ? <p>Nenhum perfil online encontrado.</p> : renderedProfiles.map((profile) => {
                 const metric = bulkProfileQueueMetric(profile, format);
                 const selected = selectedSet.has(profile.id);
                 return (

@@ -172,7 +172,6 @@ export type QueueSummary = {
     // já arquivado conta em `ok` e não tem mais nada a arquivar, e falha
     // retentável nunca é arquivada.
     pendingArchive?: number;
-    archived: number;
     expiredLeases: number;
     activeAccounts: number;
     suspendedAccounts: number;

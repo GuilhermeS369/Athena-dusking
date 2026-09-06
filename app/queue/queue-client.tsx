@@ -234,6 +234,32 @@ function ReferenceQueueView({
   setTab: (tab: QueueAggregateTab) => void;
   canManage: boolean;
 }) {
+  // Os grupos do seletor da aba de contas. Vêm de profile_groups, uma consulta
+  // leve, e só na primeira vez que a aba é aberta — não do resumo agregado, que
+  // é justamente o que não queremos disparar aqui.
+  const [groupOptions, setGroupOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [groupOptionsState, setGroupOptionsState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [pendingScope, setPendingScope] = useState('');
+
+  useEffect(() => {
+    if (tab !== 'account' || groupOptionsState !== 'idle') return;
+    setGroupOptionsState('loading');
+    void (async () => {
+      try {
+        const response = await fetch('/api/groups', { cache: 'no-store' });
+        const payload = await response.json() as { groups?: Array<{ id: string; name: string }>; error?: string };
+        if (!response.ok) {
+          setGroupOptionsState('error');
+          return;
+        }
+        setGroupOptions(payload.groups ?? []);
+        setGroupOptionsState('ready');
+      } catch {
+        setGroupOptionsState('error');
+      }
+    })();
+  }, [tab, groupOptionsState]);
+
   const cards = useMemo(() => {
     if (!queue.summary) return [];
     const summaryRows = tab === 'account' ? queue.summary.accounts : tab === 'batch' ? queue.summary.batches : queue.summary.groups;
@@ -276,7 +302,6 @@ function ReferenceQueueView({
     active: 0,
     closed: 0,
     pendingArchive: 0,
-    archived: 0,
     expiredLeases: 0,
     activeAccounts: 0,
     suspendedAccounts: 0,
@@ -328,6 +353,37 @@ function ReferenceQueueView({
           <button type="button" className={tab === 'group' ? 'is-active' : ''} onClick={() => setTab('group')} role="tab" aria-selected={tab === 'group'}>Por grupo <span>{queue.summaryLoadedScopes.group ? queue.summaryPages.group.totalCount : '…'}</span></button>
         </div>
 
+        {/* Só a aba de contas pede escolha antes de consultar: ela agrega uma
+            linha por perfil, e é a única que o operador nem sempre quer aberta. */}
+        {tab === 'account' && (
+          <div className="queue-account-scope">
+            <label>
+              <span>Grupo</span>
+              <select
+                value={pendingScope}
+                disabled={groupOptionsState === 'loading'}
+                onChange={(event) => setPendingScope(event.target.value)}
+              >
+                <option value="">{groupOptionsState === 'loading' ? 'Carregando grupos…' : 'Selecione um grupo'}</option>
+                <option value="all">Todos os perfis</option>
+                {groupOptions.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="button"
+              disabled={!pendingScope || queue.summaryLoading}
+              onClick={() => queue.searchAccounts(pendingScope)}
+            >
+              {queue.summaryLoading && queue.accountGroupId ? 'Buscando…' : 'Buscar'}
+            </button>
+            {queue.accountGroupId && (
+              <button type="button" className="button button-ghost" onClick={() => { queue.clearAccountScope(); setPendingScope(''); }}>Limpar</button>
+            )}
+            {groupOptionsState === 'error' && <span className="queue-account-scope-error" role="alert">Não foi possível carregar os grupos.</span>}
+          </div>
+        )}
+
         <div className="queue-reference-legend" aria-label="Legenda de estados">
           <span><i className="is-posting" /> <strong>Postando</strong> — publicação em andamento</span>
           <span><i className="is-waiting" /> <strong>Na fila</strong> — aguardando o próximo horário</span>
@@ -338,7 +394,9 @@ function ReferenceQueueView({
         </div>
 
         {queue.summaryErrors[tab] && cards.length > 0 && <div className="queue-reference-stale" role="status">Exibindo a última página válida. {queue.summaryErrors[tab]} <button type="button" onClick={() => void queue.refreshSummary(tab)}>Tentar novamente</button></div>}
-        {queue.summaryErrors[tab] && cards.length === 0 ? <div className="queue-reference-error" role="alert"><strong>Não foi possível carregar a fila</strong><p>{queue.summaryErrors[tab]}</p><button type="button" className="button button-ghost" onClick={() => void queue.refreshSummary(tab)}>Tentar novamente</button></div> : (!queue.summaryLoadedScopes[tab] || queue.summaryLoading) && cards.length === 0 ? <div className="queue-reference-loading" aria-label="Carregando resumo"><span /><span /><span /></div> : cards.length === 0 ? <div className="queue-reference-empty"><span aria-hidden="true">✓</span><h3>Fila operacional vazia</h3><p>Não há itens para exibir neste agrupamento.</p></div> : <div className="queue-reference-list">
+        {/* Antes de escolher, a aba de contas não consultou nada — e um spinner
+            aqui giraria para sempre, porque não há requisição em voo. */}
+        {tab === 'account' && !queue.accountGroupId ? <div className="queue-reference-empty"><span aria-hidden="true">↑</span><h3>Escolha um grupo para ver por conta</h3><p>Esta é a única visão que não carrega sozinha: ela agrega uma linha por perfil. Selecione o grupo acima e clique em buscar.</p></div> : queue.summaryErrors[tab] && cards.length === 0 ? <div className="queue-reference-error" role="alert"><strong>Não foi possível carregar a fila</strong><p>{queue.summaryErrors[tab]}</p><button type="button" className="button button-ghost" onClick={() => void queue.refreshSummary(tab)}>Tentar novamente</button></div> : (!queue.summaryLoadedScopes[tab] || queue.summaryLoading) && cards.length === 0 ? <div className="queue-reference-loading" aria-label="Carregando resumo"><span /><span /><span /></div> : cards.length === 0 ? <div className="queue-reference-empty"><span aria-hidden="true">✓</span><h3>Fila operacional vazia</h3><p>Não há itens para exibir neste agrupamento.</p></div> : <div className="queue-reference-list">
           {cards.map((card) => {
             const percent = progressPercent(card.completed, card.total);
             const target = cancellationTarget(card);
@@ -371,7 +429,13 @@ function ReferenceQueueView({
 
 export default function QueueClient({ activeOrganization }: QueueClientProps) {
   const canManage = ['admin', 'operator'].includes(activeOrganization.role);
-  const [aggregateTab, setAggregateTab] = useState<QueueAggregateTab>('account');
+  // Abre em "Por grupo", e não "Por conta". São dezenas de grupos contra 1.526
+  // perfis: a mesma agregação, agrupada por muito menos chave, e é a leitura
+  // que a operação abre primeiro. Não é a correção do estouro de tempo — os
+  // três agrupamentos estouravam igual em 06/09/2026 (conta 8.703 ms, lote
+  // 8.409 ms, grupo 8.285 ms), e o custo real estava na materialização tratada
+  // na migration 412. É a aba certa para pagar primeiro, depois dela.
+  const [aggregateTab, setAggregateTab] = useState<QueueAggregateTab>('group');
   const queue = usePublicationQueue({ initialBatches: [], groups: [], canManage, organizationId: activeOrganization.id, aggregateTab });
 
   return (

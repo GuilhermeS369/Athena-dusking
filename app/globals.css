@@ -1527,6 +1527,17 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 
 .queue-reference-tabs { display: flex; gap: 8px; padding: 17px 30px; overflow-x: auto; border-top: 1px solid #27242b; border-bottom: 1px solid #27242b; scrollbar-width: none; }
 .queue-reference-tabs::-webkit-scrollbar { display: none; }
+
+/* Seletor de escopo da aba "Por conta": ela nao consulta ao abrir, por agregar
+   uma linha por perfil. O operador escolhe o grupo e clica em buscar. */
+.queue-account-scope { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px; padding: 15px 30px 0; }
+.queue-account-scope label { display: grid; gap: 5px; flex: 1 1 220px; min-width: 0; color: #918b96; font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.queue-account-scope select { width: 100%; min-height: 38px; padding: 0 11px; border: 1px solid #27242b; border-radius: 9px; background: #17151a; color: #efeaf4; font: inherit; font-size: 12px; text-transform: none; letter-spacing: 0; outline: none; }
+.queue-account-scope select:focus-visible { border-color: #7d4bd6; box-shadow: 0 0 0 3px #7d4bd633; }
+.queue-account-scope select:disabled { opacity: .55; cursor: progress; }
+.queue-account-scope button { flex: 0 0 auto; min-height: 38px; }
+.queue-account-scope-error { flex: 1 1 100%; color: #f2789a; font-size: 11px; }
+@media (max-width: 620px) { .queue-account-scope { padding: 14px 18px 0; } .queue-account-scope button { flex: 1 1 auto; } }
 .queue-reference-tabs button { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 16px; flex: 0 0 auto; border: 1px solid transparent; border-radius: 999px; background: transparent; color: #918b96; cursor: pointer; font-size: 12px; font-weight: 750; }
 .queue-reference-tabs button span { display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: #28252d; color: #aaa3af; font-size: 10px; }
 .queue-reference-tabs button:hover { color: #d7d2db; }
