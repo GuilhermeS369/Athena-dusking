@@ -1535,6 +1535,64 @@ async function refreshQueueSummaries() {
   return { refreshed };
 }
 
+/**
+ * Alarme da fila de CONFIRMACAO.
+ *
+ * POR QUE EXISTE. Em 06/09/2026 dois itens presos estrangularam a perna de
+ * confirmacao por horas, e nada gritou. O sinal de pressao existia e estava
+ * ligado -- mas ligado o dia inteiro, por item ja aceito aguardando
+ * confirmacao, que e situacao normal. Um alarme verdadeiro 99% do tempo nao
+ * informa nada (secao 3 do mapa de controles). Ninguem viu ate o usuario
+ * perguntar por que a postagem demorava 30 minutos, e ai ja eram 723 posts
+ * perdidos.
+ *
+ * O QUE ELE MEDE, e por que este numero e diferente. Nao e "existe item
+ * vencido" -- isso e verdade quase sempre. E "existe item com o conteiner JA
+ * CRIADO na Meta, cujo `next_attempt_at` JA PASSOU, e que mesmo assim continua
+ * parado". Esse item nao espera a Meta e nao espera o horario: espera VAGA. Em
+ * regime saudavel esse numero fica em dezenas, porque o ciclo o consome em
+ * seguida. Durante o incidente ele passou de 900.
+ *
+ * Sai em `console.error` de proposito, porque o log de erro do PM2 e o sinal
+ * que a operacao olha. E so quando cruza o limiar -- ruido aqui destruiria o
+ * valor do proprio canal.
+ */
+const CONFIRMACAO_LIMIAR = integerEnv('PUBLICATION_WORKER_CONFIRMATION_ALERT', 300, 20, 100_000);
+const CONFIRMACAO_INTERVALO_MS = 60_000;
+let ultimaChecagemDeConfirmacao = 0;
+let confirmacaoJaAlarmada = false;
+
+async function checarFilaDeConfirmacao() {
+  if (Date.now() - ultimaChecagemDeConfirmacao < CONFIRMACAO_INTERVALO_MS) return null;
+  ultimaChecagemDeConfirmacao = Date.now();
+  const supabase = createSupabase();
+  const { count, error } = await supabase
+    .from('publication_items')
+    .select('id', { count: 'exact', head: true })
+    .not('creation_id', 'is', null)
+    .eq('status', 'waiting')
+    .lte('next_attempt_at', new Date().toISOString());
+  // Falhar aqui e um alarme quebrado, nao uma fila quebrada: nao para o ciclo.
+  if (error) return null;
+  const represado = count ?? 0;
+  if (represado >= CONFIRMACAO_LIMIAR && !confirmacaoJaAlarmada) {
+    confirmacaoJaAlarmada = true;
+    console.error('[publication-worker] FILA DE CONFIRMACAO REPRESADA', {
+      itensElegiveisParados: represado,
+      limiar: CONFIRMACAO_LIMIAR,
+      significado: 'itens com conteiner criado na Meta cujo horario de consulta ja passou e que continuam sem ser reivindicados',
+      ondeOlhar: 'limiteAdaptativo no ciclo DIRETO; se estiver preso em 1-3, ver secao 3-C do mapa de controles',
+    });
+  }
+  // So volta a poder alarmar depois de normalizar de verdade (metade do
+  // limiar), para nao piscar em volta da fronteira.
+  if (confirmacaoJaAlarmada && represado < CONFIRMACAO_LIMIAR / 2) {
+    confirmacaoJaAlarmada = false;
+    console.error('[publication-worker] fila de confirmacao normalizada', { itensElegiveisParados: represado });
+  }
+  return represado;
+}
+
 async function recoverMissedPublicationSchedules(options = {}) {
   const supabase = createSupabase();
   const { data, error } = await supabase.rpc('recover_missed_publication_slots', {
@@ -2418,6 +2476,8 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   // `criticalDelay` ligado e travou a exclusao de midia da galeria.
   const expirados = reconciliationOnly ? { expired: 0 } : await expireLatePublicationItems();
   marcar('encerrarAtrasados');
+  if (!reconciliationOnly) await checarFilaDeConfirmacao();
+  marcar('alarmeDeConfirmacao');
   // O resumo da tela e recalculado aqui, fora do caminho da requisicao.
   if (!reconciliationOnly) await refreshQueueSummaries();
   marcar('resumoDaFila');
