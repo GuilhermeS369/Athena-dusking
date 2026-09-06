@@ -41,8 +41,10 @@ export default async function GroupsPage() {
       .order('group_id', { ascending: true })
       .order('profile_id', { ascending: true })
       .range(from, to)),
+    // A view soma os dois provedores. Ler so a metade Zernio deixava toda queda
+    // pela Meta como "0 cairam" num grupo que encolheu -- ver migration 406.
     supabase
-      .from('zernio_group_profile_removal_counts')
+      .from('group_profile_fall_counts')
       .select('group_id, fallen_profile_count')
       .eq('organization_id', organizationId),
   ]);
