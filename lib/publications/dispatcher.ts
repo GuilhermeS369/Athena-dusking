@@ -223,6 +223,18 @@ type MissedScheduleRecovery = {
   outcome: 'rescheduled_once' | 'requires_attention';
 };
 
+async function expireLatePublicationItems() {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase.rpc('expire_late_publication_items', { p_limit: 500 });
+  // Encerrar atrasado é higiene, não o trabalho do ciclo: se falhar, o despacho
+  // continua. O claim já está recusando esses itens de qualquer forma.
+  if (error) {
+    console.error('[publication-dispatch] expire_late_failed', { code: error.code, message: error.message });
+    return { expired: 0 };
+  }
+  return (data ?? { expired: 0 }) as { expired?: number; cutoffAt?: string; disabled?: boolean };
+}
+
 async function recoverMissedPublicationSchedules() {
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase.rpc('recover_missed_publication_slots', {
@@ -509,6 +521,15 @@ export async function dispatchPublicationQueue(options: DispatchOptions = {}) {
   // qualquer claim, a rotina transacional o move uma única vez para a próxima
   // data livre na mesma faixa diária; uma segunda perda exige ação humana.
   const recovery = await recoverMissedPublicationSchedules();
+
+  // O que a recuperação não alcançou é encerrado, e não publicado atrasado.
+  // `recover_missed_publication_slots` remaneja no máximo 100 por ciclo e só
+  // uma vez por item; sem esta varredura, o resto continuava elegível e saía
+  // com horas de atraso — em 06/09 foram 189 publicações com mais de três horas
+  // em vinte minutos, a mais antiga com 603. O claim já os recusa (migration
+  // 405); isto tira da fila o que ele passou a ignorar, para não voltarem a
+  // contar como atraso vivo e envenenar o sinal de pressão.
+  const expired = await expireLatePublicationItems();
 
   const { data: claimed, error: claimError } = await supabase.rpc('claim_publication_items', {
     p_worker_id: workerId,
