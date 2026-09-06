@@ -2,6 +2,23 @@
 export const META_AUTHENTICATION_ERROR_CODE = 190;
 
 /**
+ * "Only photo or video can be accepted as media type."
+ *
+ * Parece erro de arquivo e quase nunca é. A Meta não recebe a mídia: ela recebe
+ * uma URL assinada e busca sozinha. Se nesse instante o R2 devolver erro,
+ * timeout ou qualquer coisa que não seja a imagem, ela vê um conteúdo que não é
+ * foto nem vídeo e responde isto — sobre um arquivo perfeitamente válido.
+ *
+ * Medido em 06/09/2026, nos dois PNG que falharam: os MESMOS arquivos já haviam
+ * publicado 2.287 vezes pela API da Meta e 395 pela Zernio. Três falhas em
+ * 2.330 tentativas — 0,13%, espalhadas por dias diferentes. Formato incompatível
+ * não falha em 0,13% dos casos; falha em todos.
+ *
+ * A URL vale 24 horas, então expiração está descartada.
+ */
+export const META_MEDIA_FETCH_ERROR_CODE = 9004;
+
+/**
  * Decide se uma resposta de erro da Graph API adia a publicação ou a encerra.
  *
  * O caso que exige atenção é o de autenticação (HTTP 401 e o código 190). Ele
@@ -25,6 +42,14 @@ export function isRetryableGraphFailure(
   isTransient?: boolean,
 ) {
   if (httpStatus === 401 || graphErrorCode === META_AUTHENTICATION_ERROR_CODE) return true;
+  // Falha da Meta ao BUSCAR a mídia. As três ocorrências de 06/09 morreram na
+  // primeira leitura, porque 9004 chega com HTTP 400 e a regra abaixo só adia
+  // 401, 429 e 5xx. É a terceira vez que o mesmo erro de método aparece: o 401
+  // que matou 3.315 publicações em 31/08 e o `ERROR` de contêiner que matou 76
+  // em 04/09 tinham exatamente esta forma — um veredito provisório tratado como
+  // definitivo. Se a mídia estiver mesmo quebrada, PUBLICATION_MAX_ATTEMPTS
+  // encerra do mesmo jeito, só que depois de a Meta repetir o veredito.
+  if (graphErrorCode === META_MEDIA_FETCH_ERROR_CODE) return true;
   return httpStatus >= 500 || httpStatus === 429 || isTransient === true;
 }
 

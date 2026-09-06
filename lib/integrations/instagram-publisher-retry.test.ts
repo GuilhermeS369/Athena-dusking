@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { isMetaAppApiBlocked, metaAppApiFailureKind, isRetryableGraphFailure, META_AUTHENTICATION_ERROR_CODE, metaContainerVerdict } from './meta-graph-errors.ts';
+import { isMetaAppApiBlocked, metaAppApiFailureKind, META_MEDIA_FETCH_ERROR_CODE, isRetryableGraphFailure, META_AUTHENTICATION_ERROR_CODE, metaContainerVerdict } from './meta-graph-errors.ts';
 
 test('token vencido ou revogado adia a publicação, nunca a encerra', () => {
   // Era este o caso que matava o post na primeira tentativa. Depois da migração
@@ -112,4 +112,18 @@ test('bloqueado e desativado são distinguidos, porque a ação é outra', () =>
   assert.equal(metaAppApiFailureKind({ errorCode: '200', errorMessage: 'API access blocked.' }), 'blocked');
   assert.equal(metaAppApiFailureKind({ errorCode: '200', errorMessage: '(#200) Requires instagram_content_publish' }), null);
   assert.equal(metaAppApiFailureKind({ errorCode: '190', errorMessage: 'API access deactivated.' }), null);
+});
+
+test('9004 adia: a Meta falhou ao BUSCAR a mídia, não a rejeitou', () => {
+  // Os dois PNG que falharam já haviam publicado 2.287 vezes pela mesma API.
+  // Três falhas em 2.330 tentativas não é formato incompatível — é soluço na
+  // busca da URL assinada, e encerrar na primeira leitura queima o post.
+  assert.equal(isRetryableGraphFailure(400, META_MEDIA_FETCH_ERROR_CODE), true);
+});
+
+test('adiar não é retentar para sempre', () => {
+  // PUBLICATION_MAX_ATTEMPTS continua valendo: mídia realmente quebrada morre
+  // depois de a Meta repetir o veredito, e não antes dela.
+  assert.equal(isRetryableGraphFailure(400, 100), false);
+  assert.equal(isRetryableGraphFailure(400), false);
 });
