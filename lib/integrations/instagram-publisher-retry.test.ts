@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { isMetaAppApiBlocked, isRetryableGraphFailure, META_AUTHENTICATION_ERROR_CODE, metaContainerVerdict } from './meta-graph-errors.ts';
+import { isMetaAppApiBlocked, metaAppApiFailureKind, isRetryableGraphFailure, META_AUTHENTICATION_ERROR_CODE, metaContainerVerdict } from './meta-graph-errors.ts';
 
 test('token vencido ou revogado adia a publicação, nunca a encerra', () => {
   // Era este o caso que matava o post na primeira tentativa. Depois da migração
@@ -97,4 +97,19 @@ test('bloqueio de app não se confunde com token inválido', () => {
   // temporariamente seria irreversível pelo painel.
   assert.equal(isMetaAppApiBlocked({ errorCode: '190', errorMessage: 'API access blocked.' }), false);
   assert.equal(isMetaAppApiBlocked({ errorCode: '', errorMessage: 'API access blocked.' }), false);
+});
+
+test('"API access deactivated" também é bloqueio de app', () => {
+  // A mensagem que a Meta passou a devolver em 06/09/2026, às 00:21, nos mesmos
+  // apps. Não reconhecê-la fez três lotes pausarem e congelou 14.482 itens.
+  assert.equal(metaAppApiFailureKind({ errorCode: '200', errorMessage: 'API access deactivated.' }), 'deactivated');
+  assert.equal(isMetaAppApiBlocked({ errorCode: '200', errorMessage: 'API access deactivated.' }), true);
+});
+
+test('bloqueado e desativado são distinguidos, porque a ação é outra', () => {
+  // blocked pode reabrir sozinho; deactivated exige religar as contas em outro
+  // app. A tela precisa dizer coisas diferentes.
+  assert.equal(metaAppApiFailureKind({ errorCode: '200', errorMessage: 'API access blocked.' }), 'blocked');
+  assert.equal(metaAppApiFailureKind({ errorCode: '200', errorMessage: '(#200) Requires instagram_content_publish' }), null);
+  assert.equal(metaAppApiFailureKind({ errorCode: '190', errorMessage: 'API access deactivated.' }), null);
 });

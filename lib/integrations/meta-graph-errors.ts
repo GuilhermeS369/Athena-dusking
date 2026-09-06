@@ -116,6 +116,35 @@ export function metaContainerVerdict(
  * Postgres, para que nenhum chamador consiga bloquear um app por engano.
  */
 export function isMetaAppApiBlocked(result: { errorCode?: string; errorMessage?: string }) {
-  if (String(result.errorCode ?? '').trim() !== '200') return false;
-  return /api access blocked/i.test(result.errorMessage ?? '');
+  return metaAppApiFailureKind(result) !== null;
+}
+
+/** As duas formas conhecidas de a Meta dizer que o app não fala mais com a API. */
+export type MetaAppApiFailureKind = 'blocked' | 'deactivated';
+
+/**
+ * Diz QUAL das duas mensagens chegou — e a diferença muda o que o operador faz.
+ *
+ * Em 06/09/2026, a partir das 00:21, a Meta trocou `API access blocked.` por
+ * `API access deactivated.` nos mesmos apps. A guarda só casava a primeira,
+ * então os itens voltaram ao caminho antigo: 200 não é retentável, viraram
+ * falha terminal, o disjuntor contou e três lotes pausaram. Às 10:50 havia
+ * 14.482 itens congelados, 2.076 já vencidos — e quase todos de perfis
+ * SAUDÁVEIS, presos por ~220 itens de perfis com token de app morto. O mesmo
+ * estrago do dia anterior, voltando por uma palavra diferente.
+ *
+ *   blocked     -> pode voltar. A janela de uma hora testa sozinha.
+ *   deactivated -> não volta. O app foi desativado do lado da Meta e as contas
+ *                  precisam ser religadas em outro app. A janela continua
+ *                  valendo, porque é ela que impede a fila de sangrar, mas a
+ *                  tela precisa dizer "religue" em vez de "aguarde".
+ */
+export function metaAppApiFailureKind(
+  result: { errorCode?: string; errorMessage?: string },
+): MetaAppApiFailureKind | null {
+  if (String(result.errorCode ?? '').trim() !== '200') return null;
+  const message = result.errorMessage ?? '';
+  if (/api access blocked/i.test(message)) return 'blocked';
+  if (/api access deactivated/i.test(message)) return 'deactivated';
+  return null;
 }

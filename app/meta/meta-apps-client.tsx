@@ -51,6 +51,9 @@ export type MetaApp = {
   api_block_window_count: number;
   api_block_ignored_count: number;
   api_last_unblocked_at: string | null;
+  // 'blocked' = a Meta pode reabrir e a janela testa sozinha; 'deactivated' = o
+  // app foi desativado e as contas precisam ser religadas em outro app.
+  api_block_kind: 'blocked' | 'deactivated' | null;
   created_at: string;
   updated_at: string;
 };
@@ -90,6 +93,7 @@ function apiBlockState(app: MetaApp) {
     until,
     minutesLeft: Math.max(1, Math.ceil((until - Date.now()) / 60_000)),
     since: app.api_blocked_at,
+    desativado: app.api_block_kind === 'deactivated',
   };
 }
 
@@ -929,7 +933,9 @@ export default function MetaAppsClient({
               >
                 {apiBlock && (
                   <div className={styles.apiBlock} role="status">
-                    <strong className={styles.apiBlockTitle}>API bloqueada pela Meta</strong>
+                    <strong className={styles.apiBlockTitle}>
+                      {apiBlock.desativado ? 'API desativada pela Meta' : 'API bloqueada pela Meta'}
+                    </strong>
                     <p className={styles.apiBlockText}>
                       Nenhum dos {app.instagram_profile_count} perfil(is) deste app publica enquanto isso.
                       Desde {formatDate(apiBlock.since)} · {app.api_block_ignored_count} publicação(ões) já ignorada(s)
@@ -939,8 +945,11 @@ export default function MetaAppsClient({
                       <p className={styles.apiBlockReason}>Meta: {app.api_block_error_message}</p>
                     )}
                     <p className={styles.apiBlockText}>
-                      A fila tenta de novo sozinha em {apiBlock.minutesLeft} min. O que vencer até lá é ignorado —
-                      destrave o app no Meta Developers e use o botão para retomar na hora.
+                      {apiBlock.desativado
+                        // Desativado não volta sozinho: dizer "aguarde" aqui
+                        // faria o operador esperar por algo que não vem.
+                        ? `A fila segue testando de hora em hora, mas app desativado não costuma voltar — o caminho é religar as ${app.instagram_profile_count} conta(s) em outro app. O que vencer até lá é ignorado.`
+                        : `A fila tenta de novo sozinha em ${apiBlock.minutesLeft} min. O que vencer até lá é ignorado — destrave o app no Meta Developers e use o botão para retomar na hora.`}
                     </p>
                     <p className={styles.apiBlockText}>
                       {/* A saída quando o app não volta: reconectar as contas por
