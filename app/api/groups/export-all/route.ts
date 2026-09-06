@@ -10,7 +10,7 @@ type ExportRow = {
   group_consumption_mode: 'single_use' | 'reusable';
   row_kind: 'current' | 'fallen';
   username: string;
-  zernio_connection_label: string | null;
+  connection_label: string | null;
   profile_added_at: string;
   profile_status: 'no_data' | 'online' | 'offline' | 'reauthorization_required' | 'fallen';
   fallen_at: string | null;
@@ -43,7 +43,7 @@ export async function GET() {
   // só empata se o mesmo perfil cair duas vezes no mesmo instante.
   const { data, error } = await fetchAllRows<ExportRow>((from, to) => supabase
     .from('group_profile_export_rows')
-    .select('group_id, group_name, group_consumption_mode, row_kind, username, zernio_connection_label, profile_added_at, profile_status, fallen_at, fall_reason, profile_id, total_views, analytics_synced_at')
+    .select('group_id, group_name, group_consumption_mode, row_kind, username, connection_label, profile_added_at, profile_status, fallen_at, fall_reason, profile_id, total_views, analytics_synced_at')
     .eq('organization_id', organizationId)
     .order('group_name', { ascending: true })
     .order('group_id', { ascending: true })

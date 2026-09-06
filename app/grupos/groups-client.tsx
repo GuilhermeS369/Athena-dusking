@@ -76,7 +76,7 @@ type ExportRow = {
   group_consumption_mode: Group['consumption_mode'];
   row_kind: 'current' | 'fallen';
   username: string;
-  zernio_connection_label: string | null;
+  connection_label: string | null;
   profile_added_at: string;
   profile_status: Profile['status'] | 'fallen';
   fallen_at: string | null;
@@ -133,7 +133,7 @@ function exportStatusLabel(status: ExportRow['profile_status']) {
   return status === 'fallen' ? 'Caiu' : statusLabel[status];
 }
 
-const exportHeaders = ['Nome do grupo', 'Modo do grupo', '@ do perfil', 'Zernio', 'Data de adição ao sistema', 'Situação', 'Status atual', 'Views totais', 'Views atualizadas em', 'Data da queda', 'Motivo da queda'];
+const exportHeaders = ['Nome do grupo', 'Modo do grupo', '@ do perfil', 'Conexão', 'Data de adição ao sistema', 'Situação', 'Status atual', 'Views totais', 'Views atualizadas em', 'Data da queda', 'Motivo da queda'];
 const exportColumnWidths = [30, 18, 20, 28, 24, 12, 22, 14, 22, 22, 70];
 
 /**
@@ -143,6 +143,12 @@ const exportColumnWidths = [30, 18, 20, 28, 24, 12, 22, 14, 22, 22, 70];
  * O grupo abre a linha porque no arquivo com todos ele é a primeira pergunta de
  * quem lê ("de qual grupo é esta linha?"); no arquivo de um grupo só a coluna
  * repete o mesmo valor e serve de cabeçalho do que foi exportado.
+ *
+ * "Conexão" é de onde o perfil publica: o app da Meta ou a conta Zernio,
+ * resolvido pelo provedor na migration 407. Na linha de queda é o rótulo
+ * congelado no incidente, porque depois da queda o vínculo não existe mais.
+ * Fica "Não informado" quando quem exporta é viewer — meta_apps e
+ * zernio_connections só abrem para admin/operator.
  *
  * "Views totais" vem de profile_analytics_current — o mesmo número da tela de
  * perfis. Perfil sem sincronia de analytics fica vazio de propósito: zero seria
@@ -154,7 +160,7 @@ function buildExportSheet(XLSX: typeof import('xlsx'), rows: ExportRow[]) {
     row.group_name,
     row.group_consumption_mode === 'reusable' ? 'Reutilizável' : 'Uso único',
     `@${row.username}`,
-    row.zernio_connection_label ?? 'Não informado',
+    row.connection_label ?? 'Não informado',
     formatDate(row.profile_added_at),
     row.row_kind === 'fallen' ? 'Caiu' : 'Atual',
     exportStatusLabel(row.profile_status),
