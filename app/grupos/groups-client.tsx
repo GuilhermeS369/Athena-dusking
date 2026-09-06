@@ -145,8 +145,9 @@ const exportColumnWidths = [30, 18, 20, 28, 24, 12, 22, 14, 22, 22, 70];
  * repete o mesmo valor e serve de cabeçalho do que foi exportado.
  *
  * "Conexão" é de onde o perfil publica: o app da Meta ou a conta Zernio,
- * resolvido pelo provedor na migration 407. Na linha de queda é o rótulo
- * congelado no incidente, porque depois da queda o vínculo não existe mais.
+ * resolvido pelo provedor na migration 408. Na linha de queda é o rótulo
+ * congelado no incidente, porque depois da queda o vínculo não existe mais;
+ * quem foi solto de um app removido sai com o rótulo antigo e "(sem app)".
  * Fica "Não informado" quando quem exporta é viewer — meta_apps e
  * zernio_connections só abrem para admin/operator.
  *

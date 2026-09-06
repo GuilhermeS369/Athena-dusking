@@ -2,15 +2,20 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const migration = readFileSync('supabase/migrations/407_group_export_shows_the_connection.sql', 'utf8');
+const migration = readFileSync('supabase/migrations/408_group_export_shows_the_connection.sql', 'utf8');
 const groupExport = readFileSync('app/api/groups/[groupId]/export/route.ts', 'utf8');
 const allExport = readFileSync('app/api/groups/export-all/route.ts', 'utf8');
 const groupsClient = readFileSync('app/grupos/groups-client.tsx', 'utf8');
 
 test('a coluna da planilha resolve o rótulo pelo provedor, não por coalesce', () => {
-  assert.match(migration, /case profile\.provider::text\s+when 'zernio' then connection\.label\s+when 'meta_official' then meta_app\.label\s+end as connection_label/);
+  assert.match(migration, /case profile\.provider::text\s+when 'zernio' then connection\.label\s+when 'meta_official' then coalesce\(\s+meta_app\.label,/);
+  assert.match(migration, /end as connection_label,/);
   assert.match(migration, /left join public\.meta_apps meta_app\s+on meta_app\.id = profile\.meta_app_id\s+and meta_app\.organization_id = profile\.organization_id/);
   assert.doesNotMatch(migration, /coalesce\(connection\.label/);
+});
+
+test('perfil solto do app sai com o app que tinha, marcado, e não como "Não informado"', () => {
+  assert.match(migration, /coalesce\(\s*meta_app\.label,[\s\S]*?profile\.orphaned_from_meta_app_label \|\| ' \(sem app\)'/);
 });
 
 test('renomear a coluna exige derrubar a view, e sem cascade', () => {

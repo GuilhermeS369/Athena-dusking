@@ -25,6 +25,14 @@
 -- mostraria a conta Zernio velha de um perfil que ja publica pela Meta -- e a
 -- planilha e usada como fonte de verdade.
 --
+-- QUEM PERDEU O APP APARECE COM O APP QUE TINHA, marcado. A migration 409 passou
+-- a guardar `orphaned_from_meta_app_label` justamente porque `meta_app_id` e
+-- zerado quando o app sai do cadastro; sem esse ramo, os 22 perfis orfaos de
+-- 06/09 sairiam como "Nao informado" -- que e a pergunta que esta planilha
+-- deveria responder. O sufixo " (sem app)" existe para a celula nao afirmar que
+-- o perfil publica por um app do qual ele foi solto; e a mesma palavra que a
+-- tela /meta usa ("sem app desde ..."), para as duas nao se contradizerem.
+--
 -- QUEM E `viewer` CONTINUA VENDO "Nao informado", e isso nao e regressao:
 -- `meta_apps` e `zernio_connections` tem a mesma politica de select
 -- (admin/operator), e a view e security_invoker, entao os dois joins somem do
@@ -51,7 +59,13 @@ select
   profile.username,
   case profile.provider::text
     when 'zernio' then connection.label
-    when 'meta_official' then meta_app.label
+    when 'meta_official' then coalesce(
+      meta_app.label,
+      case
+        when profile.orphaned_from_meta_app_label is not null
+          then profile.orphaned_from_meta_app_label || ' (sem app)'
+      end
+    )
   end as connection_label,
   profile.created_at as profile_added_at,
   profile.status::text as profile_status,
