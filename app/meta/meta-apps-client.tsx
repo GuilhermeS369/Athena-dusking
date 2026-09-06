@@ -11,7 +11,6 @@ import {
 } from '@/lib/integrations/meta-apps';
 import {
   describeDisconnection,
-  orphanDisconnectionAppLabels,
   orphanPendingDisconnections,
   pendingDisconnectionsByAppId,
   pendingUsernameList,
@@ -133,6 +132,7 @@ function formatFallDate(value: string) {
 function PendingQueue({
   incidents,
   scopeLabel,
+  showAppLabel = false,
   selectedIds,
   copiedIncidentId,
   busy,
@@ -144,6 +144,7 @@ function PendingQueue({
 }: {
   incidents: MetaPendingDisconnection[];
   scopeLabel: string;
+  showAppLabel?: boolean;
   selectedIds: ReadonlySet<string>;
   copiedIncidentId: string | null;
   busy: boolean;
@@ -193,7 +194,7 @@ function PendingQueue({
           return (
             <li
               key={incident.id}
-              className={`${styles.fallRow}${selectedIds.has(incident.id) ? ` ${styles.fallRowSelected}` : ''}`}
+              className={`${styles.fallRow}${showAppLabel ? ` ${styles.fallRowWithApp}` : ''}${selectedIds.has(incident.id) ? ` ${styles.fallRowSelected}` : ''}`}
             >
               <input
                 type="checkbox"
@@ -210,6 +211,12 @@ function PendingQueue({
                 @{incident.username_snapshot}
                 <span aria-hidden="true">{copied ? '✓' : '⧉'}</span>
               </button>
+              {/* Só no bloco órfão: dentro do cartão de um app o rótulo seria a
+                  repetição do título logo acima. Aqui ele é a única pista de
+                  qual app abrir no Meta Developers. */}
+              {showAppLabel && incident.meta_app_label_snapshot && (
+                <span className={styles.fallAppLabel}>{incident.meta_app_label_snapshot}</span>
+              )}
               <span className={styles.fallDate}>{motivo.verb} {formatFallDate(incident.detected_at)}</span>
               <span className={`${styles.fallCode}${motivo.isFall ? '' : ` ${styles.fallCodeRemoved}`}`}>
                 {motivo.badge}
@@ -282,7 +289,6 @@ export default function MetaAppsClient({
     () => orphanPendingDisconnections(pending, new Set(apps.map((app) => app.id))),
     [apps, pending],
   );
-  const orphanAppLabels = useMemo(() => orphanDisconnectionAppLabels(orphanPending), [orphanPending]);
   const fleetByApp = useMemo(
     () => new Map(initialTokenFleet.map((row) => [row.meta_app_id, row])),
     [initialTokenFleet],
@@ -1112,30 +1118,12 @@ export default function MetaAppsClient({
                 O app que segurava estas contas saiu do cadastro do Athena — mas a conexão continua viva no Meta
                 Developers, ocupando a vaga lá. Apagar por lá é o que libera.
               </p>
-              {orphanAppLabels.length > 0 && (
-                // O rótulo é gravado no instante da queda justamente para
-                // sobreviver ao descadastro do app. A tela dizia "não dá para
-                // dizer qual app prende a vaga" com a resposta guardada a duas
-                // linhas de distância.
-                <ul className={styles.orphanOrigins}>
-                  {orphanAppLabels.map((origin) => (
-                    <li key={origin.label}>
-                      <strong>{origin.count}</strong> de <code>{origin.label}</code>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {orphanPending.length > orphanAppLabels.reduce((total, origin) => total + origin.count, 0) && (
-                <p>
-                  As demais entraram pela credencial global, antes de o cadastro de apps existir: dessas não há
-                  registro de qual app as prende, e vale procurar o @ no painel do mesmo jeito.
-                </p>
-              )}
             </div>
           </div>
           <PendingQueue
             incidents={orphanPending}
-            scopeLabel="contas sem app identificado"
+            scopeLabel="contas de app fora do cadastro"
+            showAppLabel
             selectedIds={selectedIds}
             copiedIncidentId={copiedIncidentId}
             busy={confirming}

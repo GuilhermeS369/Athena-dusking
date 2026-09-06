@@ -127,31 +127,20 @@ export function orphanPendingDisconnections(
 ) {
   return incidents
     .filter((incident) => !incident.meta_app_id || !knownAppIds.has(incident.meta_app_id))
-    .sort(compareByFallDesc);
-}
-
-/**
- * De quais apps essas quedas vieram, quando o app já saiu do cadastro.
- *
- * A tela dizia "não dá para dizer qual app prende a vaga delas" — e isso era
- * falso: `meta_app_label_snapshot` é gravado no instante da queda, justamente
- * para o rastro sobreviver ao descadastro do app (migration 376). Em 06/09/2026
- * o operador apagou sete apps e 244 quedas caíram nesse balde anônimo; a
- * informação de qual app abrir no Meta Developers estava guardada o tempo todo,
- * a duas linhas de distância.
- *
- * Devolve os rótulos ordenados por quantidade, para a tela dizer onde procurar.
- */
-export function orphanDisconnectionAppLabels(incidents: MetaPendingDisconnection[]) {
-  const counts = new Map<string, number>();
-  for (const incident of incidents) {
-    const label = incident.meta_app_label_snapshot?.trim();
-    if (!label) continue;
-    counts.set(label, (counts.get(label) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([label, count]) => ({ label, count }))
-    .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label));
+    // Agrupadas pelo app de origem, e não pela data: quem percorre esta lista
+    // está com o Meta Developers aberto e resolve UM app por vez. Espalhar as
+    // 63 da PeachySara no meio das 44 da Lari obriga a pular linha a linha.
+    // Sem rótulo guardado vai para o fim, porque ali não há app para abrir.
+    .sort((first, second) => {
+      const firstLabel = first.meta_app_label_snapshot?.trim() ?? '';
+      const secondLabel = second.meta_app_label_snapshot?.trim() ?? '';
+      if (firstLabel !== secondLabel) {
+        if (!firstLabel) return 1;
+        if (!secondLabel) return -1;
+        return firstLabel.localeCompare(secondLabel);
+      }
+      return compareByFallDesc(first, second);
+    });
 }
 
 /**

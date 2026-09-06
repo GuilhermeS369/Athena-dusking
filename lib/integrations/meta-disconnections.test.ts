@@ -240,3 +240,28 @@ test('remoção pedida ignora um código de erro que tenha sobrado na linha', ()
   assert.equal(removido.badge, 'removido');
   assert.equal(removido.isFall, false);
 });
+
+test('quedas órfãs saem agrupadas pelo app de origem', () => {
+  // Quem percorre esta lista está com o Meta Developers aberto e resolve um app
+  // por vez. Ordenar por data espalharia as 63 da PeachySara no meio das 44 da
+  // Lari, e a pessoa teria de pular linha a linha.
+  const ordenadas = orphanPendingDisconnections([
+    incident({ username_snapshot: 'a', meta_app_label_snapshot: 'Lari Lote 2', detected_at: '2026-09-05T10:00:00Z' }),
+    incident({ username_snapshot: 'b', meta_app_label_snapshot: 'PeachySara Lote 1', detected_at: '2026-09-05T12:00:00Z' }),
+    incident({ username_snapshot: 'c', meta_app_label_snapshot: 'Lari Lote 2', detected_at: '2026-09-05T14:00:00Z' }),
+    incident({ username_snapshot: 'd', meta_app_label_snapshot: 'PeachySara Lote 1', detected_at: '2026-09-05T09:00:00Z' }),
+  ], new Set());
+
+  // Blocos por app, e dentro de cada bloco a queda mais recente primeiro.
+  assert.deepEqual(ordenadas.map((i) => i.username_snapshot), ['c', 'a', 'b', 'd']);
+});
+
+test('queda sem rótulo de app vai para o fim', () => {
+  // Não há app para abrir: deixá-la no meio interrompe a leitura de um bloco.
+  const ordenadas = orphanPendingDisconnections([
+    incident({ username_snapshot: 'sem', meta_app_label_snapshot: null, detected_at: '2026-09-05T23:00:00Z' }),
+    incident({ username_snapshot: 'com', meta_app_label_snapshot: 'Zulu Lote 9', detected_at: '2026-09-05T01:00:00Z' }),
+  ], new Set());
+
+  assert.deepEqual(ordenadas.map((i) => i.username_snapshot), ['com', 'sem']);
+});

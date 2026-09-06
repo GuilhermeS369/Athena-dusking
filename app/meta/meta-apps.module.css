@@ -102,8 +102,9 @@
   .formFooter { align-items: stretch; flex-direction: column; }
   .renewal { grid-template-columns: 1fr; }
   .cardMain { align-items: stretch; flex-direction: column; }
-  .fallRow { grid-template-columns: auto minmax(0, 1fr); }
-  .fallDate, .fallCode { grid-column: 2; }
+  .fallRow, .fallRowWithApp { grid-template-columns: auto minmax(0, 1fr); }
+  .fallDate, .fallCode, .fallAppLabel { grid-column: 2; }
+  .fallAppLabel { justify-self: start; }
   .fallToolbar { align-items: stretch; flex-direction: column; }
   .capacity { flex: 1 1 auto; }
 }
@@ -140,6 +141,8 @@
    proximo app para fora da tela. */
 .fallList { display: grid; gap: 2px; max-height: 380px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
 .fallRow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 9px; }
+/* Com o app de origem na linha, entra uma coluna a mais logo depois do @. */
+.fallRowWithApp { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
 .fallRow:hover { background: var(--surface-raised); }
 .fallRowSelected { background: var(--purple-soft); }
 
@@ -164,8 +167,12 @@
    uma parede de erros quando metade dela foi exclusao deliberada. */
 .fallCodeRemoved { border-color: #5b5665; color: var(--text-muted); }
 
-/* De onde vieram as quedas orfas. O rotulo do app sobrevive ao descadastro no
-   snapshot do incidente, e e ele que diz qual app abrir no Meta Developers. */
-.orphanOrigins { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
-.orphanOrigins li { color: var(--text-muted); font-size: 12px; }
-.orphanOrigins code { padding: 1px 6px; border-radius: 6px; background: #ffffff10; font-size: 11px; }
+/* O app de origem, ao lado do @. Fica discreto de proposito: a lista e
+   ordenada por ele, entao o rotulo se repete linha a linha e serve de cabecalho
+   silencioso de cada bloco, sem competir com o nome da conta -- que e o que a
+   pessoa procura no painel da Meta. */
+.fallAppLabel {
+  padding: 1px 7px; border: 1px solid var(--border); border-radius: 999px;
+  color: var(--text-muted); font-family: var(--font-mono, ui-monospace), monospace;
+  font-size: 10px; white-space: nowrap;
+}
