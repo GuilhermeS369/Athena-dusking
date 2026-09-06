@@ -4,11 +4,10 @@ import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
-// O resumo agregado le ~106 mil linhas (86 mil nao arquivadas mais a janela de
-// publicados) numa tabela de 536 mil com escrita pesada, e a RPC tem limite
-// proprio de 25 s desde a migration 416. O padrao da Vercel cortaria a
-// requisicao antes do banco responder, trocando um erro legivel por timeout de
-// funcao.
+// A leitura em si custa ~200 ms desde a migration 418, que materializou o
+// resumo. A folga aqui e para o unico caminho que ainda pode demorar: a
+// primeira leitura de uma organizacao sem snapshot nenhum, em que a propria RPC
+// manda calcular uma vez antes de responder.
 export const maxDuration = 30;
 
 const scopes = new Set(['account', 'batch', 'group']);

@@ -1492,6 +1492,49 @@ async function expireLatePublicationItems() {
   return data ?? { expired: 0 };
 }
 
+/**
+ * Recalcula o resumo materializado da fila (migration 418).
+ *
+ * Roda AQUI, e nao so no cron da Vercel, pelo mesmo motivo escrito no commit
+ * f23d99e: rotina que existe so no painel fica parada quando o painel nao e
+ * implantado. Quem paga o custo e este ciclo, fora do caminho da tela -- a
+ * leitura da /queue caiu de 8.941 ms para 125 ms por causa disso.
+ *
+ * O intervalo minimo evita recalcular a cada ciclo do worker, que e bem mais
+ * rapido que um minuto: o recalculo custa ~17 s por organizacao grande, e a
+ * tela consulta no maximo 1x/min.
+ */
+const QUEUE_SUMMARY_MIN_INTERVAL_MS = 60_000;
+let ultimoResumoDaFilaEm = 0;
+
+async function refreshQueueSummaries() {
+  if (Date.now() - ultimoResumoDaFilaEm < QUEUE_SUMMARY_MIN_INTERVAL_MS) return { skipped: true };
+  ultimoResumoDaFilaEm = Date.now();
+  const supabase = createSupabase();
+  const { data: organizations, error: organizationsError } = await supabase
+    .from('organizations')
+    .select('id')
+    .order('id', { ascending: true });
+  if (organizationsError) {
+    console.error('[publication-worker] falha ao listar organizacoes para o resumo', { message: organizationsError.message });
+    return { refreshed: 0 };
+  }
+  let refreshed = 0;
+  for (const organization of organizations ?? []) {
+    const { error } = await supabase.rpc('refresh_publication_queue_summary', {
+      p_organization_id: organization.id,
+      p_history_hours: 24,
+    });
+    // Resumo e leitura, nao publicacao: falhar aqui nao pode parar o ciclo.
+    if (error) {
+      console.error('[publication-worker] falha ao recalcular resumo da fila', { organizationId: organization.id, message: error.message });
+      continue;
+    }
+    refreshed += 1;
+  }
+  return { refreshed };
+}
+
 async function recoverMissedPublicationSchedules(options = {}) {
   const supabase = createSupabase();
   const { data, error } = await supabase.rpc('recover_missed_publication_slots', {
@@ -2354,6 +2397,9 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   // `criticalDelay` ligado e travou a exclusao de midia da galeria.
   const expirados = reconciliationOnly ? { expired: 0 } : await expireLatePublicationItems();
   marcar('encerrarAtrasados');
+  // O resumo da tela e recalculado aqui, fora do caminho da requisicao.
+  if (!reconciliationOnly) await refreshQueueSummaries();
+  marcar('resumoDaFila');
   const recoveryItems = reconciliationOnly ? [] : await claimCoordinatedBulkSlotRecoveryItems(
     workerId,
     recoveryLimit,

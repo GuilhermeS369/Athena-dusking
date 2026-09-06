@@ -16,6 +16,10 @@
     {
       "path": "/api/internal/meta-analytics-dispatch",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/internal/queue-summary-refresh",
+      "schedule": "* * * * *"
     }
   ]
 }
