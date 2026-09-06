@@ -37,14 +37,24 @@ test('limite do catálogo fica entre 1 e 100', () => {
 
 test('filtros do catálogo são normalizados e valores desconhecidos voltam ao padrão', () => {
   assert.deepEqual(normalizeInstagramProfilesFilters({ query: '  @Conta  ', groupId: 'x', status: 'online', situation: 'error', publication: 'posted', sort: 'followers', created: { from: '2026-08-26', to: '2026-08-27' } }), {
-    query: '@Conta', groupId: null, status: 'online', situation: 'error', publication: 'posted', sort: 'followers',
+    query: '@Conta', groupId: null, metaAppId: null, status: 'online', situation: 'error', publication: 'posted', sort: 'followers',
     created: { from: '2026-08-26', to: '2026-08-27' },
   });
   assert.deepEqual(normalizeInstagramProfilesFilters({ status: 'desconhecido' as never, situation: 'x' as never, sort: 'aleatorio' as never, created: { from: '27/08/2026', to: null } }), {
-    query: '', groupId: null, status: 'all', situation: 'all', publication: 'all', sort: 'recent',
+    query: '', groupId: null, metaAppId: null, status: 'all', situation: 'all', publication: 'all', sort: 'recent',
     created: { from: null, to: null },
   });
   assert.equal(normalizeInstagramProfilesFilters({ sort: 'views' }).sort, 'views');
+});
+
+test('app da Meta so recorta quando o id e um uuid', () => {
+  // Rotulo digitado, 'all' da tela ou lixo de querystring nao podem virar
+  // filtro: o RPC receberia um uuid invalido e a listagem inteira quebraria.
+  const appId = '9f1d1f4a-1f0e-4b3a-9d2c-2f6a4b8c0d11';
+  assert.equal(normalizeInstagramProfilesFilters({ metaAppId: appId }).metaAppId, appId);
+  assert.equal(normalizeInstagramProfilesFilters({ metaAppId: 'all' }).metaAppId, null);
+  assert.equal(normalizeInstagramProfilesFilters({ metaAppId: 'BIEL 12' }).metaAppId, null);
+  assert.equal(normalizeInstagramProfilesFilters({}).metaAppId, null);
 });
 
 test('intervalo inválido vira ausência de filtro em vez de erro', () => {

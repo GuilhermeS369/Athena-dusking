@@ -47,6 +47,7 @@ export async function GET(request: Request) {
   const filters = normalizeInstagramProfilesFilters({
     query: url.searchParams.get('query') ?? '',
     groupId: url.searchParams.get('groupId'),
+    metaAppId: url.searchParams.get('metaAppId'),
     status: url.searchParams.get('status') as never,
     situation: url.searchParams.get('situation') as never,
     publication: url.searchParams.get('publication') as never,

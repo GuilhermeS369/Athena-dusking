@@ -43,6 +43,7 @@ type BulkDeleteBody = {
   filters?: {
     query?: unknown;
     groupId?: unknown;
+    metaAppId?: unknown;
     status?: unknown;
     situation?: unknown;
     publication?: unknown;
@@ -82,6 +83,7 @@ export async function POST(request: Request) {
     const filters = normalizeInstagramProfilesFilters({
       query: typeof body.filters?.query === 'string' ? body.filters.query : '',
       groupId: typeof body.filters?.groupId === 'string' ? body.filters.groupId : null,
+      metaAppId: typeof body.filters?.metaAppId === 'string' ? body.filters.metaAppId : null,
       status: body.filters?.status as never,
       situation: body.filters?.situation as never,
       publication: body.filters?.publication as never,
@@ -99,6 +101,7 @@ export async function POST(request: Request) {
       p_publication: filters.publication,
       p_created_from: filters.created.from,
       p_created_to: filters.created.to,
+      p_meta_app_id: filters.metaAppId,
     };
 
     // Recusar acima do teto em vez de cortar: uma exclusão truncada em silêncio

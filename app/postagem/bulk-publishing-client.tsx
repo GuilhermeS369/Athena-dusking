@@ -204,6 +204,10 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
   const [profileScope, setProfileScope] = useState('');
   const [summariesByProfileId, setSummariesByProfileId] = useState<Record<string, ComposerProfileSummary>>({});
   const [summariesState, setSummariesState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  // Quantos perfis do escopo ja tem contagem. A lista so aparece quando os dois
+  // numeros se encontram: mostrar perfil antes disso significa mostra-lo com 0
+  // agendadas e 0 publicadas, que e mentira, e o operador le como perfil vazio.
+  const [summariesProgress, setSummariesProgress] = useState({ loaded: 0, total: 0 });
   // O cache é por PERFIL, não por escopo: voltar para um grupo já carregado, ou
   // abrir um grupo cujos perfis vieram no "todos", não repete consulta nenhuma.
   const summariesRequestRef = useRef(0);
@@ -259,6 +263,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
     // Só o que ainda não está em cache. Trocar entre grupos já vistos não custa
     // requisição nenhuma.
     const missing = scopeProfileIds.filter((id) => !summariesByProfileId[id]);
+    setSummariesProgress({ loaded: scopeProfileIds.length - missing.length, total: scopeProfileIds.length });
     if (!missing.length) {
       setSummariesState('ready');
       return;
@@ -287,6 +292,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
           }
           return next;
         });
+        setSummariesProgress((current) => ({ ...current, loaded: current.loaded + chunk.length }));
       } catch {
         if (requestId !== summariesRequestRef.current) return;
         setSummariesState('error');
@@ -303,6 +309,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
     if (!value) {
       summariesRequestRef.current += 1;
       setSummariesState('idle');
+      setSummariesProgress({ loaded: 0, total: 0 });
       return;
     }
     const ids = value === 'all'
@@ -736,9 +743,9 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
       <div className={styles.workspace}>
           <aside className={styles.profilesPanel}>
             <div className={styles.panelHeader}>
-              <div><strong>Perfis online</strong><small>{formatInteger(profileSelection.ids.length)} selecionados · {formatInteger(filteredProfiles.length)} disponíveis no filtro</small></div>
+              <div><strong>Perfis online</strong><small>{formatInteger(profileSelection.ids.length)} selecionados · {summariesState === 'ready' ? `${formatInteger(filteredProfiles.length)} disponíveis no filtro` : '—'}</small></div>
               <div className={styles.profileActions}>
-                <button type="button" onClick={selectAllFiltered} disabled={!canManage || !filteredProfiles.length}>Selecionar todos</button>
+                <button type="button" onClick={selectAllFiltered} disabled={!canManage || summariesState !== 'ready' || !filteredProfiles.length}>Selecionar todos</button>
                 <button type="button" onClick={clearProfiles} disabled={!canManage || !profileSelection.ids.length}>Limpar</button>
               </div>
             </div>
@@ -769,10 +776,15 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
             >
               {!profileScope ? (
                 <p className={styles.profileScopeEmpty}>Escolha acima se quer carregar todos os perfis ou um grupo. As contagens de cada perfil são lidas nesse momento, só para o que você escolher.</p>
-              ) : summariesState === 'loading' && !filteredProfiles.length ? (
-                <p className={styles.profileScopeLoading} role="status">Carregando perfis e contagens…</p>
               ) : summariesState === 'error' ? (
                 <p className={styles.profileScopeEmpty} role="alert">Não foi possível carregar as contagens. Selecione o escopo de novo para tentar mais uma vez.</p>
+              ) : summariesState !== 'ready' ? (
+                // Nenhum perfil antes das contagens: ver o comentario em
+                // summariesProgress. O progresso existe porque "Todos os perfis"
+                // sao varios blocos, e uma espera sem numero parece travamento.
+                <p className={styles.profileScopeLoading} role="status">
+                  Carregando contagens…{summariesProgress.total ? ` ${formatInteger(summariesProgress.loaded)} de ${formatInteger(summariesProgress.total)} perfis` : ''}
+                </p>
               ) : filteredProfiles.length === 0 ? <p>Nenhum perfil online encontrado.</p> : renderedProfiles.map((profile) => {
                 const metric = bulkProfileQueueMetric(profile, format);
                 const selected = selectedSet.has(profile.id);

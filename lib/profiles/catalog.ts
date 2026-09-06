@@ -75,6 +75,8 @@ export type InstagramProfilesCatalogFilters = {
   status: 'all' | InstagramProfileStatus;
   situation: InstagramProfileSituation;
   publication: InstagramProfilePublicationFilter;
+  /** App da Meta que conectou o perfil, por id. `null` nao recorta nada. */
+  metaAppId: string | null;
   sort: InstagramProfileSort;
   /** Intervalo de adicao no fuso da organizacao, inclusivo nas duas pontas. */
   created: DateRange;
@@ -122,6 +124,7 @@ export function normalizeInstagramProfilesLimit(value: number) {
 export function normalizeInstagramProfilesFilters(input: Partial<InstagramProfilesCatalogFilters>): InstagramProfilesCatalogFilters {
   const query = typeof input.query === 'string' ? input.query.trim().slice(0, 120) : '';
   const groupId = typeof input.groupId === 'string' && UUID_PATTERN.test(input.groupId) ? input.groupId : null;
+  const metaAppId = typeof input.metaAppId === 'string' && UUID_PATTERN.test(input.metaAppId) ? input.metaAppId : null;
   const statuses = new Set(['no_data', 'online', 'offline', 'reauthorization_required']);
   const situations = new Set(['all', 'online', 'error', 'paused']);
   return {
@@ -130,6 +133,7 @@ export function normalizeInstagramProfilesFilters(input: Partial<InstagramProfil
     status: typeof input.status === 'string' && statuses.has(input.status) ? input.status as InstagramProfileStatus : 'all',
     situation: typeof input.situation === 'string' && situations.has(input.situation) ? input.situation as InstagramProfileSituation : 'all',
     publication: input.publication === 'posted' ? 'posted' : 'all',
+    metaAppId,
     sort: typeof input.sort === 'string' && (INSTAGRAM_PROFILE_SORTS as string[]).includes(input.sort) ? input.sort as InstagramProfileSort : 'recent',
     created: normalizeDateRange(input.created),
   };
@@ -199,6 +203,7 @@ export async function getInstagramProfilesCatalogPage(input: {
     p_publication: filters.publication,
     p_created_from: filters.created.from,
     p_created_to: filters.created.to,
+    p_meta_app_id: filters.metaAppId,
   };
   const [pageResult, summaryResult] = await Promise.all([
     input.supabase.rpc('list_instagram_profiles_catalog_page', {

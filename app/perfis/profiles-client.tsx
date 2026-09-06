@@ -446,6 +446,7 @@ export default function ProfilesClient({
   const [bulkZernioLastRefreshAt, setBulkZernioLastRefreshAt] = useState<string | null>(null);
   const [bulkZernioRefreshMessage, setBulkZernioRefreshMessage] = useState('');
   const [selectedGroupId, setSelectedGroupId] = useState('all');
+  const [selectedMetaAppId, setSelectedMetaAppId] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState<'all' | Profile['status']>('all');
   const [selectedSituation, setSelectedSituation] = useState<'all' | 'online' | 'error' | 'paused'>('all');
   const [selectedPublicationView, setSelectedPublicationView] = useState<'all' | 'posted'>('all');
@@ -482,6 +483,7 @@ export default function ProfilesClient({
   const currentCatalogFilters = {
     query: debouncedSearch,
     groupId: selectedGroupId === 'all' ? null : selectedGroupId,
+    metaAppId: selectedMetaAppId === 'all' ? null : selectedMetaAppId,
     status: selectedStatus,
     situation: selectedSituation,
     publication: selectedPublicationView,
@@ -537,7 +539,9 @@ export default function ProfilesClient({
     : '';
   // O select do Bulk Meta é para procurar um app pelo nome; a ordem de
   // preenchimento continua valendo para a seleção inicial e para as demais telas.
-  const bulkMetaAppOptions = useMemo(() => sortMetaAppsByLabel(metaApps), [metaApps]);
+  // Ordem alfabetica: tanto no Bulk Meta quanto no filtro a pergunta e "onde
+  // esta o app tal", nao "qual preencher agora".
+  const metaAppsByLabel = useMemo(() => sortMetaAppsByLabel(metaApps), [metaApps]);
   const bulkMetaApp = metaApps.find((app) => app.id === bulkMetaAppId) ?? null;
   const bulkMetaGroup = groups.find((group) => group.id === bulkMetaGroupId) ?? null;
   const bulkMetaPlan = useMemo(
@@ -582,6 +586,7 @@ export default function ProfilesClient({
     if (catalogCursor) params.set('cursor', catalogCursor);
     if (debouncedSearch) params.set('query', debouncedSearch);
     if (selectedGroupId !== 'all') params.set('groupId', selectedGroupId);
+    if (selectedMetaAppId !== 'all') params.set('metaAppId', selectedMetaAppId);
     if (selectedStatus !== 'all') params.set('status', selectedStatus);
     if (selectedSituation !== 'all') params.set('situation', selectedSituation);
     if (selectedPublicationView !== 'all') params.set('publication', selectedPublicationView);
@@ -605,7 +610,7 @@ export default function ProfilesClient({
         if (!controller.signal.aborted) setCatalogLoading(false);
       });
     return () => controller.abort();
-  }, [catalogCursor, catalogReloadKey, debouncedSearch, initialCatalog.limit, selectedCreated.from, selectedCreated.to, selectedGroupId, selectedPublicationView, selectedSituation, selectedSort, selectedStatus]);
+  }, [catalogCursor, catalogReloadKey, debouncedSearch, initialCatalog.limit, selectedCreated.from, selectedCreated.to, selectedGroupId, selectedMetaAppId, selectedPublicationView, selectedSituation, selectedSort, selectedStatus]);
 
   useEffect(() => {
     if (connectionResult.connected || connectionResult.error) setConnectModalOpen(true);
@@ -1205,6 +1210,17 @@ export default function ProfilesClient({
                 {groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
               </select>
             </label>
+            {metaAppsByLabel.length > 0 && (
+              <label htmlFor="profile-meta-app-filter">
+                API da Meta
+                <select id="profile-meta-app-filter" value={selectedMetaAppId} onChange={(event) => { resetCatalogPagination(); setSelectedMetaAppId(event.target.value); }}>
+                  <option value="all">Todas as APIs</option>
+                  {metaAppsByLabel.map((app) => (
+                    <option key={app.id} value={app.id}>{app.label} ({app.instagram_profile_count ?? 0})</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label htmlFor="profile-status-filter">
               Status
               <select id="profile-status-filter" value={selectedStatus} onChange={(event) => { resetCatalogPagination(); setSelectedStatus(event.target.value as typeof selectedStatus); }}>
@@ -1753,7 +1769,7 @@ export default function ProfilesClient({
                   <label htmlFor="meta-bulk-app">
                     App da Meta
                     <select id="meta-bulk-app" value={bulkMetaAppId} onChange={(event) => { setBulkMetaAppId(event.target.value); setBulkMetaCopyMessage(''); }}>
-                      {bulkMetaAppOptions.map((app) => {
+                      {metaAppsByLabel.map((app) => {
                         const capacity = metaAppCapacity(app);
                         return (
                           <option key={app.id} value={app.id}>
