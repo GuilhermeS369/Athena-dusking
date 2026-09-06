@@ -279,6 +279,96 @@ acumular.
 Reverter é um UPDATE: `dispatch_lock_shards = 1` devolve o lock único.
 
 
+## 3-C. O INCIDENTE DE 06/09/2026 — DOIS itens pararam a confirmação inteira
+
+**35% das publicações passando de 5 minutos de atraso, p90 de 9,8 minutos entre
+criar o contêiner e confirmar.** O usuário viu como "item saindo vencido e
+levando 30 minutos para postar".
+
+A primeira explicação plausível — e errada — é transcodificação da Meta.
+Medição derruba ela em uma linha: **98,3% dos itens publicam com
+`container_poll_count = 0`**, isto é, ficam prontos já na PRIMEIRA consulta de
+status. O tempo não era do provedor. Era espera para ser reivindicado.
+
+```
+execute_at -> contêiner criado (FILA)      p50= 27s   p90= 57s
+contêiner criado -> published (CONFIRMAR)  p50=139s   p90=588s   max=976s
+```
+
+Ao vivo, no meio do incidente: **98 itens elegíveis para o claim**, sem lease,
+sem reserva, preparação pronta — parados havia **mediana de 18 minutos**.
+
+### A cadeia, de baixo para cima
+
+1. **Dois** itens, de lotes de 15.216 e 11.040, batiam `57014` a cada tentativa.
+   `defer_publication_infrastructure_failure` adiava com atraso **fixo** de 30 s
+   e **não contava nada**. Sem teto, sem recuo.
+2. `claim_publication_items` **não gasta tentativa** de item que já tem
+   `creation_id` — e está certo, polling não é nova tentativa de publicar. Mas
+   com isso `PUBLICATION_MAX_ATTEMPTS` nunca chega. Os dois marcaram
+   `attempt_count = 1` durante 73 e 78 minutos.
+3. Item com `creation_id` entra na **banda de prioridade 0**. Os dois
+   envenenados eram reivindicados PRIMEIRO, em todo ciclo.
+4. Com lote de 3, dois erros dão 66% de pressão, e o controlador cortava pela
+   metade. Serrote perfeito, do log: `itens=1 limite=1`, `2/2`, `3/3`, `1/1`...
+   e o lote **sempre enchia** — não faltava trabalho, faltava vaga.
+5. O caminho direto é o **único** que faz polling. O spool só aceita item com
+   `execute_at` no futuro (seção 5), então item vencido nunca mais entra lá.
+   Estrangular o direto para 1–3 parou a confirmação do sistema inteiro.
+
+### As duas correções, nos dois amplificadores (migration 420)
+
+**Recuo.** O adiamento de infraestrutura ganhou contador e recuo exponencial de
+30 s a 900 s, zerado por gatilho quando o item avança. O princípio da 272 fica
+de pé — indisponibilidade de banco **nunca** vira falha terminal —, mas o item
+sai do caminho quente sozinho em vez de voltar a cada ciclo.
+
+> O gatilho observa marcos escritos só por quem falou com o provedor
+> (`provider_creation_started_at`, `container_poll_count`, status terminal), e
+> **não** mudança de status: o claim muda `waiting -> preparing` em TODA
+> reivindicação, inclusive na que vai falhar em seguida. Um gatilho preso a
+> status zeraria o contador antes de cada incremento — o mesmo bug com outra
+> roupa.
+
+**Controlador.** `infrastructure_retry` deixou de contar como pressão do
+provedor: encolher o lote do despacho não alivia o banco — a carga vem do spool
+(concorrência 64), da preparação e dos outros workers — e só estrangula a
+confirmação. Agora **segura**: não cresce, não cai.
+
+E a razão de colapso ganhou **amostra mínima de 10**. Este é o ponto que a
+correção de 30/08 deixou em aberto: a razão resolveu o lote grande, mas com
+lote de 3 **um** evento já dá 33% e supera qualquer limiar. Abaixo de 10 a razão
+não informa nada, e o único efeito de aplicá-la é uma catraca — quanto menor o
+lote, mais sensível, sem saída.
+
+### A regra que fica
+
+> **Toda razão precisa de denominador mínimo.** Um limiar percentual aplicado a
+> uma amostra pequena não mede pressão, cria realimentação. Vale para colapso de
+> lote, para backpressure e para qualquer guarda que compare fração.
+
+> **E separe de quem veio a pressão.** Erro do BANCO não é o provedor mandando
+> parar. Reagir a um com o botão do outro estrangula o que estava saudável e não
+> toca no que estava doente.
+
+### Efeito medido
+
+| | antes | depois |
+|---|---:|---:|
+| limite adaptativo | serrote 1–3 | 10, 12, 15, 18, 22 (subindo) |
+| fila de confirmação | 1.044 | 963 e caindo |
+| adiamentos de infraestrutura | contínuos | zero em 14 min |
+| 429 da Meta | 0 | 0 |
+
+**O que NÃO foi resolvido:** `porItemMs` cresce com o tamanho do lote (6,8 s com
+10 itens, 18,9 s com 22), o que é fila dentro do próprio lote. Não é o advisory
+lock por app da 372 — espera de lock morreria em `57014` aos 8 s do
+`statement_timeout`, e não morre. O suspeito é a latência das chamadas à Graph
+API somada ao semáforo de `PUBLICATION_WORKER_META_CONCURRENCY`. Próximo a
+investigar.
+
+---
+
 ## 4. COMO AUMENTAR A VELOCIDADE A PARTIR DAQUI
 
 Esta é a seção a ler quando a frota crescer. **Os tetos estão em ordem de quem
@@ -390,11 +480,22 @@ mudar só o `.env` deixa o repositório mentindo.
 | Variável | Padrão | Controla |
 |---|---:|---|
 | `PUBLICATION_WORKER_LIMIT` | 100 | teto do lote do caminho direto |
+| `PUBLICATION_WORKER_META_CONCURRENCY` | 5 (VPS: **12**) | semáforo GLOBAL de chamadas à Graph API — ver nota |
 | `PUBLICATION_WORKER_POLL_INTERVAL_MS` | 5000 | frequência do laço |
 | `PUBLICATION_WORKER_STAGED_DISPATCH_LIMIT` | 500 | itens por ciclo (spool) |
 | `PUBLICATION_WORKER_STAGED_DISPATCH_CONCURRENCY` | 64 | paralelismo (spool) |
 | `PUBLICATION_WORKER_STAGED_MAX_PER_ORGANIZATION_PER_MINUTE` | 600 | teto de seleção por org |
 | `PUBLICATION_WORKER_ADAPTIVE_COLLAPSE_RATIO` | 0.1 | ver abaixo |
+
+> **Nota sobre `META_CONCURRENCY` (06/09/2026).** É um semáforo **do processo**
+> para TODA chamada à Graph API — criação de contêiner, consulta de status e
+> publicação passam por ele. Teto do código: 20. Foi de 5 para 12 na VPS depois
+> do incidente 3-C, quando o controlador parou de estrangular o lote e o semáforo
+> virou o serializador seguinte. **O ganho medido foi pequeno** — 0,58 para 0,64
+> item/s no ciclo direto — e por isso está registrado aqui como provisório, não
+> promovido a padrão do código. Zero 429 da Meta em duas horas nesse valor.
+> Se subir mais, meça `porItemMs` p50 contra o tamanho do lote: se continuar
+> crescendo junto, o serializador não é este.
 
 ⚠️ **Some antes de somar vagas.** O pool do PostgREST teto em ~41 conexões
 (medido no incidente de 02/09 — ver seção 3-B). Só este worker já soma 64+8+8 =
