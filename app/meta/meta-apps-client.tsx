@@ -11,6 +11,7 @@ import {
 } from '@/lib/integrations/meta-apps';
 import {
   describeDisconnection,
+  orphanDisconnectionAppLabels,
   orphanPendingDisconnections,
   pendingDisconnectionsByAppId,
   pendingUsernameList,
@@ -281,6 +282,7 @@ export default function MetaAppsClient({
     () => orphanPendingDisconnections(pending, new Set(apps.map((app) => app.id))),
     [apps, pending],
   );
+  const orphanAppLabels = useMemo(() => orphanDisconnectionAppLabels(orphanPending), [orphanPending]);
   const fleetByApp = useMemo(
     () => new Map(initialTokenFleet.map((row) => [row.meta_app_id, row])),
     [initialTokenFleet],
@@ -1104,13 +1106,31 @@ export default function MetaAppsClient({
         <section className={styles.orphanFalls} aria-label="Contas caídas sem app identificado">
           <div className={styles.orphanFallsHead}>
             <div>
-              <span className="section-kicker">Sem app identificado</span>
+              <span className="section-kicker">App fora do cadastro</span>
               <strong>{orphanPending.length} conta(s) fora de qualquer cartão</strong>
               <p>
-                Ou entraram pela credencial global antes do cadastro de apps existir, ou entraram por um app que já
-                foi descadastrado. Não dá para dizer qual app prende a vaga delas — mas a conexão continua no Meta
-                Developers de algum, então vale procurar o @ no painel e apagar do mesmo jeito.
+                O app que segurava estas contas saiu do cadastro do Athena — mas a conexão continua viva no Meta
+                Developers, ocupando a vaga lá. Apagar por lá é o que libera.
               </p>
+              {orphanAppLabels.length > 0 && (
+                // O rótulo é gravado no instante da queda justamente para
+                // sobreviver ao descadastro do app. A tela dizia "não dá para
+                // dizer qual app prende a vaga" com a resposta guardada a duas
+                // linhas de distância.
+                <ul className={styles.orphanOrigins}>
+                  {orphanAppLabels.map((origin) => (
+                    <li key={origin.label}>
+                      <strong>{origin.count}</strong> de <code>{origin.label}</code>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {orphanPending.length > orphanAppLabels.reduce((total, origin) => total + origin.count, 0) && (
+                <p>
+                  As demais entraram pela credencial global, antes de o cadastro de apps existir: dessas não há
+                  registro de qual app as prende, e vale procurar o @ no painel do mesmo jeito.
+                </p>
+              )}
             </div>
           </div>
           <PendingQueue

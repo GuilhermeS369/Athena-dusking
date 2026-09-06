@@ -163,3 +163,9 @@
 /* Remocao pedida nao e queda: o crachao troca de cor para a lista nao parecer
    uma parede de erros quando metade dela foi exclusao deliberada. */
 .fallCodeRemoved { border-color: #5b5665; color: var(--text-muted); }
+
+/* De onde vieram as quedas orfas. O rotulo do app sobrevive ao descadastro no
+   snapshot do incidente, e e ele que diz qual app abrir no Meta Developers. */
+.orphanOrigins { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
+.orphanOrigins li { color: var(--text-muted); font-size: 12px; }
+.orphanOrigins code { padding: 1px 6px; border-radius: 6px; background: #ffffff10; font-size: 11px; }
