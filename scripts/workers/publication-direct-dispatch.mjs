@@ -1480,6 +1480,18 @@ export async function mapWithConcurrency(items, concurrency, mapper, shouldStop 
   return results;
 }
 
+async function expireLatePublicationItems() {
+  const supabase = createSupabase();
+  const { data, error } = await supabase.rpc('expire_late_publication_items', { p_limit: 500 });
+  // Encerrar atrasado e higiene, nao o trabalho do ciclo: se falhar, o despacho
+  // continua. O claim ja recusa esses itens de qualquer forma.
+  if (error) {
+    console.error('[publication-worker] falha ao encerrar atrasados', { message: error.message });
+    return { expired: 0 };
+  }
+  return data ?? { expired: 0 };
+}
+
 async function recoverMissedPublicationSchedules(options = {}) {
   const supabase = createSupabase();
   const { data, error } = await supabase.rpc('recover_missed_publication_slots', {
@@ -2334,6 +2346,14 @@ export async function dispatchPublicationQueueDirect(options = {}) {
     ? { scanned: 0, rescheduled: 0, requiresAttention: 0, bulkSlotsAtRisk: 0, overdueAlerts: 0 }
     : await recoverMissedPublicationSchedules({ workerId, correlationId: options.correlationId });
   marcar('recuperarPerdidos');
+  // O que a recuperacao nao alcancou e encerrado, e nao publicado atrasado.
+  // Roda AQUI, no worker da VPS, e nao so no dispatcher do painel: em 06/09 a
+  // varredura existia so no painel, que ainda nao tinha sido implantado, e um
+  // reel de 89 minutos ficou em `waiting` para sempre -- recusado pelo claim,
+  // mas ainda contado como vencido por todo o resto. Ele sozinho manteve
+  // `criticalDelay` ligado e travou a exclusao de midia da galeria.
+  const expirados = reconciliationOnly ? { expired: 0 } : await expireLatePublicationItems();
+  marcar('encerrarAtrasados');
   const recoveryItems = reconciliationOnly ? [] : await claimCoordinatedBulkSlotRecoveryItems(
     workerId,
     recoveryLimit,

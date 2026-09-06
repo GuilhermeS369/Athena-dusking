@@ -58,7 +58,19 @@ export async function POST(request: Request) {
   if (pressureError) {
     return NextResponse.json({ error: errorMessage(pressureError) }, { status: 503 });
   }
-  if (pressure?.criticalDelay === true) {
+  // O portao olha so o que NAO comecou a sair. Um item ja aceito pelo provedor
+  // esta esperando a Meta processar o video -- o p50 de `execute_at` ate
+  // `published_at` e de 4,4 minutos, contra 24 segundos para COMECAR a enviar.
+  // Com o limiar de 60s, `criticalDelay` fica praticamente sempre ligado
+  // durante uma onda, e a exclusao de midia nunca roda: foi o que o operador
+  // encontrou em 06/09, com a galeria recusando apagar por "fila atrasada"
+  // enquanto a fila publicava 828 por hora sem uma falha.
+  //
+  // `overdueUnstarted` e o sinal certo: trabalho que deveria ter saido e que
+  // ninguem encostou. Esse sim indica fila travada, e ai faz sentido nao gastar
+  // capacidade apagando midia.
+  const publicationDelayed = pressure?.criticalDelay === true && pressure?.overdueUnstarted === true;
+  if (publicationDelayed) {
     await markPendingJobsPaused(admin, true);
     return NextResponse.json({
       paused: true,
