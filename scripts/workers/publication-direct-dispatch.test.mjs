@@ -823,3 +823,62 @@ test('lote limpo continua crescendo 20%', () => {
   const lote = Array.from({ length: 50 }, () => ({ state: 'published' }));
   assert.equal(nextAdaptiveDispatchLimit(50, 100, lote, 50), 60);
 });
+
+// MEDIDO EM PRODUCAO, 06/09/2026. Dois itens presos em `57014` mantiveram o
+// controlador num serrote 1, 2, 3, 1, 2, 3 por mais de uma hora. Do log:
+//
+//   claimed: 3, outcomes: { infrastructure_retry: 2, published: 1 }
+//   adaptiveConcurrency: { used: 3, next: 1, maximum: 100 }
+//
+// Duas falhas somadas, e as duas erradas:
+//   a) timeout do BANCO contado como pressao do PROVEDOR;
+//   b) razao de 10% aplicada a um lote de 3, onde um evento ja da 33%.
+//
+// O caminho direto e o unico que faz polling (o spool so aceita item com
+// execute_at no futuro), entao estrangula-lo parou a perna de confirmacao
+// inteira: 98 itens elegiveis parados, mediana de 18 minutos de espera.
+test('timeout de banco nao derruba o controlador do provedor', () => {
+  const lote = [
+    { state: 'infrastructure_retry', error: 'canceling statement due to statement timeout' },
+    { state: 'infrastructure_retry', error: 'canceling statement due to statement timeout' },
+    { state: 'published' },
+  ];
+  // Segura em 3: nao cresce (ha pressao), mas nao desaba para 1.
+  assert.equal(nextAdaptiveDispatchLimit(3, 100, lote, 3), 3);
+});
+
+test('fetch failed do banco tambem segura, em vez de derrubar', () => {
+  const lote = Array.from({ length: 8 }, (_, i) => (
+    i < 5 ? { state: 'infrastructure_retry', error: 'TypeError: fetch failed' } : { state: 'published' }
+  ));
+  assert.equal(nextAdaptiveDispatchLimit(8, 100, lote, 8), 8);
+});
+
+test('abaixo da amostra minima, erro transitorio segura em vez de derrubar', () => {
+  // 1 de 3 = 33%, acima do limiar de 10% -- mas 3 itens nao formam amostra.
+  // Era exatamente aqui que a catraca prendia o controlador em 1.
+  const lote = [
+    { state: 'failed', error: 'network timeout' },
+    { state: 'published' },
+    { state: 'published' },
+  ];
+  assert.equal(nextAdaptiveDispatchLimit(3, 100, lote, 3), 3);
+});
+
+test('a partir da amostra minima a razao volta a valer', () => {
+  // 2 de 10 = 20%, acima do limiar, e agora ha denominador para confiar nele.
+  const lote = Array.from({ length: 10 }, (_, i) => (
+    i < 2 ? { state: 'failed', error: 'network timeout' } : { state: 'published' }
+  ));
+  assert.equal(nextAdaptiveDispatchLimit(10, 100, lote, 10), 5);
+});
+
+test('429 derruba mesmo em lote pequeno: ali quem falou foi o provedor', () => {
+  const lote = [{ state: 'failed', errorCode: 'http_429' }, { state: 'published' }];
+  assert.equal(nextAdaptiveDispatchLimit(4, 100, lote, 2), 2);
+});
+
+test('lote pequeno e limpo volta a crescer, sem catraca', () => {
+  const lote = [{ state: 'published' }, { state: 'published' }, { state: 'published' }];
+  assert.equal(nextAdaptiveDispatchLimit(3, 100, lote, 3), 4);
+});

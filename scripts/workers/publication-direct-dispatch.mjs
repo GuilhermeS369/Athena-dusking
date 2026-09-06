@@ -2291,18 +2291,26 @@ export function nextAdaptiveDispatchLimit(currentLimit, configuredMaximum, proce
   //     o provedor disse "pare". Um so ja derruba pela metade. Nao se negocia.
   //   TRANSITORIO (timeout, erro de rede): pode ser blip da nossa ponta. So
   //     derruba quando atinge fracao relevante do lote.
+  //   INFRAESTRUTURA (57014, pool, fetch failed): o BANCO engasgou, nao o
+  //     provedor. Encolher o lote daqui nao alivia o banco -- a carga vem do
+  //     spool (concorrencia 64), da preparacao e dos outros workers -- e o
+  //     caminho direto e o UNICO que faz polling. Segurar: nao cresce, nao cai.
+  const infraestrutura = (item) => `${item?.state ?? ''}`.toLowerCase() === 'infrastructure_retry';
   const explicito = (item) => {
+    if (infraestrutura(item)) return false;
     if (item?.providerPressure === true) return true;
     const signal = `${item?.state ?? ''} ${item?.errorCode ?? ''} ${item?.error ?? ''}`.toLowerCase();
     return /rate.?limit|too.?many|429|retry.?after/.test(signal);
   };
   const transitorio = (item) => {
+    if (infraestrutura(item)) return false;
     const signal = `${item?.state ?? ''} ${item?.errorCode ?? ''} ${item?.error ?? ''}`.toLowerCase();
     return /timeout|network/.test(signal);
   };
+  const pressaoInfra = processed.filter(infraestrutura).length;
   const pressaoExplicita = processed.filter(explicito).length;
   const pressaoTransitoria = processed.filter((item) => !explicito(item) && transitorio(item)).length;
-  const pressureCount = pressaoExplicita + pressaoTransitoria;
+  const pressureCount = pressaoExplicita + pressaoTransitoria + pressaoInfra;
 
   const razaoDeColapso = Number.isFinite(options.collapseRatio)
     ? options.collapseRatio
@@ -2313,7 +2321,16 @@ export function nextAdaptiveDispatchLimit(currentLimit, configuredMaximum, proce
     : (pressaoTransitoria > 0 ? 1 : 0);
 
   if (pressaoExplicita > 0) return Math.max(1, Math.floor(current / 2));
-  if (razaoTransitoria >= razaoDeColapso) return Math.max(1, Math.floor(current / 2));
+  // Razao precisa de denominador. Com lote de 3, UM evento ja da 33% e supera
+  // qualquer limiar razoavel -- entao abaixo da amostra minima a razao nao
+  // informa nada e o unico efeito de aplica-la e a catraca medida em
+  // 06/09/2026: 1, 2, 3, 1, 2, 3 sem fim, porque quanto menor o lote mais
+  // sensivel ele fica e nao ha como sair. Abaixo do piso, erro transitorio
+  // SEGURA em vez de derrubar; pressao explicita do provedor continua
+  // derrubando em qualquer tamanho, porque ali quem falou foi o provedor.
+  if (claimed >= AMOSTRA_MINIMA_DE_PRESSAO && razaoTransitoria >= razaoDeColapso) {
+    return Math.max(1, Math.floor(current / 2));
+  }
   // Ruido de rede abaixo do limiar: segura o crescimento sem punir. Era ele que
   // derrubava o controlador para 23.
   if (pressureCount > 0) return current;
@@ -2329,6 +2346,10 @@ const adaptiveCollapsePressureRatio = (() => {
   const bruto = Number.parseFloat(process.env.PUBLICATION_WORKER_ADAPTIVE_COLLAPSE_RATIO || '');
   return Number.isFinite(bruto) && bruto >= 0 && bruto <= 1 ? bruto : 0.1;
 })();
+
+// Menor lote em que uma RAZAO de pressao significa alguma coisa. Com 10 itens,
+// um evento e 10%; com 3, e 33%. Ver a prova no comentario do colapso.
+const AMOSTRA_MINIMA_DE_PRESSAO = 10;
 
 const adaptiveDispatchLimits = new Map();
 
