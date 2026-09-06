@@ -113,12 +113,18 @@ export async function DELETE(
   // de ser visíveis em qualquer lugar. Soltá-los devolve o número à verdade —
   // eles realmente não ocupam mais vaga de app nenhum — e permite revinculá-los
   // depois pelo cadastro.
+  //
+  // A soltura passou para o banco (migration 407) porque são três escritas que
+  // precisam valer juntas: o vínculo cai, a ORIGEM é guardada e o status deixa
+  // de dizer "online". Sem a origem, a tela não distingue quem nunca teve app de
+  // quem perdeu o app agora — e os dois casos pedem coisas opostas. Sem o
+  // status, 22 perfis ficaram exibidos como saudáveis com token que já não
+  // respondia, em 06/09.
   if (connectedProfiles > 0) {
-    const { error: unlinkError } = await admin
-      .from('instagram_profiles')
-      .update({ meta_app_id: null })
-      .eq('organization_id', context.activeOrganization.id)
-      .eq('meta_app_id', appId);
+    const { error: unlinkError } = await admin.rpc('release_profiles_from_meta_app', {
+      p_organization_id: context.activeOrganization.id,
+      p_app_id: appId,
+    });
 
     if (unlinkError) {
       return NextResponse.json(

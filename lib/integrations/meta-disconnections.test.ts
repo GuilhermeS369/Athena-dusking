@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   groupPendingDisconnectionsByApp,
   orphanPendingDisconnections,
+  orphanedUsernameList,
   describeDisconnection,
   pendingDisconnectionsByAppId,
   pendingUsernameList,
@@ -264,4 +265,16 @@ test('queda sem rótulo de app vai para o fim', () => {
   ], new Set());
 
   assert.deepEqual(ordenadas.map((i) => i.username_snapshot), ['com', 'sem']);
+});
+
+test('lista de nomes dos órfãos sai sem arroba, um por linha', () => {
+  // Mesmo destino da lista de quedas: a busca do painel da Meta e o campo de
+  // conexão. A arroba fica na tela e nunca no clipboard.
+  const texto = orphanedUsernameList([
+    { username: 'bellalewis15624' },
+    { username: 'hazelmiller29242' },
+  ]);
+
+  assert.equal(texto, 'bellalewis15624\nhazelmiller29242');
+  assert.equal(texto.includes('@'), false);
 });

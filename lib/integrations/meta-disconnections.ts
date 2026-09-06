@@ -144,6 +144,16 @@ export function orphanPendingDisconnections(
 }
 
 /**
+ * Mesma regra da lista de quedas, para os perfis que perderam o app: um nome
+ * por linha, SEM a arroba. O destino é o mesmo — a busca do painel da Meta e o
+ * campo de conexão —, e apagar arroba à mão depois de colar é exatamente o
+ * trabalho que estas listas existem para não dar.
+ */
+export function orphanedUsernameList(profiles: { username: string }[]) {
+  return profiles.map((profile) => profile.username).join('\n');
+}
+
+/**
  * Texto para colar: um nome por linha, na mesma ordem da tela.
  *
  * SEM a arroba, a pedido da operação: o que vai para a busca do Meta Developers

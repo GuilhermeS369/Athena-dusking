@@ -176,3 +176,8 @@
   color: var(--text-muted); font-family: var(--font-mono, ui-monospace), monospace;
   font-size: 10px; white-space: nowrap;
 }
+
+/* A marca da linha na lista de quem perdeu o app. Ocupa a coluna do checkbox
+   das quedas para as duas listas ficarem alinhadas, mas nao e clicavel: aqui
+   nao ha o que confirmar -- o trabalho e reconectar a conta. */
+.orphanBullet { display: grid; place-items: center; width: 16px; color: var(--text-subtle); font-size: 12px; }

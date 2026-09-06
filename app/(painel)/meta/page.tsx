@@ -1,6 +1,10 @@
 import { redirect } from 'next/navigation';
 
-import MetaAppsClient, { type MetaApp, type MetaTokenFleetRow } from '@/app/meta/meta-apps-client';
+import MetaAppsClient, {
+  type MetaApp,
+  type MetaOrphanedProfile,
+  type MetaTokenFleetRow,
+} from '@/app/meta/meta-apps-client';
 import { META_APP_SAFE_COLUMNS } from '@/lib/integrations/meta-apps';
 import type { MetaPendingDisconnection } from '@/lib/integrations/meta-disconnections';
 import { legacyMetaAppCredentials } from '@/lib/integrations/meta-oauth';
@@ -15,6 +19,9 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
+const ORPHANED_PROFILE_COLUMNS =
+  'id, username, orphaned_from_meta_app_label, orphaned_at, last_error_message';
+
 const PENDING_DISCONNECTION_COLUMNS =
   'id, profile_id, meta_app_id, username_snapshot, meta_app_label_snapshot, error_code, error_message, detected_at, signal';
 
@@ -26,7 +33,7 @@ export default async function MetaAppsPage() {
 
   const supabase = await createSupabaseServerClient();
   const organizationId = context.activeOrganization.id;
-  const [{ data, error }, { count: legacyProfileCount }, { data: fleet }, pending] = await Promise.all([
+  const [{ data, error }, { count: legacyProfileCount }, { data: fleet }, pending, orphaned] = await Promise.all([
     supabase
       .from('meta_apps_safe')
       .select(META_APP_SAFE_COLUMNS)
@@ -34,13 +41,16 @@ export default async function MetaAppsPage() {
       .is('deleted_at', null)
       .order('created_at', { ascending: false }),
     // Perfis que entraram pela credencial global, antes do cadastro existir.
+    // `orphaned_at` nulo separa esses dos que PERDERAM o app: os dois estão sem
+    // vínculo, e só o primeiro grupo pode ser adotado pelo app do servidor.
     supabase
       .from('instagram_profiles_safe')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', organizationId)
       .eq('provider', 'meta_official')
       .is('meta_app_id', null)
-      .is('deleted_at', null),
+      .is('deleted_at', null)
+      .is('orphaned_at', null),
     // Uma linha por app (e uma com meta_app_id nulo para os legados). Os
     // limites vão daqui para o banco, e não o contrário: a política é do
     // TypeScript, o banco só conta.
@@ -63,12 +73,41 @@ export default async function MetaAppsPage() {
       .is('slot_released_at', null)
       .order('id')
       .range(from, to)),
+    // Perfis que perderam o app quando ele saiu do cadastro. Vivos, com fila
+    // agendada, e sem publicar: o token foi emitido pelo app que sumiu. Ordem
+    // por `id` porque é chave primária, logo ordem total — `orphaned_at` é o
+    // mesmo instante para todos os perfis de um mesmo app e repetiria linhas.
+    fetchAllRows<MetaOrphanedProfile>((from, to) => supabase
+      .from('instagram_profiles_safe')
+      .select(ORPHANED_PROFILE_COLUMNS)
+      .eq('organization_id', organizationId)
+      .eq('provider', 'meta_official')
+      .is('meta_app_id', null)
+      .is('deleted_at', null)
+      .not('orphaned_at', 'is', null)
+      .order('id')
+      .range(from, to)),
   ]);
 
-  if (error) throw new Error('Não foi possível carregar os apps da Meta.');
+  if (error) {
+    // Este throw derruba a tela inteira, então ele precisa carregar o bastante
+    // para alguém depurar sem adivinhar. Em 05/09/2026 ele virou uma tela preta
+    // com um digest e nada mais: a causa era `permission denied` numa coluna
+    // nova de `meta_apps` que ninguém tinha concedido ao papel `authenticated`
+    // (migration 398), e a mensagem não dizia nem qual consulta nem o código do
+    // erro. Em produção o Next entrega só o digest ao navegador; o texto abaixo
+    // vai para o log do servidor, que é onde ele serve para alguma coisa.
+    console.error('[meta] falha ao carregar meta_apps_safe', {
+      code: error.code, message: error.message, details: error.details, hint: error.hint,
+    });
+    throw new Error(
+      `Não foi possível carregar os apps da Meta (meta_apps_safe): ${error.code ?? 'sem código'} — ${error.message}`,
+    );
+  }
   // A lista de quedas não derruba a tela: sem ela o painel continua servindo
   // para cadastrar app e renovar token, e o aviso é melhor que o erro 500.
   if (pending.error) console.error('[meta] falha ao carregar quedas pendentes', pending.error);
+  if (orphaned.error) console.error('[meta] falha ao carregar perfis sem app', orphaned.error);
 
   return (
     <MetaAppsClient
@@ -79,6 +118,7 @@ export default async function MetaAppsPage() {
       initialTokenFleet={(fleet ?? []) as MetaTokenFleetRow[]}
       initialPendingDisconnections={pending.data}
       pendingDisconnectionsFailed={Boolean(pending.error)}
+      initialOrphanedProfiles={orphaned.error ? [] : orphaned.data}
     />
   );
 }

@@ -351,6 +351,17 @@ export async function GET(request: Request) {
       );
     }
 
+    // Religou: o perfil voltou a ter app, então o rastro de órfão sai. É
+    // cosmético — a lista de órfãos exige `meta_app_id` nulo, então quem
+    // reconectou já saiu dela —, mas um distintivo velho na tela confunde.
+    const connectedProfileId = (connectRows ?? [])[0]?.profile_id ?? null;
+    if (connectedProfileId) {
+      const { error: clearError } = await admin.rpc('clear_profile_orphan_origin', {
+        p_profile_id: connectedProfileId,
+      });
+      if (clearError) console.warn('[meta-oauth] clear_orphan_origin_failed', { requestId, message: clearError.message });
+    }
+
     const connectResult = (connectRows ?? [])[0] as {
       profile_id: string | null;
       outcome: 'created' | 'updated' | 'takeover' | 'conflict';

@@ -12,6 +12,7 @@ import {
 import {
   describeDisconnection,
   orphanPendingDisconnections,
+  orphanedUsernameList,
   pendingDisconnectionsByAppId,
   pendingUsernameList,
   selectIncident,
@@ -56,6 +57,21 @@ export type MetaApp = {
   api_block_kind: 'blocked' | 'deactivated' | null;
   created_at: string;
   updated_at: string;
+};
+
+/**
+ * Perfil que perdeu o app quando ele saiu do cadastro.
+ *
+ * Vivo, com fila agendada, e sem publicar: o token dele foi emitido pelo app
+ * que sumiu, então a Meta responde `200 / API access deactivated`. Não é o
+ * mesmo que "nunca teve app" — esse pode ser adotado; este precisa ser religado.
+ */
+export type MetaOrphanedProfile = {
+  id: string;
+  username: string;
+  orphaned_from_meta_app_label: string | null;
+  orphaned_at: string | null;
+  last_error_message: string | null;
 };
 
 export type MetaTokenFleetRow = {
@@ -109,6 +125,68 @@ function formatFallDate(value: string) {
   if (!Number.isFinite(parsed)) return '—';
   return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
     .format(new Date(parsed));
+}
+
+/**
+ * As contas que perderam o app.
+ *
+ * Mesma linguagem visual da lista de quedas, de propósito: quem opera já sabe
+ * ler aquela lista — @ que se copia com um clique, app de origem ao lado, tudo
+ * agrupado pelo app. O que muda é o desfecho. Queda quer dizer "some daqui e
+ * apaga a conexão na Meta"; isto quer dizer o contrário: a conta está viva, tem
+ * fila agendada esperando, e volta a publicar assim que for religada em outro
+ * app. Por isso não há botão de confirmar remoção — o trabalho é reconectar.
+ */
+function OrphanedProfilesList({
+  profiles,
+  copiedId,
+  onCopyOne,
+  onCopyMany,
+}: {
+  profiles: MetaOrphanedProfile[];
+  copiedId: string | null;
+  onCopyOne: (profile: MetaOrphanedProfile) => void;
+  onCopyMany: (profiles: MetaOrphanedProfile[]) => void;
+}) {
+  return (
+    <div className={styles.fallPanel}>
+      <div className={styles.fallToolbar}>
+        <span className={styles.fallSelectAll}>{profiles.length} conta(s)</span>
+        <div className={styles.fallToolbarActions}>
+          <button className="button button-ghost" type="button" onClick={() => onCopyMany(profiles)}>
+            Copiar os {profiles.length} nomes
+          </button>
+        </div>
+      </div>
+
+      <ul className={styles.fallList}>
+        {profiles.map((profile) => {
+          const copied = copiedId === profile.id;
+          return (
+            <li key={profile.id} className={`${styles.fallRow} ${styles.fallRowWithApp}`}>
+              <span aria-hidden="true" className={styles.orphanBullet}>↻</span>
+              <button
+                className={`${styles.fallUsername}${copied ? ` ${styles.fallUsernameCopied}` : ''}`}
+                type="button"
+                onClick={() => onCopyOne(profile)}
+                title="Clique para copiar o nome (sem a arroba)"
+              >
+                @{profile.username}
+                <span aria-hidden="true">{copied ? '✓' : '⧉'}</span>
+              </button>
+              {profile.orphaned_from_meta_app_label && (
+                <span className={styles.fallAppLabel}>{profile.orphaned_from_meta_app_label}</span>
+              )}
+              <span className={styles.fallDate}>
+                {profile.orphaned_at ? `sem app desde ${formatFallDate(profile.orphaned_at)}` : 'sem app'}
+              </span>
+              <span className={`${styles.fallCode} ${styles.fallCodeRemoved}`}>religar</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 /**
@@ -237,6 +315,7 @@ export default function MetaAppsClient({
   initialTokenFleet,
   initialPendingDisconnections,
   pendingDisconnectionsFailed,
+  initialOrphanedProfiles,
 }: {
   activeOrganization: Organization;
   initialApps: MetaApp[];
@@ -245,6 +324,7 @@ export default function MetaAppsClient({
   initialTokenFleet: MetaTokenFleetRow[];
   initialPendingDisconnections: MetaPendingDisconnection[];
   pendingDisconnectionsFailed: boolean;
+  initialOrphanedProfiles: MetaOrphanedProfile[] | null;
 }) {
   const router = useRouter();
   const canAdmin = activeOrganization.role === 'admin';
@@ -268,6 +348,8 @@ export default function MetaAppsClient({
   const [tokenMessageTone, setTokenMessageTone] = useState<'neutral' | 'success' | 'error'>('neutral');
 
   const [pending, setPending] = useState(initialPendingDisconnections);
+  const [orphanedProfiles, setOrphanedProfiles] = useState(initialOrphanedProfiles ?? []);
+  const [copiedOrphanId, setCopiedOrphanId] = useState<string | null>(null);
   const [openAppIds, setOpenAppIds] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [copiedIncidentId, setCopiedIncidentId] = useState<string | null>(null);
@@ -281,10 +363,24 @@ export default function MetaAppsClient({
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => setPending(initialPendingDisconnections), [initialPendingDisconnections]);
+  useEffect(() => setOrphanedProfiles(initialOrphanedProfiles ?? []), [initialOrphanedProfiles]);
   useEffect(() => () => { if (copyResetTimer.current) clearTimeout(copyResetTimer.current); }, []);
 
   const ordered = useMemo(() => sortMetaAppsByPendingRemoval(apps), [apps]);
   const pendingByApp = useMemo(() => pendingDisconnectionsByAppId(pending), [pending]);
+  const orphanedByApp = useMemo(() => [...orphanedProfiles].sort((first, second) => {
+    // Mesmo critério da lista de quedas: blocos por app de origem, porque quem
+    // religa resolve um app por vez.
+    const firstLabel = first.orphaned_from_meta_app_label ?? '';
+    const secondLabel = second.orphaned_from_meta_app_label ?? '';
+    if (firstLabel !== secondLabel) {
+      if (!firstLabel) return 1;
+      if (!secondLabel) return -1;
+      return firstLabel.localeCompare(secondLabel);
+    }
+    return first.username.localeCompare(second.username);
+  }), [orphanedProfiles]);
+
   const orphanPending = useMemo(
     () => orphanPendingDisconnections(pending, new Set(apps.map((app) => app.id))),
     [apps, pending],
@@ -394,6 +490,34 @@ export default function MetaAppsClient({
       pendingUsernameList(incidents),
       null,
       `${incidents.length} nome(s) copiados, um por linha, sem a arroba.`,
+    );
+  }
+
+  // Copiar perfil órfão não marca nada: aqui não há checkbox nem confirmação
+  // de remoção — o nome vai para o clipboard para a pessoa reconectar a conta.
+  async function copyOrphanText(text: string, profileId: string | null, successText: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      if (profileId) {
+        setCopiedOrphanId(profileId);
+        if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+        copyResetTimer.current = setTimeout(() => setCopiedOrphanId(null), 4000);
+      }
+      if (successText) reportFall(successText, 'success');
+    } catch {
+      reportFall('Não foi possível copiar. Selecione o texto e copie manualmente.', 'error');
+    }
+  }
+
+  function copyOrphanUsername(profile: MetaOrphanedProfile) {
+    void copyOrphanText(profile.username, profile.id, '');
+  }
+
+  function copyOrphanList(profiles: MetaOrphanedProfile[]) {
+    void copyOrphanText(
+      orphanedUsernameList(profiles),
+      null,
+      `${profiles.length} nome(s) copiados, um por linha, sem a arroba.`,
     );
   }
 
@@ -1132,6 +1256,29 @@ export default function MetaAppsClient({
             onCopyOne={copyIncidentUsername}
             onCopyMany={copyIncidentList}
             onConfirm={confirmSlotRelease}
+          />
+        </section>
+      )}
+
+      {orphanedByApp.length > 0 && (
+        <section className={styles.orphanFalls} aria-label="Contas que perderam o app">
+          <div className={styles.orphanFallsHead}>
+            <div>
+              <span className="section-kicker">Perderam o app</span>
+              <strong>{orphanedByApp.length} conta(s) precisam ser religadas</strong>
+              <p>
+                Estas contas continuam no Athena, nos grupos e com fila agendada — mas o app que emitiu o token
+                delas saiu do cadastro, então a Meta responde <code>API access deactivated</code> e nada é
+                publicado. Reconecte cada uma por outro app, no <strong>Bulk Meta</strong> em Perfis: o perfil é
+                o mesmo, e a fila, os grupos e o histórico voltam junto.
+              </p>
+            </div>
+          </div>
+          <OrphanedProfilesList
+            profiles={orphanedByApp}
+            copiedId={copiedOrphanId}
+            onCopyOne={copyOrphanUsername}
+            onCopyMany={copyOrphanList}
           />
         </section>
       )}
