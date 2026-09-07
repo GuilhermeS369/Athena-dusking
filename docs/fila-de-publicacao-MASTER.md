@@ -55,7 +55,7 @@ primeira definição vence; e o PM2 guarda o env de cada processo (`pm2 save`) e
 processos 2/3, troque em `.env.local`, `.env.worker` e no env salvo do PM2, e reinicie.
 Depois de ligar/desligar processos, `pm2 save`: é o que volta num reboot (`pm2-root.service`).
 
-**Receita dos processos**: `deploy/instagram/ecosystem.config.cjs` (versionado em 07/09/2026; é a fonte dos envs por processo). Para recriar a VPS ou um processo: `pm2 start deploy/instagram/ecosystem.config.cjs [--only nome]` e `pm2 save`.
+**Receita dos processos**: `deploy/instagram/ecosystem.config.cjs` (versionado e **aplicado na VPS** em 07/09/2026; todos os processos foram recriados a partir dele e gravados com `pm2 save`; é a fonte dos envs por processo). Para recriar a VPS ou um processo: `pm2 start deploy/instagram/ecosystem.config.cjs [--only nome]` e `pm2 save`.
 
 ### 1.2 Crons
 
@@ -340,7 +340,7 @@ em `reauthorization_required` e não publicam.
 
 | Log | Caminho | O que traz |
 |---|---|---|
-| saída do publicador | `/root/.pm2/logs/athena-publication-worker-out.log` (`-2`, `-3`) | `tempos do ciclo DIRETO` (fases, `porItemMs`), `tempos do ciclo de despacho` (spool, `esperaPorSlotMs`), `ciclo de preparação` (`estados`, `codigos`, `esperaMs`), `controlador do staging`, `Dispatcher direto concluído` (`states`, `adaptiveConcurrency`), `reservas de staging liberadas`, `entradas de spool descartadas` |
+| saída do publicador | `/root/.pm2/logs/athena-publication-worker-out-<id>.log` (`-2`, `-3`; o sufixo `-<id>` apareceu quando os processos foram recriados a partir do ecosystem em 07/09 — use `ls -t` para pegar o atual) | `tempos do ciclo DIRETO` (fases, `porItemMs`), `tempos do ciclo de despacho` (spool, `esperaPorSlotMs`), `ciclo de preparação` (`estados`, `codigos`, `esperaMs`), `controlador do staging`, `Dispatcher direto concluído` (`states`, `adaptiveConcurrency`), `reservas de staging liberadas`, `entradas de spool descartadas` |
 | erro do publicador | `…-error.log` | só o que decide rollback: `preparação girando em falso; recuando`, `FILA DE CONFIRMACAO REPRESADA`, `falha no ciclo`, `Falha isolada no dispatcher`, `erro fatal`. Avisos `MODULE_TYPELESS` são ruído; uma página HTML 521 é URL errada do Supabase |
 | gerador / resumo / analytics / manutenção | `athena-<nome>-out.log` / `-error.log` | resumo do ciclo; o resumo grava `recalculo LENTO` (> 45 s) como erro de propósito |
 | crons da VPS | `/var/log/athena-instagram-observability-maintenance*.log`, `athena-recovery-analysis.log` | `exit=`, `duration_s=`, `paused: critical_publication_delay` |
@@ -397,7 +397,7 @@ tabela da seção 1.3 com o custo medido.
 ### 8.5 Deploy
 
 `vercel --prod` sobe a **árvore de trabalho**: `git status` limpo antes. Deploy na VPS é
-`scp` dos arquivos alterados + `node --check` + `pm2 restart` (o repositório da VPS não é
+`scp` dos arquivos alterados **inclusive `package.json` quando um script `npm run` novo entra** (em 07/09 a VPS estava sem 25 scripts) + `node --check` + `pm2 restart` (o repositório da VPS não é
 git). Nunca `git pull` na VPS sem conferir o md5 do `publication-direct-dispatch.mjs`. O
 worker importa `lib/integrations/meta-graph-errors.ts` direto (type stripping do Node 22):
 mudar esse arquivo também é deploy na VPS.
