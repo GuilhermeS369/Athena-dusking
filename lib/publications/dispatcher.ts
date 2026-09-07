@@ -184,6 +184,27 @@ async function preparePublicationQueue(workerId: string, limit: number) {
       if (completionError) throw completionError;
       return 'ready';
     } catch (preparationError) {
+      // FALHA DE INFRAESTRUTURA NAO GERA SEGUNDA CHAMADA.
+      //
+      // Registrar o motivo da falha faz sentido quando o motivo e do ITEM --
+      // midia sumida, formato invalido. Quando o motivo e "nao consegui falar
+      // com o banco", chamar o banco de novo dobra a carga sobre o recurso que
+      // ja esta esgotado. Em 07/09/2026 esse padrao derrubou a Data API duas
+      // vezes: 28 das 41 vagas do pool presas em
+      // `complete_publication_preparation`, dez delas em transacao abortada.
+      //
+      // Sem a segunda chamada o item nao e concluido, o lease expira e ele
+      // volta no proximo ciclo -- o certo para indisponibilidade passageira, e
+      // o mesmo principio da migration 272.
+      //
+      // A correcao gemea vive em scripts/workers/publication-direct-dispatch.mjs.
+      // As duas precisam existir porque HA DOIS DESPACHANTES fazendo preparo: o
+      // worker da VPS e este, chamado pelo cron da Vercel de minuto em minuto.
+      // Eles nao se coordenam, entao corrigir so um lado deixa metade da
+      // tempestade de pe.
+      if (isPublicationInfrastructureError(preparationError)) {
+        return 'infrastructure_deferred';
+      }
       const failure = errorInfo(preparationError);
       const { error: completionError } = await supabase.rpc('complete_publication_preparation', {
         p_item_id: claim.id, p_worker_id: preparationWorkerId, p_ready: false,
