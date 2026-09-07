@@ -1,14 +1,16 @@
 # Fila de publicação — DOCUMENTO MESTRE
 
 **Leia este arquivo antes de tocar em qualquer coisa que envolva postagem.** Ele é o único
-lugar onde a gestão da fila está inteira: peças, regras, tetos, erros tratados e não tratados,
-lógica que derruba perfil, procedimentos e onde olhar primeiro. Toda mudança na fila
-**atualiza este arquivo no mesmo commit** (seção 12, checklist). Se algo aqui contradiz o
-código, o código está certo e este arquivo está atrasado: corrija-o.
+lugar onde a gestão da fila está inteira: peças, ciclo de vida, regras, tetos, gatilhos,
+erros tratados e não tratados, a lógica que derruba perfil, ações manuais, scripts perigosos,
+procedimentos e onde olhar primeiro. Toda mudança na fila **atualiza este arquivo no mesmo
+commit** (seção 13). Se algo aqui contradiz o código, o código está certo e este arquivo está
+atrasado: corrija-o.
 
-Mantido desde 07/09/2026. Complementa, e não substitui, o
-[mapa de controles](fila-de-publicacao-mapa-de-controles.md) (histórico de incidentes e
-experimentos) e o [runbook da VPS](vps-worker-runbook.md) (acesso e deploy).
+Mantido desde 07/09/2026, a partir de uma varredura completa de `app/`, `lib/`, `scripts/`,
+`supabase/migrations/`, da VPS e da Vercel. Complementa, e não substitui, o
+[mapa de controles](fila-de-publicacao-mapa-de-controles.md) (incidentes e experimentos, com
+os números) e o [runbook da VPS](vps-worker-runbook.md) (acesso e deploy).
 
 ---
 
@@ -19,8 +21,8 @@ experimentos) e o [runbook da VPS](vps-worker-runbook.md) (acesso e deploy).
    Meta; um `40001` de lease não se corrige subindo worker. A seção 6 diz de quem é cada um.
 2. **Meça antes de agir, e meça no lugar certo.** Vazão é `provider_creation_started_at`,
    não `published_at`. Erro de banco é `pg_stat_database.xact_rollback`, não o log do
-   worker (que só mostra o que o worker decidiu logar). `pg_stat_statements` **não conta
-   chamada que falhou**. A seção 9 lista onde olhar por sintoma.
+   worker. `pg_stat_statements` **não conta chamada que falhou**. A seção 9 lista onde olhar
+   por sintoma, com as consultas prontas.
 3. **Nenhuma decisão que descarte ou republique publicação é tomada sozinha.** É
    apresentada ao dono com opções. Item vencido fica vencido. Perfil em checkpoint é
    descartado. Nunca se mexe em horário de agendamento para aliviar carga.
@@ -29,68 +31,125 @@ experimentos) e o [runbook da VPS](vps-worker-runbook.md) (acesso e deploy).
 
 ## 1. As peças
 
-### 1.1 Processos (VPS `179.198.110.201`, `/opt/athena-worker`, PM2)
+### 1.1 Processos na VPS (`root@179.198.110.201`, `/opt/athena-worker`, PM2 7, Node 22)
 
-| Processo PM2 | Script | O que faz | Deve estar |
+| Processo PM2 | Script (`npm run`) | O que faz por ciclo | Deve estar |
 |---|---|---|---|
-| `athena-publication-worker` | `publication-worker.mjs` (id `athena-vps-publication-1`) | preparação (laço próprio), staging (spool em disco), despacho pelo spool e pelo caminho direto | **ligado** |
-| `athena-publication-worker-2`, `-3` | mesmo script, env do PM2 com `MODE=direct`, preparação e staging **desligados** | só caminho direto | ligados conforme a conta da seção 8.3 |
-| `athena-generation-worker` | `publication-generation-worker.mjs` | materializa itens dos planos em massa | ligado (`POLL_INTERVAL_MS=15000`) |
-| `athena-queue-summary-worker` | `queue-summary-worker.mjs` | resumo da tela /queue (`refresh_publication_queue_summary`, 6,7 s por org) | ligado (`QUEUE_SUMMARY_MAX_AGE_SECONDS=300`) |
-| `athena-profile-analytics-worker` | `profile-analytics-refresh-worker.mjs` | chama a rota da Vercel que abre as coletas fixas 09:00/15:00/21:00 (hora local) | ligado |
-| `athena-media-maintenance-worker` | `media-maintenance-worker.mjs` | exclusões de mídia, arquivo frio (migration 424) | ligado |
-| `athena-meta-token-renewal` | `meta-token-renewal-worker.ts` | renova tokens Meta perto de vencer; roda e sai | uma passada por dia |
-| `athena-zernio-sync-worker`, `athena-profile-analytics-direct-worker` | legado Zernio / fase E | **não ligar**: Zernio foi abandonada em 09/2026 | desligados |
+| `athena-publication-worker` (id `athena-vps-publication-1`) | `worker:publication` → `publication-worker.mjs` | **três laços independentes** a cada 5 s: despacho (spool + direto), staging (spool em disco), preparação | **ligado** |
+| `athena-publication-worker-2`, `-3` | mesmo script; env salvo no PM2: `MODE=direct`, `PREPARATION_ENABLED=false`, `STAGING_ENABLED=false`, id próprio | só caminho direto | conforme a conta da seção 8.3 (em 07/09: ligados) |
+| `athena-generation-worker` | `worker:publication-generation` | `get_bulk_rotation_worker_summary` → jobs (`claim/materialize/process_publication_generation_*`) → pressão (`get_publication_generation_pressure_signal`) → lease pesado → `claim/process_bulk_rotation_generation_chunk` → heartbeat | ligado (`POLL_INTERVAL_MS=15000`) |
+| `athena-queue-summary-worker` | `worker:queue-summary` | por org vencida, **serial**, `refresh_publication_queue_summary` (6,7 s cada) | ligado (`QUEUE_SUMMARY_MAX_AGE_SECONDS=300`) |
+| `athena-profile-analytics-worker` | `worker:profile-analytics` | POST `/api/internal/profile-analytics-refresh-dispatch` (abre as coletas fixas 09:00/15:00/21:00 hora local via `open_meta_analytics_run`) + heartbeat; **pula o sleep** enquanto `hasMore` | ligado |
+| `athena-media-maintenance-worker` | `worker:media-maintenance` | POST `media-deletion-dispatch` → `clean_publication_queue_finished` por org (a cada 10 min) → `move_archived_publication_items_to_cold_storage` (a cada 60 min) → `purge_expired_publication_dispatch_reservations` | ligado |
+| `athena-meta-token-renewal` | `worker:meta-token-renewal` | lê perfis Meta e renova tokens perto de vencer (60 dias; renova após 7; alarme aos 35); **roda e sai** | uma passada por dia |
+| `athena-zernio-sync-worker`, `athena-profile-analytics-direct-worker` (dir `/opt/athena-worker-phase-e`, cópia antiga) | legado Zernio / fase E | **não ligar** | desligados |
 | `athena-twitter-*` | apagados do PM2 em 07/09/2026 | módulo X | só com autorização do dono |
 
-**Regra do env:** o worker lê `.env.local` **antes** de `.env.worker` e a primeira definição
-vence; e o PM2 guarda o env de cada processo (`pm2 save`) e ignora o `.env.worker` para
-chaves que já tem. Ao trocar URL/chave do Supabase ou um teto num processo 2/3, troque nos
-três lugares (`.env.local`, `.env.worker`, env salvo do PM2) e reinicie.
+Padrões do código que **enganam num deploy limpo**: `PUBLICATION_WORKER_DRY_RUN` é **true** por
+padrão (só `=false` publica); `PUBLICATION_WORKER_MODE` é `observe` (a VPS usa `direct`);
+`STAGING_ENABLED` é false; `COLD_STORAGE_ENABLED` é false (VPS: true).
 
-### 1.2 Vercel
+**Regra do env (três lugares):** o worker lê `.env.local` **antes** de `.env.worker` e a
+primeira definição vence; e o PM2 guarda o env de cada processo (`pm2 save`) e ignora o
+`.env.worker` para chaves que já tem. Ao trocar URL/chave do Supabase ou um teto nos
+processos 2/3, troque em `.env.local`, `.env.worker` e no env salvo do PM2, e reinicie.
+Depois de ligar/desligar processos, `pm2 save`: é o que volta num reboot (`pm2-root.service`).
 
-- **Não existe mais despachante na Vercel** (removido em `6d65eb2`, decisão do dono). Se a
-  VPS cair, sobe-se outro processo lá; nada publica fora dela.
-- Crons que restam (`vercel.json`): `media-deletion-dispatch` (1 min), `meta-analytics-dispatch`
-  (5 min, coleta contínua, orçamento 45 s), `dashboard-summary-refresh` (5 min),
-  `recovery-analysis-dispatch` (diário 09:20).
-- Rotas internas são protegidas por `PUBLICATION_WORKER_SECRET` / `CRON_SECRET`.
+**Não existe `ecosystem.config` do Instagram no repositório**: os processos só existem na
+VPS. Se a VPS for recriada, a seção 8.1 é a única receita.
 
-### 1.3 Banco (Supabase projeto `athena`, ref `iuxzrhuvcpeyxqifzbcw`, desde 07/09/2026)
+### 1.2 Crons
 
-Tabelas que importam: `publication_items` (a fila; ~1,07 mi linhas), `publication_item_media`,
-`publication_batches`, `bulk_publication_plans` + `bulk_publication_generation_chunks`,
+**Na Vercel** (`vercel.json`): `media-deletion-dispatch` (1 min; exclusões de mídia e de
+grupo, que **removem itens da fila** via `delete_media_assets_and_remove_publication_items`),
+`meta-analytics-dispatch` (5 min, orçamento 45 s, coleta contínua), `dashboard-summary-refresh`
+(5 min, `refresh_dashboard_summary`), `recovery-analysis-dispatch` (diário 09:20 UTC).
+**Não existe mais despachante na Vercel** (`6d65eb2`, decisão do dono): a rota
+`/api/internal/publication-dispatch` foi removida. Rotas internas que ainda existem **sem
+cron e sem chamador no repositório**: `publication-claims`, `publication-results` (worker
+legado por HTTP), `queue-summary-refresh` (o comentário dela ainda diz "cron de minuto em
+minuto", divergente), `publication-health`, `operational-health`. O modo `dispatch-endpoint`
+do `publication-worker.mjs` aponta para a rota removida: **morto**.
+
+**Na VPS** (`crontab -l` do root; scripts em `/opt/athena-worker/bin`, fonte em
+`deploy/instagram/`): manutenção de observabilidade a cada 5 min e a "diária" às 06:17
+(na fonte versionada é de hora em hora, `7 * * * *`, e ambas chamam
+`/api/internal/instagram-observability-maintenance`, que **para sozinha** quando a fila está
+em atraso crítico, `paused: critical_publication_delay`); análise de recuperação diária
+(`recovery-analysis.cron`, 09:10 UTC) chamando `recovery-analysis-dispatch` até `done`.
+Os três usam `PUBLICATION_WORKER_SECRET` do `.env.worker` e a URL
+`https://pomodoro-theta-one-82.vercel.app` (domínio público: `www.athenadusking.com.br`).
+
+### 1.3 Banco (Supabase projeto `athena`, ref `iuxzrhuvcpeyxqifzbcw`, XL, desde 07/09/2026)
+
+Tabelas da fila: `publication_items` (~1,07 mi linhas), `publication_item_media`,
+`publication_batches`, `bulk_publication_plans` + `bulk_publication_plan_profiles` +
+`bulk_publication_generation_chunks`, `publication_generation_jobs` (+ chunks/events),
 `publication_dispatch_rate_reservations`, `publication_profile_daily_reservations`,
-`publication_rate_limit_settings`, `publication_batch_circuit_breakers`, `instagram_profiles`,
-`meta_apps`, `publication_item_events` (histórico), `publication_worker_heartbeats`,
-`publication_worker_cycle_events` (telemetria), `publication_items_archive` (arquivo frio).
+`publication_rate_limit_settings`, `publication_batch_circuit_breakers` +
+`publication_batch_terminal_outcomes`, `publication_slot_risk_incidents`,
+`publication_dispatch_sla_alerts`, `publication_queue_cancellation_operations`,
+`publication_failure_acknowledgements`, `instagram_profiles`, `meta_apps`,
+`meta_disconnection_incidents`, `publication_item_events` (histórico, 2,65 mi),
+`publication_worker_heartbeats`, `publication_worker_cycle_events` (telemetria),
+`publication_queue_summary_totals`, `dashboard_summary_totals`, `publication_items_archive`
++ `publication_item_media_archive` (arquivo frio).
 
-Funções que a fila chama (todas `security definer`, a maioria exige `service_role`):
+**Gatilhos em `publication_items`** (7): valida organização; `updated_at`; **unicidade de
+slot ativo** por (org, perfil, formato, `execute_at`) → `23505 active_publication_slot_conflict`;
+valida capa de reel; **volta a preparação para `pending`** quando mudam `execute_at`,
+`caption`, `profile_id`, `format` ou capa (e o mesmo em `publication_item_media`); projeta o
+catálogo do perfil quando publica; zera `infrastructure_retry_count` só em avanço real (420).
+Em `publication_item_events`: **disjuntor de lote** (AFTER INSERT de `published`/`failed`,
+ignora falha de infraestrutura) grava `publication_batch_terminal_outcomes`; projeção de
+observabilidade. Em `instagram_profiles`: AFTER UPDATE de `status`/`deleted_at` →
+`suspend_offline_profile_publications`. Nenhum gatilho grava eventos a partir de
+`publication_items`: os eventos vêm de `log_publication_item_event` nas RPCs. A
+sincronização de status do **lote** não é gatilho: é `sync_publication_batch_status` ou
+`reconcile_publication_batch_runtime` por ciclo.
 
-| Função | Quem chama | Custo medido |
+**Funções do caminho quente** (todas `security definer`; a maioria exige `service_role`):
+
+| Função (migration vigente) | Papel | Levanta |
 |---|---|---|
-| `claim_publication_preparation_items` | laço de preparação | 83 ms |
-| `complete_publication_preparation` | idem | 3,6 ms; levanta `40001` se o lease venceu |
-| `claim_publication_dispatch_staging_items` / `activate_staged_publication_items` / `release_publication_dispatch_staging` | staging e spool | 32 ms |
-| `claim_publication_items` | caminho direto | 127 ms (janela + duas `row_number()`) |
-| `reserve_publication_dispatch_capacity` | todo despacho | 37 ms; 2 advisory locks + 3 contagens |
-| `reserve_publication_daily_limit` | antes de publicar (Meta) | — |
-| `defer_publication_item` | contêiner criado, espera 30 s | 23 ms |
-| `complete_publication_item` | desfecho | 27 ms |
-| `defer_publication_infrastructure_failure` | erro de banco/rede | recuo 30 s → 900 s (migration 420) |
-| `expire_late_publication_items` | fim de ciclo (60 por chamada) | 54 ms por item |
-| `recover_missed_publication_slots` | fim de ciclo (100 por chamada) | — |
-| `finalize_meta_profile_disconnection` | Meta 190 terminal | derruba o perfil e encerra os itens dele |
-| `flag_meta_app_api_blocked` | Meta "API access blocked" | pausa o app por 60 min |
-| `refresh_publication_queue_summary` | resumo da tela | 6,7 s por org |
-| `move_archived_publication_items_to_cold_storage` | manutenção de mídia | ~100 ms por item (424) |
+| `claim_publication_preparation_items` (264) | claim da preparação: v2, sem `creation_id`, `preparation_status` ∈ pending/blocked/preparing, janela ≤ 24 h, fairness perfil→org | `22023` |
+| `complete_publication_preparation` (264) | `ready` ou `blocked` (+ `next_preparation_at`) | **`40001` lease de preparação** |
+| `claim_publication_dispatch_staging_items` / `activate_staged_publication_items` / `release_publication_dispatch_staging` (315) | pré-reserva itens futuros na janela; ativa quando vence; libera | `42501`, `22023` |
+| `claim_publication_items` (405) | claim principal: filtros de status, lease, staging, **trava de atraso**, app bloqueado, disjuntor, slot em risco; prioridade 0 para quem tem `creation_id`; gasta tentativa só sem `creation_id`; lote → `processing` | `42501`, `22023` |
+| `assert_claimed_publication_profile_online` (088) | perfil online e sob lease, antes de cada chamada ao provedor | `P0002` |
+| `reserve_publication_dispatch_capacity` (372) | 2 advisory locks (**por app Meta** ou balde de perfil; + por perfil); reentrância; intervalo por perfil **e formato**; reserva irmã; 24 h; minuto por (org, provedor); minuto por app. Ao barrar volta a `waiting` com `next_attempt_at` e `last_error_code` | `22023`, `P0002` |
+| `reserve_publication_daily_limit` (029) | 100/24 h por perfil (legado; a checagem que vale está na reserva acima) | `22023`, `P0002` |
+| `defer_publication_item` (306) | grava `creation_id`, volta a `waiting` + `next_attempt_at`; conta polls | `22023`, `P0002` |
+| `complete_publication_item` (272) | terminal: `published` (+ `first_published_at` da mídia), `removed`, retry com backoff `60·2^(n-1)` + jitter, ou falha final em 5 | `22023`, `P0002` |
+| `defer_publication_infrastructure_failure` (420) | recuo 30·2^min(n-1,5) + jitter, teto 900 s; devolve a tentativa; **nunca terminal** | `42501`, `22023`, `P0002` |
+| `expire_late_publication_items` (405) | `ignored` + `publication_past_due` nos `waiting/ready` sem `creation_id` além do corte | `42501`, `22023` |
+| `recover_missed_publication_slots` (264) | v2: **não descarta**, só abre/resolve `publication_dispatch_sla_alerts` (v1 legado descartava) | `22023` |
+| `reconcile_publication_batch_runtime` (272) | por lote, `pg_try_advisory_xact_lock`; **pausa o lote com 5 falhas consecutivas** desde o último `published` | `42501`, `22023` |
+| `finalize_meta_profile_disconnection` (391) | exige `190`; perfil `offline`, ignora tudo do perfil, cancela planos, abre incidente, segura a vaga do app | `42501`, `22023`, `P0002` |
+| `flag_meta_app_api_blocked` (403) | exige `200` + "api access blocked/deactivated"; janela `api_block_until` (60 min); ignora itens do app; incidente | `42501`, `22023`, `P0002` |
+| `suspend_offline_profile_publications` (088) | suspende itens abertos do perfil (`profile_offline_suspended`), devolve tentativa | `P0002`, `22023` |
+| `contain_instagram_profile_for_removal` (362) | remoção pedida por pessoa: cancela fila, planos, horizontes; sincroniza só os lotes tocados | `42501` |
+| `clean_publication_queue_finished` (335) / `archive_completed_publication_items` (083) | arquiva terminais (falha só se terminal de verdade) | `42501` |
+| `move_archived_publication_items_to_cold_storage` (424) | move arquivados > 7 dias; **guarda de paridade de colunas** | `55000`, `42501` |
+| `refresh_publication_queue_summary` (418) / `refresh_dashboard_summary` (422) | resumos materializados; `statement_timeout` 120 s | `42501` |
+| `open_meta_analytics_run` (388) | abre a rodada do slot 09:00/15:00/21:00 (America/Sao_Paulo) | `42501` |
 
-Configuração que vive no banco (não em env): `publication_rate_limit_settings`
-(`max_publication_lateness_seconds` 300, `max_profile_publications_per_24h` 100,
-`min_seconds_between_profile_publications` 45, `reel` 1.500 s, `dispatch_lock_shards` 8,
-`max_provider_publications_per_minute` 1.200 para `meta_official`) e
-`meta_apps.max_publications_per_minute` (nulo = sem cota por app).
+Índices que sustentam o claim: `publication_items_v2_dispatch_claim_idx`,
+`…_unstarted_current_claim_idx`, `…_provider_accepted_claim_idx`, `…_dispatch_staging_*`,
+`…_v2_preparation_claim_idx`, `…_profile_format_published_idx` /
+`…_profile_format_accepted_idx` (intervalo por formato), FKs para o arquivo frio (334).
+Autovacuum próprio (417): `publication_items` scale 0,02 / threshold 1000.
+
+`publication_rate_limit_settings` (linha global + `meta_official` + `zernio`): `enabled`,
+`max_provider_publications_per_minute` (meta 1.200), `max_profile_publications_per_24h` 100,
+`min_seconds_between_profile_publications` 45, `…_by_format` `{"reel":1500}`,
+`reservation_seconds` 300, `dispatch_lock_shards` 8, `max_publication_lateness_seconds` 300.
+A linha global é **invisível ao `authenticated`** (RLS só para admin da org).
+`meta_apps.max_publications_per_minute` nasce **nulo** (sem cota por app).
+
+RLS/grants em `publication_items`: `anon` nada; `authenticated` SELECT se membro, UPDATE se
+admin/operator, **INSERT revogado** (toda criação passa por `queue_publication_batch` ou pelos
+geradores), sem DELETE; `service_role` tudo e é o único que executa as RPCs do pipeline.
 
 ---
 
@@ -99,34 +158,35 @@ Configuração que vive no banco (não em env): `publication_rate_limit_settings
 `publication_item_status`: `draft, validating, reserved, waiting, preparing, ready, publishing,
 published, failed, ignored, cancelled, removed, suspended`.
 `preparation_status`: `pending, preparing, ready, blocked, not_required`.
+**Não existe `processing` em `publication_items`** (é status de lote, de job e de chunk, e
+alias de tela para `preparing`+`publishing`).
 
 ```
-plano em massa ─► GERAÇÃO ─► waiting / pending
-                                │  claim_publication_preparation_items (janela 24 h, lease 300 s)
+tela/compositor ─► queue_publication_batch ─► waiting / pending        (ou job de geração se grande)
+plano em massa  ─► gerador (process_bulk_rotation_generation_chunk) ─► waiting / pending
+                                │  claim_publication_preparation_items (24 h antes, lease 300 s)
                                 ▼
                    PREPARAÇÃO ─► waiting / ready       (valida perfil, mídia, formato; não chama Meta)
-                                │  staging 600 s antes: arquivo no spool + dispatch_staged_until
+                                │  staging 600 s antes: arquivo no spool + dispatch_staged_until (660 s)
                                 ▼
-                   DESPACHO  ─► preparing (lease 180 s)  reserva de capacidade → contêiner na Meta
-                                │  defer_publication_item: waiting com creation_id, prioridade 0
-                                ▼  30 s depois, claim de novo
-                   CONFIRMAR ─► status_code FINISHED → media_publish → published
-                                             ERROR/EXPIRED → failed (retentável ou não)
+                   DESPACHO  ─► preparing (lease 180 s) ─► reserva de capacidade ─► sonda R2 ─► contêiner na Meta
+                                │  defer_publication_item: waiting com creation_id, prioridade 0, 30 s
+                                ▼  claim de novo (polling não gasta tentativa)
+                   CONFIRMAR ─► FINISHED → media_publish → published
+                                ERROR/EXPIRED → failed (retentável até 5) | terminal
 ```
 
-Quem escreve o quê:
+Quem escreve o quê: só o **claim** muda `waiting → preparing` e gasta tentativa; só a
+**reserva de capacidade** devolve para `waiting` com `next_attempt_at` (adiamento por cota,
+sem gastar tentativa); só **`complete_publication_item`** grava `published/failed/removed`;
+só **`expire_late_publication_items`** grava `ignored + publication_past_due`; só
+**`finalize_meta_profile_disconnection`** grava `ignored + meta_profile_disconnected` (a
+agenda inteira do perfil) e põe o perfil `offline`; **`suspended`** vem de perfil offline no
+claim (`suspend_offline_profile_publications`) e volta por ação humana; `cancelled` é humano
+(tela, item, lote ou cancelamento em massa) ou remoção de mídia/perfil; `archived_at` marca
+terminal antigo e após 7 dias vai para o arquivo frio.
 
-- **Só o claim** muda `waiting → preparing` e gasta tentativa (`attempt_count`) quando não há
-  `creation_id`. Polling de contêiner não gasta tentativa.
-- **Só a reserva de capacidade** devolve para `waiting` com `next_attempt_at` (adiamento por
-  cota); isso não é falha e não gasta tentativa.
-- **Só `complete_publication_item`** grava `published`/`failed`/`removed`;
-  `PUBLICATION_MAX_ATTEMPTS` (5) encerra retentáveis.
-- **Só `expire_late_publication_items`** grava `ignored` + `publication_past_due`.
-- **Só `finalize_meta_profile_disconnection`** grava `ignored` + `meta_profile_disconnected`
-  (todos os itens futuros do perfil de uma vez) e põe o perfil `offline`.
-- `cancelled` é ação humana (tela). `suspended` é perfil offline no momento do claim.
-- `archived_at` marca item terminal antigo; após 7 dias vai para `publication_items_archive`.
+Mudar `execute_at`, legenda, perfil, formato ou capa **zera a preparação** (gatilho da 264).
 
 ---
 
@@ -134,36 +194,54 @@ Quem escreve o quê:
 
 | Regra | Onde | Valor |
 |---|---|---|
-| Atraso máximo: depois disso o item **não** é publicado, é encerrado | `publication_rate_limit_settings.max_publication_lateness_seconds`, migration 405 | 300 s |
+| Atraso máximo: depois disso o item **não** é publicado, é encerrado | `max_publication_lateness_seconds`, migration 405 (claim + varredura) | 300 s; item com `creation_id` sempre passa |
 | Item vencido não é republicado, nem após incidente | decisão do dono, 07/09/2026 | — |
-| Mínimo entre posts do mesmo perfil | mesma tabela | 45 s; reel 1.500 s |
-| Máximo por perfil em 24 h | mesma tabela | 100 (limite da Meta) |
-| Perfil em checkpoint / token inválido é descartado | `isMetaTerminalProfileDisconnection` + `finalize_meta_profile_disconnection` | remove e ignora a agenda |
-| Slot perdido é reagendado **uma vez** para a próxima data livre na mesma faixa | `recover_missed_publication_slots`, migration 264 | 100 por ciclo, tolerância 120 s |
-| Espalhamento de perfis na janela do plano; intervalo mínimo 29 min; plano de até 7 dias | migrations 326–331 | — |
-| Horário de agendamento nunca é alterado para aliviar carga | decisão do dono | chave de idempotência guarda o slot |
+| Mínimo entre posts do mesmo perfil, por formato | `publication_rate_limit_settings`, 330 | 45 s; reel 1.500 s |
+| Máximo por perfil em 24 h | mesma tabela (e `reserve_publication_daily_limit`) | 100 |
+| Um item ativo por (perfil, formato, minuto) | gatilho `enforce_active_publication_slot_uniqueness` (177) | `23505` na violação |
+| Data única preserva o minuto; recorrente sorteia minuto 01–09 e segundo; janela cheia pula para a próxima de 10 min | README "Regras de agendamento" | — |
+| Planos em massa: intervalo mínimo 29 min; duração máxima 7 dias; perfis espalhados na janela; gerador nunca materializa slot vencido; horário a < 10 min de post do mesmo perfil+formato em outro lote é pulado e contado como ignorado | migrations 326–331, `lib/publications/bulk-rotation.ts` | — |
+| Perfil em checkpoint / token inválido é descartado | seção 5 | remove e ignora a agenda |
+| App da Meta com "API access blocked/deactivated" pausa 60 min | `flag_meta_app_api_blocked` (403) | itens da janela viram `ignored` |
+| Lote pausa com 5 falhas consecutivas (disjuntor) | `reconcile_publication_batch_runtime` (272) | retoma pela tela ("continuar") |
+| Slot perdido: em v2 só gera alerta de SLA; **não descarta nem reagenda** | `recover_missed_publication_slots` (264) | 100 por ciclo, tolerância 120 s |
+| Horário de agendamento nunca é alterado para aliviar carga | decisão do dono | a chave de idempotência guarda o slot |
+| Legenda ≤ 2.200; repetição 1–365 dias; sequência 1–1000 | `lib/publications/composer.ts` | — |
 | Twitter/X desligado | decisão do dono, 07/09/2026 | só com autorização |
 
 ---
 
-## 4. Tetos e botões (valores em vigor em 07/09/2026)
+## 4. Tetos e botões
 
-Env em `/opt/athena-worker/.env.worker` (padrão do código entre parênteses):
+Valores em vigor na VPS em 07/09/2026 (padrão do código entre parênteses):
 
-| Botão | Valor | Controla |
+| Botão | VPS | Controla |
 |---|---:|---|
-| `PUBLICATION_WORKER_LIMIT` | 60 (5) | teto do lote do caminho direto; o limite adaptativo começa em 10 e sobe 20 % por ciclo cheio |
-| `PUBLICATION_WORKER_STAGED_DISPATCH_CONCURRENCY` | 48 (64) | paralelismo do spool |
-| `PUBLICATION_WORKER_STAGED_DISPATCH_LIMIT` | 500 | itens por ciclo do spool |
-| `PUBLICATION_WORKER_META_CONCURRENCY` | 20 (5, teto 20) | **semáforo global de chamadas à Meta por processo — o serializador de hoje** |
-| `PUBLICATION_WORKER_PREPARATION_LIMIT` / `_CONCURRENCY` | 40 / 3 | lote e paralelismo da preparação; o lote é cortado para caber no lease (12 s por item × 0,6) |
-| `PUBLICATION_WORKER_PREPARATION_ITEM_SECONDS` | (12) | segundos por item assumidos para o corte acima |
-| `PUBLICATION_WORKER_STAGING_*` | limite 100, concorrência 8, janela 600 s, lease 660 s | staging |
-| `PUBLICATION_WORKER_LEASE_SECONDS` | 180 | lease do despacho |
-| `PUBLICATION_WORKER_EXPIRE_LIMIT` | (60) | itens encerrados por chamada |
-| `PUBLICATION_WORKER_META_POLL_SECONDS` | (30) | espera até consultar o contêiner |
+| `PUBLICATION_WORKER_LIMIT` | 60 (5, teto 100) | lote do caminho direto; o limite adaptativo começa em 10 e sobe 20 % por ciclo cheio |
+| `PUBLICATION_WORKER_META_CONCURRENCY` | 20 (5, **teto 20**) | **semáforo global de chamadas à Meta por processo — o serializador de hoje** |
+| `PUBLICATION_WORKER_STAGED_DISPATCH_CONCURRENCY` / `_LIMIT` / `_LEASE_SECONDS` | 48 / 500 / 900 (64 / 500 / 900) | spool |
+| `PUBLICATION_WORKER_STAGED_MAX_PER_ORGANIZATION_PER_MINUTE` | 600 (180) | teto deslizante de seleção por org no spool; e no máximo 1 item por perfil+formato por lote |
+| `PUBLICATION_WORKER_STAGING_LIMIT` / `_CONCURRENCY` / `_WINDOW_SECONDS` / `_LEASE_SECONDS` | 100 / 8 / 600 / 660 | staging (lease = janela + 60 s; era 1.200 e prendia item 10 min) |
+| `PUBLICATION_WORKER_STAGING_DUE_GUARD_MS` / `_MAX_CONSECUTIVE_SKIPS` | 5000 / 1 | staging cede se algo vence em 5 s, no máximo 1 vez seguida |
+| `PUBLICATION_WORKER_STAGING_PRESSURE_YIELD` / `_COOPERATIVE_CANCEL` | false / false | as duas guardas que travavam o spool (mapa, seção 3); não religue |
+| `PUBLICATION_WORKER_STAGING_FAST_PER_ITEM_MS` / `_MAX_STABLE_MS` / `_SLOW_MS` | 1200 / 20000 / 8000 | controlador adaptativo do staging (escala de rede) |
+| `PUBLICATION_WORKER_PREPARATION_LIMIT` / `_CONCURRENCY` | 40 / 3 (4 / 4) | preparação; o lote é cortado para caber no lease: `concorrência × lease ÷ 12 s × 0,6` |
+| `PUBLICATION_WORKER_PREPARATION_ITEM_SECONDS` | (12) | segundos por item assumidos no corte acima |
+| `PUBLICATION_WORKER_PREPARATION_DUE_GUARD_MS` / `_MAX_CONSECUTIVE_SKIPS` / `_POLL_INTERVAL_MS` | (5000 / 3 / 5000) | preparação cede ao despacho, com teto |
+| `PUBLICATION_WORKER_LEASE_SECONDS` | 180 | lease do despacho (preparação usa `max(300, lease)`) |
+| `PUBLICATION_WORKER_POLL_INTERVAL_MS` | 5000 | os três laços |
+| `PUBLICATION_WORKER_EXPIRE_LIMIT` | (60, 10–400) | itens encerrados por chamada (54 ms cada) |
+| `PUBLICATION_WORKER_META_POLL_SECONDS` | (30, 15–300) | espera até a primeira consulta do contêiner |
+| `PUBLICATION_WORKER_CONFIRMATION_ALERT` | (300) | alarme "FILA DE CONFIRMACAO REPRESADA" (com histerese) |
+| `PUBLICATION_WORKER_ADAPTIVE_COLLAPSE_RATIO` | (0,1) | fração de erro transitório que derruba o limite pela metade; amostra mínima 10 (fixo) |
+| `PUBLICATION_WORKER_COORDINATED_RECOVERY_LIMIT` | 5 (0 = desligado) | recuperação coordenada de slots consome vagas do mesmo lote |
 | `PUBLICATION_WORKER_QUEUE_SUMMARY` | (false) | resumo dentro do publicador — deixe desligado; há worker próprio |
-| `PUBLICATION_WORKER_ADAPTIVE_COLLAPSE_RATIO` | (0,1) | fração de erro transitório que derruba o limite pela metade (amostra mínima 10) |
+| `PUBLICATION_MEDIA_URL_PROBE_TIMEOUT_MS` | (12000) | **por sonda** (são 3 por mídia) |
+| timeouts da Meta | 25 s (criar, consultar) / 60 s (publicar) | **fixos no código** |
+| `PUBLICATION_MAX_ATTEMPTS` | 5 | constante em `lib/publications/attempts.ts` |
+| `QUEUE_SUMMARY_MAX_AGE_SECONDS` / `_POLL_INTERVAL_MS` | 300 / 20000 (60 / 20000) | resumo da tela |
+| `PUBLICATION_GENERATION_WORKER_POLL_INTERVAL_MS` | 15000 (10000) | gerador; `BULK_*` controlam passo 25–100 e cooldowns |
+| `MEDIA_MAINTENANCE_COLD_STORAGE_*` | enabled true, batch 25, budget 90 s, intervalo 300 s | arquivo frio (padrão do código: **desligado**) |
 
 Ordem em que os tetos mordem (medido em 07/09/2026): 1) semáforo da Meta por processo;
 2) o caminho direto esperar o lote inteiro (`Promise.allSettled`); 3) limite adaptativo
@@ -176,31 +254,41 @@ os valores acima **não cabem**; no XL cabem. Antes de reduzir o compute, reduza
 
 ---
 
-## 5. Lógica que derruba perfil (e leva a agenda junto)
+## 5. Lógica que derruba perfil, app, lote ou item (e leva a agenda junto)
 
-1. `processInstagramPublication` recebe erro da Graph API com `code 190`.
-2. `isMetaTerminalProfileDisconnection` (publication-direct-dispatch.mjs) decide que é
-   terminal se: subcode ∈ {458, 459, 460, 463, 464, 467}, **ou** a mensagem contém
-   "error validating access token", "invalid access token", "session has been invalidated",
-   "log in to www.instagram.com", "follow the instructions given" ou "checkpoint".
-3. `finalize_meta_profile_disconnection`: perfil → `offline` com `last_error_*`; **todos os
-   itens futuros do perfil** → `ignored` / `meta_profile_disconnected`; o item corrente idem.
-4. O gerador não cria mais itens para perfil que não está `online`.
+**Perfil (Meta 190 terminal).** `processInstagramPublication` recebe `code 190`;
+`isMetaTerminalProfileDisconnection` (publication-direct-dispatch.mjs) decide terminal se
+subcode ∈ {458, 459, 460, 463, 464, 467} **ou** a mensagem contém "error validating access
+token", "invalid access token", "session has been invalidated", "log in to
+www.instagram.com", "follow the instructions given" ou "checkpoint". Então
+`finalize_meta_profile_disconnection`: perfil → `offline` com `last_error_*`; **todos os
+itens abertos do perfil** → `ignored` / `meta_profile_disconnected`; planos cancelados;
+incidente aberto; vaga do app mantida. O gerador não cria mais itens para perfil que não está
+`online`. Consequência visível: um perfil que cai leva ~76 itens de uma vez (07/09: 46
+perfis, 2.123 itens; 06/09: 265; 05/09: 706). **Não é a fila falhando.**
 
-Consequência visível: um perfil que cai leva ~76 itens de uma vez. **Isso não é a fila
-falhando**; medido em 07/09: 46 perfis (2.123 itens), 06/09: 265, 05/09: 706. Acompanhe
-"perfis caídos por dia" como métrica própria (seção 9).
+**Perfil offline por outro motivo** (status muda na tabela): gatilho da 088 →
+`suspend_offline_profile_publications`: itens abertos viram `suspended`
+(`profile_offline_suspended`), tentativa devolvida; retomada manual.
 
-Outros caminhos que tiram perfil ou app do ar:
+**`401`/`190` sem as assinaturas acima é retentável** (`isRetryableGraphFailure`): o token
+pode estar em renovação; encerrar na primeira vez custou 3.315 posts em 31/08.
 
-- `isMetaAppApiBlocked` ("API access blocked/deactivated") → `flag_meta_app_api_blocked`:
-  o **app** fica bloqueado 60 min (`meta_apps.api_block_until`) e tudo que vence na janela
-  vira `ignored` / `meta_app_api_blocked`; o claim pula perfis de app bloqueado.
-- `401` HTTP ou `190` **sem** as assinaturas acima é **retentável** (`isRetryableGraphFailure`):
-  token pode estar em renovação; encerrar na primeira vez custou 3.315 posts em 31/08.
-- `profile_removed_by_operator`: remoção manual pela tela.
-- Zernio (`zernio_account_disconnected`): produto abandonado; qualquer perfil Zernio restante
-  está em `reauthorization_required` e não publica.
+**App da Meta**: `isMetaAppApiBlocked` ("API access blocked/deactivated", código 200) →
+`flag_meta_app_api_blocked`: `meta_apps.api_block_until` = +60 min, itens da janela →
+`ignored` / `meta_app_api_blocked`, incidente; o claim pula perfis de app bloqueado (394).
+"deactivated" não volta sozinho.
+
+**Lote**: disjuntor — 5 falhas terminais consecutivas (falha de infraestrutura não conta)
+pausam o lote (`publication_batch_circuit_breakers`); retoma pela tela
+(`resume_publication_batch_after_circuit_breaker`).
+
+**Remoções humanas**: excluir perfil (`contain_instagram_profile_for_removal`,
+`profile_removed_by_operator`), excluir mídia (`delete_media_assets_and_remove_publication_items`,
+pela galeria ou pelo cron de exclusão), cancelar item/lote/em massa (seção 8.8).
+
+**Zernio** (`zernio_account_disconnected`): produto abandonado; os 1.163 perfis Zernio estão
+em `reauthorization_required` e não publicam.
 
 ---
 
@@ -210,30 +298,41 @@ Outros caminhos que tiram perfil ou app do ar:
 
 | Código / assinatura | Origem | Tratamento no código | O que fazer |
 |---|---|---|---|
-| `190` + assinatura de checkpoint | Meta, conta | derruba perfil (seção 5) | nada; conta descartada por regra |
-| `190` / `401` sem assinatura | Meta, token | adia (retentável) até `PUBLICATION_MAX_ATTEMPTS` | conferir renovação de token |
+| `190` + assinatura de checkpoint (subcodes 458–467 ou mensagens da seção 5) | Meta, conta | derruba perfil e agenda | nada; conta descartada por regra |
+| `190` / `401` sem assinatura | Meta, token | adia (retentável) até 5 tentativas | conferir renovação de token (`athena-meta-token-renewal`) |
 | `9004` "Only photo or video…" | Meta não conseguiu buscar a mídia no R2 | adia | se persistir no mesmo asset, olhar o objeto no R2 |
-| `24` "requested resource does not exist", `2` "unexpected error" | Meta | falha retentável | ignorar se esporádico |
-| `429` / "rate limit" / `X-App-Usage` | Meta | limite adaptativo cai pela metade; adiamento | se frequente, cota por app (`meta_apps.max_publications_per_minute`) |
-| `meta_timeout_criar_container` / `_consultar_status` / `_publicar` | Meta > 25 s | retentável; o **lote inteiro** do caminho direto espera | ver seção 8.3 antes de subir processo |
-| contêiner `ERROR` / `EXPIRED` | Meta (transcodificação, mídia) | `metaContainerVerdict` decide retentável ou não | se em massa no mesmo formato, olhar a mídia |
-| `profile_min_interval`, `profile_24h_limit`, `provider_minute_limit`, `meta_app_minute_limit` | cotas nossas | adiamento sem gastar tentativa | não é erro |
-| `publication_past_due` | corte de atraso | `ignored` | perda por capacidade: ver seção 8.3 |
-| `57014` statement timeout, `PGRST002/003`, "fetch failed", `ConnectTimeout` | banco / pool | `defer_publication_infrastructure_failure` com recuo 30 → 900 s; **nunca** vira terminal | olhar pool e rollbacks (seção 9) |
-| `40001` "Lease de preparação ausente ou expirado" | preparação demorou mais que o lease | item volta ao pool; o laço **recua** 30 → 300 s se a maioria do lote falha | se aparecer, o banco está lento: medir antes de mexer no lote |
-| `P0002` "Item não está sob lease deste worker" | dois processos no mesmo item, ou lease vencido | item volta pelo claim | se frequente, IDs de worker repetidos |
-| lease de despacho vencido | processo morto no meio | o claim recupera após `lease_until` | nada |
+| `200` "API access blocked/deactivated" | Meta, app | pausa o app 60 min; itens da janela `ignored` | liberar/renovar o app na Meta |
+| `24`, `2`, `4`, `17`, `32`, `613` | Meta (recurso inexistente, erro genérico, rate limit) | 429/rate limit derruba o limite adaptativo pela metade; resto retentável | se `429` frequente, cota por app (`meta_apps.max_publications_per_minute`) |
+| `meta_timeout_criar_container` / `_consultar_status` / `_publicar` | Meta > 25 s / 60 s | retentável; **o lote inteiro do caminho direto espera** | ver seção 8.3 antes de subir processo |
+| contêiner `ERROR` / `EXPIRED` | Meta (transcodificação, mídia) | `metaContainerVerdict`: retentável ou não; `IN_PROGRESS` continua | em massa no mesmo formato: olhar a mídia |
+| `media_url_probe_timeout` / `_network` / `_http_5xx` | R2 lento | retentável | olhar R2 |
+| `media_url_probe_mime_invalid` / `media_url_range_unsupported` / `media_url_tail_range_invalid` | objeto no R2 não é o que o item diz | **não retentável** | reenviar a mídia |
+| `media_storage_object_missing` | objeto sumiu do storage | **não retentável** | reenviar a mídia |
+| `preparation_*` (`media_count_invalid`, `carousel_media_count_invalid`, `image_media_invalid`, `reel_media_invalid`, `meta_credentials_missing`, `profile_organization_missing`) | dado do item | `preparation_status = blocked` + `next_preparation_at` em 900 s | corrigir o item; o gatilho da 264 zera a preparação ao editar |
+| `profile_min_interval`, `profile_24h_limit`, `provider_minute_limit`, `meta_app_minute_limit`, `daily_profile_limit`, `dispatch_rate_limit` | cotas nossas | adiamento sem gastar tentativa | não é erro |
+| `publication_past_due` | corte de atraso | `ignored` | a única perda por capacidade: seção 8.3 |
+| `profile_offline_suspended` | perfil saiu de `online` | `suspended`, tentativa devolvida | religar o perfil e retomar |
+| `missed_bulk_slot_expired`, `legacy_missed_schedule_requires_attention` | v1 legado | descarte/atenção | não ocorre em v2 |
+| `57014`, `PGRST002/003`, "fetch failed", `ConnectTimeout`, `ECONNRESET`, `40P01`, `53300`, `57P0x` | banco / pool / rede | `defer_publication_infrastructure_failure`: recuo 30 → 900 s, tentativa devolvida, **nunca terminal**; controlador adaptativo **segura** (não cai) | olhar pool e rollbacks (seção 9) |
+| `40001` "Lease de preparação ausente ou expirado" | preparação demorou mais que o lease | item volta ao pool; o laço **recua** 30 → 300 s se a maioria do lote falha; código no log | banco lento: medir antes de mexer no lote |
+| `P0002` "Item não está sob lease deste worker" | lease vencido ou dois processos no item | item volta pelo claim | frequente = IDs de worker repetidos ou lease curto |
+| `23505 active_publication_slot_conflict` | dois itens no mesmo minuto do perfil | a tela/o gerador bloqueiam antes | pular o slot |
+| `55000` "publication_items tem N colunas e o arquivo M" | migration sem espelho no arquivo frio | arquivamento para | espelhar a coluna (como a 423) |
+| `PUBLICATION_MAX_ATTEMPTS` (5) | qualquer retentável | `failed` terminal; retry manual bloqueado pela tela | decidir com o dono |
 
 ### 6.2 Não tratados ou tratados mal (pendências conhecidas)
 
 | Sinal | O que é | Estado |
 |---|---|---|
-| `invalid input value for enum publication_item_status: "processing"` (18×/dia) | algum caminho grava um status que não existe | **não localizado**; procurar em `lib/` e nas migrations que escrevem `status = 'processing'` |
-| `42804`, `23502`, `42702` no log do worker (06/09) | bugs de PL/pgSQL em funções novas | corrigidos ao longo de 06/09; se voltarem, é migration nova quebrada |
-| `porItemMs` alto sem erro | espera pelo semáforo da Meta, não latência | falta log por fase e por item (plano, seção 6-B) |
-| `Promise.allSettled` no caminho direto | um item lento segura o lote | pendente: concorrência deslizante |
-| sonda do R2 a cada publicação (3 pedidos) | custo fixo por post | pendente: cache por mídia |
+| `invalid input value for enum publication_item_status: "processing"` (~18/dia no log do Postgres) | nenhum código do repositório grava ou filtra esse valor em `publication_items`; a tela envia `status=processing` e a API traduz para `preparing,publishing`; `agenda-items` recusa com 400 | **origem fora do repositório** (bundle antigo em cache, script ad-hoc, query salva no Studio). Fechar olhando `path`/`user_agent` das 18 ocorrências nos logs do PostgREST |
+| `porItemMs` alto sem erro | espera pelo semáforo da Meta, não latência | falta log por fase e por item |
+| `Promise.allSettled` no caminho direto | um item lento segura o lote | pendente: concorrência deslizante (o spool já tem) |
+| sonda do R2 a cada publicação (3 pedidos) | custo fixo por post + 2 escritas em `media_asset_delivery_attempts` | pendente: cache por mídia |
 | `meta_apps.max_publications_per_minute` nulo | sem cota por app | pendente: alimentar com `X-App-Usage` |
+| `reserve_publication_daily_limit` (029) ainda chamado antes de publicar | redundante com a reserva de capacidade | uma chamada a mais por post |
+| `lib/integrations/instagram-publisher.ts` | cópia do publicador usada só pelo painel Zernio; o caminho real é o `.mjs` | não editar achando que é produção |
+| rotas `publication-claims`, `publication-results`, `queue-summary-refresh` e o modo `dispatch-endpoint` | sem chamador / apontam para rota removida | remover ou documentar como mortos |
+| envs `SUPABASE_URL` / `SUPABASE_ANON_KEY` na Vercel | só scripts one-off leem, como fallback | apontam para o projeto antigo; remover |
 | `.dashboard-*`, `_cpu_snap`, scripts one-off | lixo de investigação | não são parte do sistema |
 
 ---
@@ -242,16 +341,18 @@ Outros caminhos que tiram perfil ou app do ar:
 
 | Log | Caminho | O que traz |
 |---|---|---|
-| saída do publicador | `/root/.pm2/logs/athena-publication-worker-out.log` (`-2`, `-3`) | `tempos do ciclo DIRETO` (fases, `porItemMs`), `tempos do ciclo de despacho` (spool), `ciclo de preparação` (com `estados` e `codigos`), `Dispatcher direto concluído` (`states`) |
-| erro do publicador | `…-error.log` | só o que decide rollback: `preparação girando em falso`, `FILA DE CONFIRMACAO REPRESADA`, falhas isoladas, erro fatal. Avisos `MODULE_TYPELESS` são ruído |
-| gerador, resumo, analytics, manutenção | `athena-<nome>-out.log` / `-error.log` | cada um loga seu ciclo |
-| Postgres | Supabase → Logs → Postgres (ClickHouse: `select … from logs where source = 'postgres_logs'`) | erros com o SQL completo; **é este log que encheu 99 GB em 07/09** |
+| saída do publicador | `/root/.pm2/logs/athena-publication-worker-out.log` (`-2`, `-3`) | `tempos do ciclo DIRETO` (fases, `porItemMs`), `tempos do ciclo de despacho` (spool, `esperaPorSlotMs`), `ciclo de preparação` (`estados`, `codigos`, `esperaMs`), `controlador do staging`, `Dispatcher direto concluído` (`states`, `adaptiveConcurrency`), `reservas de staging liberadas`, `entradas de spool descartadas` |
+| erro do publicador | `…-error.log` | só o que decide rollback: `preparação girando em falso; recuando`, `FILA DE CONFIRMACAO REPRESADA`, `falha no ciclo`, `Falha isolada no dispatcher`, `erro fatal`. Avisos `MODULE_TYPELESS` são ruído; uma página HTML 521 é URL errada do Supabase |
+| gerador / resumo / analytics / manutenção | `athena-<nome>-out.log` / `-error.log` | resumo do ciclo; o resumo grava `recalculo LENTO` (> 45 s) como erro de propósito |
+| crons da VPS | `/var/log/athena-instagram-observability-maintenance*.log`, `athena-recovery-analysis.log` | `exit=`, `duration_s=`, `paused: critical_publication_delay` |
+| Postgres | Supabase → Logs (ClickHouse: `select … from logs where source = 'postgres_logs'`) | erros com o SQL completo; **é este log que encheu 99 GB em 07/09**; rotação interna do Postgres está desligada |
 | PostgREST / API | `source = 'postgrest_logs'` / `edge_logs` | status HTTP por rota |
-| telemetria por ciclo | tabela `publication_worker_cycle_events` (`metadata.dispatch…`) | claim, desfechos, preparação, staging |
-| histórico por item | `publication_item_events` | cada transição com código e mensagem |
+| telemetria por ciclo | `publication_worker_cycle_events` (`metadata.dispatch.*`) | claim, desfechos, preparação, staging |
+| histórico por item | `publication_item_events` | cada transição com código e mensagem; `processing_deferred` é adiamento por cota |
+| heartbeats | `publication_worker_heartbeats` | status/modo de cada processo (a tela de operação e o painel leem) |
 
 Regras: `console.info` para o esperado, `console.error` só para o que decide rollback; erros
-sempre com **código** agregado, nunca um por item; nunca logar `encrypted_access_token`.
+com **código** agregado por ciclo, nunca um por item; nunca logar `encrypted_access_token`.
 
 ---
 
@@ -260,20 +361,20 @@ sempre com **código** agregado, nunca um por item; nunca logar `encrypted_acces
 ### 8.1 Subir a fila do zero (ordem)
 
 1. Medir o banco vazio: `authenticator` conexões, `xact_rollback` (delta ≈ 0).
-2. Encerrar o que venceu **antes** de ligar (`expire_late_publication_items` em laço),
-   senão a recuperação de slots reagenda o backlog.
+2. Encerrar o que venceu **antes** de ligar (`expire_late_publication_items` em laço pela API
+   com a service_role), para nada sair em rajada.
 3. `pm2 start athena-publication-worker`; 15 min medindo rollbacks, pool, `porItemMs`,
-   vencidos abertos, `lease_lost` = 0.
+   vencidos abertos, `lease_lost` = 0, `publicados com atraso > 5 min` = 0.
 4. `athena-queue-summary-worker`, `athena-generation-worker`, `athena-profile-analytics-worker`,
-   `athena-media-maintenance-worker`, um por vez.
-5. Publicadores 2 e 3 só pela conta da seção 8.3.
+   `athena-media-maintenance-worker`, um por vez; `athena-meta-token-renewal` uma passada.
+5. Publicadores 2 e 3 só pela conta da seção 8.3. Depois, `pm2 save`.
 
 ### 8.2 Reiniciar um publicador
 
-Reinício zera o limite adaptativo para 10 (~3 min até o teto). **Nunca durante onda.** Se
-inevitável: `max_publication_lateness_seconds` 300 → 900 antes, reiniciar, devolver 300
-quando nenhum item aberto passar de 300 s (`select count(*) … execute_at < now() - interval
-'300 seconds'`).
+Reinício zera o limite adaptativo para 10 (~3 min até o teto) e o processo 1 libera o
+staging órfão do próprio id ao subir. **Nunca durante onda.** Se inevitável:
+`max_publication_lateness_seconds` 300 → 900 antes, reiniciar, devolver 300 quando nenhum
+item aberto passar de 300 s.
 
 ### 8.3 Quando subir (ou descer) um processo
 
@@ -282,35 +383,64 @@ processos = teto( pico_por_minuto × segundos_por_post_na_Meta ÷ (20 × 60 × 0
 ```
 
 Suba só se `porItemMs` p50 > 8 s **e** vencidos abertos crescendo por 2 min; desça quando
-p50 < 3 s por uma hora. Processo novo: `PUBLICATION_WORKER_ID` único, env recriado no PM2.
-Hoje (07/09): pico 93/min, 3 s por post → 1 processo bastaria sem o defeito do lote; com
-ele, 3. Para 5.000 perfis/hora: 2 a 3, e nunca mais que 5 sem antes corrigir o lote.
+p50 < 3 s por uma hora. Processo novo: `PUBLICATION_WORKER_ID` único, env recriado no PM2,
+`pm2 save`. Em 07/09: pico 93/min, 3 s por post → 1 processo bastaria sem o defeito do lote;
+com ele, 3. Para 5.000 perfis/hora: 2 a 3; nunca mais que 5 sem corrigir o lote.
 
 ### 8.4 Migration / DDL
 
 Todo DDL recarrega o cache de schema do PostgREST (`pgrst_ddl_watch`). Antes de `db push`:
 `select count(*) from pg_stat_activity where usename='authenticator'` — abaixo de 30 aplique;
-perto do pool, espere. Toda migration que adiciona coluna em `publication_items` **precisa**
-adicionar a mesma em `publication_items_archive` (a guarda do arquivo frio falha alto).
+perto do pool, espere. Coluna nova em `publication_items` **exige** a mesma em
+`publication_items_archive` na mesma migration. Função nova no caminho quente entra na
+tabela da seção 1.3 com o custo medido.
 
 ### 8.5 Deploy
 
 `vercel --prod` sobe a **árvore de trabalho**: `git status` limpo antes. Deploy na VPS é
 `scp` dos arquivos alterados + `node --check` + `pm2 restart` (o repositório da VPS não é
-git). Nunca `git pull` na VPS sem conferir o md5 do `publication-direct-dispatch.mjs`.
+git). Nunca `git pull` na VPS sem conferir o md5 do `publication-direct-dispatch.mjs`. O
+worker importa `lib/integrations/meta-graph-errors.ts` direto (type stripping do Node 22):
+mudar esse arquivo também é deploy na VPS.
 
 ### 8.6 Trocar de projeto Supabase / chaves
 
 Três lugares na VPS (`.env.local`, `.env.worker`, env salvo do PM2), `.env.local` local,
 três variáveis na Vercel (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`) + deploy, `supabase link`, `max_rows` = 5000 na Data API,
-Redirect URL do Auth, `alter role authenticator set statement_timeout = '30s'`.
+Redirect URL do Auth, `alter role authenticator set statement_timeout = '30s'`, migrations
+pendentes (`supabase migration list`).
 
 ### 8.7 Reduzir/aumentar compute
 
-Reinicia por ~3 min: mesma cerimônia do 8.2 (corte para 900 s antes, 300 s depois), com o
-dono acordado, nunca de madrugada. Ao voltar para Medium, o pool cai para 41: recalcule os
-tetos da seção 4.
+Reinicia por ~3 min: mesma cerimônia do 8.2, com o dono acordado, nunca de madrugada. Ao
+voltar para Medium, o pool cai para 41: recalcule os tetos da seção 4 antes.
+
+### 8.8 Ações manuais pela tela (o que cada botão faz na fila)
+
+| Ação | Rota | Efeito |
+|---|---|---|
+| Cancelar item | `PATCH /api/publications/[itemId]` | `cancelled`, limpa lease e `creation_id`, evento, sincroniza lote |
+| Reprocessar item falho | mesma rota | `ready`; bloqueado se `attempt_count ≥ 5` |
+| Cancelar lote | `POST …/batch/[id]/cancel` | `cancel_publication_batch_items`; libera mídias |
+| Cancelar em massa (conta/grupo/lote) | `POST /api/publications/cancel` | operação durável em blocos (`execute_server_publication_queue_cancellation`), idempotente |
+| Continuar lote pausado | `POST …/batch/[id]/continue` | `resume_publication_batch_after_circuit_breaker` |
+| Limpar encerradas / concluídas / marcar falhas como vistas | `POST /api/publications/queue-actions` | arquiva sob lease pesado (250 por lote); `acknowledge_publication_failures` |
+| Excluir mídia (galeria) / excluir perfil | `/api/media/*`, `/api/profiles/*` | removem os itens da fila ligados |
+| Criar plano em massa | `POST /api/bulk-publications/confirm` | `create_bulk_rotation_plan_v2` / `create_bulk_daily_rotation_plan_v2`; gate `BULK_PUBLICATION_ROLLOUT` |
+| Cancelar job de geração | `PATCH /api/publication-generation-jobs/[id]` | `cancel_publication_generation_job` |
+
+### 8.9 Scripts one-off que escrevem na fila (`scripts/workers/`) — leia antes de rodar
+
+| Script | O que faz | Perigo |
+|---|---|---|
+| `cancel-all-publication-queues.mjs` | cancela a fila inteira pelo fluxo sancionado | destrutivo; dry-run por padrão, exige `--apply` |
+| `ignore-overdue-unstarted-publications.mjs`, `ignore-expired-unstarted-publication-leases.mjs` | descartam vencidos em massa | **sem dry-run**; o segundo exige `--expected` |
+| `ignore-overdue-duplicate-paused-stories.mjs` | ignora stories vencidos de lotes pausados por duplicata | `--all-paused` amplia; backup antes de `--apply` |
+| `recover-meta-false-error-failures.mjs`, `recover-vini-reels-horizon-conflicts.mjs`, `repost-latest-affected-stories.mjs`, `requeue-missing-worker-encryption-key-failures.mjs`, `requeue-failed-zernio-creations-for-polling.mjs` | **republicam itens vencidos** | violam a regra do dono; alvos hard-coded de agosto/setembro; não rodar |
+| `cancel-bulk-story-duplicate.mjs`, `correct-luiz-miguel-story-daily-start.mjs`, `process-claimed-luiz-miguel-reels-recovery.mjs` | alvos hard-coded de incidentes passados | obsoletos; `UPDATE` cru fora da RPC |
+| `recover-future-bulk-plan.mjs` | cursor/hold/timeouts de plano | tem `preview`; `advance` pula slots |
+| `enable-publication-slot-recovery.mjs` | liga recuperação de slot para **todas** as orgs | sem dry-run |
 
 ---
 
@@ -318,15 +448,19 @@ tetos da seção 4.
 
 | Sintoma | Primeiro lugar | Depois |
 |---|---|---|
-| "está falhando muito" | `select status, last_error_code, count(*) … updated_at >= <hora>` | se for `meta_profile_disconnected`: contar perfis distintos; é conta caindo, não fila |
-| posts saindo atrasados | `porItemMs` no log + vencidos abertos + `provider_creation_started_at - execute_at` p50/p90 | semáforo da Meta (seção 8.3) antes de qualquer botão |
-| posts vencendo (`publication_past_due`) | os mesmos + `pico por minuto` da demanda (`execute_at` por minuto) | capacidade: seção 8.3 |
-| API 521 / painel morto | `pg_stat_activity` pelo pooler; `pg_ls_logdir()` (log gigante?); `xact_rollback` delta | ver o histórico de 07/09 no mapa de controles |
+| "está falhando muito" | `select status, last_error_code, count(*) … updated_at >= <hora>` | `meta_profile_disconnected` → contar perfis distintos: é conta caindo, não fila |
+| posts saindo atrasados | `porItemMs` no log + vencidos abertos + p50/p90 de `provider_creation_started_at - execute_at` | semáforo da Meta (8.3) antes de qualquer botão |
+| posts vencendo (`publication_past_due`) | os mesmos + demanda por minuto (`execute_at` por minuto) | capacidade: 8.3 |
+| API 521 / painel morto | `pg_stat_activity` pelo pooler; `pg_ls_logdir()` (log gigante?); `xact_rollback` delta | histórico de 07/09 no mapa de controles |
 | pool cheio / `PGRST003` | quem está nas conexões (`pg_stat_activity` por `query`) | laço em erro (rollbacks) antes de "muitos workers" |
 | `40001` no log do Postgres | `ciclo de preparação` no log do worker (`codigos`) | banco lento; não aumente lote |
 | CPU do banco alta com fila normal | `pg_stat_statements` por `total_exec_time` (resumos, arquivo frio, analytics) | seção 5 do plano |
 | perfis sumindo | `instagram_profiles.last_error_message` dos `offline` de hoje | checkpoint = descartar; `401`/renovação = esperar |
+| lote parado | `publication_batch_circuit_breakers` (`paused_at`) | "continuar" na tela depois de entender a causa |
+| item preso em `preparing` | `lease_until` no passado? | o claim recupera sozinho; se não, `release_expired_publication_leases` |
 | dashboard vazia | `get_dashboard_analytics_summary` responde em ms? migrations 421/422 aplicadas? | `refresh_dashboard_summary` no cron |
+| resumo da /queue velho | `publication_queue_summary_totals.snapshot_at` | worker de resumo ligado? |
+| nada arquiva / tabela quente cresce | log da manutenção: `55000` de paridade? | espelhar coluna no arquivo frio |
 
 Consultas prontas (pooler, papel `postgres`):
 
@@ -345,6 +479,9 @@ from publication_items where provider_creation_started_at >= now() - interval '1
 select date_trunc('day', e.created_at)::date, count(distinct i.profile_id)
 from publication_item_events e join publication_items i on i.id = e.publication_item_id
 where e.event_type = 'ignored' and e.error_code = 'meta_profile_disconnected' group by 1 order by 1;
+-- demanda por minuto na próxima hora
+select date_trunc('minute', execute_at), count(*) from publication_items
+where status = 'waiting' and execute_at between now() and now() + interval '1 hour' group by 1 order by 2 desc limit 10;
 ```
 
 ---
@@ -359,6 +496,7 @@ where e.event_type = 'ignored' and e.error_code = 'meta_profile_disconnected' gr
 - O dashboard da Supabase mostra o volume de dados; o log do Postgres fica em `/var/log/postgresql`, no volume de sistema, invisível para ele.
 - Um `porItemMs` alto não é Meta lenta até que o log por fase diga; hoje é espera de vaga.
 - "3 workers e várias falhas": falha por perfil caído aparece em lote e não depende de workers.
+- Contadores "exposed functions/tables" do dashboard não refletem o OpenAPI real do PostgREST.
 
 ---
 
@@ -369,17 +507,32 @@ where e.event_type = 'ignored' and e.error_code = 'meta_profile_disconnected' gr
 | 31/08 | concorrência 64 → 160 apagou 3.315 posts | advisory lock por org; infra nunca vira terminal |
 | 02/09 | teto por minuto 600 → 1.200 derrubou a API | o teto alonga a posse do lock; pool 41 |
 | 06/09 | dois itens envenenados travaram a confirmação | recuo exponencial; denominador mínimo |
-| 07/09 | laço de preparação a 78 erros/s por 17 dias; log de 99 GB encheu o volume; projeto novo `athena` | recuo no laço; log com código; despachante da Vercel removido; 3 publicadores |
+| 07/09 | laço de preparação a 78 erros/s por 17 dias; log de 99 GB encheu o volume de sistema; projeto novo `athena`; onda das 17:25Z pediu 3 publicadores | recuo no laço; log com código; despachante da Vercel removido; o serializador é o semáforo da Meta |
 
 ---
 
-## 12. Checklist de atualização (toda mudança na fila)
+## 12. Pendências abertas (07/09/2026)
 
-- [ ] Mudou um teto, um env ou um padrão do código? Atualize a seção 4 **e** o `.env.worker` da VPS no mesmo commit.
+- Apagar o projeto antigo `hqwhumdumfmixxbvneae` só após o "pode apagar" do dono.
+- Reduzir o compute do `athena` de XL para Medium (seção 8.7) — só com os tetos recalculados.
+- Rotacionar `PUBLICATION_WORKER_SECRET`, `META_OAUTH_STATE_SECRET` e chaves R2 (passaram pelo chat).
+- Remover `SUPABASE_URL`/`SUPABASE_ANON_KEY` da Vercel; atualizar `.env.worker.deploy` e os docs de X/Twitter que citam o ref antigo.
+- Versionar um `deploy/instagram/ecosystem.config.cjs` com os processos da seção 1.1.
+- Remover as rotas mortas e o modo `dispatch-endpoint`; corrigir o comentário de `queue-summary-refresh`.
+- As quatro mudanças de código do plano (lote deslizante, semáforo por app, cache da sonda, log por fase).
+- Localizar o cliente que envia `status=processing` (seção 6.2).
+
+---
+
+## 13. Checklist de atualização (toda mudança na fila)
+
+- [ ] Mudou um teto, um env ou um padrão do código? Seção 4 **e** o `.env.worker` da VPS no mesmo commit.
 - [ ] Novo código de erro, novo tratamento ou novo caminho terminal? Linha na seção 6, com origem e o que fazer.
 - [ ] Nova regra de negócio ou decisão do dono? Seção 3, com data.
-- [ ] Nova função SQL no caminho da fila? Tabela da seção 1.3, com custo medido.
+- [ ] Nova função SQL, gatilho ou índice no caminho da fila? Seção 1.3, com custo medido.
 - [ ] Nova coluna em `publication_items`? Espelhe em `publication_items_archive` na mesma migration.
-- [ ] Novo processo PM2? Seção 1.1 e a conta da seção 8.3.
+- [ ] Novo processo PM2, cron ou rota interna? Seções 1.1/1.2 e a conta da 8.3; `pm2 save`.
+- [ ] Nova ação na tela ou script que escreve na fila? Seções 8.8/8.9.
 - [ ] Incidente? Uma linha na seção 11 e a seção correspondente no mapa de controles.
 - [ ] Mudou como se mede algo? Seção 9 ou 10.
+- [ ] Fechou uma pendência? Tire da seção 12.
