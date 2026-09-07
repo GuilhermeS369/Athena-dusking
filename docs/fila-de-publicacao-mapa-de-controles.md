@@ -369,6 +369,107 @@ investigar.
 
 ---
 
+## 3-D. O INCIDENTE DE 07/09/2026 — 34 minutos fora por DDL
+
+**Buraco cravado pelo relógio do banco: último registro em
+`publication_item_events` às 12:09:36.218Z, próximo às 12:43:23.673Z.** Trinta e
+três minutos e quarenta e sete segundos sem publicar nada. Só voltou com
+**restart do projeto** no dashboard do Supabase.
+
+O sintoma foi `PGRST002` — "Could not query the database for the schema cache" —
+em **toda** leitura da Data API. O banco estava vivo o tempo inteiro: conexão
+direta (`supabase db query --linked`) respondia normalmente, e foi por ela que
+todo o diagnóstico foi feito. Quem caiu foi só o PostgREST.
+
+### O gatilho: não existe migration "leve" aqui
+
+```
+pgrst_ddl_watch   ddl_command_end   habilitado
+```
+
+Esse event trigger dispara a reconstrução do cache de schema em **qualquer**
+DDL, com ou sem `notify pgrst` escrito no arquivo. Omitir o `notify` não evita
+nada. Uma migration que só troca o corpo de uma função conta.
+
+### As duas condições, e o experimento que separou o gatilho do desfecho
+
+No dia foram aplicadas duas migrations. A primeira caiu; a segunda, horas
+depois, passou limpa — mesmo mecanismo de reload:
+
+| | pool `authenticator` | `statement_timeout` | desfecho |
+|---|---:|---:|---|
+| 12:09, migration 421 | **41** (o teto) | 8 s | **34 min fora** |
+| depois, migration 422 | 25 | 30 s | zero impacto |
+
+O reload é o gatilho; **o que decide se ele é um piscar ou uma queda é ter
+conexão livre para reconstruir.** Com o pool no teto, a reconstrução não acha
+conexão, e o PostgREST entra em laço de retry do qual não sai sozinho.
+
+### DUAS HIPÓTESES QUE MEDIÇÃO DERRUBOU
+
+Ambas eram minhas, ambas soavam óbvias, e as duas estavam erradas.
+
+**"Subir de 1 para 4 publicadores encheu o pool."** Medido, ligando um a um com
+45 s de acomodação:
+
+```
+1 publicador  : 25 conexões        2 publicadores: 25
+3 publicadores: 25
+```
+
+**A contagem não muda com o número de workers**, e o mecanismo explica: os
+workers falam HTTP com o PostgREST; quem abre conexão com o Postgres é o
+PostgREST, no pool dele. Cliente HTTP a mais não é conexão a mais — é pressão de
+requisição, que é outra coisa e precisa de outra medição.
+
+**"O schema ficou grande demais para os 8 s."** O `public` tem 448 funções e 232
+tabelas/views, o que parecia bastante. A introspecção delas custa **54 ms**.
+Três ordens de grandeza abaixo do limite.
+
+### A regra que fica
+
+> **Antes de aplicar QUALQUER migration, olhe o pool.**
+>
+> ```sql
+> select count(*) filter (where state = 'active') as ativas, count(*) as total
+> from pg_stat_activity where usename = 'authenticator';
+> ```
+>
+> Abaixo de ~30, aplique. Perto de 41, **pare e espere**. O `pgrst_ddl_watch`
+> garante que toda DDL vai tentar reconstruir o cache, e com o pool no teto essa
+> tentativa derruba a API inteira.
+
+> **E não deduza a causa de um número que você não mediu.** Eu afirmei três
+> vezes que os 4 publicadores tinham enchido o pool, incluindo numa mensagem
+> para a outra sessão, que registrou isso como causa. Bastaram três medições
+> com 45 segundos de intervalo para derrubar. Correlação temporal com a própria
+> ação é a hipótese mais confortável e a menos examinada.
+
+### O que ficou em aberto, e por quê
+
+Entre a queda e o sucesso mudaram **duas** variáveis (pool e timeout). Separá-las
+exigiria provocar outra queda de propósito — o que custaria cerca de mil
+publicações. Fica em aberto de forma consciente.
+
+**O que fecharia:** o log do PostgREST na janela 12:05Z–12:15Z, que diz o erro
+exato da reconstrução ("connection pool timeout" ou "canceling statement"). Uma
+linha resolve, e ela está no Logs Explorer do Supabase, fora do alcance do SQL.
+
+### Números que passam a valer
+
+| | |
+|---|---|
+| `statement_timeout` do `authenticator` | **30 s** (era 8 s) |
+| `lock_timeout` do `authenticator` | **8 s** — não mudou |
+| teto prático do pool | **41**, e não drena sem restart do projeto |
+| `connection_limit` do role | 120 — **este número é uma armadilha**, não é o pool |
+
+O `lock_timeout` de 8 s importa para a fila: `reserve_publication_dispatch_capacity`
+pega advisory lock **por app da Meta**, e apps com 60+ perfis serializam ali. Um
+`57014` vindo dessa função pode ser espera de lock, não de statement.
+
+---
+
 ## 4. COMO AUMENTAR A VELOCIDADE A PARTIR DAQUI
 
 Esta é a seção a ler quando a frota crescer. **Os tetos estão em ordem de quem
