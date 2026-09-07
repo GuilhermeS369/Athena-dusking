@@ -111,10 +111,10 @@ sincronização de status do **lote** não é gatilho: é `sync_publication_batc
 
 | Função (migration vigente) | Papel | Levanta |
 |---|---|---|
-| `claim_publication_preparation_items` (264) | claim da preparação: v2, sem `creation_id`, `preparation_status` ∈ pending/blocked/preparing, janela ≤ 24 h, fairness perfil→org | `22023` |
+| `claim_publication_preparation_items` (264, trava reconferida na 425) | claim da preparação: v2, sem `creation_id`, `preparation_status` ∈ pending/blocked/preparing, janela ≤ 24 h, fairness perfil→org | `22023` |
 | `complete_publication_preparation` (264) | `ready` ou `blocked` (+ `next_preparation_at`) | **`40001` lease de preparação** |
 | `claim_publication_dispatch_staging_items` / `activate_staged_publication_items` / `release_publication_dispatch_staging` (315) | pré-reserva itens futuros na janela; ativa quando vence; libera | `42501`, `22023` |
-| `claim_publication_items` (405) | claim principal: filtros de status, lease, staging, **trava de atraso**, app bloqueado, disjuntor, slot em risco; prioridade 0 para quem tem `creation_id`; gasta tentativa só sem `creation_id`; lote → `processing` | `42501`, `22023` |
+| `claim_publication_items` (405, trava reconferida na 425) | claim principal: filtros de status, lease, staging, **trava de atraso**, app bloqueado, disjuntor, slot em risco; prioridade 0 para quem tem `creation_id`; gasta tentativa só sem `creation_id`; lote → `processing` | `42501`, `22023` |
 | `assert_claimed_publication_profile_online` (088) | perfil online e sob lease, antes de cada chamada ao provedor | `P0002` |
 | `reserve_publication_dispatch_capacity` (372) | 2 advisory locks (**por app Meta** ou balde de perfil; + por perfil); reentrância; intervalo por perfil **e formato**; reserva irmã; 24 h; minuto por (org, provedor); minuto por app. Ao barrar volta a `waiting` com `next_attempt_at` e `last_error_code` | `22023`, `P0002` |
 | `reserve_publication_daily_limit` (029) | 100/24 h por perfil (legado; a checagem que vale está na reserva acima) | `22023`, `P0002` |
@@ -314,7 +314,7 @@ em `reauthorization_required` e não publicam.
 | `missed_bulk_slot_expired`, `legacy_missed_schedule_requires_attention` | v1 legado | descarte/atenção | não ocorre em v2 |
 | `57014`, `PGRST002/003`, "fetch failed", `ConnectTimeout`, `ECONNRESET`, `40P01`, `53300`, `57P0x` | banco / pool / rede | `defer_publication_infrastructure_failure`: recuo 30 → 900 s, tentativa devolvida, **nunca terminal**; controlador adaptativo **segura** (não cai) | olhar pool e rollbacks (seção 9) |
 | `40001` "Lease de preparação ausente ou expirado" | preparação demorou mais que o lease | item volta ao pool; o laço **recua** 30 → 300 s se a maioria do lote falha; código no log | banco lento: medir antes de mexer no lote |
-| `P0002` "Item não está sob lease deste worker" | lease vencido ou dois processos no item | item volta pelo claim | frequente = IDs de worker repetidos ou lease curto |
+| `P0002` "Item não está sob lease deste worker" | lease vencido, ou **claim duplo entre processos** (corrigido na migration 425: os claims reconferem lease/status dentro da trava) | o perdedor aborta antes de chamar a Meta; o item segue com quem ficou com o lease | se voltar a crescer com vários processos, conferir se a 425 está aplicada e se os IDs de worker são únicos |
 | `23505 active_publication_slot_conflict` | dois itens no mesmo minuto do perfil | a tela/o gerador bloqueiam antes | pular o slot |
 | `55000` "publication_items tem N colunas e o arquivo M" | migration sem espelho no arquivo frio | arquivamento para | espelhar a coluna (como a 423) |
 | `PUBLICATION_MAX_ATTEMPTS` (5) | qualquer retentável | `failed` terminal; retry manual bloqueado pela tela | decidir com o dono |
@@ -323,7 +323,7 @@ em `reauthorization_required` e não publicam.
 
 | Sinal | O que é | Estado |
 |---|---|---|
-| `invalid input value for enum publication_item_status: "processing"` (~18/dia no log do Postgres) | nenhum código do repositório grava ou filtra esse valor em `publication_items`; a tela envia `status=processing` e a API traduz para `preparing,publishing`; `agenda-items` recusa com 400 | **origem fora do repositório** (bundle antigo em cache, script ad-hoc, query salva no Studio). Fechar olhando `path`/`user_agent` das 18 ocorrências nos logs do PostgREST |
+| `invalid input value for enum publication_item_status: "processing"` | nenhum código do repositório grava ou filtra esse valor em `publication_items`; a tela envia `status=processing` e a API traduz | **fechado em 07/09/2026**: zero ocorrências no projeto novo desde 16:00Z (consulta no Logs Explorer: `select timestamp, event_message from logs where source = 'postgres_logs' and event_message like '%publication_item_status%'`). Era um cliente batendo no projeto antigo (bundle antigo ou query salva). Se reaparecer, essa consulta traz o SQL completo e diz se é `UPDATE` (função) ou `WHERE` (cliente) |
 | `porItemMs` alto sem erro | espera pelo semáforo da Meta, não latência | falta log por fase e por item |
 | `Promise.allSettled` no caminho direto | um item lento segura o lote | pendente: concorrência deslizante (o spool já tem) |
 | sonda do R2 a cada publicação (3 pedidos) | custo fixo por post + 2 escritas em `media_asset_delivery_attempts` | pendente: cache por mídia |
@@ -507,7 +507,7 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 | 31/08 | concorrência 64 → 160 apagou 3.315 posts | advisory lock por org; infra nunca vira terminal |
 | 02/09 | teto por minuto 600 → 1.200 derrubou a API | o teto alonga a posse do lock; pool 41 |
 | 06/09 | dois itens envenenados travaram a confirmação | recuo exponencial; denominador mínimo |
-| 07/09 | laço de preparação a 78 erros/s por 17 dias; log de 99 GB encheu o volume de sistema; projeto novo `athena`; onda das 17:25Z pediu 3 publicadores | recuo no laço; log com código; despachante da Vercel removido; o serializador é o semáforo da Meta |
+| 07/09 | laço de preparação a 78 erros/s por 17 dias; log de 99 GB encheu o volume de sistema; projeto novo `athena`; onda das 17:25Z pediu 3 publicadores; com 3 processos apareceu o claim duplo (P0002), corrigido na 425 | recuo no laço; log com código; despachante da Vercel removido; o serializador é o semáforo da Meta |
 
 ---
 
@@ -519,7 +519,6 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 - Remover `SUPABASE_URL`/`SUPABASE_ANON_KEY` da Vercel; atualizar `.env.worker.deploy` e os docs de X/Twitter que citam o ref antigo.
 - Remover as rotas mortas e o modo `dispatch-endpoint`; corrigir o comentário de `queue-summary-refresh`.
 - As quatro mudanças de código do plano (lote deslizante, semáforo por app, cache da sonda, log por fase).
-- Localizar o cliente que envia `status=processing` (seção 6.2).
 
 ---
 
