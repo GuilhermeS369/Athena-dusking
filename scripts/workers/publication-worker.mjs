@@ -42,6 +42,36 @@ const preparationConcurrency = integerEnv('PUBLICATION_WORKER_PREPARATION_CONCUR
 // Com o laco separado, o limite pode crescer sem competir com a publicacao.
 // PUBLICATION_WORKER_PREPARATION_IN_DISPATCH=true volta ao comportamento antigo.
 const preparationLoopEnabled = (process.env.PUBLICATION_WORKER_PREPARATION_IN_DISPATCH || 'false') !== 'true';
+// PREPARO E TRABALHO COMPARTILHADO: RODA EM UM PROCESSO SO.
+//
+// MEDIDO EM 07/09/2026, com 4 publicadores no ar. O par que cuida do painel
+// mediu o pool do PostgREST e encontrou:
+//
+//   authenticator: 41 de 41 conexoes, 20-29 ativas
+//   TODAS as ativas em `complete_publication_preparation`
+//   idade das consultas: ~2 ms
+//
+// Consultas rapidissimas, em volume alto o bastante para manter as 41 conexoes
+// em rodizio permanente. Nada estava lento -- estava CHEIO. Qualquer outra
+// requisicao (painel, /perfis, analytics) ficava na fila e estourava. E a
+// propria publicacao caiu de ~24/min para 5/min.
+//
+// A causa: o laco de preparo roda em TODO processo que sobe, com
+// `PREPARATION_CONCURRENCY=8` e `PREPARATION_LIMIT=150` do .env.worker. Com 4
+// publicadores sao 4 lacos, ate 32 chamadas simultaneas -- contra um pool de
+// 41 que atende o sistema inteiro.
+//
+// E ha uma armadilha operacional junto: eu subi os publicadores extras com
+// limites reduzidos via env do processo, e um `pm2 restart --update-env`
+// posterior descartou esses valores e fez todos voltarem ao .env.worker. Nao da
+// para depender de env por processo para uma protecao dessas -- por isso a
+// chave existe no CODIGO, com padrao ligado, e se desliga explicitamente nos
+// publicadores extras.
+//
+// MESMA LICAO do resumo da fila (ver o comentario em
+// publication-direct-dispatch.mjs): trabalho de manutencao compartilhado nao
+// pode escalar junto com o numero de publicadores.
+const preparationEnabled = (process.env.PUBLICATION_WORKER_PREPARATION_ENABLED || 'true') !== 'false';
 const preparationPollIntervalMs = integerEnv('PUBLICATION_WORKER_PREPARATION_POLL_INTERVAL_MS', 5000, 500, 60000);
 // A preparação cede a vez ao despacho, mas com janela MUITO menor que a do
 // staging (60 s): com ~4.000 publicações/hora sempre há algo vencendo nos
@@ -1185,7 +1215,7 @@ async function stagingLoop(supabase, spool) {
 // agora, a preparacao cede a vez, porque publicar no horario vale mais do que
 // adiantar midia de item futuro. E a mesma guarda que o staging ja usa.
 async function preparationLoop(supabase, spool) {
-  if (!preparationLoopEnabled || dryRun || reconciliationOnly || (mode !== 'direct' && mode !== 'direct-dispatch')) {
+  if (!preparationEnabled || !preparationLoopEnabled || dryRun || reconciliationOnly || (mode !== 'direct' && mode !== 'direct-dispatch')) {
     return;
   }
 
