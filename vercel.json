@@ -20,6 +20,10 @@
     {
       "path": "/api/internal/queue-summary-refresh",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/internal/dashboard-summary-refresh",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

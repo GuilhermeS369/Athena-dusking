@@ -1,11 +1,8 @@
-import { fetchAllRows } from '@/lib/supabase/paginate';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
-import { isDashboardV2Enabled } from '@/lib/dashboard/rollout';
 import type { DashboardV2Bootstrap } from '@/lib/dashboard/v2-types';
 
 export type DashboardData = {
-  version: 'v1' | 'v2';
   connections: { total: number; healthy: number; attention: number };
   operationalProfiles: number;
   scheduled: { total: number; nextAt: string | null };
@@ -91,257 +88,31 @@ export type DashboardData = {
   };
 };
 
-// Este é o caminho de emergência: só roda quando o V2 está desligado ou a RPC
-// agregada falha. Ele lê séries que crescem com perfil x dia, então mantém um
-// teto explícito e baixo de propósito — o objetivo aqui é degradar rápido, não
-// carregar tudo. O corte é reportado em log logo abaixo.
-const V1_SERIES_ROW_CAP = 1000;
-
 export async function getDashboardData(organizationId: string): Promise<DashboardData> {
   const supabase = await createSupabaseServerClient();
-  const v2Enabled = isDashboardV2Enabled(organizationId);
+  const { data, error } = await supabase.rpc('get_dashboard_bootstrap_v2', {
+    p_organization_id: organizationId,
+  });
 
-  if (v2Enabled) {
-    const { data, error } = await supabase.rpc('get_dashboard_bootstrap_v2', {
-      p_organization_id: organizationId,
-    });
-    if (!error && data) return dashboardDataFromV2Bootstrap(data as DashboardV2Bootstrap);
-    console.error('Dashboard V2 bootstrap indisponível; usando V1.', {
+  // Sem plano B, e isso e deliberado.
+  //
+  // Ate 07/09/2026 havia um caminho V1 aqui, e ele nunca foi um plano B: o
+  // bootstrap V2 chama `get_dashboard_analytics_summary` na primeira linha, que
+  // era exatamente a consulta que derrubava o V1. Os dois caiam juntos, pelo
+  // mesmo timeout, e o fallback so trocava uma tela vazia por outra depois de
+  // pagar o custo duas vezes. A migration 421 tirou a agregacao do caminho da
+  // requisicao; se ainda assim falhar, a tela diz que falhou em vez de fingir
+  // que a operacao esta zerada.
+  if (error || !data) {
+    console.error('Bootstrap da dashboard indisponível.', {
       organizationId,
       code: error?.code,
+      message: error?.message,
     });
-  }
-  const analyticsSince = new Date();
-  analyticsSince.setDate(analyticsSince.getDate() - 370);
-  const analyticsSinceDate = analyticsSince.toISOString().slice(0, 10);
-  const analyticsSinceIso = analyticsSince.toISOString();
-
-  const [summaryResult, profilesResult, groupsResult, groupMembersResult, snapshotsResult, dailyMetricsResult, followerResult, postsResult, publishedItemsResult, publicationRollupsResult] = await Promise.all([
-    supabase.rpc('get_dashboard_analytics_summary', { p_organization_id: organizationId }).maybeSingle(),
-    // Passando de 1.000 perfis, a lista vinha cortada e TODO filtro, contagem e
-    // gráfico derivado dela ficava errado sem nenhum sinal.
-    fetchAllRows((from, to) => supabase
-      .from('instagram_profiles_safe')
-      .select('id, username, display_name, provider, status')
-      .eq('organization_id', organizationId)
-      .is('deleted_at', null)
-      .order('username', { ascending: true })
-      .order('id', { ascending: true })
-      .range(from, to)),
-    supabase
-      .from('profile_groups')
-      .select('id, name')
-      .eq('organization_id', organizationId)
-      .is('deleted_at', null)
-      .order('name', { ascending: true }),
-    // Vínculos crescem como perfis x grupos e não tinham ORDER BY: paginar sem
-    // ordem determinística repetiria linhas e perderia outras, então a ordem é
-    // parte da correção, não um detalhe.
-    fetchAllRows((from, to) => supabase
-      .from('profile_group_members')
-      .select('group_id, profile_id')
-      .eq('organization_id', organizationId)
-      .order('group_id', { ascending: true })
-      .order('profile_id', { ascending: true })
-      .range(from, to)),
-    supabase
-      .from('profile_analytics_snapshots')
-      .select('profile_id, period_start, period_end, followers_count, followers_delta, impressions, reach, views, likes, comments, shares, saves, total_interactions, posts_count, engagement_rate, sync_status, synced_at')
-      .eq('organization_id', organizationId)
-      .is('deleted_at', null)
-      .gte('period_end', analyticsSinceDate)
-      .order('period_end', { ascending: false })
-      .limit(V1_SERIES_ROW_CAP),
-    supabase
-      .from('profile_analytics_daily_metrics')
-      .select('profile_id, metric_date, posts, impressions, reach, views, likes, comments, shares, saves, interactions')
-      .eq('organization_id', organizationId)
-      .gte('metric_date', analyticsSinceDate)
-      .in('coverage_status', ['complete', 'partial'])
-      // O PostgREST limita cada resposta a 1.000 linhas neste projeto. Em
-      // contingência, priorize os dias recentes para nunca ocultar "Hoje".
-      // O caminho normal V2 agrega o período no banco e não possui este corte.
-      .order('metric_date', { ascending: false })
-      .limit(V1_SERIES_ROW_CAP),
-    supabase
-      .from('profile_follower_daily_snapshots')
-      .select('profile_id, snapshot_date, followers_count, followers_gained, followers_lost')
-      .eq('organization_id', organizationId)
-      .is('deleted_at', null)
-      .gte('snapshot_date', analyticsSinceDate)
-      // Ordem invertida de propósito: ascendente, o corte de 1.000 linhas
-      // descartava justamente os dias mais recentes da série de seguidores. A
-      // ordem crescente que o consumidor espera é restaurada em memória.
-      .order('snapshot_date', { ascending: false })
-      .order('profile_id', { ascending: false })
-      .limit(V1_SERIES_ROW_CAP),
-    supabase
-      .from('profile_post_analytics_snapshots')
-      .select('id, profile_id, platform_post_url, content, media_type, thumbnail_url, published_at, views, reach, likes, comments, shares, saves, total_interactions, engagement_rate, sync_status')
-      .eq('organization_id', organizationId)
-      .is('deleted_at', null)
-      .gte('published_at', analyticsSinceIso)
-      .order('total_interactions', { ascending: false })
-      .limit(V1_SERIES_ROW_CAP),
-    supabase
-      .from('publication_items')
-      .select('id, profile_id, published_at')
-      .eq('organization_id', organizationId)
-      .eq('status', 'published')
-      .not('published_at', 'is', null)
-      .gte('published_at', analyticsSinceIso)
-      // Mesma inversão da série de seguidores: ascendente, o corte guardava os
-      // 1.000 itens mais ANTIGOS do período e os contadores de publicados
-      // ficavam presos no passado.
-      .order('published_at', { ascending: false })
-      .order('id', { ascending: false })
-      .limit(V1_SERIES_ROW_CAP),
-    supabase.rpc('get_dashboard_publication_rollups', { p_organization_id: organizationId, p_days: 365 }),
-  ]);
-
-  const sectionErrors = {
-    summary: summaryResult.error ?? (!summaryResult.data ? { message: 'Resumo sem dados.' } : null),
-    profiles: profilesResult.error,
-    groups: groupsResult.error,
-    groupMembers: groupMembersResult.error,
-    snapshots: snapshotsResult.error,
-    dailyMetrics: dailyMetricsResult.error,
-    followerHistory: followerResult.error,
-    posts: postsResult.error,
-    publishedItems: publishedItemsResult.error,
-    publicationRollups: publicationRollupsResult.error,
-  };
-  const unavailableSections = Object.entries(sectionErrors)
-    .filter(([, error]) => Boolean(error))
-    .map(([section]) => section);
-
-  if (unavailableSections.length > 0) {
-    // Analytics e operação são seções independentes. Uma fonte degradada não
-    // pode impedir filtros, agenda e os demais painéis de renderizarem.
-    console.error('Dashboard carregada parcialmente.', {
-      organizationId,
-      unavailableSections,
-      errors: sectionErrors,
-    });
+    throw new Error('Não foi possível carregar a dashboard.');
   }
 
-  type DashboardSummaryRow = {
-    connections_total: number;
-    connections_healthy: number;
-    connections_attention: number;
-    operational_profiles: number;
-    scheduled_total: number;
-    next_scheduled_at: string | null;
-    failed_publications: number;
-    profiles_needing_reauth: number;
-    total_posts: number;
-    published_total: number;
-    followers_total: number;
-    followers_delta: number;
-    views_total: number;
-    reach_total: number;
-    interactions_total: number;
-    analytics_available_profiles: number;
-    analytics_unavailable_profiles: number;
-    ready_assets: number;
-    groups_total: number;
-  };
-  const emptySummary: DashboardSummaryRow = {
-    connections_total: 0,
-    connections_healthy: 0,
-    connections_attention: 0,
-    operational_profiles: 0,
-    scheduled_total: 0,
-    next_scheduled_at: null,
-    failed_publications: 0,
-    profiles_needing_reauth: 0,
-    total_posts: 0,
-    published_total: 0,
-    followers_total: 0,
-    followers_delta: 0,
-    views_total: 0,
-    reach_total: 0,
-    interactions_total: 0,
-    analytics_available_profiles: 0,
-    analytics_unavailable_profiles: 0,
-    ready_assets: 0,
-    groups_total: 0,
-  };
-  const row = (summaryResult.data ?? emptySummary) as DashboardSummaryRow;
-  const profiles = (profilesResult.data ?? []) as DashboardData['analytics']['profiles'];
-  const membersByGroup = new Map<string, string[]>();
-  for (const member of (groupMembersResult.data ?? []) as Array<{ group_id: string; profile_id: string }>) {
-    membersByGroup.set(member.group_id, [...(membersByGroup.get(member.group_id) ?? []), member.profile_id]);
-  }
-  const groups = ((groupsResult.data ?? []) as Array<{ id: string; name: string }>).map((group) => ({
-    ...group,
-    profile_ids: membersByGroup.get(group.id) ?? [],
-  }));
-  // O caminho V1 não consegue ler séries que crescem com perfil x dia sem
-  // estourar o statement_timeout, então elas continuam limitadas — mas o corte
-  // precisa ser observável em vez de silencioso. O caminho V2 agrega no banco e
-  // não tem esse teto: quando esta lista aparecer, é sinal de ligar o V2.
-  const truncatedSeries = Object.entries({
-    snapshots: snapshotsResult.data?.length,
-    dailyMetrics: dailyMetricsResult.data?.length,
-    followerHistory: followerResult.data?.length,
-    posts: postsResult.data?.length,
-    publishedItems: publishedItemsResult.data?.length,
-    publicationRollups: publicationRollupsResult.data?.length,
-  })
-    .filter(([, length]) => (length ?? 0) >= V1_SERIES_ROW_CAP)
-    .map(([series]) => series);
-  if (truncatedSeries.length > 0) {
-    console.error('Dashboard V1 atingiu o teto de linhas do PostgREST; séries incompletas.', {
-      organizationId,
-      truncatedSeries,
-      rowCap: V1_SERIES_ROW_CAP,
-    });
-  }
-
-  const snapshots = (snapshotsResult.data ?? []) as DashboardData['analytics']['snapshots'];
-  const usableSnapshots = latestUsableSnapshotsByProfile(snapshots);
-  const dailyMetrics = (dailyMetricsResult.data ?? [])
-    .map((row) => ({ ...row, date: row.metric_date }))
-    .sort((a, b) => a.date.localeCompare(b.date)) as DashboardData['analytics']['dailyMetrics'];
-
-  return {
-    version: 'v1',
-    connections: { total: row.connections_total, healthy: row.connections_healthy, attention: row.connections_attention },
-    operationalProfiles: row.operational_profiles,
-    scheduled: { total: row.scheduled_total, nextAt: row.next_scheduled_at },
-    review: { total: row.failed_publications + row.profiles_needing_reauth, failedPublications: row.failed_publications, profilesNeedingReauth: row.profiles_needing_reauth },
-    summary: {
-      totalPosts: row.total_posts,
-      publishedPosts: row.published_total,
-      nextScheduleAt: row.next_scheduled_at,
-      followersTotal: row.followers_total,
-      followersDelta: row.followers_delta,
-      viewsTotal: row.views_total,
-      reachTotal: row.reach_total,
-      interactionsTotal: row.interactions_total,
-      analyticsAvailableProfiles: row.analytics_available_profiles,
-      analyticsUnavailableProfiles: row.analytics_unavailable_profiles,
-    },
-    onboarding: {
-      profileConnected: row.connections_total > 0,
-      groupCreated: row.groups_total > 0,
-      mediaUploaded: row.ready_assets > 0,
-    },
-    analytics: {
-      profiles,
-      groups,
-      snapshots: usableSnapshots,
-      dailyMetrics,
-      // Lidos em ordem decrescente para preservar os dias recentes; o consumidor
-      // espera a série em ordem crescente.
-      followerHistory: ((followerResult.data ?? []) as DashboardData['analytics']['followerHistory']).slice().reverse(),
-      posts: (postsResult.data ?? []) as DashboardData['analytics']['posts'],
-      publishedItems: ((publishedItemsResult.data ?? []) as DashboardData['analytics']['publishedItems']).slice().reverse(),
-      publicationRollups: (publicationRollupsResult.data ?? []) as DashboardData['analytics']['publicationRollups'],
-      stateCounts: countByStatus(usableSnapshots),
-    },
-  };
+  return dashboardDataFromV2Bootstrap(data as DashboardV2Bootstrap);
 }
 
 function countByStatus(rows: Array<{ sync_status: string }>) {
@@ -353,7 +124,6 @@ function countByStatus(rows: Array<{ sync_status: string }>) {
 function dashboardDataFromV2Bootstrap(bootstrap: DashboardV2Bootstrap): DashboardData {
   const summary = bootstrap.summary;
   return {
-    version: 'v2',
     connections: {
       total: summary.connections_total,
       healthy: summary.connections_healthy,
@@ -415,16 +185,4 @@ function dashboardDataFromV2Bootstrap(bootstrap: DashboardV2Bootstrap): Dashboar
       stateCounts: bootstrap.analytics_state_counts ?? countByStatus(bootstrap.analytics_state),
     },
   };
-}
-
-function latestUsableSnapshotsByProfile(snapshots: DashboardData['analytics']['snapshots']) {
-  const latest = new Map<string, (typeof snapshots)[number]>();
-  for (const snapshot of snapshots) {
-    if (snapshot.sync_status === 'failed') continue;
-    const current = latest.get(snapshot.profile_id);
-    if (!current || (snapshot.synced_at ?? '') > (current.synced_at ?? '') || ((snapshot.synced_at ?? '') === (current.synced_at ?? '') && snapshot.period_end > current.period_end)) {
-      latest.set(snapshot.profile_id, snapshot);
-    }
-  }
-  return Array.from(latest.values());
 }

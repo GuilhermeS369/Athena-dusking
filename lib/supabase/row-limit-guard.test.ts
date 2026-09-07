@@ -166,10 +166,6 @@ const RELATION_KEYS = new Map<string, string[]>([
  */
 const ALLOWLIST = new Map<string, string>([
   [
-    'lib/dashboard/server.ts::publication_items',
-    'Caminho V1 da dashboard: a série de 370 dias não cabe em memória. Limitada explicitamente a 1000 e o corte é reportado em log; a correção definitiva é o DASHBOARD_V2_ENABLED.',
-  ],
-  [
     'app/api/internal/twitter-rollout-health/route.ts::twitter_publication_attempts',
     'Amostra de latência das tentativas mais recentes; o corte é intencional e o limite declara a verdade.',
   ],

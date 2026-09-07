@@ -128,7 +128,7 @@ export default function DashboardClient({
   const [selectedTab, setSelectedTab] = useState<DashboardTabKey>('reach');
   const [v2Analytics, setV2Analytics] = useState<DashboardV2Analytics | null>(null);
   const [v2TopPosts, setV2TopPosts] = useState<DashboardV2TopPost[]>([]);
-  const [v2Loading, setV2Loading] = useState(data.version === 'v2');
+  const [v2Loading, setV2Loading] = useState(true);
   const [v2Error, setV2Error] = useState('');
   const [v2Operations, setV2Operations] = useState<DashboardV2Operations | null>(null);
   const [v2Previous, setV2Previous] = useState<DashboardV2Analytics | null>(null);
@@ -200,7 +200,7 @@ export default function DashboardClient({
 
 
   useEffect(() => {
-    if (data.version !== 'v2' || selectedPlatform !== 'instagram') { setV2Loading(false); return; }
+    if (selectedPlatform !== 'instagram') { setV2Loading(false); return; }
     const controller = new AbortController();
     const range = dashboardPeriodRange(selectedPeriod);
     const params = new URLSearchParams({
@@ -291,7 +291,7 @@ export default function DashboardClient({
       });
 
     return () => controller.abort();
-  }, [analyticsRevision, data.version, selectedGroupId, selectedMetric, selectedPeriod, selectedPlatform, selectedProfileId, selectedSource]);
+  }, [analyticsRevision, selectedGroupId, selectedMetric, selectedPeriod, selectedPlatform, selectedProfileId, selectedSource]);
 
   const filteredProfiles = useMemo(() => data.analytics.profiles.filter((profile) => {
     if (selectedProfileId !== 'all' && profile.id !== selectedProfileId) return false;
@@ -384,7 +384,7 @@ export default function DashboardClient({
   // "Ainda não sei" só vale enquanto NENHUMA das duas metades trouxe o número.
   // Antes da migration 382 ele vem junto com os agregados, e nesse caso mostrar
   // travessão seria esconder um dado que já está na mão.
-  const postsUnknown = data.version === 'v2' && !v2Operations && v2Analytics?.kpis.posts === undefined;
+  const postsUnknown = !v2Operations && v2Analytics?.kpis.posts === undefined;
   const effectiveMetricPerSource = v2Analytics
     ? v2Analytics.metric_per_source.map((item) => ({ label: item.label === 'meta_official' ? 'API oficial' : item.label === 'zernio' ? 'Integração externa' : item.label, value: item.value }))
     : metricPerSource;
@@ -402,7 +402,7 @@ export default function DashboardClient({
       removed: item.removed === true,
     }))
     : profileRanking;
-  const effectiveTopPosts = data.version === 'v2' ? v2TopPosts : filteredPosts;
+  const effectiveTopPosts = v2TopPosts;
   const effectiveStatusRollups = v2Operations?.publication_status ?? v2Analytics?.publication_status;
   const effectiveFormatRollups = v2Operations?.publication_format ?? v2Analytics?.publication_format;
   const previousRange = useMemo(() => previousPeriodRange(periodRange), [periodRange]);
@@ -452,8 +452,7 @@ export default function DashboardClient({
    * zero. Mostrar "0" ali afirma que os posts do dia não tiveram visualização,
    * que é uma conclusão que a tela não tem como sustentar.
    */
-  const metricsUnknown = data.version === 'v2'
-    && Boolean(v2Analytics)
+  const metricsUnknown = Boolean(v2Analytics)
     && v2Analytics!.coverage.profiles_with_metrics === 0;
 
   const tabHeadline = (key: DashboardTabKey) => {
@@ -505,9 +504,7 @@ export default function DashboardClient({
     ? null
     : v2Error
       ? { tone: 'alert', message: `${v2Error} Os cartões operacionais continuam válidos.` }
-      : data.version === 'v1'
-        ? { tone: 'alert', message: 'Analytics em contingência: períodos longos podem ter cobertura parcial.' }
-        : coverageStatus.note;
+      : coverageStatus.note;
 
   return (
     <section className="analytics-page dash-page">
