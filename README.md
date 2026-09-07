@@ -104,7 +104,7 @@ Não selecione nem compartilhe `encrypted_access_token`. Um registro com `delete
 
 ## Fila e cron
 
-A fila de publicação é processada **exclusivamente pelos workers da VPS** (PM2, ), pelo caminho direto e pelo spool em disco. Desde 07/09/2026 **não existe despachante na Vercel**: a rota  foi removida (decisão do dono), e se a VPS cair a resposta é subir outro processo lá. Os crons que restam em [](vercel.json) são de manutenção (exclusão de mídia, analytics, resumo da dashboard, análise de recuperação).
+A fila de publicação é processada **exclusivamente pelos workers da VPS** (PM2, `/opt/athena-worker`), pelo caminho direto e pelo spool em disco. Desde 07/09/2026 **não existe despachante na Vercel**: a rota `/api/internal/publication-dispatch` foi removida (decisão do dono), e se a VPS cair a resposta é subir outro processo lá. Os crons que restam em [`vercel.json`](vercel.json) são de manutenção (exclusão de mídia, analytics, resumo da dashboard, análise de recuperação).
 
 **Antes de mexer em qualquer coisa da fila, leia [docs/fila-de-publicacao-MASTER.md](docs/fila-de-publicacao-MASTER.md)**: peças, ciclo de vida, regras, tetos, erros, procedimentos e onde olhar por sintoma.
 
