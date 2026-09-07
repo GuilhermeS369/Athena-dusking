@@ -29,18 +29,42 @@
 -- o reload sozinho. Omitir a linha do `notify` nao evita risco nenhum; so evita
 -- pedir a recarga duas vezes.
 --
--- POR QUE ISSO IMPORTA: o reload da 421 foi o que derrubou a API hoje as
--- ~12:20Z. Ele disputou o pool de ~41 conexoes que os quatro publicadores
--- simultaneos ja tinham tomado, nao conseguiu conexao, e o PostgREST entrou em
--- laco de PGRST002 ate o restart do projeto as 12:43Z. O mecanismo esta em
--- docs/fila-de-publicacao-mapa-de-controles.md, secao "O agravante: o cache de
--- schema nao tem conexao reservada", ja medido no incidente de 02/09/2026 --
--- onde tambem esta escrito que 41 e o TETO pratico do pool, e nao folga contra
--- o limite de 120 do role.
+-- POR QUE ISSO IMPORTA: em 07/09/2026 a API inteira ficou fora por 33 min 47 s
+-- com PGRST002 em laco, e so voltou com restart do projeto. O reload de schema
+-- e o mecanismo envolvido -- ver docs/fila-de-publicacao-mapa-de-controles.md,
+-- secao "O agravante: o cache de schema nao tem conexao reservada", ja medido
+-- no incidente de 02/09/2026.
 --
--- A CONSEQUENCIA PRATICA, para quem aplicar isto ou qualquer migration depois:
--- olhe o pool ANTES. Nao existe migration "leve" neste projeto enquanto o
--- `pgrst_ddl_watch` estiver ligado.
+-- DUAS HIPOTESES QUE ESTA MIGRATION AFIRMOU E QUE A MEDICAO DERRUBOU. Ficam
+-- escritas porque o proximo leitor vai ter as mesmas ideias:
+--
+--   "os publicadores simultaneos encheram o pool e o reload nao achou conexao"
+--   -> NAO SE SUSTENTA. Medido ligando publicador a publicador, com 45 s de
+--      acomodacao: 1, 2 e 3 publicadores dao a MESMA contagem de conexoes
+--      `authenticator` (25). E o mecanismo explica: o worker fala HTTP com o
+--      PostgREST; quem abre conexao com o Postgres e o PostgREST, no pool
+--      dele. Somar cliente HTTP soma pressao de requisicao, nao conexao.
+--
+--   "o schema e grande demais para introspectar dentro do statement_timeout"
+--   -> NAO SE SUSTENTA. A introspecao das 448 funcoes custa 54 ms.
+--
+-- E A ORDEM DOS FATOS DESMENTE A CAUSALIDADE MAIS OBVIA. A publicacao parou as
+-- 12:09:36.218Z (ultimo registro em publication_item_events; o proximo e as
+-- 12:43:23.673Z). A 421 so foi aplicada as ~12:11-12:12Z -- datado pelos mtimes
+-- dos arquivos da sessao, porque `supabase_migrations.schema_migrations` nao
+-- guarda carimbo e `track_commit_timestamp` esta OFF. **A parada veio ANTES do
+-- reload**, entao o reload nao a causou. O que o reload fez, ou nao fez, na
+-- janela seguinte continua nao determinado: entre a queda e a aplicacao limpa
+-- desta 422 mudaram DUAS variaveis (pool 41 -> 25 e statement_timeout 8s ->
+-- 30s), e separar as duas exigiria provocar outra queda de proposito. Fica como
+-- nao determinado de proposito -- eleger uma engana quem ler depois.
+--
+-- A CONSEQUENCIA PRATICA, essa sim firme, para quem aplicar qualquer migration
+-- aqui: olhe o pool ANTES. Nao existe migration "leve" neste projeto enquanto o
+-- `pgrst_ddl_watch` estiver ligado:
+--
+--   select count(*) filter (where state='active'), count(*)
+--   from pg_stat_activity where usename='authenticator';
 
 create or replace function public.refresh_dashboard_summary(p_organization_id uuid)
 returns jsonb
