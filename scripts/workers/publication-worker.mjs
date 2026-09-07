@@ -1161,6 +1161,7 @@ const stagingGuard = createSingleFlightGuard();
 const preparationGuard = createSingleFlightGuard();
 let lastPreparationCycleResult = null;
 let preparationConsecutiveSkips = 0;
+let preparationBackoffMs = 0;
 // Espelha POSTGREST_MAX_ROWS de lib/supabase/paginate.ts, que este worker nao
 // consegue importar (roda como .mjs puro; ver a nota em
 // discardUnactivatableSpoolEntries). Se mudar la, mude aqui.
@@ -1208,6 +1209,56 @@ async function stagingLoop(supabase, spool) {
   }
 }
 
+// O LACO DE PREPARACAO NAO PODE GIRAR EM FALSO.
+//
+// MEDIDO EM 07/09/2026, no log do Postgres: 6.758.432 linhas de "Lease de
+// preparacao ausente ou expirado" em 24 h -- 78 por segundo -- e, desde 21/08,
+// 107 milhoes de rollbacks contra 33 milhoes de commits. Tres de cada quatro
+// requisicoes que chegaram ao PostgREST em 17 dias terminaram em erro.
+//
+// O mecanismo e uma realimentacao: o banco engasga, cada item passa a demorar
+// mais que o lease, `complete_publication_preparation` recusa com 40001, o item
+// volta a ser elegivel, e o proximo ciclo -- 5 s depois -- o reivindica de
+// novo. Nada mudou entre um ciclo e outro, entao o resultado e o mesmo, a toda
+// velocidade, para sempre; e o proprio laco vira a carga que mantem o banco
+// engasgado. Sem nenhuma linha de erro no log da VPS, porque o desfecho so
+// aparecia como um numero (`errors: N`) e nunca com o codigo.
+//
+// A regra: quando a MAIORIA do lote nao conclui (lease perdido, infraestrutura
+// ou erro), o proximo ciclo espera -- 30 s, depois 60, 120, ate 300 -- em vez de
+// voltar em 5 s. Lote que conclui zera a espera. Preparacao atrasada custa um
+// item preparado alguns minutos depois; preparacao girando em falso custou a
+// API inteira, duas vezes no mesmo dia. E o codigo de cada falha passa a sair
+// no log, agregado, para a proxima investigacao nao precisar do pg_stat_database.
+export function nextPreparationBackoffMs(result, currentBackoffMs = 0, options = {}) {
+  const minimumMs = options.minimumMs ?? 30_000;
+  const maximumMs = options.maximumMs ?? 300_000;
+  const minimumSample = options.minimumSample ?? 5;
+  const claimed = Number(result?.claimed) || 0;
+  if (claimed < minimumSample) return 0;
+  // `ready` e `blocked` sao desfechos gravados no banco; o resto (lease perdido,
+  // infraestrutura, erro) e item que volta ao pool sem nada ter mudado.
+  const concluded = (Number(result?.ready) || 0) + (Number(result?.blocked) || 0);
+  const notConcluded = Math.max(0, claimed - concluded);
+  if (notConcluded * 2 < claimed) return 0;
+  return Math.min(maximumMs, Math.max(minimumMs, (Number(currentBackoffMs) || 0) * 2));
+}
+
+export function summarizePreparationOutcomes(result) {
+  const estados = {};
+  const codigos = {};
+  for (const item of result?.results ?? []) {
+    const estado = item?.state ?? 'desconhecido';
+    estados[estado] = (estados[estado] ?? 0) + 1;
+    if (estado === 'ready') continue;
+    const codigo = item?.errorCode
+      ?? (item?.error ? String(item.error).slice(0, 80) : null)
+      ?? estado;
+    codigos[codigo] = (codigos[codigo] ?? 0) + 1;
+  }
+  return { estados, codigos };
+}
+
 // Laco proprio da preparacao de midia. Espelha stagingLoop: polling proprio,
 // mutex contra sobreposicao e a mesma flag `stopping` em SIGTERM.
 //
@@ -1242,23 +1293,44 @@ async function preparationLoop(supabase, spool) {
           windowHours: 24,
           correlationId: randomUUID(),
         });
+        const resumo = summarizePreparationOutcomes(result);
+        preparationBackoffMs = nextPreparationBackoffMs(result, preparationBackoffMs);
         lastPreparationCycleResult = {
           claimed: result.claimed,
           ready: result.ready,
           blocked: result.blocked,
           errors: result.errors,
+          estados: resumo.estados,
+          esperaMs: preparationBackoffMs,
         };
         if (result.claimed > 0) {
-          console.info('[publication-worker] ciclo de preparação', { workerId, ...lastPreparationCycleResult });
+          console.info('[publication-worker] ciclo de preparação', {
+            workerId, ...lastPreparationCycleResult, codigos: resumo.codigos,
+          });
+        }
+        // console.error de proposito: e o sinal de saude que decide rollback, e
+        // um lote em que a maioria nao conclui e exatamente o que precisa ser
+        // visto. Uma linha por ciclo em recuo, nunca uma por item.
+        if (preparationBackoffMs > 0) {
+          console.error('[publication-worker] preparação girando em falso; recuando', {
+            workerId, claimed: result.claimed, ready: result.ready, blocked: result.blocked,
+            codigos: resumo.codigos, esperaMs: preparationBackoffMs,
+          });
         }
       } catch (error) {
-        lastPreparationCycleResult = { error: errorMessage(error) };
-        console.error('[publication-worker] falha no ciclo de preparação', { workerId, message: errorMessage(error) });
+        // Falha do ciclo inteiro (o claim nao respondeu) recua pelo mesmo motivo:
+        // repetir em 5 s contra um banco que nao respondeu e mais carga, nao
+        // mais preparacao.
+        preparationBackoffMs = Math.min(300_000, Math.max(30_000, preparationBackoffMs * 2));
+        lastPreparationCycleResult = { error: errorMessage(error), esperaMs: preparationBackoffMs };
+        console.error('[publication-worker] falha no ciclo de preparação', {
+          workerId, message: errorMessage(error), esperaMs: preparationBackoffMs,
+        });
       }
     });
 
     if (runOnce) break;
-    await sleep(preparationPollIntervalMs);
+    await sleep(preparationBackoffMs > 0 ? preparationBackoffMs : preparationPollIntervalMs);
   }
 }
 

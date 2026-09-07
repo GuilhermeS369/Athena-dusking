@@ -11,7 +11,47 @@ import {
   stagingHasSafeWindow,
   shouldPreparationYieldToDispatch,
   shouldYieldToDueWindow,
+  nextPreparationBackoffMs,
+  summarizePreparationOutcomes,
 } from './publication-worker.mjs';
+
+test('preparação que conclui a maioria do lote não recua', () => {
+  assert.equal(nextPreparationBackoffMs({ claimed: 0, ready: 0, blocked: 0 }, 0), 0);
+  assert.equal(nextPreparationBackoffMs({ claimed: 40, ready: 38, blocked: 1 }, 0), 0);
+  // Lote saudável zera um recuo anterior.
+  assert.equal(nextPreparationBackoffMs({ claimed: 40, ready: 40, blocked: 0 }, 120_000), 0);
+});
+
+test('preparação girando em falso recua com dobra até o teto', () => {
+  // Metade do lote sem desfecho gravado (lease perdido, infraestrutura, erro).
+  assert.equal(nextPreparationBackoffMs({ claimed: 40, ready: 10, blocked: 10 }, 0), 30_000);
+  assert.equal(nextPreparationBackoffMs({ claimed: 40, ready: 0, blocked: 0 }, 30_000), 60_000);
+  assert.equal(nextPreparationBackoffMs({ claimed: 40, ready: 0, blocked: 0 }, 160_000), 300_000);
+  assert.equal(nextPreparationBackoffMs({ claimed: 40, ready: 0, blocked: 0 }, 300_000), 300_000);
+});
+
+test('amostra pequena não decide recuo', () => {
+  // Com 3 itens, um único lease perdido já seria 33%; abaixo do piso a razão não informa.
+  assert.equal(nextPreparationBackoffMs({ claimed: 3, ready: 0, blocked: 0 }, 0), 0);
+  assert.equal(nextPreparationBackoffMs({ claimed: 5, ready: 0, blocked: 0 }, 0), 30_000);
+});
+
+test('resumo da preparação agrega estados e códigos, nunca por item', () => {
+  const resumo = summarizePreparationOutcomes({
+    results: [
+      { itemId: '1', state: 'ready' },
+      { itemId: '2', state: 'lease_lost' },
+      { itemId: '3', state: 'lease_lost' },
+      { itemId: '4', state: 'infrastructure_deferred', errorCode: 'PGRST003' },
+      { itemId: '5', state: 'blocked', errorCode: 'preparation_media_count_invalid' },
+      { itemId: '6', state: 'error', error: 'fetch failed' },
+    ],
+  });
+  assert.deepEqual(resumo.estados, { ready: 1, lease_lost: 2, infrastructure_deferred: 1, blocked: 1, error: 1 });
+  assert.deepEqual(resumo.codigos, {
+    lease_lost: 2, PGRST003: 1, preparation_media_count_invalid: 1, 'fetch failed': 1,
+  });
+});
 
 test('ciclo ocioso não exige evento operacional por polling', () => {
   assert.equal(dispatchHasOperationalActivity({ claimed: 0, processed: [], recycling: [] }), false);
