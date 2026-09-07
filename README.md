@@ -104,18 +104,9 @@ Não selecione nem compartilhe `encrypted_access_token`. Um registro com `delete
 
 ## Fila e cron
 
-O dispatcher está em [`app/api/internal/publication-dispatch/route.ts`](app/api/internal/publication-dispatch/route.ts). Ele reivindica itens da fila de forma concorrente, processa containers da API do Instagram e grava o resultado/retry no banco.
+A fila de publicação é processada **exclusivamente pelos workers da VPS** (PM2, ), pelo caminho direto e pelo spool em disco. Desde 07/09/2026 **não existe despachante na Vercel**: a rota  foi removida (decisão do dono), e se a VPS cair a resposta é subir outro processo lá. Os crons que restam em [](vercel.json) são de manutenção (exclusão de mídia, analytics, resumo da dashboard, análise de recuperação).
 
-O agendamento está definido em [`vercel.json`](vercel.json):
-
-```json
-{
-  "path": "/api/internal/publication-dispatch",
-  "schedule": "* * * * *"
-}
-```
-
-Cadastre `CRON_SECRET` e `PUBLICATION_WORKER_SECRET` na Vercel para que o dispatcher seja protegido e executável no ambiente de produção. A disponibilidade e o intervalo de Cron dependem do plano da Vercel.
+**Antes de mexer em qualquer coisa da fila, leia [docs/fila-de-publicacao-MASTER.md](docs/fila-de-publicacao-MASTER.md)**: peças, ciclo de vida, regras, tetos, erros, procedimentos e onde olhar por sintoma.
 
 ### Regras de agendamento
 
