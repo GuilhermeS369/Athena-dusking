@@ -394,6 +394,16 @@ function errorInfo(error) {
 // escapou de todo o fluxo normal — na pratica, o banco.
 const TRANSPORT_FAILURE = /fetch failed|und_err_|connecttimeouterror|headerstimeouterror|bodytimeouterror|socketerror|socket hang up|econnreset|econnrefused|etimedout|eai_again|enotfound|epipe/;
 
+// Pagina de erro do GATEWAY na frente da API do Supabase (Cloudflare 52x/5xx).
+// Quando o Postgres reinicia (troca de compute, upgrade), o supabase-js recebe
+// um HTML inteiro como `message`, com `code: null` -- nenhuma assinatura acima
+// bate. MEDIDO EM 07/09/2026 23:36Z, na reducao XL -> Medium: dois itens ja
+// PUBLICADOS na Meta viraram falha terminal "dispatcher_unexpected_error" com
+// "<!DOCTYPE html>... 521: Web server is down" gravado como motivo. Com esta
+// assinatura o item e adiado 30 s e, na volta, o conteiner PUBLISHED e
+// reconhecido (`already_published`) sem segunda publicacao.
+const GATEWAY_FAILURE = /<!doctype html|<html|web server is down|bad gateway|gateway time-?out|service unavailable|error code 5\d\d|cloudflare/;
+
 export function isPublicationInfrastructureError(error) {
   const details = errorInfo(error);
   const code = String(details.code ?? '').trim().toLowerCase();
@@ -403,7 +413,8 @@ export function isPublicationInfrastructureError(error) {
     'publication_worker_cycle_failed',
   ]).has(code)
     || /statement timeout|canceling statement|deadlock detected|connection pool|database connection|supabase unavailable/.test(message)
-    || TRANSPORT_FAILURE.test(message);
+    || TRANSPORT_FAILURE.test(message)
+    || GATEWAY_FAILURE.test(message);
 }
 
 function storageSignedUrlError(error) {

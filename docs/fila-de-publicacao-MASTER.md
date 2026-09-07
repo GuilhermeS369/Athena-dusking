@@ -317,7 +317,7 @@ em `reauthorization_required` e não publicam.
 | `publication_past_due` | corte de atraso | `ignored` | a única perda por capacidade: seção 8.3 |
 | `profile_offline_suspended` | perfil saiu de `online` | `suspended`, tentativa devolvida | religar o perfil e retomar |
 | `missed_bulk_slot_expired`, `legacy_missed_schedule_requires_attention` | v1 legado | descarte/atenção | não ocorre em v2 |
-| `57014`, `PGRST002/003`, "fetch failed", `ConnectTimeout`, `ECONNRESET`, `40P01`, `53300`, `57P0x` | banco / pool / rede | `defer_publication_infrastructure_failure`: recuo 30 → 900 s, tentativa devolvida, **nunca terminal**; controlador adaptativo **segura** (não cai) | olhar pool e rollbacks (seção 9) |
+| `57014`, `PGRST002/003`, "fetch failed", `ConnectTimeout`, `ECONNRESET`, `40P01`, `53300`, `57P0x`, **HTML 5xx do gateway** ("521: Web server is down", `<!DOCTYPE html`, "bad gateway"; reconhecido desde 07/09/2026 à noite) | banco / pool / rede | `defer_publication_infrastructure_failure`: recuo 30 → 900 s, tentativa devolvida, **nunca terminal**; controlador adaptativo **segura** (não cai) | olhar pool e rollbacks (seção 9) |
 | `40001` "Lease de preparação ausente ou expirado" | preparação demorou mais que o lease | item volta ao pool; o laço **recua** 30 → 300 s se a maioria do lote falha; código no log | banco lento: medir antes de mexer no lote |
 | `P0002` "Item não está sob lease deste worker" | lease vencido, ou **claim duplo entre processos** (corrigido na migration 425: os claims reconferem lease/status dentro da trava) | o perdedor aborta antes de chamar a Meta; o item segue com quem ficou com o lease | se voltar a crescer com vários processos, conferir se a 425 está aplicada e se os IDs de worker são únicos |
 | `23505 active_publication_slot_conflict` | dois itens no mesmo minuto do perfil | a tela/o gerador bloqueiam antes | pular o slot |
@@ -431,6 +431,11 @@ Feito em 07/09/2026 (XL → Medium, 23:36Z, em vale de demanda), nesta ordem:
    todos os workers reconectaram sozinhos, sem reinício do PM2 e sem erro no log.
 5. Conferir `pg_postmaster_start_time()`, `max_connections` (120 no Medium) e nenhum item aberto
    acima de 300 s; devolver o corte a 300 s.
+6. **Auditar as falhas do minuto do reinício**: chamadas em voo recebem HTML 521 do gateway. Em
+   07/09 dois itens já PUBLICADOS na Meta viraram `failed/dispatcher_unexpected_error` porque o
+   classificador não conhecia esse HTML (corrigido no mesmo dia; hoje o item é adiado 30 s e o
+   contêiner PUBLISHED é reconhecido na volta). Conferir com
+   `node scripts/workers/audit-meta-container-failures.mjs --horas 1` na VPS (só audita).
 
 Para subir de novo (Medium → Large/XL): mesma cerimônia; os tetos só sobem depois, medindo
 `auth_conn` no pico. Preços de referência em 09/2026: Medium ~US$ 60/mês, Large ~US$ 110, XL ~US$ 210.
@@ -527,7 +532,7 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 | 02/09 | teto por minuto 600 → 1.200 derrubou a API | o teto alonga a posse do lock; pool 41 |
 | 06/09 | dois itens envenenados travaram a confirmação | recuo exponencial; denominador mínimo |
 | 07/09 | laço de preparação a 78 erros/s por 17 dias; log de 99 GB encheu o volume de sistema; projeto novo `athena`; onda das 17:25Z pediu 3 publicadores; com 3 processos apareceu o claim duplo (P0002), corrigido na 425 |
-| 07/09 (noite) | projeto antigo apagado pelo dono; compute XL → Medium às 23:36Z com tetos 24/32 (seção 8.7); o semáforo da Meta prende só a chamada HTTP, então o pool do banco é ditado por `LIMIT` e `STAGED_DISPATCH_CONCURRENCY` | 7 h no projeto novo sem rollback e sem expirado por capacidade; único perfil derrubado foi um checkpoint (95 itens ignorados pela regra da seção 5) | recuo no laço; log com código; despachante da Vercel removido; o serializador é o semáforo da Meta |
+| 07/09 (noite) | projeto antigo apagado pelo dono; compute XL → Medium às 23:36Z com tetos 24/32 (seção 8.7); o semáforo da Meta prende só a chamada HTTP, então o pool do banco é ditado por `LIMIT` e `STAGED_DISPATCH_CONCURRENCY`; no minuto do reinício, 2 itens publicados viraram falha terminal porque o HTML 521 do gateway não era classificado como infraestrutura (corrigido nos dois despachantes) | 7 h no projeto novo sem rollback e sem expirado por capacidade; único perfil derrubado foi um checkpoint (95 itens ignorados pela regra da seção 5) | recuo no laço; log com código; despachante da Vercel removido; o serializador é o semáforo da Meta |
 
 ---
 

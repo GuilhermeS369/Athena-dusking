@@ -173,6 +173,9 @@ test('timeout interno do banco nunca vira falha terminal de publicação', () =>
   assert.equal(isPublicationInfrastructureError(new TypeError("Cannot read properties of undefined (reading 'provider')")), true);
   assert.equal(isPublicationInfrastructureError({ code: 'platform_error', message: 'Instagram não baixou a mídia' }), false);
   assert.equal(isPublicationInfrastructureError({ code: '190', message: 'Token expirado' }), false);
+  // 07/09/2026 23:36Z: reinicio do Postgres na troca de compute; o gateway devolveu HTML 521.
+  assert.equal(isPublicationInfrastructureError({ code: null, message: '<!DOCTYPE html>\n<title>supabase.co | 521: Web server is down</title>', details: null, hint: null }), true);
+  assert.equal(isPublicationInfrastructureError({ code: 'ERROR', message: 'Instagram informou ERROR ao preparar a publicação.' }), false);
 });
 
 // Regressão do incidente de 31/08/2026: 3.315 publicações perdidas em 946 perfis

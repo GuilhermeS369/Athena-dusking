@@ -29,12 +29,17 @@ const DATABASE_UNAVAILABLE = /statement timeout|canceling statement|deadlock det
 // TypeError` não alcança o caso que mais acontece.
 const TRANSPORT_FAILURE = /fetch failed|und_err_|connecttimeouterror|headerstimeouterror|bodytimeouterror|socketerror|socket hang up|econnreset|econnrefused|etimedout|eai_again|enotfound|epipe/;
 
+// Página de erro do gateway na frente da API (Cloudflare 52x/5xx): o supabase-js
+// entrega o HTML inteiro como `message` e `code: null`. Aconteceu em 07/09/2026
+// na troca de compute — ver o comentário no worker, que é a implementação gêmea.
+const GATEWAY_FAILURE = /<!doctype html|<html|web server is down|bad gateway|gateway time-?out|service unavailable|error code 5\d\d|cloudflare/;
+
 export function isPublicationInfrastructureError(error: unknown): boolean {
   if (error instanceof TypeError) return true;
 
   if (typeof error === 'string') {
     const text = error.toLowerCase();
-    return DATABASE_UNAVAILABLE.test(text) || TRANSPORT_FAILURE.test(text);
+    return DATABASE_UNAVAILABLE.test(text) || TRANSPORT_FAILURE.test(text) || GATEWAY_FAILURE.test(text);
   }
 
   if (!error || typeof error !== 'object') return false;
@@ -47,5 +52,5 @@ export function isPublicationInfrastructureError(error: unknown): boolean {
     .join(' ')
     .toLowerCase();
 
-  return DATABASE_UNAVAILABLE.test(text) || TRANSPORT_FAILURE.test(text);
+  return DATABASE_UNAVAILABLE.test(text) || TRANSPORT_FAILURE.test(text) || GATEWAY_FAILURE.test(text);
 }

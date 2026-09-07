@@ -23,6 +23,13 @@ const QUEDA_DE_CONEXAO_COM_O_BANCO = {
   code: '',
 };
 
+const GATEWAY_521_DURANTE_REINICIO = {
+  code: null,
+  message: '<!DOCTYPE html>\n<!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <![endif]-->\n<head>\n\n<title>supabase.co | 521: Web server is down</title>\n<span class="code-label">Error code 521</span>',
+  details: null,
+  hint: null,
+};
+
 const CASOS: Array<{ nome: string; erro: unknown; infraestrutura: boolean }> = [
   { nome: 'queda de conexão com o Supabase (o caso do incidente)', erro: QUEDA_DE_CONEXAO_COM_O_BANCO, infraestrutura: true },
   { nome: 'statement timeout do Postgres', erro: { code: '57014', message: 'canceling statement due to statement timeout' }, infraestrutura: true },
@@ -32,6 +39,9 @@ const CASOS: Array<{ nome: string; erro: unknown; infraestrutura: boolean }> = [
   { nome: 'socket derrubado no meio', erro: { message: 'fetch failed', details: 'SocketError: other side closed', hint: '', code: '' }, infraestrutura: true },
   { nome: 'conexão resetada', erro: { message: 'request failed', details: 'Error: read ECONNRESET', hint: '', code: '' }, infraestrutura: true },
   { nome: 'DNS temporariamente indisponível', erro: { message: 'fetch failed', details: 'Error: getaddrinfo EAI_AGAIN db.supabase.co', hint: '', code: '' }, infraestrutura: true },
+  // A forma EXATA de 07/09/2026 23:36Z (troca de compute): HTML do Cloudflare no lugar do JSON.
+  { nome: 'gateway 521 durante reinício do Postgres', erro: GATEWAY_521_DURANTE_REINICIO, infraestrutura: true },
+  { nome: 'gateway 502 genérico', erro: { message: '<html><head><title>502 Bad Gateway</title></head></html>', details: null, hint: null, code: null }, infraestrutura: true },
 
   { nome: 'mídia recusada pela plataforma', erro: { code: 'platform_error', message: 'Instagram não baixou a mídia' }, infraestrutura: false },
   { nome: 'token expirado', erro: { code: '190', message: 'Token expirado' }, infraestrutura: false },
