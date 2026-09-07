@@ -329,7 +329,6 @@ em `reauthorization_required` e não publicam.
 | sonda do R2 a cada publicação (3 pedidos) | custo fixo por post + 2 escritas em `media_asset_delivery_attempts` | pendente: cache por mídia |
 | `meta_apps.max_publications_per_minute` nulo | sem cota por app | pendente: alimentar com `X-App-Usage` |
 | `reserve_publication_daily_limit` (029) ainda chamado antes de publicar | redundante com a reserva de capacidade | uma chamada a mais por post |
-| `lib/integrations/instagram-publisher.ts` | cópia do publicador usada só pelo painel Zernio; o caminho real é o `.mjs` | não editar achando que é produção |
 | rotas `publication-claims`, `publication-results`, `queue-summary-refresh` e o modo `dispatch-endpoint` | sem chamador / apontam para rota removida | remover ou documentar como mortos |
 | envs `SUPABASE_URL` / `SUPABASE_ANON_KEY` na Vercel | só scripts one-off leem, como fallback | apontam para o projeto antigo; remover |
 | `.dashboard-*`, `_cpu_snap`, scripts one-off | lixo de investigação | não são parte do sistema |
@@ -400,7 +399,9 @@ tabela da seção 1.3 com o custo medido.
 `scp` dos arquivos alterados **inclusive `package.json` quando um script `npm run` novo entra** (em 07/09 a VPS estava sem 25 scripts) + `node --check` + `pm2 restart` (o repositório da VPS não é
 git). Nunca `git pull` na VPS sem conferir o md5 do `publication-direct-dispatch.mjs`. O
 worker importa `lib/integrations/meta-graph-errors.ts` direto (type stripping do Node 22):
-mudar esse arquivo também é deploy na VPS.
+mudar esse arquivo também é deploy na VPS. **O único publicador do Instagram é
+`scripts/workers/publication-direct-dispatch.mjs`**: a cópia `lib/integrations/instagram-publisher.ts`
+(e o `zernio-publisher.ts` que a usava) foi removida em 07/09/2026.
 
 ### 8.6 Trocar de projeto Supabase / chaves
 
