@@ -1524,6 +1524,9 @@ async function expireLatePublicationItems() {
  * tela consulta no maximo 1x/min.
  */
 const QUEUE_SUMMARY_MIN_INTERVAL_MS = 60_000;
+// Trava de reentrada: sem `await`, dois ciclos poderiam disparar o recalculo ao
+// mesmo tempo e dobrar a carga no banco em vez de tira-la do caminho.
+let resumoEmAndamento = false;
 let ultimoResumoDaFilaEm = 0;
 
 async function refreshQueueSummaries() {
@@ -2217,9 +2220,15 @@ export async function processClaimedItem(item, workerId, options = {}) {
         p_item_id: item.id,
         p_worker_id: workerId,
         p_creation_id: result.creationId,
+        // 30 s, e nao 60. MEDIDO EM 06/09/2026: 98,3% dos itens do Instagram
+        // publicam com `container_poll_count = 0`, ou seja ficam prontos ja na
+        // PRIMEIRA consulta -- o conteiner nao estava demorando, a espera e que
+        // era fixa. Cada segundo aqui e segundo com o item ocupando fila e
+        // adiando a vaga do proximo. O piso da funcao e 15 s; 30 mantem margem
+        // e corta o custo pela metade.
         p_delay_seconds: workItem.profile.provider === 'zernio'
           ? zernioPollingDelaySeconds(workItem)
-          : 60,
+          : META_PRIMEIRA_CONSULTA_SEGUNDOS,
         p_is_poll: Boolean(item.creation_id),
       });
       if (error) {
@@ -2428,6 +2437,11 @@ const adaptiveCollapsePressureRatio = (() => {
 // um evento e 10%; com 3, e 33%. Ver a prova no comentario do colapso.
 const AMOSTRA_MINIMA_DE_PRESSAO = 10;
 
+// Espera ate a primeira consulta de status do conteiner da Meta. Ver a medicao
+// no ponto de uso. Configuravel para poder afinar sem deploy; o piso de 15 s e
+// o da propria `defer_publication_item`.
+const META_PRIMEIRA_CONSULTA_SEGUNDOS = integerEnv('PUBLICATION_WORKER_META_POLL_SECONDS', 30, 15, 300);
+
 const adaptiveDispatchLimits = new Map();
 
 export async function ignoreExpiredUnstartedPublications(supabase, options = {}) {
@@ -2498,7 +2512,23 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   if (!reconciliationOnly) await checarFilaDeConfirmacao();
   marcar('alarmeDeConfirmacao');
   // O resumo da tela e recalculado aqui, fora do caminho da requisicao.
-  if (!reconciliationOnly) await refreshQueueSummaries();
+  // MEDIDO EM 07/09/2026, sob carga: `resumoDaFila: 17453ms` dentro de um ciclo
+  // de 56 s. Um terco do ciclo de DESPACHO gasto recalculando o resumo da TELA,
+  // enquanto 800 itens venciam no mesmo minuto e 3.023 morriam no corte sem
+  // nunca terem sido reivindicados.
+  //
+  // O resumo continua valendo (a leitura da /queue caiu de 8.941 ms para 125 ms
+  // por causa dele) e continua rodando aqui, pelo motivo do commit f23d99e:
+  // rotina que so existe no painel fica parada quando o painel nao e implantado.
+  // O que muda e que ele deixa de SEGURAR o ciclo. Sem await, com trava propria
+  // para nao empilhar, e com o erro isolado -- resumo e leitura, publicacao e
+  // trabalho, e leitura nunca atrasa trabalho.
+  if (!reconciliationOnly && !resumoEmAndamento) {
+    resumoEmAndamento = true;
+    refreshQueueSummaries()
+      .catch((erro) => console.error('[publication-worker] resumo da fila falhou', { message: erro?.message }))
+      .finally(() => { resumoEmAndamento = false; });
+  }
   marcar('resumoDaFila');
   const recoveryItems = reconciliationOnly ? [] : await claimCoordinatedBulkSlotRecoveryItems(
     workerId,
