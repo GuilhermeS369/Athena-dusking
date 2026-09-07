@@ -4,7 +4,12 @@ import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// Quatro minutos, contra os 60 s do primeiro dia. Medido em 07/09/2026 com o
+// pipeline de publicacao em carga: o recalculo de UMA organizacao passou de 3 s
+// para 25 s, e tres delas nao cabiam mais em 60 s -- a terceira era pulada e so
+// voltava no ciclo seguinte. Isto aqui e trabalho de fundo, nao requisicao de
+// tela: o teto certo e o do cron (5 min), com folga para nao encavalar.
+export const maxDuration = 240;
 
 /**
  * Recalcula o resumo materializado da dashboard.
@@ -24,13 +29,23 @@ export const maxDuration = 60;
  * escurece.
  */
 
-/** Folga contra o `maxDuration` de 60 s para a resposta sempre sair. */
-const TIME_BUDGET_MS = 45_000;
+/**
+ * Folga contra o `maxDuration` para a resposta sempre sair.
+ *
+ * Abaixo do intervalo do cron (5 min) de proposito: uma invocacao nunca deve
+ * ainda estar rodando quando a proxima comeca. Se a agregacao crescer a ponto
+ * de encostar aqui, o sinal esta em `duration_ms` na propria tabela -- e a
+ * resposta certa passa a ser reduzir a varredura, nao subir este numero de novo.
+ */
+const TIME_BUDGET_MS = 180_000;
 
 /**
- * Organização recalculada há menos que isto é pulada. O cron roda de minuto em
- * minuto e a dashboard consulta no máximo 1×/min, então recalcular de novo aos
- * 10 segundos só gastaria banco para produzir o mesmo número.
+ * Organização recalculada há menos que isto é pulada.
+ *
+ * O cron desta rota é de 5 em 5 minutos — e não de minuto em minuto como o da
+ * fila —, então na prática este piso só age quando alguém dispara a rota à mão
+ * em cima de um ciclo automático. É o que evita duas varreduras de 265 mil
+ * linhas seguidas para produzir exatamente o mesmo número.
  */
 const MIN_AGE_SECONDS = 45;
 
