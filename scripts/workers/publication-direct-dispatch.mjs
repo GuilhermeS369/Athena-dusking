@@ -1480,9 +1480,28 @@ export async function mapWithConcurrency(items, concurrency, mapper, shouldStop 
   return results;
 }
 
+// MEDIDO EM 07/09/2026. O custo de encerrar e de ~54 ms POR ITEM, linear:
+//
+//   p_limit= 10 ->   778 ms
+//   p_limit= 50 -> 2.724 ms
+//   p_limit=150 -> 57014 (estoura os 8 s do statement_timeout, em ~148 itens)
+//
+// Com `p_limit: 500` a varredura falhava INTEIRA sempre que havia fila de
+// verdade -- e falhava em silencio, porque o erro so vira um console.error e o
+// ciclo segue. Resultado observado: 235 itens elegiveis para o corte que
+// ninguem encerrava, alguns ha 12 minutos. Ou seja, a regra de "nao publicar
+// atrasado" parava de valer exatamente quando ela era necessaria.
+//
+// 60 por chamada da ~3,2 s, com folga confortavel para os 8 s. A vazao continua
+// sobrando: o ciclo roda a cada ~20 s, entao sao ~180/min contra um pico
+// observado de 211 descartes por HORA. Preferir muitas passadas pequenas a uma
+// grande e a licao da Armadilha nº 4 do mapa: o lote grande nao e mais
+// eficiente, e so mais fragil.
+const EXPIRACAO_POR_CHAMADA = integerEnv('PUBLICATION_WORKER_EXPIRE_LIMIT', 60, 10, 400);
+
 async function expireLatePublicationItems() {
   const supabase = createSupabase();
-  const { data, error } = await supabase.rpc('expire_late_publication_items', { p_limit: 500 });
+  const { data, error } = await supabase.rpc('expire_late_publication_items', { p_limit: EXPIRACAO_POR_CHAMADA });
   // Encerrar atrasado e higiene, nao o trabalho do ciclo: se falhar, o despacho
   // continua. O claim ja recusa esses itens de qualquer forma.
   if (error) {
