@@ -9,6 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "node --test lib/**/*.test.ts",
+    "worker:queue-summary": "node scripts/workers/queue-summary-worker.mjs",
+    "worker:queue-summary:once": "node scripts/workers/queue-summary-worker.mjs --once",
     "worker:publication": "node scripts/workers/publication-worker.mjs",
     "worker:publication:once": "node scripts/workers/publication-worker.mjs --once",
     "worker:publication-generation": "node scripts/workers/publication-generation-worker.mjs",
