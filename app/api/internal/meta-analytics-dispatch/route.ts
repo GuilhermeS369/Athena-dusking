@@ -6,7 +6,21 @@ import { runMetaAnalyticsRefresh } from '@/lib/integrations/meta-analytics-refre
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// Quatro minutos, contra os 60 s de antes.
+//
+// Medido em 07/09/2026: com o pipeline de publicacao em carga, uma passada de
+// 40 perfis SEM midia e SEM dia corrente -- o lote mais barato que existe --
+// estourava os 60 s e voltava 504. O cron de 5 em 5 minutos batia no mesmo
+// teto, entao "falha de leitura" nao era da Meta: era a funcao sendo morta no
+// meio, e as coletas do lote em andamento iam junto.
+//
+// O orcamento interno e checado ENTRE lotes; um lote que comeca perto do limite
+// ainda roda inteiro depois dele, e sao os segundos de escrita no banco que
+// passavam do teto. Por isso a folga aqui e larga, e nao apertada.
+//
+// 240 s e nao 300 s: o cron desta rota e de 5 em 5 minutos e uma invocacao
+// nunca deve estar viva quando a proxima comeca.
+export const maxDuration = 240;
 
 /**
  * Coleta automática de métricas da Meta.
@@ -29,8 +43,14 @@ export const maxDuration = 60;
  * incômodo; publicação atrasada é prejuízo.
  */
 
-/** Folga contra o `maxDuration` de 60s para a resposta sempre sair. */
-const TIME_BUDGET_MS = 45_000;
+/**
+ * Folga contra o `maxDuration` de 240s para a resposta sempre sair.
+ *
+ * Os 90s que sobram não são generosidade: o orçamento é checado ANTES de cada
+ * lote, então um lote que começa em 149s ainda roda inteiro depois disso. A
+ * folga é o tamanho do lote mais lento observado, não um arredondamento.
+ */
+const TIME_BUDGET_MS = 150_000;
 /** Perfis por lote. Mais que isto e o lote não fecha dentro do orçamento. */
 const BATCH_LIMIT = 60;
 /** Chamadas simultâneas à Meta por lote; a pressão da fila pode reduzir. */
