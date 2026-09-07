@@ -2,6 +2,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import {
   collectMetaProfileAnalytics,
   collectionInteractions,
+  collectionLatestDayInteractions,
   metaAppUsagePressure,
   type MetaAnalyticsCollection,
   type MetaAnalyticsProfile,
@@ -228,6 +229,8 @@ export async function runMetaAnalyticsRefresh(options: MetaRefreshOptions = {}):
         mediaCount: null,
         dailyRows: [],
         windowTotals: {},
+        latestDayTotals: {},
+        latestDayDate: null,
         posts: [],
         todayRow: null,
         partialSources: [],
@@ -347,12 +350,30 @@ export async function persistMetaAnalyticsCollections(collections: MetaAnalytics
       });
     }
 
+    // O ESTADO CORRENTE MEDE UM DIA, NÃO A JANELA — e esta é a diferença entre
+    // esta tabela e a de período logo acima.
+    //
+    // `profile_analytics_current` é o que a coluna "Views" de /perfis mostra, e
+    // ela mostra o número CRU, sem período ao lado. Enquanto isso vinha de
+    // `windowTotals`, o número era a soma dos dias coletados — e quantos dias
+    // são muda com a passada: `days = deepPass ? 4 : 2` no despacho de 5 em 5
+    // minutos. Medido em 07/09/2026 na organização Pomodoro: 572 perfis
+    // exibindo soma de 4 dias contra 428 exibindo soma de 2, lado a lado na
+    // mesma coluna. Para uma conta com tráfego parelho, somar dois dias é
+    // mostrar o dobro (1269 = 671 + 598), e uma hora depois o quádruplo.
+    //
+    // Um dia fechado não tem esse problema: é o mesmo recorte para todo perfil,
+    // independentemente de qual cron passou por último, e é comparável entre
+    // duas linhas da tabela. A soma da janela continua existindo, na linha de
+    // período, que carrega `period_start`/`period_end` e por isso pode somar.
+    const latestDay = collection.latestDayTotals;
+    const latestDayReach = metaNumberValue(latestDay.reach);
+    const latestDayInteractions = collectionLatestDayInteractions(collection);
+
     const currentState = {
       organization_id: collection.organizationId,
       profile_id: collection.profileId,
       provider: 'meta_official',
-      period_start: collection.periodStart,
-      period_end: collection.periodEnd,
       sync_status: collection.status,
       unavailable_reason: collection.failure && collection.status !== 'failed' ? collection.failure.message : null,
       last_error_code: collection.failure?.code ?? null,
@@ -363,19 +384,28 @@ export async function persistMetaAnalyticsCollections(collections: MetaAnalytics
     if (hasNumbers) {
       currentRowsWithNumbers.push({
         ...currentState,
+        // Começo e fim são o MESMO dia, e é isso que o número representa. A
+        // tela pode escrever a data em vez de exibir um total anônimo.
+        period_start: collection.latestDayDate,
+        period_end: collection.latestDayDate,
         followers_count: collection.followersCount ?? 0,
-        reach,
-        views: metaNumberValue(collection.windowTotals.views),
-        likes: metaNumberValue(collection.windowTotals.likes),
-        comments: metaNumberValue(collection.windowTotals.comments),
-        shares: metaNumberValue(collection.windowTotals.shares),
-        saves: metaNumberValue(collection.windowTotals.saves),
-        replies: metaNumberValue(collection.windowTotals.replies),
-        total_interactions: interactions,
-        profile_links_taps: metaNumberValue(collection.windowTotals.profile_links_taps),
-        engagement_rate: reach > 0 ? Number(((interactions / reach) * 100).toFixed(4)) : 0,
+        reach: latestDayReach,
+        views: metaNumberValue(latestDay.views),
+        likes: metaNumberValue(latestDay.likes),
+        comments: metaNumberValue(latestDay.comments),
+        shares: metaNumberValue(latestDay.shares),
+        saves: metaNumberValue(latestDay.saves),
+        replies: metaNumberValue(latestDay.replies),
+        total_interactions: latestDayInteractions,
+        profile_links_taps: metaNumberValue(latestDay.profile_links_taps),
+        engagement_rate: latestDayReach > 0 ? Number(((latestDayInteractions / latestDayReach) * 100).toFixed(4)) : 0,
       });
     } else {
+      // Sem número não há período a declarar, e as colunas ficam FORA da
+      // escrita de propósito: elas são nuláveis, então não mandá-las preserva
+      // o último período bom em vez de carimbar por cima o palpite do
+      // calendário. Uma falha não pode apagar a medição anterior — é a mesma
+      // invariante do cabeçalho deste arquivo.
       currentRowsStatusOnly.push(currentState);
     }
 

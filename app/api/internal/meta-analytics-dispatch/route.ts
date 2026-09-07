@@ -75,6 +75,7 @@ export async function POST(request: Request) {
     staleMinutes?: unknown;
     days?: unknown;
     collectPosts?: unknown;
+    collectToday?: unknown;
     maxBatches?: unknown;
     force?: unknown;
     prune?: unknown;
@@ -118,6 +119,23 @@ export async function POST(request: Request) {
   const deepPass = new Date().getMinutes() < 5;
   const days = typeof body.days === 'number' ? body.days : deepPass ? 4 : 2;
   const collectPosts = body.collectPosts === true || deepPass;
+  // O dia corrente, e por que ele anda junto com a passada profunda.
+  //
+  // O balde da CONTA só fecha depois que o dia acaba no fuso dela, então "hoje"
+  // nunca vem por ali — a única fonte é a soma dos insights dos posts
+  // publicados hoje, que é o que `collectToday` liga. Até 07/09/2026 este
+  // despacho não passava a opção, e como ele é quem roda de 5 em 5 minutos,
+  // 288 das 290 passadas diárias não escreviam a linha de hoje: ela só existia
+  // quando uma rodada fatiada passava.
+  //
+  // Amarrado ao `deepPass` e não a toda passada porque o custo é real e é por
+  // post: `fetchMediaInsights` faz UMA chamada por mídia publicada hoje, por
+  // perfil (o lote não existe em graph.instagram.com v26 — ver o comentário
+  // dela). De hora em hora a lista de mídias já está sendo buscada de qualquer
+  // forma, então o acréscimo fica restrito aos insights, e o dia corrente da
+  // dashboard passa a ter no máximo uma hora de atraso em vez de depender da
+  // próxima rodada fatiada.
+  const collectToday = body.collectToday === true || deepPass;
 
   // Teto de lotes por invocação. Existe para diagnóstico — uma passada
   // controlada, do tamanho que se quer observar — e não para o cron, que roda
@@ -137,6 +155,7 @@ export async function POST(request: Request) {
       staleMinutes,
       days,
       collectPosts,
+      collectToday,
       concurrency: pressureDecision.concurrency || DEFAULT_CONCURRENCY,
       timeBudgetMs: TIME_BUDGET_MS - elapsed,
     });

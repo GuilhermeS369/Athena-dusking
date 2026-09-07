@@ -118,7 +118,32 @@ export type MetaAnalyticsCollection = {
   followersCount: number | null;
   mediaCount: number | null;
   dailyRows: MetaDailyMetricRow[];
+  /**
+   * Soma de TODOS os dias coletados nesta passada. Serve à linha de período
+   * (`profile_analytics_snapshots`), que carrega `period_start`/`period_end` ao
+   * lado e por isso pode ser uma soma sem enganar ninguém.
+   *
+   * NÃO serve ao estado corrente. Ver `latestDayTotals`.
+   */
   windowTotals: MetaInsightTotals;
+  /**
+   * O último dia FECHADO, sozinho.
+   *
+   * Existe porque `windowTotals` não pode ir para `profile_analytics_current`:
+   * a tela `/perfis` mostra aquele número cru, sem período do lado, e o
+   * tamanho da janela MUDA conforme a passada que tocou o perfil por último —
+   * `days = deepPass ? 4 : 2` no despacho. Medido em 07/09/2026 na organização
+   * Pomodoro: 572 perfis exibindo soma de 4 dias e 428 exibindo soma de 2, na
+   * mesma coluna e na mesma tela. Numa conta com tráfego parelho a soma de dois
+   * dias é o número dobrado — foi exatamente assim que apareceu para quem
+   * olhou (1269 = 671 + 598; 4 = 2 + 2).
+   *
+   * Um dia fechado é estável, é comparável entre perfis e não muda de tamanho
+   * conforme o horário do cron. `latestDayDate` diz QUAL dia é, para a tela
+   * poder rotular em vez de mostrar um número anônimo.
+   */
+  latestDayTotals: MetaInsightTotals;
+  latestDayDate: string | null;
   posts: MetaPostRow[];
   /**
    * O dia corrente, montado a partir dos posts — a única forma de tê-lo.
@@ -399,6 +424,8 @@ export async function collectMetaProfileAnalytics(
     mediaCount: null,
     dailyRows: [] as MetaDailyMetricRow[],
     windowTotals: {} as MetaInsightTotals,
+    latestDayTotals: {} as MetaInsightTotals,
+    latestDayDate: null as string | null,
     posts: [] as MetaPostRow[],
     todayRow: null as MetaDailyMetricRow | null,
     partialSources: [] as string[],
@@ -455,6 +482,10 @@ export async function collectMetaProfileAnalytics(
   //    calendário. A chamada abaixo é o que descobre onde o dia dela começa.
   const dailyRows: MetaDailyMetricRow[] = [];
   const windowTotals: MetaInsightTotals = {};
+  // Os baldes chegam em ordem crescente (o `sort` em `fetchAccountDayBuckets`),
+  // então a última atribuição dentro do laço é a do dia mais recente.
+  let latestDayTotals: MetaInsightTotals = {};
+  let latestDayDate: string | null = null;
   let insightFailure: MetaAnalyticsFailure | null = null;
 
   const bucketsResult = await fetchAccountDayBuckets(token, days, now);
@@ -497,6 +528,8 @@ export async function collectMetaProfileAnalytics(
     for (const [name, value] of Object.entries(insights.totals)) {
       windowTotals[name] = (windowTotals[name] ?? 0) + value;
     }
+    latestDayTotals = insights.totals;
+    latestDayDate = bucket.localDate;
 
     const row = metaDailyMetricRow({
       profile,
@@ -620,10 +653,20 @@ export async function collectMetaProfileAnalytics(
     ...base,
     status,
     failure: insightFailure,
+    // `base` carrega o palpite do NOSSO calendário; estes dois são o período
+    // que a Meta de fato mediu, e antes de 07/09/2026 eles eram calculados e
+    // jogados fora — o `...base` acima sobrescrevia a reatribuição feita lá em
+    // cima, e ninguém percebia porque o palpite tinha o formato certo. O efeito
+    // no banco era um dia de erro em toda a frota: `period_start=2026-09-06,
+    // period_end=2026-09-07` num registro cuja soma era de 05/09 e 06/09.
+    periodStart,
+    periodEnd,
     followersCount,
     mediaCount,
     dailyRows,
     windowTotals,
+    latestDayTotals,
+    latestDayDate,
     posts,
     todayRow,
     partialSources,
@@ -725,4 +768,9 @@ export async function probeBatchedMediaInsights(profile: MetaAnalyticsProfile, m
 /** Total de interações da janela, para o snapshot agregado. */
 export function collectionInteractions(collection: MetaAnalyticsCollection) {
   return metaInteractions(collection.windowTotals);
+}
+
+/** Interações do último dia fechado, para o estado corrente. */
+export function collectionLatestDayInteractions(collection: MetaAnalyticsCollection) {
+  return metaInteractions(collection.latestDayTotals);
 }

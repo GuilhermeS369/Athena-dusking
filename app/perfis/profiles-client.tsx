@@ -1339,7 +1339,7 @@ export default function ProfilesClient({
                       <th scope="col">Conta Zernio</th>
                       <th scope="col">Status</th>
                       <th scope="col" className={styles.listNumberCell}>Seguidores</th>
-                      <th scope="col" className={styles.listNumberCell}>Views</th>
+                      <th scope="col" className={styles.listNumberCell} title="Visualizações do último dia fechado medido pela Meta. Um dia só, e o mesmo recorte para todos os perfis — antes esta coluna somava a janela inteira da coleta, que tinha 2 ou 4 dias conforme a passada.">Views (dia)</th>
                       <th scope="col" className={styles.listNumberCell}>Posts</th>
                       <th scope="col"><span className="visually-hidden">Ações</span></th>
                     </tr>

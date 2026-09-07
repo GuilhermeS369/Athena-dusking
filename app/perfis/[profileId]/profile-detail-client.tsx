@@ -111,6 +111,30 @@ function formatDate(value: string | null | undefined) {
   return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
 }
 
+/**
+ * A data medida, sem passar por fuso.
+ *
+ * `formatDate` nao serve para "2026-09-06": `new Date()` le a string como
+ * meia-noite UTC, e no fuso da operacao (-03) isso volta um dia -- a tela
+ * diria 05/09 para o dia 06/09. Aqui a string ja E a data no calendario certo,
+ * entao ela so e reordenada.
+ */
+function formatDay(value: string | null | undefined) {
+  if (!value) return null;
+  const [ano, mes, dia] = value.slice(0, 10).split('-');
+  return ano && mes && dia ? `${dia}/${mes}` : null;
+}
+
+/** O periodo que o numero exibido cobre, escrito por extenso. */
+function periodCaption(start: string | null | undefined, end: string | null | undefined) {
+  const inicio = formatDay(start);
+  const fim = formatDay(end);
+  if (!inicio && !fim) return 'Período não medido';
+  if (!inicio || inicio === fim) return `Dia ${fim}`;
+  if (!fim) return `Desde ${inicio}`;
+  return `${inicio} a ${fim}`;
+}
+
 function statusLabel(status: string | undefined) {
   if (status === 'synced') return 'Análises sincronizadas';
   if (status === 'partial') return 'Análises parciais';
@@ -326,7 +350,7 @@ export default function ProfileDetailClient({
 }
 
 function MetricStrip({ snapshot, delta }: { snapshot: Snapshot; delta: number }) {
-  return <section className="profile-detail-metrics" aria-label="Indicadores principais"><article className="metric-card"><div className="metric-label">Seguidores</div><strong>{formatNumber(snapshot?.followers_count)}</strong><span className={delta >= 0 ? 'metric-caption trend-positive' : 'metric-caption trend-negative'}>{delta >= 0 ? 'Subindo' : 'Descendo'} {formatCompact(Math.abs(delta))}</span></article><article className="metric-card"><div className="metric-label">Visualizações</div><strong>{formatNumber(snapshot?.views)}</strong><span className="metric-caption">Janela local</span></article><article className="metric-card"><div className="metric-label">Alcance</div><strong>{formatNumber(snapshot?.reach)}</strong><span className="metric-caption">Impressões: {formatCompact(snapshot?.impressions)}</span></article><article className="metric-card"><div className="metric-label">Interações</div><strong>{formatNumber(snapshot?.total_interactions)}</strong><span className="metric-caption">{Number(snapshot?.engagement_rate ?? 0).toFixed(2)}% engajamento</span></article><article className="metric-card"><div className="metric-label">Análises</div><strong>{statusLabel(snapshot?.sync_status)}</strong><span className="metric-caption">Sincronização: {formatDate(snapshot?.synced_at)}</span></article></section>;
+  return <section className="profile-detail-metrics" aria-label="Indicadores principais"><article className="metric-card"><div className="metric-label">Seguidores</div><strong>{formatNumber(snapshot?.followers_count)}</strong><span className={delta >= 0 ? 'metric-caption trend-positive' : 'metric-caption trend-negative'}>{delta >= 0 ? 'Subindo' : 'Descendo'} {formatCompact(Math.abs(delta))}</span></article><article className="metric-card"><div className="metric-label">Visualizações</div><strong>{formatNumber(snapshot?.views)}</strong><span className="metric-caption">{periodCaption(snapshot?.period_start, snapshot?.period_end)}</span></article><article className="metric-card"><div className="metric-label">Alcance</div><strong>{formatNumber(snapshot?.reach)}</strong><span className="metric-caption">Impressões: {formatCompact(snapshot?.impressions)}</span></article><article className="metric-card"><div className="metric-label">Interações</div><strong>{formatNumber(snapshot?.total_interactions)}</strong><span className="metric-caption">{Number(snapshot?.engagement_rate ?? 0).toFixed(2)}% engajamento</span></article><article className="metric-card"><div className="metric-label">Análises</div><strong>{statusLabel(snapshot?.sync_status)}</strong><span className="metric-caption">Sincronização: {formatDate(snapshot?.synced_at)}</span></article></section>;
 }
 
 function SummaryTab({ profile, snapshot, followerHistory, maxFollowers, postAnalytics, publicationItems }: { profile: Profile; snapshot: Snapshot; followerHistory: FollowerPoint[]; maxFollowers: number; postAnalytics: PostAnalytics[]; publicationItems: PublicationItem[] }) {
