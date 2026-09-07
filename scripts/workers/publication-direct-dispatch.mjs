@@ -1524,6 +1524,31 @@ async function expireLatePublicationItems() {
  * tela consulta no maximo 1x/min.
  */
 const QUEUE_SUMMARY_MIN_INTERVAL_MS = 60_000;
+// DESLIGADO POR PADRAO desde 07/09/2026, e o motivo e de arquitetura.
+//
+// O dono deste recalculo e o cron da Vercel, que ja roda
+// `/api/internal/queue-summary-refresh` a cada minuto (vercel.json). A copia
+// aqui nasceu como rede de seguranca -- "rotina que so existe no painel fica
+// parada quando o painel nao e implantado" -- e a preocupacao e legitima, mas o
+// lugar estava errado, por tres razoes medidas:
+//
+//   CUSTO. Medido em 07/09: 28,9 s para a Pomodoro (541.417 itens) e 6,5 s para
+//   a Vini (530.270). ~36 s por passada, dentro do laco que publica.
+//
+//   ACOPLAMENTO EM REALIMENTACAO. O custo e O(tamanho da fila). A fila cresce
+//   justamente quando a publicacao esta atrasada. Ou seja: quanto pior a
+//   situacao, mais caro fica o resumo e mais tempo ele rouba de quem deveria
+//   estar resolvendo a situacao. Componente que fica mais caro conforme o
+//   hospedeiro piora e a pior forma de acoplamento que existe.
+//
+//   MULTIPLICACAO. Em 07/09 o publicador passou de 1 para 4 processos. Como o
+//   recalculo mora no codigo compartilhado, ele passou a rodar 4 vezes -- 5 com
+//   o cron da Vercel -- agregando o mesmo milhao de linhas.
+//
+// A rede de seguranca continua disponivel: PUBLICATION_WORKER_QUEUE_SUMMARY=true
+// religa, e deve ser ligada em UM processo so. O lugar certo em definitivo e um
+// worker proprio, como ja existe para media-maintenance e profile-analytics.
+const queueSummaryEnabled = (process.env.PUBLICATION_WORKER_QUEUE_SUMMARY || 'false') === 'true';
 // Trava de reentrada: sem `await`, dois ciclos poderiam disparar o recalculo ao
 // mesmo tempo e dobrar a carga no banco em vez de tira-la do caminho.
 let resumoEmAndamento = false;
@@ -2523,7 +2548,7 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   // O que muda e que ele deixa de SEGURAR o ciclo. Sem await, com trava propria
   // para nao empilhar, e com o erro isolado -- resumo e leitura, publicacao e
   // trabalho, e leitura nunca atrasa trabalho.
-  if (!reconciliationOnly && !resumoEmAndamento) {
+  if (queueSummaryEnabled && !reconciliationOnly && !resumoEmAndamento) {
     resumoEmAndamento = true;
     refreshQueueSummaries()
       .catch((erro) => console.error('[publication-worker] resumo da fila falhou', { message: erro?.message }))
