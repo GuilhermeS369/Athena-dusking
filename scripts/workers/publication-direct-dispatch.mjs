@@ -1429,6 +1429,31 @@ export async function preparePublicationQueueDirect(options = {}) {
       return { itemId: item.id, state: 'ready' };
     } catch (preparationError) {
       const failure = errorInfo(preparationError);
+      // FALHA DE INFRAESTRUTURA NAO GERA SEGUNDA CHAMADA. Este `if` e a correcao
+      // do que derrubou a API duas vezes em 07/09/2026.
+      //
+      // O caminho de erro daqui chamava `complete_publication_preparation` de
+      // novo para registrar o motivo da falha. Faz sentido quando o motivo e do
+      // ITEM -- midia sumida, formato invalido. Mas quando o motivo e "nao
+      // consegui falar com o banco" (PGRST003, pool esgotado), a resposta virava
+      // "falar com o banco de novo": cada item passava a custar DUAS chamadas
+      // contra o recurso que ja estava no limite. Com `PREPARATION_LIMIT=150`,
+      // uma rodada que falha dispara 300 chamadas em vez de 150.
+      //
+      // Foi o que o par mediu do outro lado: 28 das 41 vagas do pool em
+      // `complete_publication_preparation`, dez delas em transacao ABORTADA, e
+      // o pg_stat_statements cravado -- porque ele nao contabiliza statement que
+      // termina em erro. Contador parado com conexao ocupada e a assinatura de
+      // chamada que aborta em laco.
+      //
+      // Sem a segunda chamada o item simplesmente nao e concluido: o lease
+      // expira e ele volta a ser reivindicado no proximo ciclo, que e
+      // exatamente o comportamento certo para indisponibilidade passageira. O
+      // principio e o mesmo da 272 -- indisponibilidade de banco nunca vira
+      // estado terminal --, aplicado agora tambem ao caminho de PREPARO.
+      if (isPublicationInfrastructureError(preparationError)) {
+        return { itemId: item.id, state: 'infrastructure_deferred', errorCode: failure.code ?? 'infrastructure' };
+      }
       const { error: completionError } = await supabase.rpc('complete_publication_preparation', {
         p_item_id: item.id,
         p_worker_id: workerId,
