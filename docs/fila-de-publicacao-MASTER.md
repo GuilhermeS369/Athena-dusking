@@ -79,7 +79,7 @@ em atraso crítico, `paused: critical_publication_delay`); análise de recupera�
 Os três usam `PUBLICATION_WORKER_SECRET` do `.env.worker` e a URL
 `https://pomodoro-theta-one-82.vercel.app` (domínio público: `www.athenadusking.com.br`).
 
-### 1.3 Banco (Supabase projeto `athena`, ref `iuxzrhuvcpeyxqifzbcw`, XL, desde 07/09/2026)
+### 1.3 Banco (Supabase projeto `athena`, ref `iuxzrhuvcpeyxqifzbcw`, Medium desde 07/09/2026 23:36Z — XL só durante a restauração)
 
 Tabelas da fila: `publication_items` (~1,07 mi linhas), `publication_item_media`,
 `publication_batches`, `bulk_publication_plans` + `bulk_publication_plan_profiles` +
@@ -216,9 +216,9 @@ Valores em vigor na VPS em 07/09/2026 (padrão do código entre parênteses):
 
 | Botão | VPS | Controla |
 |---|---:|---|
-| `PUBLICATION_WORKER_LIMIT` | 60 (5, teto 100) | lote do caminho direto; o limite adaptativo começa em 10 e sobe 20 % por ciclo cheio |
-| `PUBLICATION_WORKER_META_CONCURRENCY` | 20 (5, **teto 20**) | **semáforo global de chamadas à Meta por processo — o serializador de hoje** |
-| `PUBLICATION_WORKER_STAGED_DISPATCH_CONCURRENCY` / `_LIMIT` / `_LEASE_SECONDS` | 48 / 500 / 900 (64 / 500 / 900) | spool |
+| `PUBLICATION_WORKER_LIMIT` | 24 (5, teto 100) | lote do caminho direto; o limite adaptativo começa em 10 e sobe 20 % por ciclo cheio. Era 60 no XL; 24 é o valor para o pool do Medium |
+| `PUBLICATION_WORKER_META_CONCURRENCY` | 20 (5, **teto 20**) | **semáforo global de chamadas à Meta por processo — o serializador de hoje.** Envolve **cada chamada HTTP** (`metaFetch` em publication-direct-dispatch.mjs), não o post inteiro: a vaga é ocupada por ~1–3 s por chamada, e o post leva ~53 s de criar a confirmar (30 s de espera fora do semáforo). Por isso ele não conta para o pool do banco |
+| `PUBLICATION_WORKER_STAGED_DISPATCH_CONCURRENCY` / `_LIMIT` / `_LEASE_SECONDS` | 32 / 500 / 900 (64 / 500 / 900) | spool; era 48 no XL. É o teto que mais rende: cada vaga entrega ~1,1 post/min (53 s por post), 32 vagas ≈ 36/min só no spool |
 | `PUBLICATION_WORKER_STAGED_MAX_PER_ORGANIZATION_PER_MINUTE` | 600 (180) | teto deslizante de seleção por org no spool; e no máximo 1 item por perfil+formato por lote |
 | `PUBLICATION_WORKER_STAGING_LIMIT` / `_CONCURRENCY` / `_WINDOW_SECONDS` / `_LEASE_SECONDS` | 100 / 8 / 600 / 660 | staging (lease = janela + 60 s; era 1.200 e prendia item 10 min) |
 | `PUBLICATION_WORKER_STAGING_DUE_GUARD_MS` / `_MAX_CONSECUTIVE_SKIPS` | 5000 / 1 | staging cede se algo vence em 5 s, no máximo 1 vez seguida |
@@ -245,11 +245,16 @@ Valores em vigor na VPS em 07/09/2026 (padrão do código entre parênteses):
 Ordem em que os tetos mordem (medido em 07/09/2026): 1) semáforo da Meta por processo;
 2) o caminho direto esperar o lote inteiro (`Promise.allSettled`); 3) limite adaptativo
 zerado a cada reinício; 4) advisory lock por app da Meta na reserva; 5) cotas por perfil;
-6) pool do PostgREST (240 no XL, 41 no Medium).
+6) pool do PostgREST (41 no Medium; `max_connections` 120 no Medium, 240 no XL).
 
-**Some antes de somar vagas.** Cada processo pode ter até `LIMIT + STAGED_CONCURRENCY +
-PREPARATION + STAGING` chamadas ao banco em voo. No Medium (pool 41) três processos com
-os valores acima **não cabem**; no XL cabem. Antes de reduzir o compute, reduza os tetos.
+**Some antes de somar vagas.** O que ocupa conexão do banco são os itens em voo do caminho
+direto (`LIMIT` por processo, todos chamando `reserve`/`complete` quase juntos porque o lote
+espera inteiro) e do spool (`STAGED_DISPATCH_CONCURRENCY`), mais preparação e staging; o semáforo
+da Meta **não** entra na conta (prende só a chamada HTTP). Medido em 07/09/2026: com 60/48 no
+XL, a maior onda do dia (22:25Z, 284 posts em 5 min) usou **28 conexões** do `authenticator`
+no pico; com 24/32 no Medium, a onda das 23:25Z (268 em 5 min) usou 22. O pool do Medium é 41.
+Antes de reduzir o compute, reduza os tetos; antes de subir tetos no Medium, olhe `auth_conn`
+no pico (consulta na seção 9).
 
 ---
 
@@ -414,8 +419,21 @@ pendentes (`supabase migration list`).
 
 ### 8.7 Reduzir/aumentar compute
 
-Reinicia por ~3 min: mesma cerimônia do 8.2, com o dono acordado, nunca de madrugada. Ao
-voltar para Medium, o pool cai para 41: recalcule os tetos da seção 4 antes.
+Reinicia por ~3 min: mesma cerimônia do 8.2, com o dono acordado, nunca de madrugada.
+Feito em 07/09/2026 (XL → Medium, 23:36Z, em vale de demanda), nesta ordem:
+
+1. Tetos na VPS (`.env.worker`, cópia em `.env.worker.bak-xl-20260907`): `LIMIT` 60 → 24,
+   `STAGED_DISPATCH_CONCURRENCY` 48 → 32; `META_CONCURRENCY` fica em 20.
+2. `max_publication_lateness_seconds` 300 → 900 nas três linhas de `publication_rate_limit_settings`.
+3. `pm2 restart athena-publication-worker athena-publication-worker-2 athena-publication-worker-3 --update-env`
+   (o PM2 não mostra esses envs; confirme no log: `adaptiveConcurrency: { maximum: 24 }`).
+4. Dono: Project Settings → Compute and Disk → tier → confirmar. Postgres reiniciou em ~3 min;
+   todos os workers reconectaram sozinhos, sem reinício do PM2 e sem erro no log.
+5. Conferir `pg_postmaster_start_time()`, `max_connections` (120 no Medium) e nenhum item aberto
+   acima de 300 s; devolver o corte a 300 s.
+
+Para subir de novo (Medium → Large/XL): mesma cerimônia; os tetos só sobem depois, medindo
+`auth_conn` no pico. Preços de referência em 09/2026: Medium ~US$ 60/mês, Large ~US$ 110, XL ~US$ 210.
 
 ### 8.8 Ações manuais pela tela (o que cada botão faz na fila)
 
@@ -508,14 +526,13 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 | 31/08 | concorrência 64 → 160 apagou 3.315 posts | advisory lock por org; infra nunca vira terminal |
 | 02/09 | teto por minuto 600 → 1.200 derrubou a API | o teto alonga a posse do lock; pool 41 |
 | 06/09 | dois itens envenenados travaram a confirmação | recuo exponencial; denominador mínimo |
-| 07/09 | laço de preparação a 78 erros/s por 17 dias; log de 99 GB encheu o volume de sistema; projeto novo `athena`; onda das 17:25Z pediu 3 publicadores; com 3 processos apareceu o claim duplo (P0002), corrigido na 425 | recuo no laço; log com código; despachante da Vercel removido; o serializador é o semáforo da Meta |
+| 07/09 | laço de preparação a 78 erros/s por 17 dias; log de 99 GB encheu o volume de sistema; projeto novo `athena`; onda das 17:25Z pediu 3 publicadores; com 3 processos apareceu o claim duplo (P0002), corrigido na 425 |
+| 07/09 (noite) | projeto antigo apagado pelo dono; compute XL → Medium às 23:36Z com tetos 24/32 (seção 8.7); o semáforo da Meta prende só a chamada HTTP, então o pool do banco é ditado por `LIMIT` e `STAGED_DISPATCH_CONCURRENCY` | 7 h no projeto novo sem rollback e sem expirado por capacidade; único perfil derrubado foi um checkpoint (95 itens ignorados pela regra da seção 5) | recuo no laço; log com código; despachante da Vercel removido; o serializador é o semáforo da Meta |
 
 ---
 
 ## 12. Pendências abertas (07/09/2026)
 
-- Apagar o projeto antigo `hqwhumdumfmixxbvneae` só após o "pode apagar" do dono.
-- Reduzir o compute do `athena` de XL para Medium (seção 8.7) — só com os tetos recalculados.
 - Rotacionar `PUBLICATION_WORKER_SECRET`, `META_OAUTH_STATE_SECRET` e chaves R2 (passaram pelo chat).
 - Atualizar `.env.worker.deploy` e os docs de X/Twitter que citam o ref antigo (as envs `SUPABASE_URL`/`SUPABASE_ANON_KEY` saíram da Vercel em 07/09).
 - Remover as rotas mortas e o modo `dispatch-endpoint`; corrigir o comentário de `queue-summary-refresh`.
