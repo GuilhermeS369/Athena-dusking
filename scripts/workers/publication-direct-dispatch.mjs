@@ -1399,9 +1399,29 @@ export async function preparePublicationQueueDirect(options = {}) {
   const leaseSeconds = Number.isInteger(options.leaseSeconds) ? Math.min(Math.max(options.leaseSeconds, 30), 900) : 180;
   const windowHours = Number.isInteger(options.windowHours) ? Math.min(Math.max(options.windowHours, 1), 24) : 24;
   const supabase = (options.createSupabase ?? createSupabase)();
+  // O LOTE PRECISA CABER NO LEASE. Esta conta e a correcao de 07/09/2026.
+  //
+  // O lote era pedido pelo `limit` (150 por padrao no .env) e o lease vinha
+  // fixo em 180 s, sem nenhuma relacao entre os dois. Com concorrencia 8, um
+  // lote de 150 leva ~19 rodadas; se cada item gasta 10 s -- e gasta, porque
+  // preparar faz REDE (assina URL, carrega midia) --, sao 190 s. Os ultimos
+  // itens do lote estouram o proprio lease ANTES de terminarem, e
+  // `complete_publication_preparation` os recusa com 40001.
+  //
+  // Por desenho, o fim de todo lote grande falhava. E piorou sozinho conforme a
+  // frota cresceu, porque o lote foi ficando mais lento sem o lease mudar --
+  // que e exatamente a descricao que a operacao deu: "isso rodava direitinho e
+  // com espaco, alguma coisa passou a comer CPU".
+  //
+  // Agora o lote e limitado pelo que cabe: itens = concorrencia x (lease /
+  // segundos por item), com margem de 40%. O padrao de 12 s por item vem da
+  // medicao do dia; sobe se a midia ficar mais pesada.
+  const segundosPorItem = integerEnv('PUBLICATION_WORKER_PREPARATION_ITEM_SECONDS', 12, 2, 120);
+  const cabeNoLease = Math.max(1, Math.floor((concurrency * leaseSeconds) / segundosPorItem * 0.6));
+  const loteEfetivo = Math.min(limit, cabeNoLease);
   const { data, error } = await supabase.rpc('claim_publication_preparation_items', {
     p_worker_id: workerId,
-    p_limit: limit,
+    p_limit: loteEfetivo,
     p_lease_seconds: leaseSeconds,
     p_window_hours: windowHours,
   });
@@ -1453,6 +1473,26 @@ export async function preparePublicationQueueDirect(options = {}) {
       // estado terminal --, aplicado agora tambem ao caminho de PREPARO.
       if (isPublicationInfrastructureError(preparationError)) {
         return { itemId: item.id, state: 'infrastructure_deferred', errorCode: failure.code ?? 'infrastructure' };
+      }
+      // LEASE PERDIDO NAO SE REGISTRA: nao ha o que registrar.
+      //
+      // `complete_publication_preparation` (migration 264) recusa quando o item
+      // nao esta mais sob o lease deste worker, com 40001 "Lease de preparacao
+      // ausente ou expirado". Se a PRIMEIRA chamada morreu assim, a segunda vai
+      // morrer igual -- o item ja foi liberado e outro processo vai pega-lo.
+      //
+      // MEDIDO EM 07/09/2026: o log do Postgres tinha 6.760.250 ERROS em 24
+      // horas, 78 por segundo, e praticamente todos eram esta mensagem. Cada
+      // item que estourava o lease gerava DUAS falhas, porque o caminho de erro
+      // tentava registrar o motivo chamando de novo a funcao que acabara de
+      // recusar. Escrever essa montanha de log e responder a essas chamadas
+      // consumia CPU do banco sem produzir nada.
+      //
+      // A CAUSA DE FUNDO e o lote nao caber no lease -- ver o comentario em
+      // `preparationBatchLimit`. Este `if` corta a amplificacao; o outro corta
+      // a origem.
+      if (String(failure.code ?? '') === '40001') {
+        return { itemId: item.id, state: 'lease_lost' };
       }
       const { error: completionError } = await supabase.rpc('complete_publication_preparation', {
         p_item_id: item.id,
