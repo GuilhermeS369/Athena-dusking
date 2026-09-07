@@ -2,10 +2,6 @@
   "version": 2,
   "crons": [
     {
-      "path": "/api/internal/publication-dispatch",
-      "schedule": "* * * * *"
-    },
-    {
       "path": "/api/internal/media-deletion-dispatch",
       "schedule": "* * * * *"
     },
@@ -16,10 +12,6 @@
     {
       "path": "/api/internal/meta-analytics-dispatch",
       "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/internal/queue-summary-refresh",
-      "schedule": "* * * * *"
     },
     {
       "path": "/api/internal/dashboard-summary-refresh",

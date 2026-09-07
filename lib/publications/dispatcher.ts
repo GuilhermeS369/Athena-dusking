@@ -162,18 +162,71 @@ function validatePreparedWorkItem(item: PublicationWorkItem | InvalidLoadedWorkI
   }
 }
 
+// O TETO DESTE CAMINHO E A FUNCAO SERVERLESS, NAO O LEASE.
+//
+// A rota que chama isto declara `maxDuration = 60`
+// (app/api/internal/publication-dispatch/route.ts). Reivindicar 100 itens com
+// lease de 180 s dentro de uma funcao que a Vercel mata em 60 s garante que a
+// cauda de todo lote perca o proprio lease sem nunca ter sido processada -- e
+// cada item que tenta concluir depois disso levanta
+// `40001 Lease de preparacao ausente ou expirado`
+// (supabase/migrations/264_athena_publication_pipeline_v2.sql).
+//
+// Medido em 07/09/2026: 6.760.250 erros do Postgres em 24 h, ~78 por segundo,
+// praticamente todos essa mesma linha. A CPU gasta em levantar e registrar
+// esses erros derrubou a Data API duas vezes.
+//
+// O lote agora e o que cabe no orcamento da funcao, nao um numero solto:
+// concorrencia x (orcamento / custo por item). Sao ~22 itens. Vale o mesmo
+// raciocinio da correcao gemea em scripts/workers/publication-direct-dispatch.mjs,
+// so que la o teto e o lease e aqui e a funcao, que e mais curta.
+const PREPARATION_BUDGET_SECONDS = 45;
+const PREPARATION_CONCURRENCY = 6;
+const PREPARATION_ITEM_SECONDS = 12;
+const PREPARATION_MAX_BATCH = Math.max(
+  1,
+  Math.floor((PREPARATION_CONCURRENCY * PREPARATION_BUDGET_SECONDS) / PREPARATION_ITEM_SECONDS),
+);
+
+/**
+ * Executa `task` sobre `items` com no maximo `concurrency` em voo.
+ *
+ * `Promise.allSettled(items.map(...))` nao limita nada: dispara todos de uma
+ * vez. Com 100 itens que fazem rede (assinar URL, carregar midia) isso e 100
+ * chamadas simultaneas saindo de uma funcao com um pool de 41 conexoes do
+ * outro lado.
+ */
+async function runWithConcurrency<T, R>(items: T[], concurrency: number, task: (item: T) => Promise<R>) {
+  const results = new Array(items.length) as PromiseSettledResult<R>[];
+  let next = 0;
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    for (;;) {
+      const index = next;
+      next += 1;
+      if (index >= items.length) return;
+      try {
+        results[index] = { status: 'fulfilled', value: await task(items[index]) };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
 async function preparePublicationQueue(workerId: string, limit: number) {
   const supabase = createSupabaseAdminClient();
   const preparationWorkerId = `${workerId}:prepare`.slice(0, 120);
   const { data, error } = await supabase.rpc('claim_publication_preparation_items', {
     p_worker_id: preparationWorkerId,
-    p_limit: Math.min(500, Math.max(1, limit)),
+    p_limit: Math.min(PREPARATION_MAX_BATCH, Math.max(1, limit)),
     p_lease_seconds: 180,
     p_window_hours: 24,
   });
   if (error) throw error;
   const claims = (data ?? []) as PreparationClaim[];
-  const settled = await Promise.allSettled(claims.map(async (claim) => {
+  const settled = await runWithConcurrency(claims, PREPARATION_CONCURRENCY, async (claim) => {
     try {
       const item = await loadWorkItem({ ...claim, creation_id: null, reel_cover_media_asset_id: null });
       validatePreparedWorkItem(item);
@@ -206,6 +259,19 @@ async function preparePublicationQueue(workerId: string, limit: number) {
         return 'infrastructure_deferred';
       }
       const failure = errorInfo(preparationError);
+      // LEASE PERDIDO NAO GERA SEGUNDA CHAMADA.
+      //
+      // `40001` significa que o lease deste item ja venceu ou passou para
+      // outro worker. Chamar `complete_publication_preparation` agora recebe
+      // exatamente o mesmo erro -- a funcao comeca conferindo o lease --, so
+      // que gastando outra conexao e outra linha de log. Era isto que dobrava
+      // a tempestade de 07/09: o erro, mais a tentativa de anotar o erro.
+      //
+      // O item nao se perde: sem lease ele volta a ser elegivel e o proximo
+      // ciclo o reivindica.
+      if (String(failure.code ?? '') === '40001') {
+        return 'lease_lost';
+      }
       const { error: completionError } = await supabase.rpc('complete_publication_preparation', {
         p_item_id: claim.id, p_worker_id: preparationWorkerId, p_ready: false,
         p_error_code: failure.code ?? 'preparation_failed',
@@ -214,7 +280,7 @@ async function preparePublicationQueue(workerId: string, limit: number) {
       if (completionError) throw completionError;
       return 'blocked';
     }
-  }));
+  });
   return {
     claimed: claims.length,
     ready: settled.filter((entry) => entry.status === 'fulfilled' && entry.value === 'ready').length,
