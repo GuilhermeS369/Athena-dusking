@@ -1549,9 +1549,6 @@ const QUEUE_SUMMARY_MIN_INTERVAL_MS = 60_000;
 // religa, e deve ser ligada em UM processo so. O lugar certo em definitivo e um
 // worker proprio, como ja existe para media-maintenance e profile-analytics.
 const queueSummaryEnabled = (process.env.PUBLICATION_WORKER_QUEUE_SUMMARY || 'false') === 'true';
-// Trava de reentrada: sem `await`, dois ciclos poderiam disparar o recalculo ao
-// mesmo tempo e dobrar a carga no banco em vez de tira-la do caminho.
-let resumoEmAndamento = false;
 let ultimoResumoDaFilaEm = 0;
 
 async function refreshQueueSummaries() {
@@ -2548,11 +2545,33 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   // O que muda e que ele deixa de SEGURAR o ciclo. Sem await, com trava propria
   // para nao empilhar, e com o erro isolado -- resumo e leitura, publicacao e
   // trabalho, e leitura nunca atrasa trabalho.
-  if (queueSummaryEnabled && !reconciliationOnly && !resumoEmAndamento) {
-    resumoEmAndamento = true;
-    refreshQueueSummaries()
-      .catch((erro) => console.error('[publication-worker] resumo da fila falhou', { message: erro?.message }))
-      .finally(() => { resumoEmAndamento = false; });
+  // COM `await`, DE PROPOSITO -- e este comentario existe porque eu tirei o
+  // await em 07/09/2026 e derrubei a Data API por 34 minutos.
+  //
+  // O `await` parecia desperdicio: 17 s de um ciclo de 56 s parados esperando
+  // uma agregacao que so a tela consome. Tirei. Os ciclos ficaram rapidos na
+  // hora (10,8 s) e por oito minutos pareceu certo.
+  //
+  // So que o `await` NAO era desperdicio, era CONTRAPRESSAO. Enquanto existia,
+  // o recalculo se serializava sozinho: no maximo um por vez. Sem ele, cada
+  // processo passou a disparar um agregado de ~29 s sobre 541 mil linhas a cada
+  // 60 s sem esperar o anterior terminar -- e a trava `resumoEmAndamento` era
+  // variavel de MODULO, valia por processo. Com 4 publicadores, quatro
+  // agregados concorrentes. Os ciclos subiram de 10,8 s para 28 s em oito
+  // minutos, o pool do PostgREST encheu, o cache de schema nao conseguiu
+  // reconstruir e a API inteira caiu. So voltou com restart do projeto.
+  //
+  // A REGRA: contrapressao que voce remove precisa ser substituida por outra.
+  // Aqui a substituta e nao precisar mais dela -- o dono do recalculo passou a
+  // ser o cron da Vercel (vercel.json, de minuto em minuto) e este caminho e so
+  // rede de seguranca para quando o painel nao estiver implantado. Rede de
+  // seguranca roda em UM processo e pode esperar.
+  if (queueSummaryEnabled && !reconciliationOnly) {
+    try {
+      await refreshQueueSummaries();
+    } catch (erro) {
+      console.error('[publication-worker] resumo da fila falhou', { message: erro?.message });
+    }
   }
   marcar('resumoDaFila');
   const recoveryItems = reconciliationOnly ? [] : await claimCoordinatedBulkSlotRecoveryItems(
