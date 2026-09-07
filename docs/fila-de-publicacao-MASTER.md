@@ -55,8 +55,7 @@ primeira definição vence; e o PM2 guarda o env de cada processo (`pm2 save`) e
 processos 2/3, troque em `.env.local`, `.env.worker` e no env salvo do PM2, e reinicie.
 Depois de ligar/desligar processos, `pm2 save`: é o que volta num reboot (`pm2-root.service`).
 
-**Não existe `ecosystem.config` do Instagram no repositório**: os processos só existem na
-VPS. Se a VPS for recriada, a seção 8.1 é a única receita.
+**Receita dos processos**: `deploy/instagram/ecosystem.config.cjs` (versionado em 07/09/2026; é a fonte dos envs por processo). Para recriar a VPS ou um processo: `pm2 start deploy/instagram/ecosystem.config.cjs [--only nome]` e `pm2 save`.
 
 ### 1.2 Crons
 
@@ -517,7 +516,6 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 - Reduzir o compute do `athena` de XL para Medium (seção 8.7) — só com os tetos recalculados.
 - Rotacionar `PUBLICATION_WORKER_SECRET`, `META_OAUTH_STATE_SECRET` e chaves R2 (passaram pelo chat).
 - Remover `SUPABASE_URL`/`SUPABASE_ANON_KEY` da Vercel; atualizar `.env.worker.deploy` e os docs de X/Twitter que citam o ref antigo.
-- Versionar um `deploy/instagram/ecosystem.config.cjs` com os processos da seção 1.1.
 - Remover as rotas mortas e o modo `dispatch-endpoint`; corrigir o comentário de `queue-summary-refresh`.
 - As quatro mudanças de código do plano (lote deslizante, semáforo por app, cache da sonda, log por fase).
 - Localizar o cliente que envia `status=processing` (seção 6.2).
