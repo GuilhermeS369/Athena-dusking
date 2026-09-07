@@ -44,13 +44,23 @@ export const maxDuration = 240;
  */
 
 /**
- * Folga contra o `maxDuration` de 240s para a resposta sempre sair.
+ * Quanto trabalho uma invocação ESCOLHE fazer. Não confundir com `maxDuration`,
+ * que é quando a Vercel MATA a função — são botões diferentes e hoje, 07/09/2026,
+ * eu subi os dois quando só um precisava subir.
  *
- * Os 90s que sobram não são generosidade: o orçamento é checado ANTES de cada
- * lote, então um lote que começa em 149s ainda roda inteiro depois disso. A
- * folga é o tamanho do lote mais lento observado, não um arredondamento.
+ * O 504 que estava cortando a coleta no meio (e virando "perfil não lido") vinha
+ * do teto de execução, não daqui: o orçamento é checado ANTES de cada lote,
+ * então um lote que começava perto dos 45s ainda rodava inteiro depois disso e
+ * passava dos 60s de teto. Com o teto em 240s o lote termina em paz e a resposta
+ * sai normal — sem precisar trabalhar mais por ciclo.
+ *
+ * Subir este número junto fez a coleta fazer 3-4x mais lotes por ciclo, e isso é
+ * requisição a mais contra o pool de ~41 conexões do PostgREST, que é o gargalo
+ * compartilhado com o pipeline de publicação (ver docs/fila-de-publicacao-mapa-de-controles.md,
+ * seção 3-B). Carga adicionada sem necessidade, num dia em que o pool já estava
+ * saturado. Voltou para 45s: mesmo trabalho por ciclo de sempre, sem o 504.
  */
-const TIME_BUDGET_MS = 150_000;
+const TIME_BUDGET_MS = 45_000;
 /** Perfis por lote. Mais que isto e o lote não fecha dentro do orçamento. */
 const BATCH_LIMIT = 60;
 /** Chamadas simultâneas à Meta por lote; a pressão da fila pode reduzir. */
