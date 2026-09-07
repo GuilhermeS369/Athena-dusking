@@ -331,6 +331,7 @@ em `reauthorization_required` e não publicam.
 | `reserve_publication_daily_limit` (029) ainda chamado antes de publicar | redundante com a reserva de capacidade | uma chamada a mais por post |
 | rotas `publication-claims`, `publication-results`, `queue-summary-refresh` e o modo `dispatch-endpoint` | sem chamador / apontam para rota removida | remover ou documentar como mortos |
 | envs `SUPABASE_URL` / `SUPABASE_ANON_KEY` na Vercel | só scripts one-off leem, como fallback | apontam para o projeto antigo; remover |
+| `get_global_operational_health` (rota `operational-health`) diz "unhealthy" com a fila limpa | `max_lag_seconds` inclui `failed` **terminal** e itens **arquivados** (migration 188), e `overdue` usa 120 s em vez do corte de 300 s; `stale_workers` conta qualquer tipo de worker sem processo ativo (heartbeats de Zernio/legado contavam) | pendente: restringir o lag a `archived_at is null` e excluir falha terminal; heartbeats mortos removidos em 07/09 |
 | `.dashboard-*`, `_cpu_snap`, scripts one-off | lixo de investigação | não são parte do sistema |
 
 ---
@@ -516,8 +517,9 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 - Apagar o projeto antigo `hqwhumdumfmixxbvneae` só após o "pode apagar" do dono.
 - Reduzir o compute do `athena` de XL para Medium (seção 8.7) — só com os tetos recalculados.
 - Rotacionar `PUBLICATION_WORKER_SECRET`, `META_OAUTH_STATE_SECRET` e chaves R2 (passaram pelo chat).
-- Remover `SUPABASE_URL`/`SUPABASE_ANON_KEY` da Vercel; atualizar `.env.worker.deploy` e os docs de X/Twitter que citam o ref antigo.
+- Atualizar `.env.worker.deploy` e os docs de X/Twitter que citam o ref antigo (as envs `SUPABASE_URL`/`SUPABASE_ANON_KEY` saíram da Vercel em 07/09).
 - Remover as rotas mortas e o modo `dispatch-endpoint`; corrigir o comentário de `queue-summary-refresh`.
+- Corrigir `get_global_operational_health` (lag só de itens abertos e não arquivados; `overdue` alinhado ao corte de 300 s).
 - As quatro mudanças de código do plano (lote deslizante, semáforo por app, cache da sonda, log por fase).
 
 ---
