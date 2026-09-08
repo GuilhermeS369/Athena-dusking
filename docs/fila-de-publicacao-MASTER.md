@@ -336,6 +336,7 @@ em `reauthorization_required` e não publicam.
 | `reserve_publication_daily_limit` (029) ainda chamado antes de publicar | redundante com a reserva de capacidade | uma chamada a mais por post |
 | rotas `publication-claims`, `publication-results`, `queue-summary-refresh` e o modo `dispatch-endpoint` | sem chamador / apontam para rota removida | remover ou documentar como mortos |
 | envs `SUPABASE_URL` / `SUPABASE_ANON_KEY` na Vercel | só scripts one-off leem, como fallback | apontam para o projeto antigo; remover |
+| Falha terminal "falsa" (item marcado `failed` mas contêiner PUBLISHED na Meta) | acontece quando a chamada de conclusão falha depois de publicar (em 07/09: HTML 521 do gateway no reinício do compute; antes, 04/09: veredito ERROR falso da Meta). A manutenção arquiva a falha em minutos; o botão "Reprocessar" da tela não desarquiva e **zera `creation_id`**, o que publicaria de novo | auditar com `audit-meta-container-failures.mjs` (só leitura); se PUBLISHED, desarquivar e devolver ao worker com o SQL da 8.7 passo 6 — nunca pelo botão. Pendente: o botão preservar `creation_id` quando houver contêiner e limpar `archived_at` |
 | `get_global_operational_health` (rota `operational-health`) diz "unhealthy" com a fila limpa | `max_lag_seconds` inclui `failed` **terminal** e itens **arquivados** (migration 188), e `overdue` usa 120 s em vez do corte de 300 s; `stale_workers` conta qualquer tipo de worker sem processo ativo (heartbeats de Zernio/legado contavam) | pendente: restringir o lag a `archived_at is null` e excluir falha terminal; heartbeats mortos removidos em 07/09 |
 | `.dashboard-*`, `_cpu_snap`, scripts one-off | lixo de investigação | não são parte do sistema |
 
@@ -436,6 +437,12 @@ Feito em 07/09/2026 (XL → Medium, 23:36Z, em vale de demanda), nesta ordem:
    classificador não conhecia esse HTML (corrigido no mesmo dia; hoje o item é adiado 30 s e o
    contêiner PUBLISHED é reconhecido na volta). Conferir com
    `node scripts/workers/audit-meta-container-failures.mjs --horas 1` na VPS (só audita).
+   Para devolver um desses ao worker sem publicar de novo: `update publication_items set
+   archived_at = null, archived_by = null, next_attempt_at = now(), claimed_by = null,
+   lease_until = null where id = … and status = 'failed' and creation_id is not null`. O
+   `archived_at = null` é obrigatório: a manutenção arquiva falha terminal em minutos (em 07/09,
+   25 min depois) e **o claim ignora item arquivado** — sem isso o item fica "failed" para sempre
+   e nenhum log explica. Feito em 07/09 para os dois itens: recuperados como `published` em 1 s.
 
 Para subir de novo (Medium → Large/XL): mesma cerimônia; os tetos só sobem depois, medindo
 `auth_conn` no pico. Preços de referência em 09/2026: Medium ~US$ 60/mês, Large ~US$ 110, XL ~US$ 210.
@@ -445,7 +452,7 @@ Para subir de novo (Medium → Large/XL): mesma cerimônia; os tetos só sobem d
 | Ação | Rota | Efeito |
 |---|---|---|
 | Cancelar item | `PATCH /api/publications/[itemId]` | `cancelled`, limpa lease e `creation_id`, evento, sincroniza lote |
-| Reprocessar item falho | mesma rota | `ready`; bloqueado se `attempt_count ≥ 5` |
+| Reprocessar item falho | mesma rota | `ready`, **zera `creation_id`** e não mexe em `archived_at`; bloqueado se `attempt_count ≥ 5`. Duas armadilhas (6.2): item já arquivado continua invisível ao claim; item cujo contêiner já está PUBLISHED na Meta ganha contêiner novo = **post duplicado** |
 | Cancelar lote | `POST …/batch/[id]/cancel` | `cancel_publication_batch_items`; libera mídias |
 | Cancelar em massa (conta/grupo/lote) | `POST /api/publications/cancel` | operação durável em blocos (`execute_server_publication_queue_cancellation`), idempotente |
 | Continuar lote pausado | `POST …/batch/[id]/continue` | `resume_publication_batch_after_circuit_breaker` |
@@ -542,6 +549,7 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 - Atualizar `.env.worker.deploy` e os docs de X/Twitter que citam o ref antigo (as envs `SUPABASE_URL`/`SUPABASE_ANON_KEY` saíram da Vercel em 07/09).
 - Remover as rotas mortas e o modo `dispatch-endpoint`; corrigir o comentário de `queue-summary-refresh`.
 - Corrigir `get_global_operational_health` (lag só de itens abertos e não arquivados; `overdue` alinhado ao corte de 300 s).
+- Botão "Reprocessar item falho" (`PATCH /api/publications/[itemId]`): limpar `archived_at` e **não** zerar `creation_id` quando houver contêiner (o worker já reconhece PUBLISHED); hoje pode duplicar post e pode não fazer nada.
 - As quatro mudanças de código do plano (lote deslizante, semáforo por app, cache da sonda, log por fase).
 
 ---
