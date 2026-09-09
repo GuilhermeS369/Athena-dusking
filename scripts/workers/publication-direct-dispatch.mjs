@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 // foi assim que a correcao de 04/09 nasceu valendo so metade: o painel adiava o
 // ERROR e este worker -- que e quem realmente publica -- continuava encerrando.
 // Import relativo com extensao porque a VPS roda com `node` puro, sem tsx.
-import { metaContainerVerdict, isMetaAppApiBlocked } from '../../lib/integrations/meta-graph-errors.ts';
+import { metaContainerVerdict, isMetaAppApiBlocked, META_MEDIA_FETCH_ERROR_CODE } from '../../lib/integrations/meta-graph-errors.ts';
 
 export const PUBLICATION_MAX_ATTEMPTS = 5;
 
@@ -532,7 +532,19 @@ export async function probeMediaUrl(url, kind, options = {}) {
       throw mediaDeliveryError('Não foi possível ler o final da URL da mídia.', 'media_url_tail_probe_network');
     }
     if (last.response.status !== 206 || !last.contentRange || last.contentRange.total !== totalBytes || last.contentRange.end !== totalBytes - 1) {
-      throw mediaDeliveryError('O host não entregou corretamente o final do vídeo.', 'media_url_tail_range_invalid', false);
+      // RETRYAVEL, e com o que o host respondeu. Em 08 e 09/09/2026 quatro reels
+      // morreram aqui como terminais; os quatro arquivos ja tinham publicado de 81
+      // a 648 vezes cada e publicaram de novo minutos depois. Era o R2/CDN num
+      // instante, nao o arquivo -- e sem o status/range no motivo nao havia como
+      // saber. O recuo da 420 (30 s) resolve; encerrar custava o post.
+      const range = last.contentRange
+        ? `${last.contentRange.start}-${last.contentRange.end}/${last.contentRange.total ?? '*'}`
+        : 'ausente';
+      throw mediaDeliveryError(
+        `O host não entregou corretamente o final do vídeo (HTTP ${last.response.status}, content-range ${range}, esperado ${totalBytes - 1}/${totalBytes}, cache ${last.cacheStatus ?? 'n/d'}).`,
+        'media_url_tail_range_invalid',
+        true,
+      );
     }
   }
 
@@ -608,7 +620,14 @@ async function readInstagramResponse(response) {
   if (!response.ok) {
     const message = body.error?.message ?? `Instagram retornou HTTP ${response.status}.`;
     const error = new Error(message);
-    error.retryable = response.status >= 500 || response.status === 429 || body.error?.is_transient === true;
+    // 9004 "Only photo or video can be accepted as media type" e a Meta falhando
+    // ao BUSCAR a midia, nao a midia errada (ver META_MEDIA_FETCH_ERROR_CODE).
+    // A regra ja existia em lib/integrations/meta-graph-errors.ts, mas so o
+    // despachante da Vercel a usava; este worker nunca. Em 09/09/2026 dois PNG
+    // que ja tinham publicado 1.397 e 1.100 vezes morreram aqui na primeira
+    // leitura. Retentar custa uma tentativa; encerrar custa o story do dia.
+    error.retryable = response.status >= 500 || response.status === 429 || body.error?.is_transient === true
+      || Number(body.error?.code) === META_MEDIA_FETCH_ERROR_CODE;
     error.code = String(body.error?.code ?? response.status);
     error.httpStatus = response.status;
     error.errorSubcode = Number.isInteger(body.error?.error_subcode) ? body.error.error_subcode : null;

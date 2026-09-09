@@ -885,3 +885,29 @@ test('lote pequeno e limpo volta a crescer, sem catraca', () => {
   const lote = [{ state: 'published' }, { state: 'published' }, { state: 'published' }];
   assert.equal(nextAdaptiveDispatchLimit(3, 100, lote, 3), 4);
 });
+
+// 08 e 09/09/2026: quatro reels encerrados como terminais por um fim de arquivo que o
+// R2 respondeu errado num instante -- os mesmos arquivos publicaram centenas de vezes.
+test('fim de arquivo errado no host e retryavel e diz o que o host respondeu', async () => {
+  await assert.rejects(
+    probeMediaUrl('https://storage.example/video.mp4?token=segredo', 'video', {
+      fetch: async (_input, init) => {
+        if (init.method === 'HEAD') {
+          return new Response(null, { status: 200, headers: { 'content-type': 'video/mp4', 'content-length': '4096' } });
+        }
+        if (init.headers.Range === 'bytes=0-1023') {
+          return new Response('x', { status: 206, headers: { 'content-type': 'video/mp4', 'content-range': 'bytes 0-1023/4096' } });
+        }
+        return new Response('x', { status: 200, headers: { 'content-type': 'video/mp4', 'cf-cache-status': 'HIT' } });
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, 'media_url_tail_range_invalid');
+      assert.equal(error.retryable, true);
+      assert.match(error.message, /HTTP 200/);
+      assert.match(error.message, /content-range ausente/);
+      assert.match(error.message, /cache HIT/);
+      return true;
+    },
+  );
+});
