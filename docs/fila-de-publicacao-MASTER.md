@@ -114,7 +114,7 @@ sincronização de status do **lote** não é gatilho: é `sync_publication_batc
 | `claim_publication_preparation_items` (264, trava reconferida na 425) | claim da preparação: v2, sem `creation_id`, `preparation_status` ∈ pending/blocked/preparing, janela ≤ 24 h, fairness perfil→org | `22023` |
 | `complete_publication_preparation` (264) | `ready` ou `blocked` (+ `next_preparation_at`) | **`40001` lease de preparação** |
 | `claim_publication_dispatch_staging_items` / `activate_staged_publication_items` / `release_publication_dispatch_staging` (315) | pré-reserva itens futuros na janela; ativa quando vence; libera | `42501`, `22023` |
-| `claim_publication_items` (405, trava reconferida na 425) | claim principal: filtros de status, lease, staging, **trava de atraso**, app bloqueado, disjuntor, slot em risco; prioridade 0 para quem tem `creation_id`; gasta tentativa só sem `creation_id`; lote → `processing` | `42501`, `22023` |
+| `claim_publication_items` (405, trava reconferida na 425, janela por formato na 426) | claim principal: filtros de status, lease, staging, **trava de atraso**, app bloqueado, disjuntor, slot em risco; prioridade 0 para quem tem `creation_id`; gasta tentativa só sem `creation_id`; lote → `processing` | `42501`, `22023` |
 | `assert_claimed_publication_profile_online` (088) | perfil online e sob lease, antes de cada chamada ao provedor | `P0002` |
 | `reserve_publication_dispatch_capacity` (372) | 2 advisory locks (**por app Meta** ou balde de perfil; + por perfil); reentrância; intervalo por perfil **e formato**; reserva irmã; 24 h; minuto por (org, provedor); minuto por app. Ao barrar volta a `waiting` com `next_attempt_at` e `last_error_code` | `22023`, `P0002` |
 | `reserve_publication_daily_limit` (029) | 100/24 h por perfil (legado; a checagem que vale está na reserva acima) | `22023`, `P0002` |
@@ -142,7 +142,7 @@ Autovacuum próprio (417): `publication_items` scale 0,02 / threshold 1000.
 `publication_rate_limit_settings` (linha global + `meta_official` + `zernio`): `enabled`,
 `max_provider_publications_per_minute` (meta 1.200), `max_profile_publications_per_24h` 100,
 `min_seconds_between_profile_publications` 45, `…_by_format` `{"reel":1500}`,
-`reservation_seconds` 300, `dispatch_lock_shards` 8, `max_publication_lateness_seconds` 300.
+`reservation_seconds` 300, `dispatch_lock_shards` 8, `max_publication_lateness_seconds` 300, `max_publication_lateness_seconds_by_format` `{"story": 3600}` (426).
 A linha global é **invisível ao `authenticated`** (RLS só para admin da org).
 `meta_apps.max_publications_per_minute` nasce **nulo** (sem cota por app).
 
@@ -193,7 +193,7 @@ Mudar `execute_at`, legenda, perfil, formato ou capa **zera a preparação** (ga
 
 | Regra | Onde | Valor |
 |---|---|---|
-| Atraso máximo: depois disso o item **não** é publicado, é encerrado | `max_publication_lateness_seconds`, migration 405 (claim + varredura) | 300 s; item com `creation_id` sempre passa |
+| Atraso máximo: depois disso o item **não** é publicado, é encerrado | `max_publication_lateness_seconds`, migration 405 (claim + varredura); **por formato** em `max_publication_lateness_seconds_by_format` (426) | 300 s para reel e demais; **story: 1 h enquanto `attempt_count < 5`** (decisão do dono em 09/09/2026: story é 1 por perfil por dia, perder um custa o dia inteiro; ele quis limite em tentativas, não em horas). Item com `creation_id` sempre passa. Falha de conteúdo não retenta |
 | Item vencido não é republicado, nem após incidente | decisão do dono, 07/09/2026 | — |
 | Mínimo entre posts do mesmo perfil, por formato | `publication_rate_limit_settings`, 330 | 45 s; reel 1.500 s |
 | Máximo por perfil em 24 h | mesma tabela (e `reserve_publication_daily_limit`) | 100 |
@@ -337,7 +337,7 @@ em `reauthorization_required` e não publicam.
 | rotas `publication-claims`, `publication-results`, `queue-summary-refresh` e o modo `dispatch-endpoint` | sem chamador / apontam para rota removida | remover ou documentar como mortos |
 | envs `SUPABASE_URL` / `SUPABASE_ANON_KEY` na Vercel | só scripts one-off leem, como fallback | apontam para o projeto antigo; remover |
 | Falha terminal "falsa" (item marcado `failed` mas contêiner PUBLISHED na Meta) | acontece quando a chamada de conclusão falha depois de publicar (em 07/09: HTML 521 do gateway no reinício do compute; antes, 04/09: veredito ERROR falso da Meta). A manutenção arquiva a falha em minutos; o botão "Reprocessar" da tela não desarquiva e **zera `creation_id`**, o que publicaria de novo | auditar com `audit-meta-container-failures.mjs` (só leitura); se PUBLISHED, desarquivar e devolver ao worker com o SQL da 8.7 passo 6 — nunca pelo botão. Pendente: o botão preservar `creation_id` quando houver contêiner e limpar `archived_at` |
-| Falha **retryável** (ex.: `meta_timeout_criar_container`) cujo retry só vence depois do corte de 300 s | o claim exclui item sem contêiner atrasado além do corte (regra certa: não publica atrasado), mas `expire_late_publication_items` só encerra `waiting/ready` e o arquivador (335) só arquiva falha terminal. O item fica `failed` com `next_attempt_at` no passado **para sempre**: nunca é tentado, nunca é encerrado, conta como erro na tela e na rota de saúde. Medido em 09/09/2026: 22 itens de 06:20Z (lentidão da Meta às 06:23Z) | não reprocessar (vencido fica vencido). Fechar como `ignored` + `publication_past_due` com o dono, como os 291 de 07/09. Pendente: a varredura de atraso passar a encerrar também `failed` com retry vencido além do corte |
+| Falha **retryável** (ex.: `meta_timeout_criar_container`) cujo retry só vence depois do corte | **corrigido na 426 (09/09/2026)**: dentro da janela do formato o claim tenta de novo; fora dela `expire_late_publication_items` encerra também `failed` com retry vencido como `publication_past_due`. Antes o item ficava `failed` para sempre (22 stories em 09/09, 06:20Z, republicados à mão pelo dono às 17:0xZ) | se voltar a aparecer `failed` com `next_attempt_at` no passado por mais de 15 min, conferir se a 426 está aplicada |
 | `get_global_operational_health` (rota `operational-health`) diz "unhealthy" com a fila limpa | `max_lag_seconds` inclui `failed` **terminal** e itens **arquivados** (migration 188), e `overdue` usa 120 s em vez do corte de 300 s; `stale_workers` conta qualquer tipo de worker sem processo ativo (heartbeats de Zernio/legado contavam) | pendente: restringir o lag a `archived_at is null` e excluir falha terminal; heartbeats mortos removidos em 07/09 |
 | `.dashboard-*`, `_cpu_snap`, scripts one-off | lixo de investigação | não são parte do sistema |
 
@@ -540,6 +540,7 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 | 02/09 | teto por minuto 600 → 1.200 derrubou a API | o teto alonga a posse do lock; pool 41 |
 | 06/09 | dois itens envenenados travaram a confirmação | recuo exponencial; denominador mínimo |
 | 07/09 | laço de preparação a 78 erros/s por 17 dias; log de 99 GB encheu o volume de sistema; projeto novo `athena`; onda das 17:25Z pediu 3 publicadores; com 3 processos apareceu o claim duplo (P0002), corrigido na 425 |
+| 09/09 (tarde) | migration 426: story ganha janela de atraso própria de 1 h enquanto `attempt_count < 5` (reel segue em 300 s); varredura encerra falha retryável presa; os 22 stories das 06:20Z foram reagendados para publicar às 17:0xZ por decisão do dono | regra de negócio: story é 1 por perfil por dia |
 | 08–09/09 | primeiros dois dias no Medium: ~2.000 posts/h, ondas de até 455 em 5 min (bloco de 441 às 02:50Z de 09/09) com 0 encerrados por atraso, ativas ≤ 5, pool ocioso até 41; a frota foi de 2.113 para 3.261 perfis e voltou a 2.956 depois de **302 perfis em checkpoint entre 03:00Z e 05:00Z de 09/09** (00:00–02:00 BRT), em 15+ apps, sem bloqueio de app — 19.010 itens ignorados pela regra da seção 5; lentidão da Meta às 06:23Z deixou 22 timeouts presos em `failed` (6.2); PNG publica normalmente (1.042 stories), 2 falhas 9004 são arquivos específicos | a fila não foi o gargalo em nenhum momento; o custo do período foi perfil, não capacidade |
 | 07/09 (noite) | projeto antigo apagado pelo dono; compute XL → Medium às 23:36Z com tetos 24/32 (seção 8.7); o semáforo da Meta prende só a chamada HTTP, então o pool do banco é ditado por `LIMIT` e `STAGED_DISPATCH_CONCURRENCY`; no minuto do reinício, 2 itens publicados viraram falha terminal porque o HTML 521 do gateway não era classificado como infraestrutura (corrigido nos dois despachantes) | 7 h no projeto novo sem rollback e sem expirado por capacidade; único perfil derrubado foi um checkpoint (95 itens ignorados pela regra da seção 5) | recuo no laço; log com código; despachante da Vercel removido; o serializador é o semáforo da Meta |
 
@@ -551,7 +552,6 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 - Atualizar `.env.worker.deploy` e os docs de X/Twitter que citam o ref antigo (as envs `SUPABASE_URL`/`SUPABASE_ANON_KEY` saíram da Vercel em 07/09).
 - Remover as rotas mortas e o modo `dispatch-endpoint`; corrigir o comentário de `queue-summary-refresh`.
 - Corrigir `get_global_operational_health` (lag só de itens abertos e não arquivados; `overdue` alinhado ao corte de 300 s).
-- `expire_late_publication_items` (405) encerrar também `failed` com `next_attempt_at` vencido e `execute_at` além do corte, sem contêiner; hoje esses itens ficam presos como `failed` (6.2).
 - Botão "Reprocessar item falho" (`PATCH /api/publications/[itemId]`): limpar `archived_at` e **não** zerar `creation_id` quando houver contêiner (o worker já reconhece PUBLISHED); hoje pode duplicar post e pode não fazer nada.
 - As quatro mudanças de código do plano (lote deslizante, semáforo por app, cache da sonda, log por fase).
 
