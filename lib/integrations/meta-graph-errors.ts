@@ -19,6 +19,21 @@ export const META_AUTHENTICATION_ERROR_CODE = 190;
 export const META_MEDIA_FETCH_ERROR_CODE = 9004;
 
 /**
+ * "Media ID is not available."
+ *
+ * Chega na chamada de PUBLICAR, depois de o contêiner ter respondido FINISHED.
+ * É a Meta dizendo que a mídia ainda não está pronta do lado dela — o mesmo
+ * veredito provisório do ERROR de 04/09 e do 9004, só que um passo adiante.
+ *
+ * Medido em 10/09/2026: um reel cujo arquivo já havia publicado 636 vezes,
+ * contêiner criado às 10:32Z, dois adiamentos por IN_PROGRESS, FINISHED, e o
+ * publish devolveu 9007 às 10:33:52Z. Encerrado como terminal na primeira
+ * leitura. Retentar consulta o contêiner de novo e publica quando ele estiver
+ * de fato pronto; se nunca ficar, PUBLICATION_MAX_ATTEMPTS encerra.
+ */
+export const META_MEDIA_NOT_AVAILABLE_ERROR_CODE = 9007;
+
+/**
  * Decide se uma resposta de erro da Graph API adia a publicação ou a encerra.
  *
  * O caso que exige atenção é o de autenticação (HTTP 401 e o código 190). Ele
@@ -50,6 +65,7 @@ export function isRetryableGraphFailure(
   // definitivo. Se a mídia estiver mesmo quebrada, PUBLICATION_MAX_ATTEMPTS
   // encerra do mesmo jeito, só que depois de a Meta repetir o veredito.
   if (graphErrorCode === META_MEDIA_FETCH_ERROR_CODE) return true;
+  if (graphErrorCode === META_MEDIA_NOT_AVAILABLE_ERROR_CODE) return true;
   return httpStatus >= 500 || httpStatus === 429 || isTransient === true;
 }
 

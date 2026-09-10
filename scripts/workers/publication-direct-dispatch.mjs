@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 // foi assim que a correcao de 04/09 nasceu valendo so metade: o painel adiava o
 // ERROR e este worker -- que e quem realmente publica -- continuava encerrando.
 // Import relativo com extensao porque a VPS roda com `node` puro, sem tsx.
-import { metaContainerVerdict, isMetaAppApiBlocked, META_MEDIA_FETCH_ERROR_CODE } from '../../lib/integrations/meta-graph-errors.ts';
+import { metaContainerVerdict, isMetaAppApiBlocked, META_MEDIA_FETCH_ERROR_CODE, META_MEDIA_NOT_AVAILABLE_ERROR_CODE } from '../../lib/integrations/meta-graph-errors.ts';
 
 export const PUBLICATION_MAX_ATTEMPTS = 5;
 
@@ -626,8 +626,12 @@ async function readInstagramResponse(response) {
     // despachante da Vercel a usava; este worker nunca. Em 09/09/2026 dois PNG
     // que ja tinham publicado 1.397 e 1.100 vezes morreram aqui na primeira
     // leitura. Retentar custa uma tentativa; encerrar custa o story do dia.
+    // 9007 "Media ID is not available" vem no PUBLICAR depois de FINISHED: a
+    // midia ainda nao esta pronta do lado da Meta (10/09/2026, arquivo que ja
+    // tinha publicado 636 vezes). Retentar consulta o conteiner de novo.
     error.retryable = response.status >= 500 || response.status === 429 || body.error?.is_transient === true
-      || Number(body.error?.code) === META_MEDIA_FETCH_ERROR_CODE;
+      || Number(body.error?.code) === META_MEDIA_FETCH_ERROR_CODE
+      || Number(body.error?.code) === META_MEDIA_NOT_AVAILABLE_ERROR_CODE;
     error.code = String(body.error?.code ?? response.status);
     error.httpStatus = response.status;
     error.errorSubcode = Number.isInteger(body.error?.error_subcode) ? body.error.error_subcode : null;
