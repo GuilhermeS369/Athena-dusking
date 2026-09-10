@@ -2064,6 +2064,34 @@ export async function processZernioProfileRecyclingJobs(workerId, limit = 10) {
       p_error_message: errorMessage,
     });
     if (error) throw error;
+
+    // 401 = a chave da conexao nao autoriza mais. O DELETE remoto e impossivel
+    // por construcao, e repetir nao muda nada — por isso ele ja veio parar em
+    // dead_letter aqui em cima. Sem este passo o perfil ficaria preso para
+    // sempre: claim_zernio_profile_recycling_jobs nao reivindica dead_letter, e
+    // a tela mostraria "tentar novamente" para algo que nunca vai passar.
+    //
+    // O encerramento e apenas do lado do Athena e diz isso em voz alta:
+    // remote_result grava closed_without_remote_removal, o 401 e a mensagem
+    // originais ficam no incidente, e o evento registra que a vaga remota pode
+    // continuar ocupada. Ver migration 366.
+    if (httpStatus === 401 && data?.deadLettered) {
+      const { data: closed, error: closeError } = await supabase.rpc('finalize_zernio_removal_without_remote', {
+        p_organization_id: job.organization_id,
+        p_incident_id: job.incident_id,
+        p_reason: `Chave Zernio sem autorização (401): a conta remota não pôde ser removida e o perfil foi encerrado apenas no Athena. ${errorMessage ?? ''}`.trim(),
+      });
+      if (closeError) {
+        // Nao derruba o ciclo: o incidente segue em dead_letter, com a evidencia
+        // intacta, e a proxima passagem tenta de novo.
+        console.error('[publication-worker] falha ao encerrar localmente perfil com chave Zernio 401', {
+          incidentId: job.incident_id, code: closeError.code, message: closeError.message,
+        });
+      } else if (closed?.closed) {
+        return { jobId: job.job_id, outcome: 'closed_without_remote_removal', result: closed };
+      }
+    }
+
     return { jobId: job.job_id, outcome, result: data };
   }));
   const results = processed.map((entry, index) => entry.status === 'fulfilled'
