@@ -39,7 +39,7 @@ module.exports = {
     npmWorker('athena-publication-worker', 'worker:publication', {
       PUBLICATION_WORKER_ID: 'athena-vps-publication-1',
     }),
-    // Publicadores 2 e 3: so caminho direto. Ligam pela conta da secao 8.3 do mestre.
+    // Publicadores 2, 3 e 4: so caminho direto. Ligam pela conta da secao 8.3 do mestre.
     npmWorker('athena-publication-worker-2', 'worker:publication', {
       PUBLICATION_WORKER_ID: 'athena-vps-publication-2',
       PUBLICATION_WORKER_MODE: 'direct',
@@ -48,6 +48,15 @@ module.exports = {
     }),
     npmWorker('athena-publication-worker-3', 'worker:publication', {
       PUBLICATION_WORKER_ID: 'athena-vps-publication-3',
+      PUBLICATION_WORKER_MODE: 'direct',
+      PUBLICATION_WORKER_PREPARATION_ENABLED: 'false',
+      PUBLICATION_WORKER_STAGING_ENABLED: 'false',
+    }),
+    // Publicador 4: so caminho direto, ligado em 12/09/2026. O bloco das 07:00 BRT
+    // (500-680 posts num intervalo de 5 min) passava da conta de 3 publicadores:
+    // p90 de 296 s e reels encerrados por atraso em 11 e 12/09. Secao 8.3 do mestre.
+    npmWorker('athena-publication-worker-4', 'worker:publication', {
+      PUBLICATION_WORKER_ID: 'athena-vps-publication-4',
       PUBLICATION_WORKER_MODE: 'direct',
       PUBLICATION_WORKER_PREPARATION_ENABLED: 'false',
       PUBLICATION_WORKER_STAGING_ENABLED: 'false',

@@ -36,7 +36,7 @@ os números) e o [runbook da VPS](vps-worker-runbook.md) (acesso e deploy).
 | Processo PM2 | Script (`npm run`) | O que faz por ciclo | Deve estar |
 |---|---|---|---|
 | `athena-publication-worker` (id `athena-vps-publication-1`) | `worker:publication` → `publication-worker.mjs` | **três laços independentes** a cada 5 s: despacho (spool + direto), staging (spool em disco), preparação | **ligado** |
-| `athena-publication-worker-2`, `-3` | mesmo script; env salvo no PM2: `MODE=direct`, `PREPARATION_ENABLED=false`, `STAGING_ENABLED=false`, id próprio | só caminho direto | conforme a conta da seção 8.3 (em 07/09: ligados) |
+| `athena-publication-worker-2`, `-3`, `-4` | mesmo script; env salvo no PM2 (fonte: `deploy/instagram/ecosystem.config.cjs`): `MODE=direct`, `PREPARATION_ENABLED=false`, `STAGING_ENABLED=false`, id próprio | só caminho direto | conforme a conta da seção 8.3 (2 e 3 desde 07/09; **4 desde 12/09/2026 12:22Z**, pelo bloco das 07:00 BRT) |
 | `athena-generation-worker` | `worker:publication-generation` | `get_bulk_rotation_worker_summary` → jobs (`claim/materialize/process_publication_generation_*`) → pressão (`get_publication_generation_pressure_signal`) → lease pesado → `claim/process_bulk_rotation_generation_chunk` → heartbeat | ligado (`POLL_INTERVAL_MS=15000`) |
 | `athena-queue-summary-worker` | `worker:queue-summary` | por org vencida, **serial**, `refresh_publication_queue_summary` (6,7 s cada) | ligado (`QUEUE_SUMMARY_MAX_AGE_SECONDS=300`) |
 | `athena-profile-analytics-worker` | `worker:profile-analytics` | POST `/api/internal/profile-analytics-refresh-dispatch` (abre as coletas fixas 09:00/15:00/21:00 hora local via `open_meta_analytics_run`) + heartbeat; **pula o sleep** enquanto `hasMore` | ligado |
@@ -393,9 +393,20 @@ processos = teto( pico_por_minuto × segundos_por_post_na_Meta ÷ (20 × 60 × 0
 ```
 
 Suba só se `porItemMs` p50 > 8 s **e** vencidos abertos crescendo por 2 min; desça quando
-p50 < 3 s por uma hora. Processo novo: `PUBLICATION_WORKER_ID` único, env recriado no PM2,
-`pm2 save`. Em 07/09: pico 93/min, 3 s por post → 1 processo bastaria sem o defeito do lote;
-com ele, 3. Para 5.000 perfis/hora: 2 a 3; nunca mais que 5 sem corrigir o lote.
+p50 < 3 s por uma hora. Processo novo: entrada no `deploy/instagram/ecosystem.config.cjs`
+(`PUBLICATION_WORKER_ID` único, `MODE=direct`, preparação e staging desligados), `scp` para a
+VPS, `pm2 start deploy/instagram/ecosystem.config.cjs --only <nome>` **num vale**, `pm2 save`;
+os outros publicadores não reiniciam. Em 07/09: pico 93/min, 3 s por post → 1 processo bastaria
+sem o defeito do lote; com ele, 3. Para 5.000 perfis/hora: 2 a 3; nunca mais que 5 sem corrigir o lote.
+
+**Medida de 11–12/09 (por que existe o 4º):** com 3 publicadores a fila entrega ~300–350 posts
+por bloco de 5 min (limite adaptativo 24 × 3, ~53 s por post). O bloco das 07:00 BRT (10:00Z)
+chegou a 576–620 posts em um único intervalo de 5 min, e o das 08:40 BRT a 877 em 10 min; o p90
+foi a 296 s e **reels sem nenhuma tentativa** (`attempt_count = 0`, sem contêiner) foram encerrados
+pelo corte de 300 s: 1 em 11/09, 10 + 5 em 12/09. Isso é capacidade, não erro — o item nem foi
+reclamado. O 4º processo subiu às 12:22Z de 12/09 (vale de 68–107 posts/5 min), reclamou no
+primeiro ciclo e não reiniciou ninguém. Se o bloco das 07:00 BRT ainda perder reel com 4, o próximo
+passo é o 5º, antes de qualquer teto; o pool do Medium (41 ocioso, ativas ≤ 6) tem folga para isso.
 
 ### 8.4 Migration / DDL
 
@@ -545,6 +556,7 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 | 02/09 | teto por minuto 600 → 1.200 derrubou a API | o teto alonga a posse do lock; pool 41 |
 | 06/09 | dois itens envenenados travaram a confirmação | recuo exponencial; denominador mínimo |
 | 07/09 | laço de preparação a 78 erros/s por 17 dias; log de 99 GB encheu o volume de sistema; projeto novo `athena`; onda das 17:25Z pediu 3 publicadores; com 3 processos apareceu o claim duplo (P0002), corrigido na 425 |
+| 11–12/09 | noite 01:40Z→12:20Z limpa: ~27.000 posts, 0 falhas terminais, 0 erros nos logs da VPS, 51 perfis em checkpoint (4.300 itens ignorados pela seção 5); **15 reels encerrados por atraso sem nenhuma tentativa**: 10 no bloco das 07:00 BRT (576 em 5 min) e 5 às 08:45 BRT (877 em 10 min) — capacidade de 3 publicadores (~300–350/5 min) | 4º publicador (só direto) ligado às 12:22Z de 12/09 num vale, sem reiniciar os outros; regra 8.3 atualizada com a medida |
 | 10/09 | excluir o grupo "Miguel" (Pomodoro) tirou as 119 mídias, o histórico e o grupo, mas os 15 perfis Zernio foram a `dead_letter` com 401 na 1ª tentativa — 12 chaves distintas falharam em 5 s, e a última reciclagem Zernio bem-sucedida da org tinha sido 03/09 22:26. Ficavam órfãos: sem grupo, fila cancelada, e a tela oferecendo "tentar de novo" para algo que nunca passaria | migration 427: um caminho terminal sem volta precisa de saída. 401 encerra o perfil local e **diz** que a conta remota ficou lá, em vez de fingir remoção |
 | 09–10/09 (noite) | 29.000 posts, 0 encerrados por atraso; timeouts de criar contêiner às 06:20Z pelo segundo dia (14) e às 16:10Z (31), **todos publicados na 2ª tentativa** pela regra da 426; 87 perfis em checkpoint (2.517 itens); frota 3.061 com 210 conectados; 1 reel com `9007` no publicar, tratado no mesmo dia | a lentidão da Meta às 03:20 BRT coincide com o maior bloco da madrugada (2.778/h); o retry cobre, então o limite de 25 s fica |
 | 09/09 (tarde, 2) | `9004` e `media_url_tail_range_invalid` passam a retryáveis no worker, com o que o host respondeu no motivo; os 6 casos de 08–09/09 eram arquivos que publicaram centenas de vezes | regra do dono: nenhuma falha por problema que não tratamos |
