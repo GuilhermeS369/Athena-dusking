@@ -569,6 +569,8 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 
 ## 12. Pendências abertas (07/09/2026)
 
+- **Logs do PM2 sem carimbo de hora** (achado de 13/09/2026 00:03Z): nenhuma linha dos `-out-`/`-error-` começa com data, então filtrar log "por horário" não filtra nada — só contagem total do `-error-` é confiável. Corrigir com `log_date_format: 'YYYY-MM-DDTHH:mm:ssZ'` no `npmWorker()` do ecosystem; **só vale após `pm2 restart <nome> --update-env`**, que zera o limite adaptativo (8.2): fazer um processo por vez, em vale, com o dono acordado.
+- Rotação de meia-noite do `pm2-logrotate` em 13/09 copiou só 0,6 MB por publicador e não truncou os atuais (16–19 MB às 00:05Z); os dias anteriores rotacionaram 18–21 MB certinho. O teto `max_size 50M` (checado a cada 30 s) segura o disco (963 MB de logs, 90 GB livres), mas conferir `du -sh /root/.pm2/logs` na rotina da manhã.
 - Rotacionar `PUBLICATION_WORKER_SECRET`, `META_OAUTH_STATE_SECRET` e chaves R2 (passaram pelo chat).
 - Atualizar `.env.worker.deploy` e os docs de X/Twitter que citam o ref antigo (as envs `SUPABASE_URL`/`SUPABASE_ANON_KEY` saíram da Vercel em 07/09).
 - Remover as rotas mortas e o modo `dispatch-endpoint`; corrigir o comentário de `queue-summary-refresh`.
