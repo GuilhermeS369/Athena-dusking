@@ -44,8 +44,83 @@ test('cancelamento por perfil grupo e lote cobre geradores e recalcula lotes afe
   assert.match(migration, /remainingActiveItems/);
 });
 
-test('operacao duravel e isolada por organizacao e retomada idempotentemente', async () => {
+// Fila de cancelamento (migration 428, 14/09/2026). Ate entao a tela guardava
+// UMA operacao no navegador e so o poll da aba avancava os blocos de 1.500:
+// clicar no segundo grupo abandonava o primeiro no meio.
+test('a tela le a fila de cancelamento do servidor e so avanca operacao parada', async () => {
   const hook = await readFile(new URL('app/queue/use-publication-queue.ts', root), 'utf8');
-  assert.match(hook, /cancellation-operation\.\$\{organizationId\}/);
-  assert.match(hook, /runCancellation\(cancellationOperation, true\)/);
+  assert.match(hook, /cancellation-dismissed\.\$\{organizationId\}/);
+  assert.doesNotMatch(hook, /runCancellation\(cancellationOperation, true\)/);
+  assert.match(hook, /useState<QueueCancellationOperation\[\]>/);
+  assert.match(hook, /CANCELLATION_STALE_STEP_MS = 15_000/);
+  assert.match(hook, /cancellationExecuteInFlightRef/);
+  assert.match(hook, /body: JSON\.stringify\(\{ operationId: operation\.id, execute: true \}\)/);
+  // O botao da linha nao depende mais do unico `queueActionId` da pagina.
+  assert.doesNotMatch(hook, /setQueueActionId\(`scope:/);
+  const client = await readFile(new URL('app/queue/queue-client.tsx', root), 'utf8');
+  assert.match(client, /QueueCancellationList/);
+  assert.match(client, /if \(card\.tone === 'cancelled'\) return 'Cancelada';/);
+  assert.match(client, /queue\.recentCompletedCancellationFor\(scope, row\.id\)/);
+  const types = await readFile(new URL('app/queue/publication-queue-types.ts', root), 'utf8');
+  assert.match(types, /'done' \| 'idle' \| 'cancelled'/);
+});
+
+test('migration 428: blocos sem bloqueio por item em voo, busy em vez de esperar, fontes primeiro', async () => {
+  const migration = await readFile(new URL('supabase/migrations/428_publication_queue_cancellation_queue.sql', root), 'utf8');
+  const chunk = migration.slice(migration.indexOf('function public.cancel_publication_queue_scope_chunk'), migration.indexOf('function public.execute_publication_queue_cancellation'));
+  assert.match(chunk, /for update skip locked/);
+  assert.doesNotMatch(chunk, /'chunkState', 'blocked'/);
+  assert.match(chunk, /'inFlightItems', in_flight_items/);
+  const executor = migration.slice(migration.indexOf('function public.execute_server_publication_queue_cancellation'), migration.indexOf('function public.refresh_publication_queue_summary'));
+  assert.match(executor, /for update skip locked/);
+  assert.match(executor, /'state', 'busy'/);
+  assert.match(executor, /cancel_publication_queue_scope_sources\(operation_row\.scope, operation_row\.target_id\)/);
+  assert.match(executor, /interval '30 minutes'/);
+  assert.match(executor, /cancelable_count > 1500 or \(cancelable_count > 0 and in_flight_count > 0\)/);
+  assert.match(migration, /function public.invalidate_publication_queue_summary/);
+  assert.match(migration, /add column if not exists target_label text/);
+});
+
+test('migration 428: a passada compacta ignora arquivados e nao mexe nos lotes da organizacao inteira', async () => {
+  const migration = await readFile(new URL('supabase/migrations/428_publication_queue_cancellation_queue.sql', root), 'utf8');
+  const compact = migration.slice(migration.indexOf('function public.execute_publication_queue_cancellation'), migration.indexOf('function public.execute_server_publication_queue_cancellation'));
+  // Os dois predicados de escopo (cursor de trava e update final) filtram arquivados.
+  assert.equal((compact.match(/item_source\.archived_at is null/g) ?? []).length, 2);
+  assert.doesNotMatch(compact, /update public\.publication_batches batch_row\s+set status = 'cancelled'/);
+});
+
+test('migration 428: o resumo tem o tom cancelled e mantem a linha do alvo cancelado na janela', async () => {
+  const migration = await readFile(new URL('supabase/migrations/428_publication_queue_cancellation_queue.sql', root), 'utf8');
+  const refresh = migration.slice(migration.indexOf('function public.refresh_publication_queue_summary'));
+  assert.match(refresh, /when a\.active = 0 and \(r\.row_id is not null or \(a\.closed > 0 and a\.completed = 0\)\) then 'cancelled'/);
+  assert.match(refresh, /where a\.total > 0 or r\.row_id is not null/);
+  assert.match(refresh, /operation\.completed_at >= cutoff/);
+});
+
+test('rota de cancelamento: orcamento de 30 s, lista limitada, avanco por operationId e invalidacao do resumo', async () => {
+  const route = await readFile(new URL('app/api/publications/cancel/route.ts', root), 'utf8');
+  assert.match(route, /export const maxDuration = 30;/);
+  assert.match(route, /RECENT_OPERATIONS_LIMIT = 50/);
+  assert.match(route, /\.limit\(RECENT_OPERATIONS_LIMIT\)/);
+  assert.match(route, /typeof body\.operationId === 'string'/);
+  assert.match(route, /rpc\('invalidate_publication_queue_summary'/);
+  assert.match(route, /state === 'busy'/);
+});
+
+test('worker de cancelamento: serial, limitado, registrado no package.json e no PM2', async () => {
+  const [worker, packageJson, ecosystem] = await Promise.all([
+    readFile(new URL('scripts/workers/publication-cancellation-worker.mjs', root), 'utf8'),
+    readFile(new URL('package.json', root), 'utf8'),
+    readFile(new URL('deploy/instagram/ecosystem.config.cjs', root), 'utf8'),
+  ]);
+  assert.match(worker, /\.eq\('status', 'running'\)/);
+  assert.match(worker, /\.order\('updated_at', \{ ascending: true \}\)\s*\.order\('id', \{ ascending: true \}\)/);
+  assert.match(worker, /\.limit\(maxOperations\)/);
+  assert.match(worker, /'PUBLICATION_CANCELLATION_WORKER_MAX_OPERATIONS', 20, 1, 100/);
+  assert.match(worker, /for \(const op of operacoes\)/);
+  assert.match(worker, /tickBudgetMs/);
+  assert.match(worker, /rpc\('execute_server_publication_queue_cancellation'/);
+  assert.match(worker, /rpc\('invalidate_publication_queue_summary'/);
+  assert.match(packageJson, /"worker:publication-cancellation": "node scripts\/workers\/publication-cancellation-worker\.mjs"/);
+  assert.match(ecosystem, /npmWorker\('athena-cancellation-worker', 'worker:publication-cancellation'\)/);
 });

@@ -1,11 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { BulkPlanProgressFeed } from '@/app/components/bulk-plan-progress-list';
 
-import type { Organization, QueueAggregateTab } from './publication-queue-types';
+import type { Organization, QueueAggregateTab, QueueCancellationOperation } from './publication-queue-types';
 import { usePublicationQueue } from './use-publication-queue';
 import {
   cancelableGenerationJobStatuses,
@@ -32,10 +32,12 @@ type AggregatedCard = {
   processing: number;
   active: number;
   nextAt: string | null;
-  tone: 'paused' | 'posting' | 'error' | 'suspended' | 'done' | 'idle';
+  tone: 'paused' | 'posting' | 'error' | 'suspended' | 'done' | 'idle' | 'cancelled';
   pausedReason?: string | null;
   consecutiveFailures?: number;
   imageUrl?: string | null;
+  // Operação de cancelamento em massa correndo para esta linha, se houver.
+  cancelling?: QueueCancellationOperation | null;
 };
 
 function initials(value: string) {
@@ -58,6 +60,12 @@ function compactFuture(value: string | null) {
 }
 
 function statusToneLabel(card: AggregatedCard) {
+  if (card.cancelling) {
+    const waiting = card.cancelling.result?.waitingForInFlight === true;
+    const inFlight = Number(card.cancelling.result?.inFlightItems ?? 0);
+    return waiting && inFlight > 0 ? `Aguardando ${inFlight} em envio` : `Cancelando… ${card.cancelling.progress}%`;
+  }
+  if (card.tone === 'cancelled') return 'Cancelada';
   if (card.tone === 'paused') return 'Pausado por limite de erros';
   if (card.tone === 'error') return 'Com erro';
   if (card.tone === 'posting') return 'Postando';
@@ -112,53 +120,29 @@ function QueueActions({ queue, canManage }: { queue: ReturnType<typeof usePublic
   );
 }
 
-function QueueCancellationProgress({ queue }: { queue: ReturnType<typeof usePublicationQueue> }) {
-  const requestInFlight = useRef(false);
-  const operation = queue.cancellationOperation;
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+const scopeLabels: Record<QueueCancellationOperation['scope'], string> = { account: 'Perfil', batch: 'Lote', group: 'Grupo' };
 
-  useEffect(() => {
-    if (!operation || operation.status !== 'running') {
-      setElapsedSeconds(0);
-      return;
-    }
-    const startedAt = Date.parse(operation.createdAt || new Date().toISOString());
-    const updateElapsed = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
-    updateElapsed();
-    const interval = window.setInterval(updateElapsed, 1000);
-    return () => window.clearInterval(interval);
-  }, [operation]);
-
-  useEffect(() => {
-    if (!operation || operation.status !== 'running') return;
-    const resume = async () => {
-      if (requestInFlight.current) return;
-      requestInFlight.current = true;
-      try {
-        await queue.resumeCancellationOperation();
-      } finally {
-        requestInFlight.current = false;
-      }
-    };
-    const interval = window.setInterval(() => void resume(), 3000);
-    return () => window.clearInterval(interval);
-  }, [operation, queue]);
-
-  if (!operation) return null;
+function QueueCancellationRow({ operation, elapsedSeconds, onDismiss }: { operation: QueueCancellationOperation; elapsedSeconds: number; onDismiss: (id: string) => void }) {
   const running = operation.status === 'running';
   const completed = operation.status === 'completed';
   const blocked = operation.status === 'blocked';
+  const label = operation.targetLabel ?? 'alvo';
+  const cancelledSoFar = Number(operation.result?.cancelledSoFar ?? operation.result?.cancelledItems ?? 0);
+  const totalAtStart = Number(operation.result?.totalCancelableItemsAtStart ?? 0);
+  const inFlight = Number(operation.result?.inFlightItems ?? 0);
+  const inFlightLeft = Number(operation.result?.inFlightItemsLeft ?? 0);
+  const waiting = operation.result?.waitingForInFlight === true;
   const title = running
-    ? `Cancelando ${operation.targetLabel} com segurança…`
+    ? (waiting ? `Aguardando ${inFlight} publicação(ões) de ${label} em envio…` : `Cancelando ${label}…`)
     : completed
-      ? `Fila de ${operation.targetLabel} cancelada e verificada`
+      ? (inFlightLeft > 0 ? `Fila de ${label} interrompida` : `Fila de ${label} cancelada e verificada`)
       : blocked
-        ? `Cancelamento de ${operation.targetLabel} bloqueado`
-        : `Não foi possível concluir o cancelamento de ${operation.targetLabel}`;
+        ? `Cancelamento de ${label} bloqueado`
+        : `Não foi possível concluir o cancelamento de ${label}`;
   const detail = running
-    ? `Verificando e cancelando fontes da fila há ${elapsedSeconds}s. Progresso confirmado: ${operation.progress}%. Esta tela consulta o estado salvo a cada 3 segundos; nenhuma publicação em andamento será interrompida de forma insegura.`
+    ? `${cancelledSoFar.toLocaleString('pt-BR')}${totalAtStart ? ` de ${totalAtStart.toLocaleString('pt-BR')}` : ''} cancelada(s) há ${elapsedSeconds}s. ${waiting ? 'O que já está sendo enviado termina sozinho; o que voltar é cancelado em seguida.' : 'Blocos de 1.500 avançados pelo servidor; esta tela só acompanha.'}`
     : completed
-      ? `${Number(operation.result?.cancelledItems ?? 0).toLocaleString('pt-BR')} publicação(ões) interrompida(s). Feche este aviso para não exibi-lo novamente.`
+      ? `${Number(operation.result?.cancelledItems ?? 0).toLocaleString('pt-BR')} publicação(ões) interrompida(s).${inFlightLeft > 0 ? ` ${inFlightLeft} ainda em envio após 30 minutos terminam sozinhas.` : ''} Feche este aviso para não exibi-lo novamente.`
       : blocked
         ? 'Existe publicação já em processamento; nenhum item foi alterado. Aguarde a conclusão e tente outra vez.'
         : operation.error ?? 'A operação não pôde ser confirmada. O estado foi preservado para auditoria.';
@@ -167,12 +151,41 @@ function QueueCancellationProgress({ queue }: { queue: ReturnType<typeof usePubl
     <section className={`queue-cancellation-progress is-${operation.status}`} role={running ? 'status' : 'alert'} aria-live="polite">
       <div className="queue-cancellation-progress-icon" aria-hidden="true">{running ? '×' : completed ? '✓' : '!'}</div>
       <div className="queue-cancellation-progress-content">
-        <div><strong>{title}</strong><span>{running ? 'Em andamento' : completed ? '100%' : 'Atenção'}</span></div>
+        <div><strong>{title}<span className="queue-cancellation-scope">{scopeLabels[operation.scope]}</span></strong><span>{running ? `${operation.progress}%` : completed ? '100%' : 'Atenção'}</span></div>
         <p>{detail}</p>
         {running && <div className="queue-cancellation-progress-track" aria-label={`Cancelamento em andamento: ${operation.progress}%`}><span style={{ width: `${Math.max(5, operation.progress)}%` }} /></div>}
       </div>
-      {!running && <button type="button" className="queue-cancellation-progress-close" onClick={queue.dismissCancellationOperation} aria-label="Fechar aviso de cancelamento">×</button>}
+      {!running && <button type="button" className="queue-cancellation-progress-close" onClick={() => onDismiss(operation.id)} aria-label="Fechar aviso de cancelamento">×</button>}
     </section>
+  );
+}
+
+/**
+ * Fila de cancelamento: uma linha por operação da organização (últimas 24 h),
+ * em execução primeiro. Sem polling aqui — o hook é o dono da lista.
+ */
+function QueueCancellationList({ queue }: { queue: ReturnType<typeof usePublicationQueue> }) {
+  const [now, setNow] = useState(() => Date.now());
+  const dismissed = new Set(queue.dismissedCancellationIds);
+  const operations = queue.cancellationOperations.filter((operation) => operation.status === 'running' || !dismissed.has(operation.id));
+  const running = operations.filter((operation) => operation.status === 'running').length;
+
+  useEffect(() => {
+    if (!running) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [running]);
+
+  if (operations.length === 0) return null;
+  return (
+    <div className="queue-cancellation-list" aria-label="Fila de cancelamento">
+      <div className="queue-cancellation-list-header"><strong>Fila de cancelamento</strong><span>{running ? `${running} em andamento` : 'nenhuma em andamento'}</span></div>
+      {operations.map((operation) => {
+        const startedAt = Date.parse(operation.createdAt ?? '') || now;
+        const elapsedSeconds = operation.status === 'running' ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0;
+        return <QueueCancellationRow key={operation.id} operation={operation} elapsedSeconds={elapsedSeconds} onDismiss={queue.dismissCancellationOperation} />;
+      })}
+    </div>
   );
 }
 
@@ -263,9 +276,35 @@ function ReferenceQueueView({
   const cards = useMemo(() => {
     if (!queue.summary) return [];
     const summaryRows = tab === 'account' ? queue.summary.accounts : tab === 'batch' ? queue.summary.batches : queue.summary.groups;
+    const scope: 'account' | 'batch' | 'group' = tab;
     return summaryRows.map((row) => {
       const title = tab === 'account' ? `@${row.username ?? 'perfil'}` : row.title ?? 'Sem nome';
       const pausedBatch = tab === 'batch' ? queue.pausedBatches.batches.find((candidate) => candidate.batchId === row.id) : null;
+      const cancelling = queue.runningCancellationFor(scope, row.id);
+      const active = row.active ?? row.pending + row.processing + row.errors + row.suspended;
+      // Cancelamento concluído depois do snapshot: a linha ainda mostra ativos
+      // que já não existem. Sobrepõe "Cancelada" e zera os ativos até o resumo
+      // materializado alcançar (o worker recalcula em ~20 s).
+      const recentlyCancelled = !cancelling && active > 0 ? queue.recentCompletedCancellationFor(scope, row.id) : null;
+      if (recentlyCancelled) {
+        return {
+          id: row.id,
+          initials: initials(title),
+          title,
+          subtitle: tab === 'account' ? row.display_name || 'Conta Instagram' : tab === 'group' ? `${row.profile_count ?? 0} conta(s)` : row.created_at ? `Criado em ${formatShortDate(row.created_at)}` : 'Lote de publicação',
+          total: row.completed,
+          completed: row.completed,
+          closed: (row.closed ?? 0) + active,
+          errors: 0,
+          suspended: 0,
+          pending: 0,
+          processing: 0,
+          active: 0,
+          nextAt: null,
+          tone: 'cancelled',
+          imageUrl: row.profile_picture_url ?? null,
+        } satisfies AggregatedCard;
+      }
       return {
         id: row.id,
         initials: initials(title),
@@ -282,15 +321,18 @@ function ReferenceQueueView({
         suspended: row.suspended,
         pending: row.pending,
         processing: row.processing,
-        active: row.active ?? row.pending + row.processing + row.errors + row.suspended,
+        active,
         nextAt: row.next_at,
         tone: pausedBatch ? 'paused' : row.tone,
         pausedReason: pausedBatch?.reason ?? null,
         consecutiveFailures: pausedBatch?.consecutiveFailures,
         imageUrl: row.profile_picture_url ?? null,
+        cancelling,
       } satisfies AggregatedCard;
     });
-  }, [queue.pausedBatches.batches, queue.summary, tab]);
+  // As funções de consulta do hook mudam junto com `cancellationOperations`.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queue.pausedBatches.batches, queue.summary, queue.cancellationOperations, tab]);
 
   const totals = queue.summary?.totals ?? {
     total: 0,
@@ -391,6 +433,7 @@ function ReferenceQueueView({
           <span><i className="is-paused" /> <strong>Pausado por limite de erros</strong> — lote bloqueado</span>
           <span><i className="is-suspended" /> <strong>Suspensa</strong> — perfil offline, retomada manual</span>
           <span><i className="is-done" /> <strong>Concluída</strong> — sem itens ativos</span>
+          <span><i className="is-cancelled" /> <strong>Cancelada</strong> — fila interrompida pelo operador</span>
         </div>
 
         {queue.summaryErrors[tab] && cards.length > 0 && <div className="queue-reference-stale" role="status">Exibindo a última página válida. {queue.summaryErrors[tab]} <button type="button" onClick={() => void queue.refreshSummary(tab)}>Tentar novamente</button></div>}
@@ -400,9 +443,11 @@ function ReferenceQueueView({
           {cards.map((card) => {
             const percent = progressPercent(card.completed, card.total);
             const target = cancellationTarget(card);
-            const cancelling = queue.queueActionId === `scope:${target.scope}:${card.id}`;
+            // O estado do botão vem da própria operação, não de um valor único da
+            // página: várias linhas podem estar "Cancelando…" ao mesmo tempo.
+            const cancelling = Boolean(card.cancelling);
             const unsupportedUngroupedScope = target.scope === 'group' && card.id === 'none';
-            return <article className={`queue-reference-row is-${card.tone}`} key={card.id}>
+            return <article className={`queue-reference-row is-${cancelling ? 'cancelling' : card.tone}`} key={card.id}>
               <div className="queue-reference-avatar">{card.imageUrl ? <img src={card.imageUrl} alt="" /> : card.initials}</div>
               <div className="queue-reference-identity"><strong>{card.title}</strong><small>{card.subtitle}</small></div>
               <span className="queue-reference-status"><i />{statusToneLabel(card)}</span>
@@ -416,7 +461,7 @@ function ReferenceQueueView({
                   disabled={!canManage || !target.activeItems || cancelling}
                   aria-busy={cancelling}
                   onClick={() => void queue.cancelScope(target.scope, card.id, card.title)}
-                >{cancelling ? 'Cancelando…' : target.scope === 'account' ? 'Cancelar fila' : target.scope === 'batch' ? 'Cancelar lote' : 'Cancelar grupo'}</button>}
+                >{cancelling ? `Cancelando… ${card.cancelling?.progress ?? 0}%` : target.scope === 'account' ? 'Cancelar fila' : target.scope === 'batch' ? 'Cancelar lote' : 'Cancelar grupo'}</button>}
               </div>
             </article>;
           })}
@@ -449,7 +494,7 @@ export default function QueueClient({ activeOrganization }: QueueClientProps) {
 
       {queue.message && <p className={`inline-message ${queue.message.includes('cancelada') || queue.message.includes('devolvida') || queue.message.includes('liberado') ? 'inline-message-success' : ''}`} role="status">{queue.message}</p>}
       {!canManage && <p className="inline-message" role="alert">Seu papel permite acompanhar a fila, mas não executar ações operacionais.</p>}
-      <QueueCancellationProgress queue={queue} />
+      <QueueCancellationList queue={queue} />
       <PausedBatchAlert queue={queue} />
 
       <ReferenceQueueView queue={queue} tab={aggregateTab} setTab={setAggregateTab} canManage={canManage} />

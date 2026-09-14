@@ -31,6 +31,17 @@ import {
 // consultas leves e continuam no tick de 10 s; o resumo é consultado no máximo 1×/minuto.
 const SUMMARY_POLL_INTERVAL_MS = 60_000;
 
+// Fila de cancelamento. A lista vem do servidor (operações da organização nas
+// últimas 24 h) e é consultada a cada 3 s enquanto houver alguma em execução.
+// Quem avança os blocos é o worker da VPS; o navegador é reserva e só chama a
+// execução de uma operação que ninguém tocou há mais de 15 s.
+const CANCELLATION_POLL_MS = 3_000;
+const CANCELLATION_STALE_STEP_MS = 15_000;
+// Depois de uma operação concluir, o resumo materializado é invalidado e o worker
+// de resumo recalcula em até ~20 s. Duas releituras cobrem esse intervalo sem
+// religar o poll de 60 s do resumo (que só roda com job de geração ativo).
+const CANCELLATION_SUMMARY_CATCH_UP_MS = [25_000, 60_000];
+
 export function usePublicationQueue({
   initialBatches,
   groups,
@@ -84,7 +95,14 @@ export function usePublicationQueue({
     blockedItems: 0,
     batches: [],
   });
-  const [cancellationOperation, setCancellationOperation] = useState<QueueCancellationOperation | null>(null);
+  const [cancellationOperations, setCancellationOperations] = useState<QueueCancellationOperation[]>([]);
+  const [dismissedCancellationIds, setDismissedCancellationIds] = useState<string[]>([]);
+  // Um execute por vez a partir desta aba, mesmo com várias operações correndo.
+  const cancellationExecuteInFlightRef = useRef(false);
+  const cancellationListInFlightRef = useRef(false);
+  // Ids já vistos como concluídos, para a mensagem e a releitura do resumo
+  // dispararem uma vez por operação, não a cada poll.
+  const settledCancellationIdsRef = useRef<Set<string>>(new Set());
 
   const queueFilterSignature = [queueFilter, queueFormatFilter, queueTimingFilter, queueProfileFilter, queueGroupFilter].join('|');
   const latestQueueFilterSignatureRef = useRef(queueFilterSignature);
@@ -95,7 +113,7 @@ export function usePublicationQueue({
   // Qualquer consulta ao resumo — automática ou disparada pelo usuário — reinicia a
   // janela, para o tick não repetir logo em seguida o que acabou de ser carregado.
   const lastSummaryPollAtRef = useRef(0);
-  const cancellationStorageKey = `athena.queue.cancellation-operation.${organizationId}`;
+  const cancellationDismissedStorageKey = `athena.queue.cancellation-dismissed.${organizationId}`;
 
   function appendQueueFilterParams(params: URLSearchParams) {
     if (queueFilter !== 'all' && queueFilter !== 'acknowledged_failed') params.set('status', queueFilter);
@@ -266,24 +284,130 @@ export function usePublicationQueue({
   }, [aggregateTab]);
 
   useEffect(() => {
-    // A chave antiga não era isolada por organização e podia fazer uma operação
-    // já encerrada em outra conta reaparecer como se ainda estivesse rodando.
+    // As chaves antigas guardavam UMA operação no navegador — era o que fazia o
+    // segundo clique sobrescrever a primeira. Agora a lista vem do servidor; o
+    // navegador só lembra quais avisos encerrados o operador já fechou.
     window.localStorage.removeItem('athena.queue.cancellation-operation');
-    const saved = window.localStorage.getItem(cancellationStorageKey);
-    if (!saved) return;
+    window.localStorage.removeItem(`athena.queue.cancellation-operation.${organizationId}`);
     try {
-      const operation = JSON.parse(saved) as QueueCancellationOperation;
-      if (operation?.id) setCancellationOperation(operation);
+      const saved = window.localStorage.getItem(cancellationDismissedStorageKey);
+      const ids = saved ? JSON.parse(saved) as unknown : [];
+      if (Array.isArray(ids)) setDismissedCancellationIds(ids.filter((id): id is string => typeof id === 'string'));
     } catch {
-      window.localStorage.removeItem(cancellationStorageKey);
+      window.localStorage.removeItem(cancellationDismissedStorageKey);
     }
-  }, [cancellationStorageKey]);
+    settledCancellationIdsRef.current = new Set();
+    void refreshCancellationOperations();
+  // Roda uma vez por organização, no mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cancellationDismissedStorageKey]);
 
-  function persistCancellationOperation(operation: QueueCancellationOperation | null) {
-    setCancellationOperation(operation);
-    if (!operation) window.localStorage.removeItem(cancellationStorageKey);
-    else window.localStorage.setItem(cancellationStorageKey, JSON.stringify(operation));
+  function mergeCancellationOperation(operation: QueueCancellationOperation) {
+    setCancellationOperations((current) => {
+      const others = current.filter((candidate) => candidate.id !== operation.id);
+      return [operation, ...others];
+    });
   }
+
+  function noteSettledCancellations(operations: QueueCancellationOperation[]) {
+    // Só reage a operações que esta aba viu em execução: as que já estavam
+    // encerradas ao abrir a tela não devem disparar mensagem nem releitura.
+    for (const operation of operations) {
+      if (operation.status === 'running') {
+        settledCancellationIdsRef.current.add(operation.id);
+        continue;
+      }
+      if (!settledCancellationIdsRef.current.has(operation.id)) continue;
+      settledCancellationIdsRef.current.delete(operation.id);
+      if (operation.status === 'completed') {
+        const cancelledItems = Number(operation.result?.cancelledItems ?? 0);
+        const inFlightLeft = Number(operation.result?.inFlightItemsLeft ?? 0);
+        setSelectedQueueItemId(null);
+        setMessage(inFlightLeft > 0
+          ? `Fila de ${operation.targetLabel ?? 'alvo'} interrompida: ${cancelledItems.toLocaleString('pt-BR')} publicação(ões) cancelada(s); ${inFlightLeft} ainda em envio terminam sozinhas.`
+          : `Fila de ${operation.targetLabel ?? 'alvo'} interrompida e verificada: ${cancelledItems.toLocaleString('pt-BR')} publicação(ões) cancelada(s).`);
+        for (const delay of CANCELLATION_SUMMARY_CATCH_UP_MS) {
+          window.setTimeout(() => { void refreshSummary(aggregateTab); }, delay);
+        }
+      } else if (operation.status === 'blocked') {
+        setMessage('Cancelamento bloqueado: há publicação em processamento. Nenhum item foi alterado.');
+      } else {
+        setMessage(operation.error ?? `Não foi possível concluir o cancelamento de ${operation.targetLabel ?? 'alvo'}.`);
+      }
+    }
+  }
+
+  async function refreshCancellationOperations() {
+    if (cancellationListInFlightRef.current) return;
+    cancellationListInFlightRef.current = true;
+    try {
+      const response = await fetch('/api/publications/cancel', { cache: 'no-store' });
+      if (!response.ok) return;
+      const payload = await response.json() as { operations?: QueueCancellationOperation[] };
+      const operations = payload.operations ?? [];
+      setCancellationOperations((current) => {
+        // Uma operação que esta aba acabou de iniciar pode ainda não estar na
+        // lista do servidor (a resposta do POST chega antes); não a perde.
+        const known = new Set(operations.map((operation) => operation.id));
+        const pendingLocal = current.filter((operation) => !known.has(operation.id) && operation.status === 'running');
+        return [...pendingLocal, ...operations];
+      });
+      noteSettledCancellations(operations);
+    } catch {
+      // Uma leitura perdida não derruba a tela; a próxima volta resolve.
+    } finally {
+      cancellationListInFlightRef.current = false;
+    }
+  }
+
+  /**
+   * Avança uma etapa de uma operação. O servidor devolve `busy` (202) quando o
+   * worker está no meio de um bloco dela; `running` quando processou uma etapa.
+   */
+  async function stepCancellationOperation(operation: QueueCancellationOperation) {
+    if (cancellationExecuteInFlightRef.current) return;
+    cancellationExecuteInFlightRef.current = true;
+    try {
+      const response = await fetch('/api/publications/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({ operationId: operation.id, execute: true }),
+      });
+      const payload = await response.json() as { operation?: QueueCancellationOperation; error?: string };
+      if (payload.operation) {
+        mergeCancellationOperation(payload.operation);
+        noteSettledCancellations([payload.operation]);
+      } else if (!response.ok && response.status !== 503) {
+        setMessage(payload.error ?? 'Não foi possível avançar o cancelamento.');
+      }
+    } catch {
+      // Rede caiu: a operação está salva; o worker ou o próximo poll retomam.
+    } finally {
+      cancellationExecuteInFlightRef.current = false;
+    }
+  }
+
+  const hasRunningCancellation = cancellationOperations.some((operation) => operation.status === 'running');
+
+  useEffect(() => {
+    if (!hasRunningCancellation) return;
+    const tick = async () => {
+      if (document.visibilityState !== 'visible') return;
+      await refreshCancellationOperations();
+      // Reserva: a operação em execução parada há mais tempo, se ninguém (worker
+      // ou outra aba) a tocou há mais de 15 s.
+      const stale = cancellationOperations
+        .filter((operation) => operation.status === 'running')
+        .map((operation) => ({ operation, at: Date.parse(operation.lastChunkAt ?? operation.updatedAt ?? operation.createdAt ?? '') || 0 }))
+        .sort((left, right) => left.at - right.at)[0];
+      if (stale && Date.now() - stale.at > CANCELLATION_STALE_STEP_MS) await stepCancellationOperation(stale.operation);
+    };
+    const interval = window.setInterval(() => { void tick(); }, CANCELLATION_POLL_MS);
+    return () => window.clearInterval(interval);
+  // O tick lê o estado mais recente via closure recriada a cada mudança da lista.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasRunningCancellation, cancellationOperations]);
 
   useEffect(() => {
     latestQueueFilterSignatureRef.current = queueFilterSignature;
@@ -521,72 +645,33 @@ export function usePublicationQueue({
     }
   }
 
-  async function runCancellation(operation: QueueCancellationOperation, execute = false) {
-    setQueueActionId(`scope:${operation.scope}:${operation.targetId}`);
-    try {
-      // O polling consulta somente o registro durável. A mutação SQL é longa e
-      // não pode ser reenviada a cada três segundos, pois a nova chamada ficava
-      // esperando o lock da primeira e ocultava o estado real da operação.
-      const statusResponse = await fetch(`/api/publications/cancel?operationId=${encodeURIComponent(operation.id)}`, { cache: 'no-store' });
-      const statusPayload = await statusResponse.json() as { operation?: { status: QueueCancellationOperation['status']; progress: number; result?: Record<string, unknown>; error?: string | null }; error?: string };
-      if (statusPayload.operation) {
-        const updated = { ...operation, ...statusPayload.operation };
-        persistCancellationOperation(updated);
-        if (updated.status === 'running' && !execute) return;
-        if (updated.status === 'blocked') setMessage('Cancelamento bloqueado: há publicação em processamento. Nenhum item foi alterado.');
-        else if (updated.status === 'completed') {
-          const cancelledItems = Number(updated.result?.cancelledItems ?? 0);
-          setSelectedQueueItemId(null);
-          setMessage(`Fila interrompida e verificada: ${cancelledItems.toLocaleString('pt-BR')} publicação(ões) cancelada(s).`);
-          await refreshAll(true);
-        }
-        if (updated.status !== 'running') return;
+  function dismissCancellationOperation(operationId: string) {
+    setDismissedCancellationIds((current) => {
+      const next = current.includes(operationId) ? current : [...current, operationId];
+      try {
+        window.localStorage.setItem(cancellationDismissedStorageKey, JSON.stringify(next.slice(-100)));
+      } catch {
+        // Sem armazenamento local a lista só não sobrevive ao F5.
       }
-      if (!execute) return;
-      const response = await fetch('/api/publications/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify({ scope: operation.scope, targetId: operation.targetId, idempotencyKey: operation.idempotencyKey, execute: true }),
-      });
-      const payload = await response.json() as { operation?: { status: QueueCancellationOperation['status']; progress: number; result?: Record<string, unknown>; error?: string | null; createdAt?: string | null }; error?: string };
-      const updated = payload.operation ? { ...operation, ...payload.operation } : { ...operation, status: 'failed' as const, progress: 100, error: payload.error ?? 'Não foi possível confirmar o cancelamento.' };
-      persistCancellationOperation(updated);
-      if (response.status === 409 || updated.status === 'blocked') {
-        setMessage('Cancelamento bloqueado: há publicação em processamento. Nenhum item foi alterado.');
-        return;
-      }
-      if (updated.status === 'running') {
-        // Escopo grande: esta chamada processou só o próximo bloco (progresso
-        // real já foi persistido); o próprio poll de 3s continua sozinho.
-        return;
-      }
-      if (!response.ok || updated.status !== 'completed') {
-        setMessage(updated.error ?? payload.error ?? 'Não foi possível confirmar o cancelamento da fila selecionada.');
-        return;
-      }
-      const cancelledItems = Number(updated.result?.cancelledItems ?? 0);
-      setSelectedQueueItemId(null);
-      setMessage(`Fila interrompida e verificada: ${cancelledItems.toLocaleString('pt-BR')} publicação(ões) cancelada(s).`);
-      await refreshAll(true);
-    } catch {
-      persistCancellationOperation({ ...operation, status: 'running', error: 'A conexão foi interrompida; a operação será retomada automaticamente ao atualizar.' });
-      setMessage('Não foi possível conectar ao servidor. A operação ficou salva e será retomada ao atualizar a página.');
-    } finally {
-      setQueueActionId(null);
-    }
+      return next;
+    });
   }
 
-  async function resumeCancellationOperation() {
-    if (!cancellationOperation || cancellationOperation.status !== 'running') return;
-    // A primeira execução pode ter sido interrompida por timeout/rede. Reusar a
-    // mesma chave idempotente retoma a mutação; a RPC serializa concorrência e
-    // devolve imediatamente se outra tentativa já a concluiu.
-    await runCancellation(cancellationOperation, true);
+  function runningCancellationFor(scope: 'account' | 'batch' | 'group', targetId: string) {
+    return cancellationOperations.find((operation) => operation.status === 'running' && operation.scope === scope && operation.targetId === targetId) ?? null;
   }
 
-  function dismissCancellationOperation() {
-    persistCancellationOperation(null);
+  /**
+   * Operação concluída depois do snapshot que a tela está mostrando: a linha
+   * ainda exibe itens ativos que já não existem. A tela sobrepõe "Cancelada"
+   * até o resumo alcançar.
+   */
+  function recentCompletedCancellationFor(scope: 'account' | 'batch' | 'group', targetId: string) {
+    const snapshotAt = summary?.snapshotAt ? Date.parse(summary.snapshotAt) : 0;
+    return cancellationOperations.find((operation) => operation.status === 'completed'
+      && operation.scope === scope
+      && operation.targetId === targetId
+      && (Date.parse(operation.completedAt ?? '') || 0) > snapshotAt) ?? null;
   }
 
   async function cancelScope(scope: 'account' | 'batch' | 'group', targetId: string, targetLabel: string) {
@@ -595,33 +680,36 @@ export function usePublicationQueue({
       setMessage('Não foi possível identificar o destino do cancelamento. Recarregue a fila antes de tentar novamente.');
       return;
     }
+    if (runningCancellationFor(scope, targetId)) return;
     const scopeLabel = scope === 'account' ? `a fila do perfil ${targetLabel}` : scope === 'batch' ? `o lote ${targetLabel}` : `a fila do grupo ${targetLabel}`;
-    const confirmation = `Cancelar ${scopeLabel}? Isso interromperá todas as postagens ainda ativas, sem distinguir formato. Se alguma já estiver sendo enviada ao provedor, nada será cancelado até que ela termine.`;
+    const confirmation = `Cancelar ${scopeLabel}? Isso interromperá todas as postagens ainda ativas, sem distinguir formato. Publicações já em envio terminam sozinhas; o restante é cancelado em blocos e a operação aparece na fila de cancelamento.`;
     if (!window.confirm(confirmation)) return;
 
-    const actionId = `scope:${scope}:${targetId}`;
+    // Nada de `queueActionId` aqui: ele é um único valor para a página inteira e
+    // era zerado antes de a operação terminar. O estado da linha vem da própria
+    // operação (`runningCancellationFor`).
     const idempotencyKey = crypto.randomUUID();
     setMessage('');
-    setQueueActionId(actionId);
     try {
       const response = await fetch('/api/publications/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({ scope, targetId, idempotencyKey }),
       });
-      const payload = await response.json() as { operation?: { id: string; status: QueueCancellationOperation['status']; progress: number; result?: Record<string, unknown>; error?: string | null; createdAt?: string | null }; error?: string };
+      const payload = await response.json() as { operation?: QueueCancellationOperation; error?: string };
       if (!response.ok || !payload.operation) {
         setMessage(payload.error ?? 'Não foi possível iniciar o cancelamento da fila selecionada.');
         return;
       }
-      const operation: QueueCancellationOperation = { ...payload.operation, scope, targetId, targetLabel, idempotencyKey };
-      persistCancellationOperation(operation);
-      // Dispara a execução uma vez; os polls posteriores só leem o progresso.
-      void runCancellation(operation, true);
+      const operation: QueueCancellationOperation = { ...payload.operation, targetLabel: payload.operation.targetLabel ?? targetLabel, idempotencyKey };
+      mergeCancellationOperation(operation);
+      if (operation.status === 'running') settledCancellationIdsRef.current.add(operation.id);
+      // Primeira etapa na hora: cancela as fontes e o primeiro bloco (ou tudo,
+      // num escopo pequeno). As seguintes são do worker; o poll só acompanha.
+      void stepCancellationOperation(operation);
     } catch {
       setMessage('Não foi possível conectar ao servidor. A fila não foi considerada cancelada; atualize para verificar o estado atual.');
-    } finally {
-      setQueueActionId(null);
     }
   }
 
@@ -788,7 +876,10 @@ export function usePublicationQueue({
     summaryErrors,
     pausedBatches,
     summaryLoading,
-    cancellationOperation,
+    cancellationOperations,
+    dismissedCancellationIds,
+    runningCancellationFor,
+    recentCompletedCancellationFor,
     refreshQueue,
     refreshGenerationJobs,
     refreshSummary,
@@ -800,7 +891,6 @@ export function usePublicationQueue({
     cancelBatch,
     cancelVisibleBatches,
     cancelScope,
-    resumeCancellationOperation,
     dismissCancellationOperation,
     cancelGenerationJob,
     cleanFinished,

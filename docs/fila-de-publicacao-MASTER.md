@@ -39,6 +39,7 @@ os números) e o [runbook da VPS](vps-worker-runbook.md) (acesso e deploy).
 | `athena-publication-worker-2`, `-3`, `-4` | mesmo script; env salvo no PM2 (fonte: `deploy/instagram/ecosystem.config.cjs`): `MODE=direct`, `PREPARATION_ENABLED=false`, `STAGING_ENABLED=false`, id próprio | só caminho direto | conforme a conta da seção 8.3 (2 e 3 desde 07/09; **4 desde 12/09/2026 12:22Z**, pelo bloco das 07:00 BRT) |
 | `athena-generation-worker` | `worker:publication-generation` | `get_bulk_rotation_worker_summary` → jobs (`claim/materialize/process_publication_generation_*`) → pressão (`get_publication_generation_pressure_signal`) → lease pesado → `claim/process_bulk_rotation_generation_chunk` → heartbeat | ligado (`POLL_INTERVAL_MS=15000`) |
 | `athena-queue-summary-worker` | `worker:queue-summary` | por org vencida, **serial**, `refresh_publication_queue_summary` (6,7 s cada) | ligado (`QUEUE_SUMMARY_MAX_AGE_SECONDS=300`) |
+| `athena-cancellation-worker` | `worker:publication-cancellation` | a cada 10 s lê até 20 operações `running` de `publication_queue_cancellation_operations` (a parada há mais tempo primeiro) e avança **uma etapa de cada, em série** (`execute_server_publication_queue_cancellation`: fontes na 1ª chamada, depois um bloco de 1.500, ou a conclusão), orçamento 45 s por tick; ao concluir, `invalidate_publication_queue_summary` | **ligar** (código de 14/09/2026; pendência da seção 12 até o `pm2 start`) |
 | `athena-profile-analytics-worker` | `worker:profile-analytics` | POST `/api/internal/profile-analytics-refresh-dispatch` (abre as coletas fixas 09:00/15:00/21:00 hora local via `open_meta_analytics_run`) + heartbeat; **pula o sleep** enquanto `hasMore` | ligado |
 | `athena-media-maintenance-worker` | `worker:media-maintenance` | POST `media-deletion-dispatch` → `clean_publication_queue_finished` por org (a cada 10 min) → `move_archived_publication_items_to_cold_storage` (a cada 60 min) → `purge_expired_publication_dispatch_reservations` | ligado |
 | `athena-meta-token-renewal` | `worker:meta-token-renewal` | lê perfis Meta e renova tokens perto de vencer (60 dias; renova após 7; alarme aos 35); **roda e sai** | uma passada por dia |
@@ -69,6 +70,11 @@ cron e sem chamador no repositório**: `publication-claims`, `publication-result
 legado por HTTP), `queue-summary-refresh` (o comentário dela ainda diz "cron de minuto em
 minuto", divergente), `publication-health`, `operational-health`. O modo `dispatch-endpoint`
 do `publication-worker.mjs` aponta para a rota removida: **morto**.
+
+**Cancelamento em massa não tem cron** (decisão de 14/09/2026, coerente com `810ff1d`): o motor
+é o `athena-cancellation-worker` da VPS, e a tela é reserva (só avança operação sem progresso
+há > 15 s). Ao concluir, a operação **invalida** `computed_at` do resumo em vez de recalculá-lo
+na requisição; o `queue-summary-worker` recalcula no tick seguinte.
 
 **Na VPS** (`crontab -l` do root; scripts em `/opt/athena-worker/bin`, fonte em
 `deploy/instagram/`): manutenção de observabilidade a cada 5 min e a "diária" às 06:17
@@ -130,7 +136,13 @@ sincronização de status do **lote** não é gatilho: é `sync_publication_batc
 | `contain_instagram_profile_for_removal` (362) | remoção pedida por pessoa: cancela fila, planos, horizontes; sincroniza só os lotes tocados | `42501` |
 | `clean_publication_queue_finished` (335) / `archive_completed_publication_items` (083) | arquiva terminais (falha só se terminal de verdade) | `42501` |
 | `move_archived_publication_items_to_cold_storage` (424) | move arquivados > 7 dias; **guarda de paridade de colunas** | `55000`, `42501` |
-| `refresh_publication_queue_summary` (418) / `refresh_dashboard_summary` (422) | resumos materializados; `statement_timeout` 120 s | `42501` |
+| `refresh_publication_queue_summary` (428) / `refresh_dashboard_summary` (422) | resumos materializados; `statement_timeout` 120 s. Desde a 428 o tom `cancelled` (sem ativo **e** cancelamento em massa concluído na janela, ou só encerradas sem publicada) e a linha do alvo cancelado fica visível pela janela do histórico mesmo zerada | `42501` |
+| `invalidate_publication_queue_summary` (428) | empurra `computed_at` 1 h para trás para o worker de resumo recalcular no próximo tick; custo de uma linha | `42501` |
+| `begin_publication_queue_cancellation` (428) | cria/reaproveita a operação `running` por (org, escopo, alvo), gravando `target_label` | `42501`, `22023`, `P0002` |
+| `execute_server_publication_queue_cancellation` (428) | **uma etapa por chamada**: `for update skip locked` na operação (devolve `busy` se outro executor está nela); fontes primeiro (`cancel_publication_queue_scope_sources`, uma vez); bloco de 1.500 se > 1.500 canceláveis **ou** houver item em voo; com 0 canceláveis e item em voo espera (progresso 95, `waitingForInFlight`) até 30 min e então conclui com `inFlightItemsLeft`; caminho pequeno (`cancel_publication_queue_scope` + `execute_publication_queue_cancellation`) só sem nada em voo; resync dos lotes do escopo | `P0002` |
+| `cancel_publication_queue_scope_chunk` (428) | 1.500 mais antigos em `waiting/ready/failed/suspended`, `archived_at is null`, `for update skip locked`; **não bloqueia** por preparing/publishing; devolve `remainingCancelableItems` e `inFlightItems` | `42501`, `22023`, `P0002` |
+| `cancel_publication_queue_scope_sources` (428) | jobs de geração (cancela ou exclui perfis) e planos compactos (chunks, perfis, horizontes, plano); idempotente; sem tocar itens | `22023`, `P0002` |
+| `execute_publication_queue_cancellation` (428) | passada compacta da 197 com `archived_at is null` nos dois predicados e **sem** o update de `publication_batches` da organização inteira | `42501`, `P0002`, `P0001` |
 | `open_meta_analytics_run` (388) | abre a rodada do slot 09:00/15:00/21:00 (America/Sao_Paulo) | `42501` |
 
 Índices que sustentam o claim: `publication_items_v2_dispatch_claim_idx`,
@@ -470,7 +482,7 @@ Para subir de novo (Medium → Large/XL): mesma cerimônia; os tetos só sobem d
 | Cancelar item | `PATCH /api/publications/[itemId]` | `cancelled`, limpa lease e `creation_id`, evento, sincroniza lote |
 | Reprocessar item falho | mesma rota | `ready`, **zera `creation_id`** e não mexe em `archived_at`; bloqueado se `attempt_count ≥ 5`. Duas armadilhas (6.2): item já arquivado continua invisível ao claim; item cujo contêiner já está PUBLISHED na Meta ganha contêiner novo = **post duplicado** |
 | Cancelar lote | `POST …/batch/[id]/cancel` | `cancel_publication_batch_items`; libera mídias |
-| Cancelar em massa (conta/grupo/lote) | `POST /api/publications/cancel` | operação durável em blocos (`execute_server_publication_queue_cancellation`), idempotente |
+| Cancelar em massa (conta/grupo/lote) | `POST /api/publications/cancel` (`maxDuration` 30 s) | operação durável (`begin…`, idempotente por alvo) + **uma etapa** na hora (`{operationId, execute:true}`); as demais são do `athena-cancellation-worker` (a tela só avança operação parada há > 15 s). Fontes primeiro; blocos de 1.500 **sem bloquear** por item em voo (o em voo termina sozinho; o que voltar é cancelado; prazo de 30 min); ao concluir invalida o resumo. `GET` sem `operationId` lista as operações das últimas 24 h (≤ 50) — é a "Fila de cancelamento" da tela, que também sobrepõe "Cancelada" na linha até o snapshot alcançar |
 | Continuar lote pausado | `POST …/batch/[id]/continue` | `resume_publication_batch_after_circuit_breaker` |
 | Limpar encerradas / concluídas / marcar falhas como vistas | `POST /api/publications/queue-actions` | arquiva sob lease pesado (250 por lote); `acknowledge_publication_failures` |
 | Excluir mídia (galeria) / excluir perfil | `/api/media/*`, `/api/profiles/*` | removem os itens da fila ligados |
@@ -552,6 +564,7 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 
 | Data | O que | Lição |
 |---|---|---|
+| 14/09 | três "Cancelar grupo" seguidos na Pomodoro: a tela guardava UMA operação (o 2º clique abandonou a 1ª com 2.146 ativos e 9.000 cancelados), o bloco abortava a rodada inteira se qualquer item do grupo estivesse em voo, a passada compacta (197) ainda cancelava arquivados e marcava lotes da org inteira, e a linha virava "Concluído" por falta do tom `cancelled`. Migration 428 + `athena-cancellation-worker` + fila de cancelamento na tela | operação em massa é do servidor, não da aba; cancelar não pode esperar janela sem item em voo; toda função antiga do caminho tem de ser reconferida quando uma correção (336) muda um predicado |
 | 31/08 | concorrência 64 → 160 apagou 3.315 posts | advisory lock por org; infra nunca vira terminal |
 | 02/09 | teto por minuto 600 → 1.200 derrubou a API | o teto alonga a posse do lock; pool 41 |
 | 06/09 | dois itens envenenados travaram a confirmação | recuo exponencial; denominador mínimo |
@@ -569,6 +582,8 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 ---
 
 ## 12. Pendências abertas (07/09/2026)
+
+- **Fila de cancelamento (14/09/2026)**: aplicar a migration 428 no projeto `athena` (dono) e subir o `athena-cancellation-worker` na VPS (`scp` de `scripts/workers/publication-cancellation-worker.mjs`, `package.json` e `deploy/instagram/ecosystem.config.cjs`; `pm2 start deploy/instagram/ecosystem.config.cjs --only athena-cancellation-worker`; `pm2 save`). Até lá a tela avança as operações sozinha (reserva de 15 s), como antes, só que sem abandonar a anterior. Ao ligar: retirar o "ligar" da tabela 1.1 e esta linha.
 
 - **Logs do PM2 sem carimbo de hora** (achado de 13/09/2026 00:03Z): nenhuma linha dos `-out-`/`-error-` começa com data, então filtrar log "por horário" não filtra nada — só contagem total do `-error-` é confiável. Corrigir com `log_date_format: 'YYYY-MM-DDTHH:mm:ssZ'` no `npmWorker()` do ecosystem; **só vale após `pm2 restart <nome> --update-env`**, que zera o limite adaptativo (8.2): fazer um processo por vez, em vale, com o dono acordado.
 - Rotação de meia-noite do `pm2-logrotate` em 13/09 copiou só 0,6 MB por publicador e não truncou os atuais (16–19 MB às 00:05Z); os dias anteriores rotacionaram 18–21 MB certinho. O teto `max_size 50M` (checado a cada 30 s) segura o disco (963 MB de logs, 90 GB livres), mas conferir `du -sh /root/.pm2/logs` na rotina da manhã.

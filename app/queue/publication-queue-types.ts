@@ -147,7 +147,7 @@ export type QueueSummaryRow = {
   active?: number;
   closed?: number;
   next_at: string | null;
-  tone: 'posting' | 'error' | 'suspended' | 'done' | 'idle';
+  tone: 'posting' | 'error' | 'suspended' | 'done' | 'idle' | 'cancelled';
 };
 
 export type QueueSummary = {
@@ -210,17 +210,23 @@ export type PausedPublicationBatchSummary = {
   batches: PausedPublicationBatch[];
 };
 
+// Operação durável de cancelamento em massa (tabela
+// publication_queue_cancellation_operations). A tela lê a lista do servidor; o
+// rótulo do alvo vem gravado na própria operação.
 export type QueueCancellationOperation = {
   id: string;
   scope: 'account' | 'batch' | 'group';
   targetId: string;
-  targetLabel: string;
-  idempotencyKey: string;
+  targetLabel: string | null;
+  idempotencyKey?: string;
   status: 'running' | 'completed' | 'blocked' | 'failed';
   progress: number;
   result?: Record<string, unknown>;
   error?: string | null;
   createdAt?: string | null;
+  completedAt?: string | null;
+  updatedAt?: string | null;
+  lastChunkAt?: string | null;
 };
 
 export type PublicationGenerationJob = {

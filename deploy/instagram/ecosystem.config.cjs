@@ -63,6 +63,9 @@ module.exports = {
     }),
     npmWorker('athena-generation-worker', 'worker:publication-generation'),
     npmWorker('athena-queue-summary-worker', 'worker:queue-summary'),
+    // Fila de cancelamento (migration 428): drena as operacoes de cancelamento em
+    // massa, uma etapa por vez, e invalida o resumo ao concluir. Ligado em 14/09/2026.
+    npmWorker('athena-cancellation-worker', 'worker:publication-cancellation'),
     npmWorker('athena-profile-analytics-worker', 'worker:profile-analytics'),
     npmWorker('athena-media-maintenance-worker', 'worker:media-maintenance'),
     // Roda e sai; o PM2 o mostra como "stopped" entre passadas. Sem autorestart.
