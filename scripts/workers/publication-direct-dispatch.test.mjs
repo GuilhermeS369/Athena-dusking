@@ -31,6 +31,11 @@ import {
   flushZernioRequestTelemetry,
   ignoreExpiredUnstartedPublications,
   shouldActivateZernioBackpressure,
+  comFasesDoItem,
+  medirFase,
+  registrarFase,
+  resumirFasesPorItem,
+  ociosidadeDoLote,
 } from './publication-direct-dispatch.mjs';
 
 test('limpeza automática não descarta backlog causado pela capacidade interna', async () => {
@@ -910,4 +915,48 @@ test('fim de arquivo errado no host e retryavel e diz o que o host respondeu', a
       return true;
     },
   );
+});
+
+test('log por fase: o livro-razao do item soma as fases e nao vaza para fora do item', async () => {
+  // Sem livro ativo, registrar e um no-op: nada quebra fora de processClaimedItem.
+  registrarFase('meta_criar_container', 10);
+  const livro = {};
+  await comFasesDoItem(livro, async () => {
+    await medirFase('carregarItem', async () => {});
+    registrarFase('meta_criar_container', 120);
+    registrarFase('meta_criar_container', 30);
+    registrarFase('esperaSemaforoMeta', Number.NaN);
+  });
+  assert.equal(livro.meta_criar_container, 150);
+  assert.equal(typeof livro.carregarItem, 'number');
+  assert.equal('esperaSemaforoMeta' in livro, false);
+});
+
+test('log por fase: o resumo do ciclo da p50/p90/max por fase, so entre os itens que passaram por ela', () => {
+  const resumo = resumirFasesPorItem([
+    { carregarItem: 100, meta_criar_container: 1000 },
+    { carregarItem: 300, meta_criar_container: 3000, sondaMidia: 500 },
+    null,
+    { carregarItem: 200 },
+  ]);
+  assert.deepEqual(Object.keys(resumo), ['carregarItem', 'meta_criar_container', 'sondaMidia']);
+  assert.equal(resumo.carregarItem.n, 3);
+  assert.equal(resumo.carregarItem.max, 300);
+  assert.equal(resumo.meta_criar_container.n, 2);
+  assert.equal(resumo.sondaMidia.n, 1);
+  assert.equal(resumo.sondaMidia.p50, 500);
+});
+
+test('ociosidade do lote: um item lento deixa as outras vagas paradas ate o fim do lote', () => {
+  // Tres itens de 10 s, 10 s e 60 s: o lote inteiro dura 60 s, e duas vagas ficam
+  // 50 s ociosas cada. Aproveitamento = (10+10+60) / (3 x 60) = 0,44.
+  const fim = 1_000_000;
+  const ocio = ociosidadeDoLote([10_000, 10_000, 60_000], [fim - 50_000, fim - 50_000, fim], fim);
+  assert.equal(ocio.n, 3);
+  assert.equal(ocio.max, 50_000);
+  assert.equal(ocio.somaSegundos, 100);
+  assert.equal(ocio.aproveitamento, 0.44);
+  // Janela deslizante perfeita: todos terminam juntos, aproveitamento 1,0.
+  assert.equal(ociosidadeDoLote([5_000, 5_000], [fim, fim], fim).aproveitamento, 1);
+  assert.equal(ociosidadeDoLote([], [], fim), null);
 });

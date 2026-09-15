@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createClient } from '@supabase/supabase-js';
 // A decisao sobre o status do conteiner vive em lib/integrations/meta-graph-errors.ts,
 // a MESMA que o publisher do painel usa. Este arquivo ja teve copia propria dela, e
@@ -143,8 +144,85 @@ function graphUrl(path) {
   return `https://graph.instagram.com/${graphVersion}/${path.replace(/^\//, '')}`;
 }
 
+// LOG POR FASE (15/09/2026). Ate aqui o caminho direto so media `porItemMs`, o
+// tempo total de cada item, e esse numero mistura coisas de donos diferentes:
+// espera pela vaga no semaforo da Meta, a chamada HTTP em si, a sonda do R2, as
+// RPCs do banco. O mestre (secao 10) registra que "um porItemMs alto nao e Meta
+// lenta ate que o log por fase diga". Cada item carrega um livro-razao de fases
+// via AsyncLocalStorage, para que metaFetch, a sonda e as RPCs registrem o seu
+// tempo sem mudar assinatura de funcao. O ciclo agrega por fase (p50/p90/max) e
+// mede a ociosidade do lote: quanto tempo cada vaga ficou parada esperando o
+// item mais lento (`Promise.allSettled`), que e o defeito do lote da secao 8.3.
+// Nada aqui altera decisao alguma: e leitura.
+const fasesDoItem = new AsyncLocalStorage();
+
+export function registrarFase(nome, ms) {
+  const livro = fasesDoItem.getStore();
+  if (!livro || !Number.isFinite(ms)) return;
+  livro[nome] = (livro[nome] ?? 0) + Math.max(0, Math.round(ms));
+}
+
+export async function medirFase(nome, operacao) {
+  const inicio = Date.now();
+  try {
+    return await operacao();
+  } finally {
+    registrarFase(nome, Date.now() - inicio);
+  }
+}
+
+export function comFasesDoItem(livro, operacao) {
+  return fasesDoItem.run(livro, operacao);
+}
+
+function quantis(valores) {
+  const o = [...valores].sort((a, b) => a - b);
+  const q = (p) => o[Math.min(o.length - 1, Math.floor(o.length * p))];
+  return { n: o.length, p50: Math.round(q(0.5)), p90: Math.round(q(0.9)), max: Math.round(o[o.length - 1]) };
+}
+
+// Resume os livros-razao de um ciclo: por fase, quantos itens passaram por ela e
+// p50/p90/max em ms. Fase ausente num item nao entra no denominador daquela fase.
+export function resumirFasesPorItem(livros) {
+  const porFase = new Map();
+  for (const livro of livros) {
+    if (!livro || typeof livro !== 'object') continue;
+    for (const [fase, ms] of Object.entries(livro)) {
+      if (!Number.isFinite(ms)) continue;
+      if (!porFase.has(fase)) porFase.set(fase, []);
+      porFase.get(fase).push(ms);
+    }
+  }
+  const resumo = {};
+  for (const [fase, valores] of [...porFase.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    resumo[fase] = quantis(valores);
+  }
+  return resumo;
+}
+
+// Ociosidade do lote: para cada item, quanto tempo a vaga dele ficou parada entre
+// o fim do item e o fim do lote. `aproveitamento` e a fracao do tempo de vaga
+// realmente usada (soma das duracoes / (itens x duracao do lote)); 1,0 seria uma
+// janela deslizante perfeita, e o que falta para 1,0 e o custo do lote inteiro.
+export function ociosidadeDoLote(duracoesMs, terminosMs, fimDoLoteMs) {
+  if (!duracoesMs.length || duracoesMs.length !== terminosMs.length) return null;
+  const ociosos = terminosMs.map((fim) => Math.max(0, fimDoLoteMs - fim));
+  const loteMs = Math.max(1, Math.max(...duracoesMs));
+  const usado = duracoesMs.reduce((soma, ms) => soma + ms, 0);
+  const capacidade = duracoesMs.length * loteMs;
+  return {
+    ...quantis(ociosos),
+    somaSegundos: Math.round(ociosos.reduce((soma, ms) => soma + ms, 0) / 1000),
+    aproveitamento: Number((usado / capacidade).toFixed(2)),
+  };
+}
+
 async function withMetaRequestLimit(operation) {
-  if (activeMetaRequests >= maxConcurrentMetaRequests) await new Promise((resolve) => pendingMetaRequests.push(resolve));
+  if (activeMetaRequests >= maxConcurrentMetaRequests) {
+    const esperaDesde = Date.now();
+    await new Promise((resolve) => pendingMetaRequests.push(resolve));
+    registrarFase('esperaSemaforoMeta', Date.now() - esperaDesde);
+  }
   activeMetaRequests += 1;
   try {
     return await operation();
@@ -160,6 +238,7 @@ async function withMetaRequestLimit(operation) {
 // ao PUBLICAR -- e sem isso qualquer ajuste no limite de 25 s seria chute.
 function metaFetch(input, init, operacao = 'meta', limiteMs = metaRequestTimeoutMs) {
   return withMetaRequestLimit(async () => {
+    const inicio = Date.now();
     try {
       return await fetch(input, init);
     } catch (error) {
@@ -169,6 +248,8 @@ function metaFetch(input, init, operacao = 'meta', limiteMs = metaRequestTimeout
       rotulado.retryable = true;
       rotulado.code = `meta_timeout_${operacao}`;
       throw rotulado;
+    } finally {
+      registrarFase(`meta_${operacao}`, Date.now() - inicio);
     }
   });
 }
@@ -686,7 +767,7 @@ async function createParentContainer(item, accessToken) {
   if (item.format === 'carousel' && (item.media.length < 2 || item.media.length > 10)) throw publicationDataError('O carrossel deve possuir entre 2 e 10 mídias.');
   if (item.format !== 'carousel' && item.media.length !== 1) throw publicationDataError('Este formato de publicação requer exatamente uma mídia.');
 
-  const urls = await buildVerifiedMediaUrls(item);
+  const urls = await medirFase('sondaMidia', () => buildVerifiedMediaUrls(item));
   if (item.format === 'image') {
     if (item.media[0].kind !== 'image') throw publicationDataError('Uma publicação de imagem requer arquivo de imagem.');
     return createInstagramContainer(item.profile.instagram_user_id, accessToken, { image_url: urls[0], caption: item.caption ?? '' });
@@ -2280,6 +2361,12 @@ async function reserveDailyPublicationLimit(itemId, workerId) {
 }
 
 export async function processClaimedItem(item, workerId, options = {}) {
+  const fasesMs = {};
+  const resultado = await comFasesDoItem(fasesMs, () => processClaimedItemComLivro(item, workerId, options));
+  return { ...resultado, fasesMs };
+}
+
+async function processClaimedItemComLivro(item, workerId, options = {}) {
   const supabase = createSupabase();
   let capacityReserved = false;
   try {
@@ -2296,7 +2383,7 @@ export async function processClaimedItem(item, workerId, options = {}) {
         creation_id: item.creation_id,
         execute_at: item.execute_at ?? stagedWorkItem.execute_at ?? null,
       }
-      : await loadWorkItem(item);
+      : await medirFase('carregarItem', () => loadWorkItem(item));
     if ('state' in workItem && workItem.state === 'suspended') {
       await suspendClaimedPublication(item, workerId, workItem.errorMessage);
       return { itemId: item.id, state: 'suspended' };
@@ -2304,7 +2391,7 @@ export async function processClaimedItem(item, workerId, options = {}) {
     // O snapshot antecipado não é autorização. Esta checagem transacional é
     // repetida imediatamente antes do provedor para capturar quedas ocorridas
     // entre o staging e o horário real da publicação.
-    if (!await ensureClaimedProfileOnlineOrSuspend(item, workerId)) {
+    if (!await medirFase('perfilOnline', () => ensureClaimedProfileOnlineOrSuspend(item, workerId))) {
       return { itemId: item.id, state: 'suspended' };
     }
     if (zernioWorkItemRequiresManualReconciliation(workItem)) {
@@ -2327,17 +2414,17 @@ export async function processClaimedItem(item, workerId, options = {}) {
       return { itemId: item.id, state: 'zernio_manual_reconciliation_required' };
     }
     const reserveBeforeFinalPublish = async () => {
-      if (!await claimedProfileRemainsOnline(item, workerId)) return false;
-      const fairnessAllowed = await reservePublicationDispatchCapacity(
+      if (!await medirFase('perfilOnline', () => claimedProfileRemainsOnline(item, workerId))) return false;
+      const fairnessAllowed = await medirFase('reservarCapacidade', () => reservePublicationDispatchCapacity(
         item,
         workerId,
         workItem.profile.provider === 'zernio' ? 60 : 300,
-      );
+      ));
       if (!fairnessAllowed) return false;
       capacityReserved = true;
       if (workItem.profile.provider !== 'zernio') {
-        const dailyAllowed = await reserveDailyPublicationLimit(item.id, workerId);
-        if (!dailyAllowed) await releasePublicationDispatchCapacity(item.id);
+        const dailyAllowed = await medirFase('reservarCapacidade', () => reserveDailyPublicationLimit(item.id, workerId));
+        if (!dailyAllowed) await medirFase('liberarCapacidade', () => releasePublicationDispatchCapacity(item.id));
         return dailyAllowed;
       }
       return true;
@@ -2352,7 +2439,7 @@ export async function processClaimedItem(item, workerId, options = {}) {
         : await processInstagramPublication(
           workItem,
           reserveBeforeFinalPublish,
-          () => claimedProfileRemainsOnline(item, workerId),
+          () => medirFase('perfilOnline', () => claimedProfileRemainsOnline(item, workerId)),
         );
 
     if (workItem.profile?.provider === 'zernio' && result.state === 'processing') {
@@ -2365,7 +2452,7 @@ export async function processClaimedItem(item, workerId, options = {}) {
     }
 
     if (result.state === 'processing') {
-      const { error } = await supabase.rpc('defer_publication_item', {
+      const { error } = await medirFase('gravarResultado', () => supabase.rpc('defer_publication_item', {
         p_item_id: item.id,
         p_worker_id: workerId,
         p_creation_id: result.creationId,
@@ -2379,7 +2466,7 @@ export async function processClaimedItem(item, workerId, options = {}) {
           ? zernioPollingDelaySeconds(workItem)
           : META_PRIMEIRA_CONSULTA_SEGUNDOS,
         p_is_poll: Boolean(item.creation_id),
-      });
+      }));
       if (error) {
         try {
           await preserveAcceptedProviderCreation(item.id, workerId, result.creationId);
@@ -2456,7 +2543,7 @@ export async function processClaimedItem(item, workerId, options = {}) {
 
     if (result.state === 'deferred') return { itemId: item.id, state: result.reason };
 
-    const { error } = await supabase.rpc('complete_publication_item', {
+    const { error } = await medirFase('gravarResultado', () => supabase.rpc('complete_publication_item', {
       p_item_id: item.id,
       p_worker_id: workerId,
       p_outcome: result.state === 'published' ? 'published' : result.state === 'removed' ? 'removed' : 'failed',
@@ -2465,12 +2552,12 @@ export async function processClaimedItem(item, workerId, options = {}) {
       p_error_message: result.state === 'failed' || result.state === 'removed' ? result.errorMessage : null,
       p_retryable: result.state === 'failed' && result.retryable,
       p_max_attempts: PUBLICATION_MAX_ATTEMPTS,
-    });
+    }));
     if (error) {
       if (result.state === 'published') await preserveConfirmedPublication(item.id, workerId, result.metaMediaId);
       else throw error;
     }
-    if (capacityReserved) await releasePublicationDispatchCapacity(item.id);
+    if (capacityReserved) await medirFase('liberarCapacidade', () => releasePublicationDispatchCapacity(item.id));
 
     return {
       itemId: item.id,
@@ -2724,15 +2811,22 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   marcar('claimNoBanco');
   const items = [...regularItems, ...recoveryItems].map((item) => ({ ...item, correlation_id: options.correlationId ?? null }));
   const duracaoPorItem = [];
+  const terminoPorItem = [];
   const settled = await Promise.allSettled(items.map(async (item) => {
     const comecouEm = Date.now();
     try { return await processClaimedItem(item, workerId); }
-    finally { duracaoPorItem.push(Date.now() - comecouEm); }
+    finally { const agora = Date.now(); duracaoPorItem.push(agora - comecouEm); terminoPorItem.push(agora); }
   }));
+  const fimDoLote = Date.now();
   marcar('processarItens');
   const processed = settled.map((entry, index) => entry.status === 'fulfilled'
     ? entry.value
     : { itemId: items[index].id, state: 'error', error: errorInfo(entry.reason).message ?? 'Falha desconhecida no processamento paralelo.' });
+  // Log por fase: agrega os livros-razao do ciclo e os tira dos resultados, para
+  // a telemetria por ciclo (publication_worker_cycle_events) nao crescer.
+  const fasesPorItemMs = resumirFasesPorItem(processed.map((entry) => entry?.fasesMs));
+  for (const entry of processed) if (entry && 'fasesMs' in entry) delete entry.fasesMs;
+  const ociosidade = ociosidadeDoLote(duracaoPorItem, terminoPorItem, fimDoLote);
   // Consolida cada lote uma vez, fora das transacoes individuais. Tambem drena
   // resultados deixados por um ciclo anterior interrompido.
   const batchRuntime = await reconcilePublicationBatchRuntime(Math.min(500, Math.max(100, items.length)));
@@ -2760,6 +2854,8 @@ export async function dispatchPublicationQueueDirect(options = {}) {
     cicloMs: Date.now() - cicloIniciadoEm,
     fasesMs: fases,
     porItemMs: resumoPorItem,
+    fasesPorItemMs,
+    ociosidadeDoLote: ociosidade,
   });
 
   console.info('Dispatcher direto de publicação concluído.', {
