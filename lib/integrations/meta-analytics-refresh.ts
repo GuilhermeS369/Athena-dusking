@@ -8,6 +8,7 @@ import {
   type MetaAnalyticsProfile,
 } from '@/lib/integrations/meta-analytics';
 import { metaNumberValue, saoPauloDay, type MetaDailyMetricRow } from '@/lib/integrations/meta-analytics-normalizers';
+import { hasMetaProfileIdentityChange, metaProfileIdentityChanged } from '@/lib/integrations/meta-profile-identity';
 
 /**
  * Rodada de coleta de métricas da Meta sobre um conjunto de perfis.
@@ -73,6 +74,8 @@ export type MetaRefreshSummary = {
   dailyRowsWritten: number;
   followerRowsWritten: number;
   postRowsWritten: number;
+  /** Perfis cujo username/nome/foto mudou na Meta e foram regravados nesta rodada. */
+  identityUpdated: number;
   remaining: number;
   appUsagePercent: number | null;
   durationMs: number;
@@ -176,6 +179,7 @@ export async function runMetaAnalyticsRefresh(options: MetaRefreshOptions = {}):
     noData: 0,
     failed: 0,
     dailyRowsWritten: 0,
+    identityUpdated: 0,
     followerRowsWritten: 0,
     postRowsWritten: 0,
     remaining,
@@ -193,7 +197,7 @@ export async function runMetaAnalyticsRefresh(options: MetaRefreshOptions = {}):
   // para log, resposta de API nem telemetria.
   const { data: profileRows, error: profileError } = await admin
     .from('instagram_profiles')
-    .select('id, organization_id, username, instagram_user_id, encrypted_access_token')
+    .select('id, organization_id, username, display_name, profile_picture_url, instagram_user_id, encrypted_access_token')
     .in('id', profileIds)
     .is('deleted_at', null)
     // O lote já vem limitado por META_REFRESH_MAX_BATCH; o teto explícito é o
@@ -227,6 +231,7 @@ export async function runMetaAnalyticsRefresh(options: MetaRefreshOptions = {}):
         periodEnd: saoPauloDay(0),
         followersCount: null,
         mediaCount: null,
+        identity: null,
         dailyRows: [],
         windowTotals: {},
         latestDayTotals: {},
@@ -245,9 +250,59 @@ export async function runMetaAnalyticsRefresh(options: MetaRefreshOptions = {}):
   summary.remaining = remaining + (candidates.length - done.length);
 
   await persistMetaAnalyticsCollections(done, summary);
+  await refreshMetaProfileIdentities(profiles, done, summary);
 
   summary.durationMs = Date.now() - startedAt;
   return summary;
+}
+
+/**
+ * Regrava username/nome/foto de quem mudou na Meta. A comparação em memória
+ * evita 2.200 chamadas de RPC por rodada quando nada mudou; a RPC repete a
+ * regra em SQL e é quem decide de fato (migration 429). Depois, o resumo da
+ * fila (`publication_queue_summary_rows`, a única cópia viva do nome) é
+ * invalidado uma vez por organização tocada.
+ */
+export async function refreshMetaProfileIdentities(
+  profiles: MetaAnalyticsProfile[],
+  collections: MetaAnalyticsCollection[],
+  summary: MetaRefreshSummary,
+) {
+  const admin = createSupabaseAdminClient();
+  const byId = new Map(profiles.map((profile) => [profile.id, profile]));
+  const touchedOrganizations = new Set<string>();
+
+  for (const collection of collections) {
+    const profile = byId.get(collection.profileId);
+    if (!collection.identity || !profile) continue;
+    const diff = metaProfileIdentityChanged({
+      username: profile.username,
+      display_name: profile.display_name ?? null,
+      profile_picture_url: profile.profile_picture_url ?? null,
+    }, collection.identity);
+    if (!hasMetaProfileIdentityChange(diff)) continue;
+
+    const { data, error } = await admin.rpc('refresh_instagram_profile_identity', {
+      p_profile_id: profile.id,
+      p_username: collection.identity.username,
+      p_display_name: collection.identity.displayName,
+      p_profile_picture_url: collection.identity.profilePictureUrl,
+      p_source: 'analytics',
+    });
+    if (error) {
+      summary.errors.push({ profileId: profile.id, code: 'identity_refresh_failed', message: error.message });
+      continue;
+    }
+    if (data === 'updated') {
+      summary.identityUpdated += 1;
+      touchedOrganizations.add(profile.organization_id);
+    }
+  }
+
+  for (const organizationId of touchedOrganizations) {
+    const { error } = await admin.rpc('invalidate_publication_queue_summary', { p_organization_id: organizationId });
+    if (error) summary.errors.push({ profileId: organizationId, code: 'queue_summary_invalidate_failed', message: error.message });
+  }
 }
 
 /** Escreve em lote o que a rodada coletou. Uma requisição por tabela. */

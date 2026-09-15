@@ -108,7 +108,8 @@ export async function POST(
     const accessToken = decryptToken(profile.encrypted_access_token);
     const metaResponse = await fetch(
       `https://graph.instagram.com/${META_GRAPH_API_VERSION}/me?${new URLSearchParams({
-        fields: 'user_id,username,account_type,profile_picture_url',
+        // `name` faltava aqui e `display_name: payload.name` abaixo nunca atualizava (achado de 15/09/2026).
+        fields: 'user_id,username,name,account_type,profile_picture_url',
         access_token: accessToken,
       })}`,
       { cache: 'no-store' },
@@ -121,6 +122,19 @@ export async function POST(
       : reauthorizationRequired
         ? 'reauthorization_required'
         : 'offline';
+
+    // Trilha de identidade (migration 429): antes do update abaixo, para a RPC
+    // ver o valor antigo e registrar a troca de username/nome/foto que este
+    // clique aplica, como a coleta de métricas e o script de passada fazem.
+    if (status === 'online' && payload.username) {
+      await admin.rpc('refresh_instagram_profile_identity', {
+        p_profile_id: profile.id,
+        p_username: payload.username,
+        p_display_name: payload.name ?? null,
+        p_profile_picture_url: payload.profile_picture_url ?? null,
+        p_source: 'health',
+      });
+    }
 
     const { error: updateError } = await admin
       .from('instagram_profiles')

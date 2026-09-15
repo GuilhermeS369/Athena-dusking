@@ -1,4 +1,5 @@
 import { decryptToken } from '@/lib/security/token-crypto';
+import { metaProfileIdentityFromAccount, type MetaProfileIdentity } from '@/lib/integrations/meta-profile-identity';
 import {
   META_ACCOUNT_INSIGHT_METRICS,
   META_MINIMUM_METRICS,
@@ -89,6 +90,9 @@ export type MetaAnalyticsProfile = {
   username: string | null;
   instagram_user_id: string | null;
   encrypted_access_token: string | null;
+  /** Só a rodada de coleta os lê (para o atualizador de identidade); a sonda não. */
+  display_name?: string | null;
+  profile_picture_url?: string | null;
 };
 
 export type MetaPostRow = {
@@ -117,6 +121,14 @@ export type MetaAnalyticsCollection = {
   periodEnd: string;
   followersCount: number | null;
   mediaCount: number | null;
+  /**
+   * O que a Meta respondeu em `me` sobre quem é a conta (username, nome, foto).
+   * Preenchido só quando a chamada da conta respondeu 200. A rodada compara com
+   * o gravado e regrava via `refresh_instagram_profile_identity` (migration
+   * 429): antes de 15/09/2026 o username chegava aqui e era descartado, e 453
+   * perfis renomeados no Instagram ficaram com nome velho no painel.
+   */
+  identity: MetaProfileIdentity | null;
   dailyRows: MetaDailyMetricRow[];
   /**
    * Soma de TODOS os dias coletados nesta passada. Serve à linha de período
@@ -422,6 +434,7 @@ export async function collectMetaProfileAnalytics(
     periodEnd,
     followersCount: null,
     mediaCount: null,
+    identity: null as MetaProfileIdentity | null,
     dailyRows: [] as MetaDailyMetricRow[],
     windowTotals: {} as MetaInsightTotals,
     latestDayTotals: {} as MetaInsightTotals,
@@ -469,7 +482,7 @@ export async function collectMetaProfileAnalytics(
   // 1. Conta: seguidores e total de mídias. Uma chamada, e é a que sustenta o
   //    histórico de seguidores — a Meta não expõe série diária confiável para
   //    contas pequenas, então o Athena tira a própria foto por dia.
-  const account = await graphGet('me', { fields: 'id,username,followers_count,media_count' }, token);
+  const account = await graphGet('me', { fields: 'id,username,name,profile_picture_url,followers_count,media_count' }, token);
   if (!account.ok) {
     // Falha na conta é falha do perfil: sem ela não há token válido, e insistir
     // nas outras chamadas só gastaria cota do app.
@@ -477,6 +490,7 @@ export async function collectMetaProfileAnalytics(
   }
   const followersCount = metaNumberValue(account.body.followers_count);
   const mediaCount = metaNumberValue(account.body.media_count);
+  const identity = metaProfileIdentityFromAccount(account.body);
 
   // 2. Insights, um balde por chamada — e o balde é o da CONTA, não o do nosso
   //    calendário. A chamada abaixo é o que descobre onde o dia dela começa.
@@ -497,6 +511,7 @@ export async function collectMetaProfileAnalytics(
       ...base,
       status: bucketsResult.failure.status,
       failure: bucketsResult.failure,
+      identity,
       followersCount,
       mediaCount,
       durationMs: Date.now() - startedAt,
@@ -663,6 +678,7 @@ export async function collectMetaProfileAnalytics(
     periodEnd,
     followersCount,
     mediaCount,
+    identity,
     dailyRows,
     windowTotals,
     latestDayTotals,

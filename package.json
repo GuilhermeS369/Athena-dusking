@@ -31,6 +31,8 @@
     "monitor:queue": "node scripts/workers/queue-health-monitor.mjs",
     "worker:meta-token-renewal": "node scripts/workers/meta-token-renewal-worker.ts",
     "worker:meta-token-renewal:apply": "node scripts/workers/meta-token-renewal-worker.ts --apply",
+    "worker:meta-identity-refresh": "node scripts/workers/meta-identity-refresh-worker.ts",
+    "worker:meta-identity-refresh:apply": "node scripts/workers/meta-identity-refresh-worker.ts --apply",
     "worker:publication-telemetry": "node scripts/workers/validate-publication-dispatch-telemetry.mjs",
     "worker:twitter:publication": "node scripts/workers/twitter-worker.mjs --role=publication",
     "worker:twitter:publication:once": "node scripts/workers/twitter-worker.mjs --role=publication --once",
