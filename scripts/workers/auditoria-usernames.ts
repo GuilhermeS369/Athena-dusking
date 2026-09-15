@@ -14,7 +14,7 @@ const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SU
 const perfis: any[] = [];
 for (let from = 0; ; from += 1000) {
   const { data, error } = await admin.from('instagram_profiles')
-    .select('id, username, instagram_user_id, status, encrypted_access_token')
+    .select('id, username, display_name, instagram_user_id, status, encrypted_access_token')
     .eq('provider', 'meta_official').is('deleted_at', null).in('status', ['online', 'reauthorization_required'])
     .order('id', { ascending: true }).range(from, from + 999);
   if (error) throw error;
@@ -30,13 +30,13 @@ async function sondar(p: any) {
   try {
     const token = decryptToken(p.encrypted_access_token);
     const url = new URL(`https://graph.instagram.com/${V}/me`);
-    url.searchParams.set('fields', 'id,username');
+    url.searchParams.set('fields', 'id,username,name');
     url.searchParams.set('access_token', token);
     const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
     const corpo: any = await res.json().catch(() => ({}));
     linha.http = res.status;
     if (res.ok) {
-      linha.username_meta = corpo.username; linha.ig_meta = corpo.id;
+      linha.username_meta = corpo.username; linha.name_meta = corpo.name; linha.name_db = p.display_name; linha.ig_meta = corpo.id;
       if (corpo.username !== p.username) renomeados++;
     } else {
       erros++;

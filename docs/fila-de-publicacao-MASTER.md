@@ -303,6 +303,18 @@ pausam o lote (`publication_batch_circuit_breakers`); retoma pela tela
 `profile_removed_by_operator`), excluir mídia (`delete_media_assets_and_remove_publication_items`,
 pela galeria ou pelo cron de exclusão), cancelar item/lote/em massa (seção 8.8).
 
+**O limpador só enxerga a queda na hora de publicar.** Medido em 15/09/2026 16:15Z com uma
+chamada `me` por perfil online (`scripts/workers/auditoria-usernames.ts`): 39 de 2.243 já
+respondiam 190 de checkpoint e seguiam `online` — todos tinham publicado na última hora e o
+próximo item era dali a até 1 h (cadência horária), ou não tinham item aberto nenhum
+(`_larrisafreitas572`: caiu depois de 13/09 e ninguém tentou de novo). O worker de analytics
+(`profile-analytics-refresh`) já faz essa mesma chamada e grava
+`profile_analytics_current.last_error_code = 'meta_190'` minutos depois da queda, mas não toca no
+perfil. Ritmo das quedas em 14–15/09: 5 a 15 perfis por hora, contínuo, quase tudo "log in to
+www.instagram.com and follow the instructions". Opção (decisão do dono): quando a coleta receber
+190 com assinatura terminal (`isMetaTerminalProfileDisconnection`), chamar
+`finalize_meta_profile_disconnection` — o mesmo caminho da seção 5, sem regra nova.
+
 **Username renomeado não é queda.** O único sinal que derruba perfil é o 190 acima. Se o Instagram
 renomeia a conta (ou o operador renomeia), `instagram.com/<username-antigo>` some, mas o token,
 as publicações e as métricas seguem normais (15/09: `nonaornelas44036` virou `rochanatalia937`
@@ -601,6 +613,8 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 
 - **Logs do PM2 sem carimbo de hora** (achado de 13/09/2026 00:03Z): nenhuma linha dos `-out-`/`-error-` começa com data, então filtrar log "por horário" não filtra nada — só contagem total do `-error-` é confiável. Corrigir com `log_date_format: 'YYYY-MM-DDTHH:mm:ssZ'` no `npmWorker()` do ecosystem; **só vale após `pm2 restart <nome> --update-env`**, que zera o limite adaptativo (8.2): fazer um processo por vez, em vale, com o dono acordado.
 - Rotação de meia-noite do `pm2-logrotate` em 13/09 copiou só 0,6 MB por publicador e não truncou os atuais (16–19 MB às 00:05Z); os dias anteriores rotacionaram 18–21 MB certinho. O teto `max_size 50M` (checado a cada 30 s) segura o disco (963 MB de logs, 90 GB livres), mas conferir `du -sh /root/.pm2/logs` na rotina da manhã.
+- **Limpador com atraso de até 1 h (ou infinito sem item aberto)** — ver seção 5, "o limpador só enxerga a queda na hora de publicar". Opção: analytics dispara `finalize_meta_profile_disconnection` na assinatura terminal. Decisão do dono.
+- **Renomeação em massa por lote de operador** (auditoria de 15/09/2026 16:15Z): 453 de 2.243 perfis online têm username **e** nome diferentes dos gravados (nomes em inglês de fazenda → nomes brasileiros femininos, ex.: `benny_menjivar21980` → `lais.neves73` "Laís das Neves"); mais 145 só com o nome trocado. Zero nos lotes conectados até 07/09 e nos de Lexy/Laurinha/Tia Lau; 60–90 % nos lotes de Chrys (10/09), Julio, Biel e Igor (12/09). Não é a Meta: alguém com o login dessas contas roda uma troca de identidade depois da conexão. O dono confirma que a equipe não renomeia; apurar com os operadores.
 - **Username só é gravado na conexão** (achado de 15/09/2026 16:10Z): `collectMetaProfileAnalytics` já pede `id,username` em `me` e descarta o `username`; `meta-token-refresh` também não o atualiza. Conta renomeada no Instagram fica com nome velho no painel, na busca e no XLSX, e parece "caída". Opções: (a) a coleta diária de métricas grava `username` quando difere (0 chamada extra, 1 update por perfil renomeado); (b) auditoria pontual com `scripts/workers/auditoria-usernames.ts` (1 chamada `me` por perfil online, ~2.242, só leitura, JSONL em `/tmp`). Decisão do dono.
 - Rotacionar `PUBLICATION_WORKER_SECRET`, `META_OAUTH_STATE_SECRET` e chaves R2 (passaram pelo chat).
 - Atualizar `.env.worker.deploy` e os docs de X/Twitter que citam o ref antigo (as envs `SUPABASE_URL`/`SUPABASE_ANON_KEY` saíram da Vercel em 07/09).
