@@ -303,6 +303,11 @@ pausam o lote (`publication_batch_circuit_breakers`); retoma pela tela
 `profile_removed_by_operator`), excluir mídia (`delete_media_assets_and_remove_publication_items`,
 pela galeria ou pelo cron de exclusão), cancelar item/lote/em massa (seção 8.8).
 
+**Username renomeado não é queda.** O único sinal que derruba perfil é o 190 acima. Se o Instagram
+renomeia a conta (ou o operador renomeia), `instagram.com/<username-antigo>` some, mas o token,
+as publicações e as métricas seguem normais (15/09: `nonaornelas44036` virou `rochanatalia937`
+e publicou 17 reels no dia). Confirme com `scripts/workers/sonda-perfil.ts` antes de remover.
+
 **Zernio** (`zernio_account_disconnected`): produto abandonado; os 1.163 perfis Zernio estão
 em `reauthorization_required` e não publicam.
 
@@ -522,6 +527,7 @@ Para subir de novo (Medium → Large/XL): mesma cerimônia; os tetos só sobem d
 | `40001` no log do Postgres | `ciclo de preparação` no log do worker (`codigos`) | banco lento; não aumente lote |
 | CPU do banco alta com fila normal | `pg_stat_statements` por `total_exec_time` (resumos, arquivo frio, analytics) | seção 5 do plano |
 | perfis sumindo | `instagram_profiles.last_error_message` dos `offline` de hoje | checkpoint = descartar; `401`/renovação = esperar |
+| "perfil caiu" no Instagram (página não existe) mas está `online` e publicando | `node scripts/workers/sonda-perfil.ts <username>` na VPS: 7 chamadas à Graph API com o token, sem imprimi-lo | se `me` responde 200 com **outro** `username`, a conta foi renomeada, não caiu (15/09: `nonaornelas44036` → `rochanatalia937`); o Athena só grava o username na conexão (pendência na 12) |
 | lote parado | `publication_batch_circuit_breakers` (`paused_at`) | "continuar" na tela depois de entender a causa |
 | item preso em `preparing` | `lease_until` no passado? | o claim recupera sozinho; se não, `release_expired_publication_leases` |
 | dashboard vazia | `get_dashboard_analytics_summary` responde em ms? migrations 421/422 aplicadas? | `refresh_dashboard_summary` no cron |
@@ -595,6 +601,7 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 
 - **Logs do PM2 sem carimbo de hora** (achado de 13/09/2026 00:03Z): nenhuma linha dos `-out-`/`-error-` começa com data, então filtrar log "por horário" não filtra nada — só contagem total do `-error-` é confiável. Corrigir com `log_date_format: 'YYYY-MM-DDTHH:mm:ssZ'` no `npmWorker()` do ecosystem; **só vale após `pm2 restart <nome> --update-env`**, que zera o limite adaptativo (8.2): fazer um processo por vez, em vale, com o dono acordado.
 - Rotação de meia-noite do `pm2-logrotate` em 13/09 copiou só 0,6 MB por publicador e não truncou os atuais (16–19 MB às 00:05Z); os dias anteriores rotacionaram 18–21 MB certinho. O teto `max_size 50M` (checado a cada 30 s) segura o disco (963 MB de logs, 90 GB livres), mas conferir `du -sh /root/.pm2/logs` na rotina da manhã.
+- **Username só é gravado na conexão** (achado de 15/09/2026 16:10Z): `collectMetaProfileAnalytics` já pede `id,username` em `me` e descarta o `username`; `meta-token-refresh` também não o atualiza. Conta renomeada no Instagram fica com nome velho no painel, na busca e no XLSX, e parece "caída". Opções: (a) a coleta diária de métricas grava `username` quando difere (0 chamada extra, 1 update por perfil renomeado); (b) auditoria pontual com `scripts/workers/auditoria-usernames.ts` (1 chamada `me` por perfil online, ~2.242, só leitura, JSONL em `/tmp`). Decisão do dono.
 - Rotacionar `PUBLICATION_WORKER_SECRET`, `META_OAUTH_STATE_SECRET` e chaves R2 (passaram pelo chat).
 - Atualizar `.env.worker.deploy` e os docs de X/Twitter que citam o ref antigo (as envs `SUPABASE_URL`/`SUPABASE_ANON_KEY` saíram da Vercel em 07/09).
 - Remover as rotas mortas e o modo `dispatch-endpoint`; corrigir o comentário de `queue-summary-refresh`.
