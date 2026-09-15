@@ -17,6 +17,10 @@
 
 const INFRASTRUCTURE_ERROR_CODES = new Set([
   '57014', '40001', '40p01', '53300', '57p01', '57p02', '57p03',
+  // 55P03 (lock_timeout): visto uma vez em 15/09/2026 numa `falha no ciclo` do
+  // publicador 4; a mensagem "canceling statement" já caía na regra abaixo, o
+  // código entra aqui para a proteção não depender do texto.
+  '55p03',
   'publication_worker_cycle_failed',
 ]);
 

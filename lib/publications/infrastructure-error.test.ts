@@ -35,6 +35,8 @@ const CASOS: Array<{ nome: string; erro: unknown; infraestrutura: boolean }> = [
   { nome: 'statement timeout do Postgres', erro: { code: '57014', message: 'canceling statement due to statement timeout' }, infraestrutura: true },
   { nome: 'falha de serialização', erro: { code: '40001', message: 'serialization failure' }, infraestrutura: true },
   { nome: 'deadlock', erro: { code: '40P01', message: 'deadlock detected' }, infraestrutura: true },
+  { nome: 'lock timeout do Postgres (15/09/2026, publicador 4)', erro: { code: '55P03', message: 'canceling statement due to lock timeout' }, infraestrutura: true },
+  { nome: 'lock timeout só pelo código, sem a mensagem', erro: { code: '55P03', message: '' }, infraestrutura: true },
   { nome: 'TypeError de programação', erro: new TypeError("Cannot read properties of undefined (reading 'provider')"), infraestrutura: true },
   { nome: 'socket derrubado no meio', erro: { message: 'fetch failed', details: 'SocketError: other side closed', hint: '', code: '' }, infraestrutura: true },
   { nome: 'conexão resetada', erro: { message: 'request failed', details: 'Error: read ECONNRESET', hint: '', code: '' }, infraestrutura: true },

@@ -490,7 +490,7 @@ export function isPublicationInfrastructureError(error) {
   const code = String(details.code ?? '').trim().toLowerCase();
   const message = [details.message, details.details, details.hint].filter(Boolean).join(' ').toLowerCase();
   return error instanceof TypeError || new Set([
-    '57014', '40001', '40p01', '53300', '57p01', '57p02', '57p03',
+    '57014', '40001', '40p01', '53300', '57p01', '57p02', '57p03', '55p03',
     'publication_worker_cycle_failed',
   ]).has(code)
     || /statement timeout|canceling statement|deadlock detected|connection pool|database connection|supabase unavailable/.test(message)
