@@ -37,6 +37,10 @@ import {
   resumirFasesPorItem,
   ociosidadeDoLote,
   processarComJanelaDeslizante,
+  META_REEL_COVER_MAX_BYTES,
+  metaReelContainerFields,
+  metaReelCoverIsSendable,
+  resolveMetaReelCoverUrl,
 } from './publication-direct-dispatch.mjs';
 
 test('limpeza automática não descarta backlog causado pela capacidade interna', async () => {
@@ -1168,4 +1172,61 @@ test('janela deslizante: nunca passa do teto de itens em voo, mesmo se o claim d
   for (const id of proc.emVoo()) await proc.terminar(id);
   const resultado = await promessa;
   assert.equal(resultado.motivoFim, 'janela_maxima');
+});
+
+test('capa de Reel na Meta: só JPEG até 8 MB é enviada', () => {
+  const jpeg = { id: 'capa', kind: 'image', mime_type: 'image/jpeg', size_bytes: 120_000 };
+  assert.equal(metaReelCoverIsSendable(jpeg), true);
+  assert.equal(metaReelCoverIsSendable({ ...jpeg, mime_type: 'image/jpg' }), true);
+  assert.equal(metaReelCoverIsSendable({ ...jpeg, size_bytes: null }), true);
+  assert.equal(metaReelCoverIsSendable({ ...jpeg, mime_type: 'image/png' }), false);
+  assert.equal(metaReelCoverIsSendable({ ...jpeg, mime_type: null }), false);
+  assert.equal(metaReelCoverIsSendable({ ...jpeg, size_bytes: META_REEL_COVER_MAX_BYTES + 1 }), false);
+  assert.equal(metaReelCoverIsSendable({ ...jpeg, kind: 'video' }), false);
+  assert.equal(metaReelCoverIsSendable(null), false);
+});
+
+test('contêiner de Reel na Meta leva cover_url só quando há capa', () => {
+  assert.deepEqual(metaReelContainerFields({ videoUrl: 'https://r2/v.mp4', caption: null, coverUrl: null }), {
+    media_type: 'REELS', video_url: 'https://r2/v.mp4', caption: '', share_to_feed: 'true',
+  });
+  assert.deepEqual(metaReelContainerFields({ videoUrl: 'https://r2/v.mp4', caption: 'Legenda', coverUrl: 'https://r2/c.jpg' }), {
+    media_type: 'REELS', video_url: 'https://r2/v.mp4', caption: 'Legenda', share_to_feed: 'true', cover_url: 'https://r2/c.jpg',
+  });
+});
+
+test('URL da capa: verificada como mídia, e falha ou capa inválida viram reel sem capa', async () => {
+  const jpeg = { id: 'capa', storage_path: 'org/capa.jpg', kind: 'image', mime_type: 'image/jpeg', size_bytes: 10 };
+  const item = { id: 'item', format: 'reel', media: [{ id: 'video', kind: 'video' }], cover: jpeg };
+  const recebidos = [];
+  const url = await resolveMetaReelCoverUrl(item, {
+    buildVerifiedMediaUrls: async (target) => { recebidos.push(target.media); return ['https://r2/capa-assinada.jpg']; },
+  });
+  assert.equal(url, 'https://r2/capa-assinada.jpg');
+  assert.deepEqual(recebidos, [[jpeg]]);
+
+  const falha = await resolveMetaReelCoverUrl(item, { buildVerifiedMediaUrls: async () => { throw new Error('timeout'); } });
+  assert.equal(falha, null);
+
+  let chamou = false;
+  const png = await resolveMetaReelCoverUrl({ ...item, cover: { ...jpeg, mime_type: 'image/png' } }, {
+    buildVerifiedMediaUrls: async () => { chamou = true; return ['x']; },
+  });
+  assert.equal(png, null);
+  assert.equal(chamou, false);
+  assert.equal(await resolveMetaReelCoverUrl({ ...item, format: 'story' }, { buildVerifiedMediaUrls: async () => ['x'] }), null);
+  assert.equal(await resolveMetaReelCoverUrl({ ...item, cover: null }, { buildVerifiedMediaUrls: async () => ['x'] }), null);
+});
+
+test('loadWorkItem carrega formato e tamanho da capa para a decisão da Meta', async () => {
+  const tabelas = {
+    instagram_profiles: { data: { id: 'p', organization_id: 'org-1', provider: 'meta_official', status: 'online' }, error: null },
+    publication_item_media: { data: [], error: null },
+    publication_items: { data: { container_poll_count: 0, provider_creation_started_at: null, zernio_recovery_count: 0, zernio_recovery_poll_at: null, reel_cover_media_asset_id: 'capa-1' }, error: null },
+    media_assets: { data: { id: 'capa-1', storage_path: 'org/capa.jpg', kind: 'image', status: 'ready', deleted_at: null, organization_id: 'org-1', mime_type: 'image/jpeg', size_bytes: 2048 }, error: null },
+  };
+  const result = await loadWorkItem({ id: 'item-capa', profile_id: 'p', organization_id: 'org-1', format: 'reel', caption: null, creation_id: null }, {
+    createSupabase: () => ({ from: (table) => queryResult(tabelas[table]) }),
+  });
+  assert.deepEqual(result.cover, { id: 'capa-1', storage_path: 'org/capa.jpg', kind: 'image', mime_type: 'image/jpeg', size_bytes: 2048 });
 });

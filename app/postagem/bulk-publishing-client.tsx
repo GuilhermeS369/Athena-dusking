@@ -67,7 +67,16 @@ type MediaPreview = {
   originalName: string;
   kind: 'image' | 'video';
   thumbnailUrl: string | null;
+  /** Só na lista de capas: false quando a Meta recusaria a imagem (não JPEG ou acima de 8 MB). */
+  eligible?: boolean;
+  ineligibleReason?: string | null;
 };
+
+/** Proporção 9:16 com folga de 3 %; fora disso a Meta corta o centro da capa. */
+function isNineBySixteen(width: number, height: number) {
+  if (!width || !height) return true;
+  return Math.abs(width / height - 9 / 16) <= 0.03 * (9 / 16);
+}
 
 type CompactRequest = {
   name: string;
@@ -258,6 +267,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
   const [coverOriginKey, setCoverOriginKey] = useState('');
   const [coverAssets, setCoverAssets] = useState<MediaPreview[]>([]);
   const [selectedCover, setSelectedCover] = useState<MediaPreview | null>(null);
+  const [coverRatioOff, setCoverRatioOff] = useState(false);
   const [coverCursor, setCoverCursor] = useState<string | null>(null);
   const [coverHasMore, setCoverHasMore] = useState(false);
   const [loadingCovers, setLoadingCovers] = useState(false);
@@ -672,7 +682,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
     if (scheduleMode === 'sequential' && customStartEnabled && !saoPauloLocalDateTimeToIso(customStartAt)) return setMessage('Escolha a data e a hora de início.');
     if (coverEnabled && !coverOrigin) return setMessage('Selecione a pasta/grupo das capas.');
     if (coverEnabled && !selectedCover) return setMessage('Selecione uma imagem para usar como capa.');
-    if (coverEnabled && profileSelection.ids.some((id) => profiles.find((profile) => profile.id === id)?.provider !== 'zernio')) return setMessage('A capa personalizada está disponível apenas para perfis Zernio.');
+    if (coverEnabled && selectedCover?.eligible === false) return setMessage(selectedCover.ineligibleReason ?? 'Esta imagem não pode ser usada como capa.');
 
     setReviewing(true);
     try {
@@ -921,7 +931,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
                 ><span aria-hidden="true" />{coverEnabled ? 'Ativada' : 'Desativada'}</button>
               </header>
               {coverEnabled && <div className={styles.coverBody}>
-                <p className={styles.coverNotice}>Escolha uma imagem editorial vertical. O arquivo não será duplicado: o Athena criará uma URL temporária para a Zernio em cada publicação.</p>
+                <p className={styles.coverNotice}>Escolha uma imagem vertical em JPEG, de até 8 MB, de preferência em 9:16 (a Meta corta o centro quando a proporção é outra). O arquivo não é duplicado: o Athena gera uma URL temporária em cada publicação.</p>
                 <label className={`${styles.field} ${styles.coverOriginField}`}>Pasta/grupo das capas *
                   <select value={coverOriginKey} onChange={(event) => { invalidateReview(); setCoverOriginKey(event.target.value); setSelectedCover(null); }} disabled={!canManage}>
                     <option value="">Selecione uma origem de capas</option>
@@ -932,9 +942,11 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
                   <div className={styles.coverGrid} aria-label="Imagens disponíveis para capa">
                     {coverAssets.map((asset) => {
                       const selected = selectedCover?.id === asset.id;
-                      return <button key={asset.id} type="button" className={`${styles.coverOption} ${selected ? styles.coverOptionSelected : ''}`} aria-pressed={selected} title={asset.originalName} onClick={() => { invalidateReview(); setSelectedCover(asset); }} disabled={!canManage}>
+                      const blocked = asset.eligible === false;
+                      return <button key={asset.id} type="button" className={`${styles.coverOption} ${selected ? styles.coverOptionSelected : ''} ${blocked ? styles.coverOptionBlocked : ''}`} aria-pressed={selected} title={blocked ? `${asset.originalName}: ${asset.ineligibleReason ?? 'não pode ser capa'}` : asset.originalName} onClick={() => { invalidateReview(); setCoverRatioOff(false); setSelectedCover(asset); }} disabled={!canManage || blocked}>
                         {asset.thumbnailUrl ? <img src={asset.thumbnailUrl} alt={asset.originalName} loading="lazy" /> : <span>Imagem</span>}
                         <small>{asset.originalName}</small>
+                        {blocked && <em className={styles.coverBlockedReason}>{asset.ineligibleReason}</em>}
                         {selected && <b aria-hidden="true">✓</b>}
                       </button>;
                     })}
@@ -942,8 +954,8 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
                   {coverHasMore && <button className={`${styles.loadMore} ${styles.coverLoadMore}`} type="button" onClick={() => void loadCoverPage(true)} disabled={loadingMoreCovers}>{loadingMoreCovers ? 'Carregando…' : 'Carregar mais capas'}</button>}
                 </>}
                 {selectedCover && <div className={styles.coverPreview}>
-                  {selectedCover.thumbnailUrl && <img className={styles.coverPreviewImage} src={selectedCover.thumbnailUrl} alt="" />}
-                  <div className={styles.coverMeta}><span>Capa selecionada</span><strong>{selectedCover.originalName}</strong><small>Será usada em {formatInteger(projected.expectedPublications)} publicações projetadas.</small></div>
+                  {selectedCover.thumbnailUrl && <img className={styles.coverPreviewImage} src={selectedCover.thumbnailUrl} alt="" onLoad={(event) => setCoverRatioOff(!isNineBySixteen(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight))} />}
+                  <div className={styles.coverMeta}><span>Capa selecionada</span><strong>{selectedCover.originalName}</strong><small>Será usada em {formatInteger(projected.expectedPublications)} publicações projetadas.</small>{coverRatioOff && <small className={styles.coverRatioWarning}>Esta imagem não está em 9:16. A Meta vai cortar o centro para a capa do Reel, e em 1:1 no feed.</small>}</div>
                   <button type="button" className={styles.subtleButton} onClick={() => { invalidateReview(); setSelectedCover(null); }}>Remover</button>
                 </div>}
               </div>}

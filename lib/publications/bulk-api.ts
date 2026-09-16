@@ -228,6 +228,23 @@ export function decodeBulkMediaCursor(value: string | null) {
   }
 }
 
+// Capa de Reel: a Meta só aceita JPEG até 8 MB em `cover_url` (433). Usado pela
+// lista de capas e pelas rotas de revisão e confirmação para dar o motivo certo
+// antes da validação do banco, que devolve só "não disponível".
+export const REEL_COVER_MAX_BYTES = 8 * 1024 * 1024;
+
+export function reelCoverIneligibleReason(asset: { mime_type?: string | null; size_bytes?: number | string | null }) {
+  const mime = (asset.mime_type ?? '').toLowerCase();
+  if (mime !== 'image/jpeg' && mime !== 'image/jpg') {
+    const format = mime.startsWith('image/') ? mime.slice(6).toUpperCase() : 'este formato';
+    return `A Meta só aceita capa em JPEG (esta imagem é ${format}).`;
+  }
+  if (asset.size_bytes !== null && asset.size_bytes !== undefined && Number(asset.size_bytes) > REEL_COVER_MAX_BYTES) {
+    return 'A Meta só aceita capa de até 8 MB.';
+  }
+  return null;
+}
+
 export function hasBulkManageRole(role: string | undefined) {
   return role === 'admin' || role === 'operator';
 }

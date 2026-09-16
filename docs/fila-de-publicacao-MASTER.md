@@ -145,6 +145,7 @@ sincronização de status do **lote** não é gatilho: é `sync_publication_batc
 | `execute_publication_queue_cancellation` (428) | passada compacta da 197 com `archived_at is null` nos dois predicados e **sem** o update de `publication_batches` da organização inteira | `42501`, `P0002`, `P0001` |
 | `open_meta_analytics_run` (388) | abre a rodada do slot 09:00/15:00/21:00 (America/Sao_Paulo) | `42501` |
 | `review_bulk_sequential_rotation_schedule` / `create_bulk_sequential_rotation_plan_v2` (432) | esquema **Sequencial** da programação em massa: intervalo ≥ 1 min, quantidade por perfil, início opcional (`sequential_start_at`); regras em `assert_bulk_sequential_schedule` (≤ 7 dias, ≤ 100 posts por perfil em qualquer 24 h, início no futuro); plano nasce `schedule_mode = 'sequential'`, rotação v2, dispersão da 331; com início, `schedule_base_at = início − intervalo` | `42501`, `22023`, `P0001`, `23505` |
+| `bulk_reel_cover_is_eligible` (433, base 207) | capa de Reel do plano em massa: imagem pronta da origem, **só JPEG até 8 MB** (exigência da Meta para `cover_url`); exige admin/operator da org ou `service_role`, e desde a 433 o papel `authenticated` pode executar (a 207 tinha revogado e as rotas de revisão/confirmação falhavam sempre) | — |
 | `process_bulk_rotation_generation_chunk` (432, base 328) | gera o plano inteiro; pula slot vencido (326) e slot a < 10 min de post do mesmo perfil e formato de outro lote — **no plano sequencial só o slot no mesmo instante exato** | `P0002`, `23505` |
 
 Índices que sustentam o claim: `publication_items_v2_dispatch_claim_idx`,
@@ -184,7 +185,7 @@ plano em massa  ─► gerador (process_bulk_rotation_generation_chunk) ─► w
                    PREPARAÇÃO ─► waiting / ready       (valida perfil, mídia, formato; não chama Meta)
                                 │  staging 600 s antes: arquivo no spool + dispatch_staged_until (660 s)
                                 ▼
-                   DESPACHO  ─► preparing (lease 180 s) ─► reserva de capacidade ─► sonda R2 ─► contêiner na Meta
+                   DESPACHO  ─► preparing (lease 180 s) ─► reserva de capacidade ─► sonda R2 (vídeo + capa) ─► contêiner na Meta
                                 │  defer_publication_item: waiting com creation_id, prioridade 0, 30 s
                                 ▼  claim de novo (polling não gasta tentativa)
                    CONFIRMAR ─► FINISHED → media_publish → published
@@ -223,6 +224,7 @@ Mudar `execute_at`, legenda, perfil, formato ou capa **zera a preparação** (ga
 | Slot perdido: em v2 só gera alerta de SLA; **não descarta nem reagenda** | `recover_missed_publication_slots` (264) | 100 por ciclo, tolerância 120 s |
 | Horário de agendamento nunca é alterado para aliviar carga | decisão do dono | a chave de idempotência guarda o slot |
 | Legenda ≤ 2.200; repetição 1–365 dias; sequência 1–1000 | `lib/publications/composer.ts` | — |
+| **Capa personalizada de Reel** na programação em massa vale para a **API oficial da Meta** e para a Zernio (decisão do dono em 16/09/2026): a Meta recebe `cover_url` no contêiner REELS e só aceita JPEG até 8 MB (9:16 recomendado; fora disso corta o centro, e 1:1 no feed). **A capa nunca derruba o post**: capa fora da regra não é enviada e, se a sonda da URL da capa falhar, o reel sai sem capa | migration 433, `metaReelContainerFields` / `resolveMetaReelCoverUrl` em `publication-direct-dispatch.mjs`, tela de programação em massa | a lista de capas mostra PNG desabilitada com o motivo |
 | Twitter/X desligado | decisão do dono, 07/09/2026 | só com autorização |
 
 ---
@@ -349,6 +351,7 @@ em `reauthorization_required` e não publicam.
 | `meta_timeout_criar_container` / `_consultar_status` / `_publicar` | Meta > 25 s / 60 s | retentável; **o lote inteiro do caminho direto espera** | ver seção 8.3 antes de subir processo |
 | contêiner `ERROR` / `EXPIRED` | Meta (transcodificação, mídia) | `metaContainerVerdict`: retentável ou não; `IN_PROGRESS` continua | em massa no mesmo formato: olhar a mídia |
 | `media_url_probe_timeout` / `_network` / `_http_5xx` | R2 lento | retentável | olhar R2 |
+| falha na sonda da **capa** de Reel (mesmos códigos acima, com `media_asset_id` da capa em `media_asset_delivery_attempts`) | R2 lento ou objeto da capa com problema | **não retenta nem falha**: o reel é criado sem `cover_url` (16/09/2026) | se reels de um plano saírem sem capa, olhar as tentativas `url_probe` com o id da capa |
 | `media_url_probe_mime_invalid` / `media_url_range_unsupported` / `media_url_tail_range_invalid` | objeto no R2 não é o que o item diz | **não retentável** | reenviar a mídia |
 | `media_storage_object_missing` | objeto sumiu do storage | **não retentável** | reenviar a mídia |
 | `preparation_*` (`media_count_invalid`, `carousel_media_count_invalid`, `image_media_invalid`, `reel_media_invalid`, `meta_credentials_missing`, `profile_organization_missing`) | dado do item | `preparation_status = blocked` + `next_preparation_at` em 900 s | corrigir o item; o gatilho da 264 zera a preparação ao editar |
@@ -392,7 +395,7 @@ em `reauthorization_required` e não publicam.
 
 | Log | Caminho | O que traz |
 |---|---|---|
-| saída do publicador | `/root/.pm2/logs/athena-publication-worker-out-<id>.log` (`-2`, `-3`; o sufixo `-<id>` apareceu quando os processos foram recriados a partir do ecosystem em 07/09 — use `ls -t` para pegar o atual) | `tempos do ciclo DIRETO` (fases do ciclo, `porItemMs`, e desde 15/09/2026 **`fasesPorItemMs`** = p50/p90/max por fase do item e **`ociosidadeDoLote`** = quanto cada vaga ficou parada esperando o item mais lento, com `aproveitamento` 0–1; é a medida do defeito do lote da 8.3; desde 16/09/2026 também **`janelaDeslizante`** = `{janelaMs, reposicoes, itensRepostos, motivoFim}` quando o canário está ligado, com `motivoFim` em `fila_vazia` / `janela_maxima` / `claim_falhou` / `sem_reposicao`), `tempos do ciclo de despacho` (spool, `esperaPorSlotMs`), `ciclo de preparação` (`estados`, `codigos`, `esperaMs`), `controlador do staging`, `Dispatcher direto concluído` (`states`, `adaptiveConcurrency`), `reservas de staging liberadas`, `entradas de spool descartadas` |
+| saída do publicador | `/root/.pm2/logs/athena-publication-worker-out-<id>.log` (`-2`, `-3`; o sufixo `-<id>` apareceu quando os processos foram recriados a partir do ecosystem em 07/09 — use `ls -t` para pegar o atual) | `tempos do ciclo DIRETO` (fases do ciclo, `porItemMs`, e desde 15/09/2026 **`fasesPorItemMs`** = p50/p90/max por fase do item (desde 16/09/2026 também `sondaCapa`, só em reel com capa) e **`ociosidadeDoLote`** = quanto cada vaga ficou parada esperando o item mais lento, com `aproveitamento` 0–1; é a medida do defeito do lote da 8.3; desde 16/09/2026 também **`janelaDeslizante`** = `{janelaMs, reposicoes, itensRepostos, motivoFim}` quando o canário está ligado, com `motivoFim` em `fila_vazia` / `janela_maxima` / `claim_falhou` / `sem_reposicao`), `tempos do ciclo de despacho` (spool, `esperaPorSlotMs`), `ciclo de preparação` (`estados`, `codigos`, `esperaMs`), `controlador do staging`, `Dispatcher direto concluído` (`states`, `adaptiveConcurrency`), `reservas de staging liberadas`, `entradas de spool descartadas` |
 | erro do publicador | `…-error.log` | só o que decide rollback: `preparação girando em falso; recuando`, `FILA DE CONFIRMACAO REPRESADA`, `falha no ciclo`, `Falha isolada no dispatcher`, `erro fatal`. Avisos `MODULE_TYPELESS` são ruído; uma página HTML 521 é URL errada do Supabase |
 | gerador / resumo / analytics / manutenção | `athena-<nome>-out.log` / `-error.log` | resumo do ciclo; o resumo grava `recalculo LENTO` (> 45 s) como erro de propósito |
 | crons da VPS | `/var/log/athena-instagram-observability-maintenance*.log`, `athena-recovery-analysis.log` | `exit=`, `duration_s=`, `paused: critical_publication_delay` |
@@ -521,6 +524,7 @@ Para subir de novo (Medium → Large/XL): mesma cerimônia; os tetos só sobem d
 | Continuar lote pausado | `POST …/batch/[id]/continue` | `resume_publication_batch_after_circuit_breaker` |
 | Limpar encerradas / concluídas / marcar falhas como vistas | `POST /api/publications/queue-actions` | arquiva sob lease pesado (250 por lote); `acknowledge_publication_failures` |
 | Excluir mídia (galeria) / excluir perfil | `/api/media/*`, `/api/profiles/*` | removem os itens da fila ligados |
+| Listar capas de Reel | `GET /api/bulk-publications/covers` | imagens da origem com `eligible` / `ineligibleReason` (só JPEG até 8 MB, 433) |
 | Criar plano em massa | `POST /api/bulk-publications/confirm` | `create_bulk_rotation_plan_v2` / `create_bulk_daily_rotation_plan_v2` / `create_bulk_sequential_rotation_plan_v2` (Sequencial, 432); gate `BULK_PUBLICATION_ROLLOUT` |
 | Cancelar job de geração | `PATCH /api/publication-generation-jobs/[id]` | `cancel_publication_generation_job` |
 
@@ -602,6 +606,7 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 
 | Data | O que | Lição |
 |---|---|---|
+| 16/09 (15:30 BRT) | **Capa personalizada de Reel para a API oficial da Meta** (pedido do dono): publicador envia `cover_url` no contêiner REELS (4 testes, 69/69), validação da capa passa a exigir JPEG até 8 MB e papel admin/operator (migration 433), tela e rotas sem a trava "só Zernio", lista de capas marca PNG. Achado: a 207 tinha revogado `bulk_reel_cover_is_eligible` do papel `authenticated` e as rotas chamam com a sessão do usuário, então **a capa nunca funcionou de ponta a ponta** (0 planos com capa em produção). Galeria: 8 JPEG e 9 PNG prontos. Ensaio da 433 em transação desfeita: JPEG aceita, PNG recusada, usuário de fora recusado, planos sequencial e de intervalo com capa criados e os reels gerados com a capa | uma função `security definer` revogada do papel que a chama falha como "indisponível", não como permissão; conferir `has_function_privilege` antes de concluir que um recurso funciona |
 | 16/09 (13:30 BRT) | **Esquema Sequencial** na programação em massa (migration 432, pedido do dono): intervalo a partir de 1 min, quantidade por perfil, início opcional; libera só para os itens desse plano o piso de 29 min, o pulo de 10 min da geração, o intervalo mínimo por formato e a reserva irmã do despacho, e a reserva de horizonte. Ensaiado em produção dentro de transação desfeita, com 3 perfis da Pomodoro: 4 reels a cada 5 min, perfis a +3 min 20 s e +6 min 40 s (dispersão), rotação v2 exata, 2º post com o 1º em voo liberado e o mesmo item com o plano como intervalo adiado (`profile_min_interval`); início no instante exato de um reel de outro lote pulou só aquele slot e criou os de +3 e +6 min, sem conflito de horizonte | três funções do caminho quente foram copiadas por script de arquivos conferidos iguais à produção e comparadas por diff antes do `db push` |
 | 14/09 | três "Cancelar grupo" seguidos na Pomodoro: a tela guardava UMA operação (o 2º clique abandonou a 1ª com 2.146 ativos e 9.000 cancelados), o bloco abortava a rodada inteira se qualquer item do grupo estivesse em voo, a passada compacta (197) ainda cancelava arquivados e marcava lotes da org inteira, e a linha virava "Concluído" por falta do tom `cancelled`. Migration 428 + `athena-cancellation-worker` + fila de cancelamento na tela | operação em massa é do servidor, não da aba; cancelar não pode esperar janela sem item em voo; toda função antiga do caminho tem de ser reconferida quando uma correção (336) muda um predicado |
 | 31/08 | concorrência 64 → 160 apagou 3.315 posts | advisory lock por org; infra nunca vira terminal |
@@ -634,6 +639,7 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 ## 12. Pendências abertas (07/09/2026)
 
 
+- **Capa de Reel na Meta só vale em publicador reiniciado** (16/09/2026): `publication-direct-dispatch.mjs` com `cover_url` foi para a VPS, mas cada processo só carrega o arquivo ao reiniciar. Enquanto algum publicador rodar o arquivo antigo, um reel com capa que ele reivindicar sai **sem** capa (não falha). Reiniciar um por vale (8.2) e conferir `pm2 jlist` (horário de início posterior ao do arquivo).
 - **Logs do PM2 sem carimbo de hora** (achado de 13/09/2026 00:03Z): nenhuma linha dos `-out-`/`-error-` começa com data, então filtrar log "por horário" não filtra nada — só contagem total do `-error-` é confiável. Corrigir com `log_date_format: 'YYYY-MM-DDTHH:mm:ssZ'` no `npmWorker()` do ecosystem; **só vale após `pm2 restart <nome> --update-env`**, que zera o limite adaptativo (8.2): fazer um processo por vez, em vale, com o dono acordado.
 - Rotação de meia-noite do `pm2-logrotate` em 13/09 copiou só 0,6 MB por publicador e não truncou os atuais (16–19 MB às 00:05Z); os dias anteriores rotacionaram 18–21 MB certinho. O teto `max_size 50M` (checado a cada 30 s) segura o disco (963 MB de logs, 90 GB livres), mas conferir `du -sh /root/.pm2/logs` na rotina da manhã.
 - **Limpador com atraso de até 1 h (ou infinito sem item aberto)** — ver seção 5, "o limpador só enxerga a queda na hora de publicar". Opção: analytics dispara `finalize_meta_profile_disconnection` na assinatura terminal. Decisão do dono.

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { decodeBulkMediaCursor, encodeBulkMediaCursor } from '@/lib/publications/bulk-api';
+import { decodeBulkMediaCursor, encodeBulkMediaCursor, reelCoverIneligibleReason } from '@/lib/publications/bulk-api';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { signMediaPreviewUrl } from '@/lib/storage/media-storage';
@@ -39,14 +39,17 @@ export async function GET(request: Request) {
   const pageRows = (rows ?? []).slice(0, limit) as Array<{ media_asset_id: string; created_at: string }>;
   const ids = pageRows.map((row) => row.media_asset_id);
   const { data: candidates, error: assetError } = ids.length
-    ? await supabase.from('media_assets').select('id, original_name, storage_path').eq('organization_id', organizationId).in('id', ids)
+    ? await supabase.from('media_assets').select('id, original_name, storage_path, mime_type, size_bytes').eq('organization_id', organizationId).in('id', ids)
     : { data: [], error: null };
   if (assetError) return NextResponse.json({ error: 'Não foi possível carregar as miniaturas das capas.' }, { status: 500 });
   const byId = new Map((candidates ?? []).map((asset) => [asset.id, asset]));
   const eligible = ids.flatMap((id) => byId.get(id) ? [byId.get(id)!] : []);
   const assets = await Promise.all(eligible.map(async (asset) => {
     const signed = await signMediaPreviewUrl(supabase, asset.storage_path, 60 * 10, { width: 270, height: 480, resize: 'contain', quality: 70, format: 'origin' });
-    return { id: asset.id, originalName: asset.original_name, kind: 'image' as const, thumbnailUrl: signed.data?.signedUrl ?? null };
+    // Imagens fora da regra da Meta (só JPEG até 8 MB) continuam na lista, mas
+    // marcadas: o operador vê por que a PNG dele não pode ser escolhida.
+    const ineligibleReason = reelCoverIneligibleReason(asset);
+    return { id: asset.id, originalName: asset.original_name, kind: 'image' as const, thumbnailUrl: signed.data?.signedUrl ?? null, eligible: ineligibleReason === null, ineligibleReason };
   }));
   const hasMore = (rows?.length ?? 0) > limit;
   const last = pageRows.at(-1);

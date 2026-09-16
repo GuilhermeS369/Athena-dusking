@@ -762,11 +762,57 @@ async function publishInstagramContainer(profileId, creationId, accessToken) {
   return result.id;
 }
 
+// CAPA PERSONALIZADA DE REEL NA API OFICIAL DA META (16/09/2026).
+//
+// A Meta recebe a capa em `cover_url` no POST /<IG_ID>/media com
+// media_type=REELS: URL pública, só JPEG, até 8 MB, sRGB; recomenda 9:16 e corta
+// o centro quando não é (1:1 no feed). Com `cover_url` ela ignora `thumb_offset`.
+// Doc: developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media
+//
+// REGRA DE PERDA: a capa nunca derruba o post. Capa que não é JPEG ou passa de
+// 8 MB não é enviada (a validação do plano, `bulk_reel_cover_is_eligible`, já
+// barra as duas coisas; isto é a segunda linha), e se a sonda da URL da capa
+// falhar o reel sai sem capa — a falha fica gravada em
+// media_asset_delivery_attempts (fase url_probe) com o id da capa.
+export const META_REEL_COVER_MAX_BYTES = 8 * 1024 * 1024;
+
+export function metaReelCoverIsSendable(cover) {
+  if (!cover || cover.kind !== 'image') return false;
+  if (!/^image\/jpe?g$/i.test(String(cover.mime_type ?? ''))) return false;
+  if (cover.size_bytes !== null && cover.size_bytes !== undefined && Number(cover.size_bytes) > META_REEL_COVER_MAX_BYTES) return false;
+  return true;
+}
+
+export function metaReelContainerFields({ videoUrl, caption, coverUrl }) {
+  return {
+    media_type: 'REELS',
+    video_url: videoUrl,
+    caption: caption ?? '',
+    share_to_feed: 'true',
+    ...(coverUrl ? { cover_url: coverUrl } : {}),
+  };
+}
+
+export async function resolveMetaReelCoverUrl(item, options = {}) {
+  if (item.format !== 'reel' || !metaReelCoverIsSendable(item.cover)) return null;
+  const build = options.buildVerifiedMediaUrls ?? buildVerifiedMediaUrls;
+  try {
+    const [url] = await build({ ...item, media: [item.cover] });
+    return url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function createParentContainer(item, accessToken) {
   if (item.media.length === 0) throw publicationDataError('O item da publicação não possui mídia vinculada.');
   if (item.format === 'carousel' && (item.media.length < 2 || item.media.length > 10)) throw publicationDataError('O carrossel deve possuir entre 2 e 10 mídias.');
   if (item.format !== 'carousel' && item.media.length !== 1) throw publicationDataError('Este formato de publicação requer exatamente uma mídia.');
 
+  // A sonda da capa corre junto com a do vídeo e nunca rejeita (ver acima).
+  const reelCoverUrl = item.format === 'reel' && item.cover
+    ? medirFase('sondaCapa', () => resolveMetaReelCoverUrl(item))
+    : Promise.resolve(null);
   const urls = await medirFase('sondaMidia', () => buildVerifiedMediaUrls(item));
   if (item.format === 'image') {
     if (item.media[0].kind !== 'image') throw publicationDataError('Uma publicação de imagem requer arquivo de imagem.');
@@ -774,7 +820,7 @@ async function createParentContainer(item, accessToken) {
   }
   if (item.format === 'reel') {
     if (item.media[0].kind !== 'video') throw publicationDataError('Um Reel requer arquivo de vídeo.');
-    return createInstagramContainer(item.profile.instagram_user_id, accessToken, { media_type: 'REELS', video_url: urls[0], caption: item.caption ?? '', share_to_feed: 'true' });
+    return createInstagramContainer(item.profile.instagram_user_id, accessToken, metaReelContainerFields({ videoUrl: urls[0], caption: item.caption, coverUrl: await reelCoverUrl }));
   }
   if (item.format === 'story') {
     const media = item.media[0];
@@ -1400,7 +1446,7 @@ export async function loadWorkItem(item, options = {}) {
   if (stateResult.data.reel_cover_media_asset_id) {
     const coverResult = await supabase
       .from('media_assets')
-      .select('id, storage_path, kind, status, deleted_at, organization_id')
+      .select('id, storage_path, kind, status, deleted_at, organization_id, mime_type, size_bytes')
       .eq('id', stateResult.data.reel_cover_media_asset_id)
       .eq('organization_id', item.organization_id)
       .maybeSingle();
@@ -1411,7 +1457,13 @@ export async function loadWorkItem(item, options = {}) {
       return invalidWorkItem('A capa personalizada não está pronta para publicação.');
     }
     if (item.format !== 'reel') return invalidWorkItem('Capa personalizada só pode ser usada em Reel.');
-    cover = { id: coverResult.data.id, storage_path: coverResult.data.storage_path, kind: 'image' };
+    cover = {
+      id: coverResult.data.id,
+      storage_path: coverResult.data.storage_path,
+      kind: 'image',
+      mime_type: coverResult.data.mime_type ?? null,
+      size_bytes: coverResult.data.size_bytes ?? null,
+    };
   }
 
   return {

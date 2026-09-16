@@ -6,12 +6,12 @@ import {
   createBulkReviewToken,
   hasBulkManageRole,
   parseBulkRotationRequest,
+  reelCoverIneligibleReason,
   sequentialStartAtError,
 } from '@/lib/publications/bulk-api';
 import { bulkPublishingEnabled } from '@/lib/publications/bulk-feature';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
 import { signMediaPreviewUrl } from '@/lib/storage/media-storage';
 
 export const dynamic = 'force-dynamic';
@@ -43,22 +43,12 @@ export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient();
   let cover: { id: string; originalName: string; originName: string; thumbnailUrl: string | null } | null = null;
   if (compactRequest.reelCover.enabled) {
-    // Acima de 1.000 perfis selecionados o PostgREST truncava a resposta e a
-    // comparação de comprimento abaixo recusava a capa personalizada mesmo com
-    // todos os perfis sendo Zernio.
-    const { data: selectedProfiles, error: profilesError } = await fetchAllRowsByIds(
-      compactRequest.profileIds,
-      (chunk, from, to) => supabase
-        .from('instagram_profiles')
-        .select('id, provider')
-        .eq('organization_id', organizationId)
-        .in('id', chunk)
-        .order('id', { ascending: true })
-        .range(from, to),
-    );
-    if (profilesError || selectedProfiles.length !== compactRequest.profileIds.length || selectedProfiles.some((profile) => profile.provider !== 'zernio')) {
-      return NextResponse.json({ error: 'A capa personalizada está disponível apenas para perfis Zernio.' }, { status: 400 });
-    }
+    // Desde 16/09/2026 (migration 433) a capa vale para perfis da API oficial da
+    // Meta, que recebe a imagem em `cover_url`: só JPEG até 8 MB. O formato é
+    // conferido antes da validação do banco para a mensagem dizer o motivo.
+    const { data: coverFormat } = await supabase.from('media_assets').select('mime_type, size_bytes').eq('organization_id', organizationId).eq('id', compactRequest.reelCover.mediaAssetId).maybeSingle();
+    const formatReason = coverFormat ? reelCoverIneligibleReason(coverFormat) : null;
+    if (formatReason) return NextResponse.json({ error: formatReason }, { status: 400 });
     const { data: eligible, error: coverError } = await supabase.rpc('bulk_reel_cover_is_eligible', {
       p_organization_id: organizationId,
       p_media_asset_id: compactRequest.reelCover.mediaAssetId,

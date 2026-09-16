@@ -10,6 +10,7 @@ import {
   hasBulkManageRole,
   parseBulkIdempotencyKey,
   parseBulkRotationRequest,
+  reelCoverIneligibleReason,
   sequentialStartAtError,
   verifyBulkReviewToken,
 } from './bulk-api.ts';
@@ -156,3 +157,12 @@ test('início do sequencial precisa de 30 minutos de folga', () => {
   assert.match(sequentialStartAtError('2026-09-16T12:29:00.000Z', now) ?? '', /30 minutos/);
   assert.match(sequentialStartAtError('2026-09-16T12:05:00.000Z', now) ?? '', /30 minutos/);
 });
+
+test('capa de Reel só é aceita em JPEG até 8 MB, com o motivo em português', () => {
+  assert.equal(reelCoverIneligibleReason({ mime_type: 'image/jpeg', size_bytes: 1_138_389 }), null);
+  assert.equal(reelCoverIneligibleReason({ mime_type: 'IMAGE/JPG', size_bytes: null }), null);
+  assert.match(reelCoverIneligibleReason({ mime_type: 'image/png', size_bytes: 10 }) ?? '', /JPEG \(esta imagem é PNG\)/);
+  assert.match(reelCoverIneligibleReason({ mime_type: null }) ?? '', /JPEG/);
+  assert.match(reelCoverIneligibleReason({ mime_type: 'image/jpeg', size_bytes: 8 * 1024 * 1024 + 1 }) ?? '', /8 MB/);
+});
+
