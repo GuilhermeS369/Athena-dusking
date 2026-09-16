@@ -149,9 +149,10 @@ test('esquema sequencial barra o que a Meta ou o teto de 7 dias recusariam', () 
   assert.throws(() => parseBulkRotationRequest({ ...base, startAt: '2026-02-30T10:00' }), /Horário inicial/);
 });
 
-test('início do sequencial precisa de 2 minutos de folga', () => {
+test('início do sequencial precisa de 30 minutos de folga', () => {
   const now = Date.parse('2026-09-16T12:00:00.000Z');
   assert.equal(sequentialStartAtError(null, now), null);
-  assert.equal(sequentialStartAtError('2026-09-16T12:05:00.000Z', now), null);
-  assert.match(sequentialStartAtError('2026-09-16T12:01:00.000Z', now) ?? '', /2 minutos/);
+  assert.equal(sequentialStartAtError('2026-09-16T12:30:00.000Z', now), null);
+  assert.match(sequentialStartAtError('2026-09-16T12:29:00.000Z', now) ?? '', /30 minutos/);
+  assert.match(sequentialStartAtError('2026-09-16T12:05:00.000Z', now) ?? '', /30 minutos/);
 });

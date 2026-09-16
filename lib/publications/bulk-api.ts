@@ -55,9 +55,10 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const DAILY_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 const ISO_WITH_ZONE_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})$/;
 // Folga mínima entre a revisão e o horário inicial: o plano ainda precisa ser
-// confirmado e gerado antes do primeiro post. Na confirmação o banco só exige
-// que o início esteja no futuro.
-export const SEQUENTIAL_START_MIN_LEAD_MS = 2 * 60_000;
+// confirmado, gerado e preparado antes do primeiro post. 30 minutos por decisão
+// do dono (16/09/2026). Na confirmação o banco só exige que o início esteja no
+// futuro; a revisão vale 10 minutos, então chega lá com pelo menos 20 de folga.
+export const SEQUENTIAL_START_MIN_LEAD_MS = 30 * 60_000;
 
 /** Aceita o valor do campo (horário de São Paulo) ou um ISO com fuso, e devolve ISO em UTC. */
 function parseSequentialStartAt(value: unknown) {
@@ -75,7 +76,7 @@ function parseSequentialStartAt(value: unknown) {
 export function sequentialStartAtError(startAt: string | null, now = Date.now()) {
   if (!startAt) return null;
   return Date.parse(startAt) < now + SEQUENTIAL_START_MIN_LEAD_MS
-    ? 'O horário inicial precisa estar pelo menos 2 minutos no futuro.'
+    ? 'O horário inicial precisa estar pelo menos 30 minutos no futuro.'
     : null;
 }
 

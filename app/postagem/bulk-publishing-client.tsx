@@ -162,10 +162,14 @@ function rotationSeed() {
   return `rotation-${crypto.randomUUID()}`;
 }
 
-/** Próxima hora cheia em São Paulo, para o campo não abrir vazio nem no passado. */
+/**
+ * Primeira hora cheia em São Paulo que respeita a folga de 30 minutos da
+ * revisão, para o campo não abrir vazio nem num horário que será recusado.
+ * Truncar agora + 90 min cai sempre entre agora + 30 e agora + 90.
+ */
 function nextFullHourInSaoPaulo() {
-  const inOneHour = new Date(Date.now() + 60 * 60_000);
-  return `${isoToSaoPauloLocalDateTime(inOneHour).slice(0, 13)}:00`;
+  const earliest = new Date(Date.now() + 90 * 60_000);
+  return `${isoToSaoPauloLocalDateTime(earliest).slice(0, 13)}:00`;
 }
 
 function formatInteger(value: string | number | bigint) {
@@ -864,7 +868,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
                   <label className={styles.field}>Postagens por perfil<input type="number" min="1" step="1" value={postCount} onChange={(event) => { invalidateReview(); setPostCount(event.target.value); }} disabled={!canManage} /><small>Até {MAX_PROFILE_PUBLICATIONS_PER_24H} em 24 horas por perfil, o limite da Meta, e no máximo {MAX_BULK_DURATION_DAYS} dias de sequência.</small></label>
                   <label className={`${styles.startToggle} ${styles.wideField}`}><input type="checkbox" checked={customStartEnabled} onChange={(event) => { invalidateReview(); setCustomStartEnabled(event.target.checked); if (event.target.checked && !customStartAt) setCustomStartAt(nextFullHourInSaoPaulo()); }} disabled={!canManage} />Escolher horário inicial</label>
                   {customStartEnabled
-                    ? <label className={`${styles.field} ${styles.wideField}`}>Horário inicial (São Paulo)<input type="datetime-local" step="60" value={customStartAt} onChange={(event) => { invalidateReview(); setCustomStartAt(event.target.value); }} disabled={!canManage} /><small>O primeiro perfil posta nesse horário; os demais entram espalhados nos 10 minutos seguintes.</small></label>
+                    ? <label className={`${styles.field} ${styles.wideField}`}>Horário inicial (São Paulo)<input type="datetime-local" step="60" value={customStartAt} onChange={(event) => { invalidateReview(); setCustomStartAt(event.target.value); }} disabled={!canManage} /><small>Pelo menos 30 minutos à frente. O primeiro perfil posta nesse horário; os demais entram espalhados nos 10 minutos seguintes.</small></label>
                     : <p className={`${styles.startHint} ${styles.wideField}`}>Sem horário escolhido, a sequência começa depois do que cada perfil já tem agendado neste formato.</p>}
                 </>}
                 <label className={`${styles.field} ${styles.wideField}`}>Ordem da rotação<select value={orderMode} onChange={(event) => { invalidateReview(); setOrderMode(event.target.value as BulkOrderMode); }} disabled={!canManage}><option value="diversified">Diversificada e determinística</option><option value="same_order">Mesma ordem em todos os perfis</option></select></label>
