@@ -70,6 +70,9 @@ module.exports = {
       PUBLICATION_WORKER_MODE: 'direct',
       PUBLICATION_WORKER_PREPARATION_ENABLED: 'false',
       PUBLICATION_WORKER_STAGING_ENABLED: 'false',
+      // Canario da janela deslizante (16/09/2026): so este processo. Ver
+      // docs/fila-de-publicacao-MASTER.md, secao 4 (freios) e 12 (o que medir).
+      PUBLICATION_WORKER_SLIDING_WINDOW: 'true',
     }),
     npmWorker('athena-generation-worker', 'worker:publication-generation'),
     npmWorker('athena-queue-summary-worker', 'worker:queue-summary'),
