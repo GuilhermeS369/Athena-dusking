@@ -1073,6 +1073,13 @@ export function isMetaTerminalProfileDisconnection(result) {
     result?.providerDiagnostic?.errorType,
   ].filter(Boolean).join(' ').toLowerCase();
 
+  // Meta 25 "User access is restricted" (subcodigo 2207050): a conta esta de pe
+  // e le normalmente, mas a Meta recusa a ESCRITA (POST /media). Sem tratamento
+  // cada perfil perdia 1 reel por hora (16/09/2026: 337 reels em 94 perfis ate
+  // as 11:47 BRT) e 5 seguidos pausavam o lote inteiro. Decisao do dono em
+  // 16/09/2026: mesmo tratamento do 190 terminal (finalize_meta_profile_disconnection,
+  // migration 431). Ver docs/fila-de-publicacao-MASTER.md, secoes 5 e 6.1.
+  if (code === '25') return errorSubcode === 2207050 || /user access is restricted/.test(value);
   if (code !== '190') return false;
   if ([458, 459, 460, 463, 464, 467].includes(errorSubcode)) return true;
 

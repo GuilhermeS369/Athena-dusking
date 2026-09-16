@@ -244,6 +244,25 @@ test('classifica erro Meta 190 com login obrigatório como queda terminal do per
   }), false);
 });
 
+test('classifica erro Meta 25 "User access is restricted" como queda terminal do perfil (16/09/2026)', () => {
+  assert.equal(isMetaTerminalProfileDisconnection({
+    errorCode: '25',
+    errorMessage: 'User access is restricted',
+  }), true);
+  assert.equal(isMetaTerminalProfileDisconnection({
+    errorCode: '25',
+    errorSubcode: 2207050,
+  }), true);
+  assert.equal(isMetaTerminalProfileDisconnection({
+    errorCode: '25',
+    errorMessage: 'Outra mensagem qualquer com codigo 25',
+  }), false, 'so a assinatura da restricao derruba');
+  assert.equal(isMetaTerminalProfileDisconnection({
+    errorCode: '190',
+    errorMessage: 'User access is restricted',
+  }), false, 'a assinatura do 25 nao vale para o 190');
+});
+
 test('classifica timeout, resposta HTTP, parse e rede para a telemetria Zernio', () => {
   assert.equal(zernioOutcome({ name: 'TimeoutError' }), 'timeout');
   assert.equal(zernioOutcome({ httpStatus: 429 }), 'http_error');
