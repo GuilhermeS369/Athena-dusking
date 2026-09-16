@@ -36,6 +36,7 @@ import {
   registrarFase,
   resumirFasesPorItem,
   ociosidadeDoLote,
+  processarComJanelaDeslizante,
 } from './publication-direct-dispatch.mjs';
 
 test('limpeza automática não descarta backlog causado pela capacidade interna', async () => {
@@ -959,4 +960,193 @@ test('ociosidade do lote: um item lento deixa as outras vagas paradas ate o fim 
   // Janela deslizante perfeita: todos terminam juntos, aproveitamento 1,0.
   assert.equal(ociosidadeDoLote([5_000, 5_000], [fim, fim], fim).aproveitamento, 1);
   assert.equal(ociosidadeDoLote([], [], fim), null);
+});
+
+// --- Janela deslizante (16/09/2026) ---
+
+// Relogio e sono simulados: o teste avanca o tempo por conta propria, sem
+// esperar de verdade. Cada `processar` termina quando o teste manda.
+function relogioSimulado() {
+  let agora = 1_000_000;
+  const dormindo = [];
+  return {
+    now: () => agora,
+    sleep: (ms) => new Promise((resolve) => { dormindo.push({ ate: agora + ms, resolve }); }),
+    avancar(ms) {
+      agora += ms;
+      for (const espera of dormindo.splice(0)) {
+        if (espera.ate <= agora) espera.resolve(); else dormindo.push(espera);
+      }
+    },
+  };
+}
+const respirar = () => new Promise((resolve) => setImmediate(resolve));
+async function assentar(vezes = 6) { for (let i = 0; i < vezes; i += 1) await respirar(); }
+
+function processadorControlado(relogio) {
+  const pendentes = new Map();
+  return {
+    processar: (item) => new Promise((resolve, reject) => { pendentes.set(item.id, { resolve, reject }); }),
+    async terminar(id, valor = { itemId: id, state: 'published' }) {
+      const p = pendentes.get(id); pendentes.delete(id); p.resolve(valor); await assentar();
+    },
+    async falhar(id, erro) { const p = pendentes.get(id); pendentes.delete(id); p.reject(erro); await assentar(); },
+    emVoo: () => [...pendentes.keys()],
+  };
+}
+const itens = (ids) => ids.map((id) => ({ id }));
+
+test('janela deslizante: repoe em pedacos quando sobram >= minVagasLivres vagas e o intervalo passou', async () => {
+  const relogio = relogioSimulado();
+  const proc = processadorControlado(relogio);
+  const claims = [];
+  let proximoId = 100;
+  const promessa = processarComJanelaDeslizante({
+    itens: itens([1, 2, 3, 4, 5, 6, 7, 8]),
+    teto: 8, minVagasLivres: 3, intervaloEntreClaimsMs: 3000, janelaMaxMs: 90_000,
+    now: relogio.now, sleep: relogio.sleep,
+    processar: proc.processar,
+    // So o primeiro claim traz itens; o segundo encontra a fila vazia.
+    reivindicar: async (vagas) => { claims.push(vagas); return claims.length === 1 ? itens(Array.from({ length: vagas }, () => proximoId++)) : []; },
+  });
+  await assentar();
+  assert.deepEqual(proc.emVoo(), [1, 2, 3, 4, 5, 6, 7, 8]);
+  // 2 vagas livres: abaixo do minimo, nao repoe.
+  await proc.terminar(1); await proc.terminar(2);
+  assert.deepEqual(claims, []);
+  // 3 vagas livres, mas o intervalo de 3 s desde o inicio nao passou: espera.
+  await proc.terminar(3);
+  assert.deepEqual(claims, []);
+  relogio.avancar(3000); await assentar();
+  assert.deepEqual(claims, [3]);
+  assert.deepEqual(proc.emVoo(), [4, 5, 6, 7, 8, 100, 101, 102]);
+  // Fila esvazia: o claim volta vazio e a reposicao para; o que esta em voo termina.
+  for (const id of [4, 5, 6]) await proc.terminar(id);
+  relogio.avancar(3000); await assentar();
+  assert.deepEqual(claims, [3, 3]);
+  for (const id of [7, 8, 100, 101, 102]) await proc.terminar(id);
+  const resultado = await promessa;
+  assert.equal(resultado.motivoFim, 'fila_vazia');
+  assert.equal(resultado.itens.length, 11);
+  assert.equal(resultado.resultados.length, 11);
+  assert.ok(resultado.resultados.every((r) => r.status === 'fulfilled'));
+  assert.equal(resultado.reposicoes, 1);
+  assert.equal(resultado.itensRepostos, 3);
+  assert.equal(resultado.duracaoPorItem.length, 11);
+});
+
+test('janela deslizante: claim vazio encerra a reposicao (fila vazia) sem derrubar o que esta em voo', async () => {
+  const relogio = relogioSimulado();
+  const proc = processadorControlado(relogio);
+  let claims = 0;
+  const promessa = processarComJanelaDeslizante({
+    itens: itens([1, 2, 3, 4]), teto: 4, minVagasLivres: 2, intervaloEntreClaimsMs: 0, janelaMaxMs: 90_000,
+    now: relogio.now, sleep: relogio.sleep, processar: proc.processar,
+    reivindicar: async () => { claims += 1; return []; },
+  });
+  await assentar();
+  await proc.terminar(1); await proc.terminar(2);
+  assert.equal(claims, 1);
+  await proc.terminar(3); await proc.terminar(4);
+  const resultado = await promessa;
+  assert.equal(claims, 1, 'depois do vazio nao tenta de novo');
+  assert.equal(resultado.motivoFim, 'fila_vazia');
+  assert.equal(resultado.itens.length, 4);
+});
+
+test('janela deslizante: depois da duracao maxima nao repoe mais, so espera o que esta em voo', async () => {
+  const relogio = relogioSimulado();
+  const proc = processadorControlado(relogio);
+  let claims = 0;
+  const promessa = processarComJanelaDeslizante({
+    itens: itens([1, 2, 3]), teto: 3, minVagasLivres: 1, intervaloEntreClaimsMs: 0, janelaMaxMs: 10_000,
+    now: relogio.now, sleep: relogio.sleep, processar: proc.processar,
+    reivindicar: async () => { claims += 1; return itens([50 + claims]); },
+  });
+  await assentar();
+  await proc.terminar(1);
+  assert.equal(claims, 1);
+  relogio.avancar(10_000);
+  await proc.terminar(2);
+  assert.equal(claims, 1, 'janela vencida: sem claim novo');
+  await proc.terminar(3); await proc.terminar(51);
+  const resultado = await promessa;
+  assert.equal(resultado.motivoFim, 'janela_maxima');
+  assert.equal(resultado.itens.length, 4);
+  assert.equal(resultado.janelaMs, 10_000);
+});
+
+test('janela deslizante: item que rejeita vira `rejected` no indice certo e nao trava a janela', async () => {
+  const relogio = relogioSimulado();
+  const proc = processadorControlado(relogio);
+  const promessa = processarComJanelaDeslizante({
+    itens: itens([1, 2]), teto: 2, minVagasLivres: 1, intervaloEntreClaimsMs: 0, janelaMaxMs: 90_000,
+    now: relogio.now, sleep: relogio.sleep, processar: proc.processar, reivindicar: async () => [],
+  });
+  await assentar();
+  await proc.falhar(1, new Error('estourou'));
+  await proc.terminar(2, { itemId: 2, state: 'published' });
+  const resultado = await promessa;
+  assert.equal(resultado.resultados[0].status, 'rejected');
+  assert.equal(resultado.resultados[0].reason.message, 'estourou');
+  assert.equal(resultado.resultados[1].status, 'fulfilled');
+});
+
+test('janela deslizante: claim que falha encerra a reposicao e devolve o erro, sem perder o lote', async () => {
+  const relogio = relogioSimulado();
+  const proc = processadorControlado(relogio);
+  const promessa = processarComJanelaDeslizante({
+    itens: itens([1, 2]), teto: 2, minVagasLivres: 1, intervaloEntreClaimsMs: 0, janelaMaxMs: 90_000,
+    now: relogio.now, sleep: relogio.sleep, processar: proc.processar,
+    reivindicar: async () => { throw new Error('57014'); },
+  });
+  await assentar();
+  await proc.terminar(1); await proc.terminar(2);
+  const resultado = await promessa;
+  assert.equal(resultado.motivoFim, 'claim_falhou');
+  assert.equal(resultado.erroDoClaim.message, '57014');
+  assert.equal(resultado.itens.length, 2);
+  assert.ok(resultado.resultados.every((r) => r.status === 'fulfilled'));
+});
+
+test('janela deslizante: sem `reivindicar` (canario desligado) e o lote de sempre; sem itens volta na hora', async () => {
+  const relogio = relogioSimulado();
+  const proc = processadorControlado(relogio);
+  const promessa = processarComJanelaDeslizante({
+    itens: itens([1, 2]), teto: 2, minVagasLivres: 1, intervaloEntreClaimsMs: 0, janelaMaxMs: 90_000,
+    now: relogio.now, sleep: relogio.sleep, processar: proc.processar, reivindicar: null,
+  });
+  await assentar();
+  await proc.terminar(1); await proc.terminar(2);
+  const resultado = await promessa;
+  assert.equal(resultado.motivoFim, 'sem_reposicao');
+  assert.equal(resultado.reposicoes, 0);
+  const vazio = await processarComJanelaDeslizante({ itens: [], teto: 5, processar: proc.processar, now: relogio.now, sleep: relogio.sleep, reivindicar: async () => [] });
+  assert.equal(vazio.motivoFim, 'sem_itens');
+  assert.equal(vazio.itens.length, 0);
+});
+
+test('janela deslizante: nunca passa do teto de itens em voo, mesmo se o claim devolver a mais', async () => {
+  const relogio = relogioSimulado();
+  const proc = processadorControlado(relogio);
+  let serie = 0;
+  const promessa = processarComJanelaDeslizante({
+    itens: itens([1, 2, 3]), teto: 3, minVagasLivres: 1, intervaloEntreClaimsMs: 0, janelaMaxMs: 90_000,
+    now: relogio.now, sleep: relogio.sleep, processar: proc.processar,
+    reivindicar: async () => { serie += 10; return itens([serie, serie + 1, serie + 2]); },
+  });
+  await assentar();
+  await proc.terminar(1);
+  assert.equal(proc.emVoo().length, 3, 'so 1 vaga: entra 1 item');
+  for (const id of proc.emVoo()) await proc.terminar(id);
+  // cada termino abre 1 vaga e o claim devolve 3: continua respeitando o teto
+  assert.ok(proc.emVoo().length <= 3);
+  while (proc.emVoo().length > 0 && relogio.now() < 1_000_000 + 80_000) {
+    for (const id of proc.emVoo()) await proc.terminar(id);
+    relogio.avancar(1000);
+  }
+  relogio.avancar(100_000); await assentar();
+  for (const id of proc.emVoo()) await proc.terminar(id);
+  const resultado = await promessa;
+  assert.equal(resultado.motivoFim, 'janela_maxima');
 });

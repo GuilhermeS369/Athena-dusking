@@ -2688,6 +2688,145 @@ export async function ignoreExpiredUnstartedPublications(supabase, options = {})
   return { ignored: 0, pages: 0, cutoff, failed: false, automaticDiscardDisabled: true };
 }
 
+// JANELA DESLIZANTE (16/09/2026). Ver docs/fila-de-publicacao-MASTER.md, 8.3 e 12.
+//
+// O lote de `Promise.allSettled` so termina quando o item mais lento termina.
+// Medido em 15/09/2026 pelo log por fase (`ociosidadeDoLote`): nos lotes cheios,
+// 40-50 % do tempo de vaga ficava parado esperando o ultimo item, com o semaforo
+// da Meta saturado (`esperaSemaforoMeta` p50 6-11 s). Aqui cada vaga que libera
+// e reposta em pedacos, sob tres freios -- eles sao a diferenca entre "puxar
+// quando sobra" e "martelar o claim", que varre a fila inteira para ordenar:
+//
+//   1. so repoe com >= `minVagasLivres` vagas livres (claim pequeno nao paga a RPC);
+//   2. no maximo 1 claim a cada `intervaloEntreClaimsMs` por processo;
+//   3. a janela tem duracao maxima (`janelaMaxMs`): depois disso nao repoe mais,
+//      so espera o que esta em voo, e o ciclo segue para a manutencao (encerrar
+//      atrasados, reconciliar lotes, resumo da fila), que fica FORA da janela.
+//
+// O teto de itens em voo continua sendo o limite adaptativo do ciclo. Claim que
+// volta vazio encerra a reposicao (fila vazia); claim que falha tambem encerra e
+// e devolvido em `erroDoClaim`, sem derrubar o que ja esta em voo. `processar` e
+// `reivindicar` sao injetados para o teste nao precisar de banco nem de Meta.
+export async function processarComJanelaDeslizante(options = {}) {
+  const itens = Array.isArray(options.itens) ? [...options.itens] : [];
+  const teto = Math.max(1, Math.floor(Number(options.teto) || 1));
+  const minVagasLivres = Math.max(1, Math.floor(Number(options.minVagasLivres) || 6));
+  const intervaloEntreClaimsMs = Math.max(0, Number(options.intervaloEntreClaimsMs ?? 3000));
+  const janelaMaxMs = Math.max(0, Number(options.janelaMaxMs ?? 90_000));
+  const agora = typeof options.now === 'function' ? options.now : Date.now;
+  const dormir = typeof options.sleep === 'function' ? options.sleep : (ms) => new Promise((r) => setTimeout(r, ms));
+  const reivindicar = typeof options.reivindicar === 'function' ? options.reivindicar : null;
+  const processar = options.processar;
+  if (typeof processar !== 'function') throw new TypeError('processarComJanelaDeslizante: `processar` e obrigatorio.');
+
+  const resultados = [];
+  const duracaoPorItem = [];
+  const terminoPorItem = [];
+  const inicio = agora();
+  let ultimoClaimEm = inicio;
+  let emVoo = 0;
+  let reposicoes = 0;
+  let itensRepostos = 0;
+  let erroDoClaim = null;
+  let motivoFim = reivindicar && itens.length > 0 ? null : 'sem_reposicao';
+  let reposicaoAtiva = motivoFim === null;
+  let claimEmAndamento = false;
+  let esperaAgendada = false;
+
+  let resolverFim;
+  const fim = new Promise((resolve) => { resolverFim = resolve; });
+  const talvezEncerrar = () => {
+    if (emVoo === 0 && !claimEmAndamento && !esperaAgendada && !reposicaoAtiva) resolverFim();
+  };
+  const encerrarReposicao = (motivo) => {
+    if (!reposicaoAtiva) return;
+    reposicaoAtiva = false;
+    motivoFim = motivoFim ?? motivo;
+  };
+
+  const lancar = (item, index) => {
+    emVoo += 1;
+    const comecouEm = agora();
+    Promise.resolve()
+      .then(() => processar(item, index))
+      .then(
+        (value) => { resultados[index] = { status: 'fulfilled', value }; },
+        (reason) => { resultados[index] = { status: 'rejected', reason }; },
+      )
+      .finally(() => {
+        const t = agora();
+        duracaoPorItem.push(t - comecouEm);
+        terminoPorItem.push(t);
+        emVoo -= 1;
+        void talvezRepor();
+        talvezEncerrar();
+      });
+  };
+
+  const talvezRepor = async () => {
+    if (!reposicaoAtiva || claimEmAndamento || esperaAgendada) return;
+    if (agora() - inicio >= janelaMaxMs) { encerrarReposicao('janela_maxima'); return; }
+    const vagas = teto - emVoo;
+    if (vagas < minVagasLivres) return;
+    const restante = intervaloEntreClaimsMs - (agora() - ultimoClaimEm);
+    if (restante > 0) {
+      // Freio 2: espera o intervalo e reavalia; uma espera de cada vez.
+      esperaAgendada = true;
+      try { await dormir(restante); } finally { esperaAgendada = false; }
+      if (!reposicaoAtiva) { talvezEncerrar(); return; }
+      void talvezRepor();
+      talvezEncerrar();
+      return;
+    }
+    claimEmAndamento = true;
+    ultimoClaimEm = agora();
+    let novos = [];
+    try {
+      novos = (await reivindicar(vagas)) ?? [];
+    } catch (erro) {
+      erroDoClaim = erro;
+      encerrarReposicao('claim_falhou');
+    } finally {
+      claimEmAndamento = false;
+    }
+    if (reposicaoAtiva) {
+      if (!Array.isArray(novos) || novos.length === 0) {
+        encerrarReposicao('fila_vazia');
+      } else {
+        reposicoes += 1;
+        itensRepostos += novos.length;
+        for (const item of novos.slice(0, Math.max(0, teto - emVoo))) {
+          const index = itens.length;
+          itens.push(item);
+          lancar(item, index);
+        }
+      }
+    }
+    talvezEncerrar();
+  };
+
+  if (itens.length === 0) {
+    return {
+      itens, resultados, duracaoPorItem, terminoPorItem, fimDoLote: agora(),
+      janelaMs: 0, reposicoes: 0, itensRepostos: 0, motivoFim: 'sem_itens', erroDoClaim: null,
+    };
+  }
+  itens.forEach((item, index) => lancar(item, index));
+  await fim;
+  const fimDoLote = agora();
+  return {
+    itens, resultados, duracaoPorItem, terminoPorItem, fimDoLote,
+    janelaMs: fimDoLote - inicio, reposicoes, itensRepostos, motivoFim: motivoFim ?? 'sem_reposicao', erroDoClaim,
+  };
+}
+
+// Ligada por env para o canario: um processo com a janela, os outros com o lote
+// de sempre. Os tres freios tambem sao env, com os valores da secao 12 do mestre.
+const janelaDeslizanteLigada = /^(1|true|on|yes)$/i.test(`${process.env.PUBLICATION_WORKER_SLIDING_WINDOW ?? ''}`.trim());
+const JANELA_MIN_VAGAS_LIVRES = integerEnv('PUBLICATION_WORKER_SLIDING_MIN_FREE_SLOTS', 6, 1, 100);
+const JANELA_INTERVALO_ENTRE_CLAIMS_MS = integerEnv('PUBLICATION_WORKER_SLIDING_CLAIM_INTERVAL_MS', 3000, 500, 60_000);
+const JANELA_DURACAO_MAX_MS = integerEnv('PUBLICATION_WORKER_SLIDING_WINDOW_MAX_MS', 90_000, 10_000, 600_000);
+
 export async function dispatchPublicationQueueDirect(options = {}) {
   const workerId = options.workerId?.trim().slice(0, 120) || `direct-${randomUUID()}`;
   const configuredLimit = Number.isInteger(options.limit) ? Math.min(Math.max(options.limit, 1), 100) : 5;
@@ -2809,15 +2948,36 @@ export async function dispatchPublicationQueueDirect(options = {}) {
     regularItems = claimed ?? [];
   }
   marcar('claimNoBanco');
-  const items = [...regularItems, ...recoveryItems].map((item) => ({ ...item, correlation_id: options.correlationId ?? null }));
-  const duracaoPorItem = [];
-  const terminoPorItem = [];
-  const settled = await Promise.allSettled(items.map(async (item) => {
-    const comecouEm = Date.now();
-    try { return await processClaimedItem(item, workerId); }
-    finally { const agora = Date.now(); duracaoPorItem.push(agora - comecouEm); terminoPorItem.push(agora); }
-  }));
-  const fimDoLote = Date.now();
+  const rotular = (item) => ({ ...item, correlation_id: options.correlationId ?? null });
+  const itensIniciais = [...regularItems, ...recoveryItems].map(rotular);
+  // Janela deslizante (canario por env) ou o lote de sempre. A reposicao usa o
+  // mesmo claim regular, com o mesmo lease; itens de recuperacao coordenada so
+  // entram no lote inicial.
+  const janela = await processarComJanelaDeslizante({
+    itens: itensIniciais,
+    teto: limit,
+    minVagasLivres: JANELA_MIN_VAGAS_LIVRES,
+    intervaloEntreClaimsMs: JANELA_INTERVALO_ENTRE_CLAIMS_MS,
+    janelaMaxMs: JANELA_DURACAO_MAX_MS,
+    processar: (item) => processClaimedItem(item, workerId),
+    reivindicar: (janelaDeslizanteLigada && !reconciliationOnly)
+      ? async (vagas) => {
+        const { data: novos, error: erroDoClaim } = await supabase.rpc('claim_publication_items', {
+          p_worker_id: workerId,
+          p_limit: vagas,
+          p_lease_seconds: leaseSeconds,
+        });
+        if (erroDoClaim) throw erroDoClaim;
+        return (novos ?? []).map(rotular);
+      }
+      : null,
+  });
+  if (janela.erroDoClaim) {
+    console.error('[publication-worker] claim de reposicao da janela falhou', { workerId, message: errorInfo(janela.erroDoClaim).message });
+  }
+  const items = janela.itens;
+  const settled = janela.resultados;
+  const { duracaoPorItem, terminoPorItem, fimDoLote } = janela;
   marcar('processarItens');
   const processed = settled.map((entry, index) => entry.status === 'fulfilled'
     ? entry.value
@@ -2856,6 +3016,9 @@ export async function dispatchPublicationQueueDirect(options = {}) {
     porItemMs: resumoPorItem,
     fasesPorItemMs,
     ociosidadeDoLote: ociosidade,
+    janelaDeslizante: janelaDeslizanteLigada
+      ? { janelaMs: janela.janelaMs, reposicoes: janela.reposicoes, itensRepostos: janela.itensRepostos, motivoFim: janela.motivoFim }
+      : null,
   });
 
   console.info('Dispatcher direto de publicação concluído.', {
