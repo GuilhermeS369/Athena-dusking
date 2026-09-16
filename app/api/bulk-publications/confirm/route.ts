@@ -66,8 +66,31 @@ export async function POST(request: Request) {
   }
   const planFunction = compactRequest.scheduleMode === 'daily_time'
     ? 'create_bulk_daily_rotation_plan_v2'
-    : 'create_bulk_rotation_plan_v2';
-  const planArgs = compactRequest.scheduleMode === 'daily_time'
+    : compactRequest.scheduleMode === 'sequential'
+      ? 'create_bulk_sequential_rotation_plan_v2'
+      : 'create_bulk_rotation_plan_v2';
+  const planArgs = compactRequest.scheduleMode === 'sequential'
+    ? {
+      p_organization_id: context.activeOrganization.id,
+      p_request_key: idempotencyKey,
+      p_name: compactRequest.name,
+      p_profile_ids: compactRequest.profileIds,
+      p_origin_type: compactRequest.origin.type,
+      p_origin_group_id: compactRequest.origin.groupId,
+      p_format: compactRequest.format,
+      p_interval_minutes: compactRequest.intervalMinutes,
+      p_post_count: compactRequest.postCount,
+      p_start_at: compactRequest.startAt,
+      p_caption: compactRequest.caption,
+      p_order_mode: compactRequest.orderMode,
+      p_rotation_seed: compactRequest.rotationSeed,
+      p_reel_cover_media_asset_id: compactRequest.reelCover.enabled ? compactRequest.reelCover.mediaAssetId : null,
+      p_reel_cover_origin_type: compactRequest.reelCover.enabled ? compactRequest.reelCover.origin.type : null,
+      p_reel_cover_origin_group_id: compactRequest.reelCover.enabled ? compactRequest.reelCover.origin.groupId : null,
+      p_algorithm_version: BULK_ROTATION_ALGORITHM_VERSION,
+      p_chunk_size: 500,
+    }
+    : compactRequest.scheduleMode === 'daily_time'
     ? {
       p_organization_id: context.activeOrganization.id,
       p_request_key: idempotencyKey,

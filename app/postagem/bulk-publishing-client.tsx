@@ -14,13 +14,20 @@ import {
   sortBulkProfilesByQueue,
   toggleBulkProfileSelection,
 } from '@/lib/publications/bulk-ui';
-import { MAX_BULK_DURATION_DAYS, MIN_BULK_INTERVAL_MINUTES } from '@/lib/publications/bulk-rotation';
+import {
+  MAX_BULK_DURATION_DAYS,
+  MAX_PROFILE_PUBLICATIONS_PER_24H,
+  MIN_BULK_INTERVAL_MINUTES,
+  MIN_SEQUENTIAL_INTERVAL_MINUTES,
+  isoToSaoPauloLocalDateTime,
+  saoPauloLocalDateTimeToIso,
+} from '@/lib/publications/bulk-rotation';
 import type { ProfilePublicationMetrics } from '@/lib/publications/composer';
 import styles from './bulk-publishing.module.css';
 
 type BulkFormat = 'image' | 'reel' | 'story';
 type BulkOrderMode = 'same_order' | 'diversified';
-type BulkScheduleMode = 'interval' | 'daily_time';
+type BulkScheduleMode = 'interval' | 'daily_time' | 'sequential';
 
 type BulkProfile = {
   id: string;
@@ -71,6 +78,8 @@ type CompactRequest = {
   intervalMinutes: number;
   durationDays: string;
   dailyTime: string | null;
+  postCount: string | null;
+  startAt: string | null;
   caption: string | null;
   orderMode: BulkOrderMode;
   rotationSeed: string;
@@ -153,6 +162,12 @@ function rotationSeed() {
   return `rotation-${crypto.randomUUID()}`;
 }
 
+/** Próxima hora cheia em São Paulo, para o campo não abrir vazio nem no passado. */
+function nextFullHourInSaoPaulo() {
+  const inOneHour = new Date(Date.now() + 60 * 60_000);
+  return `${isoToSaoPauloLocalDateTime(inOneHour).slice(0, 13)}:00`;
+}
+
 function formatInteger(value: string | number | bigint) {
   try {
     return BigInt(value).toLocaleString('pt-BR');
@@ -219,6 +234,9 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
   const [durationDays, setDurationDays] = useState('1');
   const [scheduleMode, setScheduleMode] = useState<BulkScheduleMode>('interval');
   const [dailyTime, setDailyTime] = useState('21:00');
+  const [postCount, setPostCount] = useState('10');
+  const [customStartEnabled, setCustomStartEnabled] = useState(false);
+  const [customStartAt, setCustomStartAt] = useState('');
   const [orderMode, setOrderMode] = useState<BulkOrderMode>('diversified');
   const [caption, setCaption] = useState('');
   const [seed, setSeed] = useState(rotationSeed);
@@ -349,8 +367,8 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
   );
   const selectedSet = useMemo(() => new Set(profileSelection.ids), [profileSelection.ids]);
   const projected = useMemo(
-    () => bulkPublicationProjection(durationDays, intervalMinutes, profileSelection.ids.length, scheduleMode),
-    [durationDays, intervalMinutes, scheduleMode, profileSelection.ids.length],
+    () => bulkPublicationProjection(durationDays, intervalMinutes, profileSelection.ids.length, scheduleMode, postCount),
+    [durationDays, intervalMinutes, scheduleMode, profileSelection.ids.length, postCount],
   );
   const dirty = Boolean(
     name.trim()
@@ -362,6 +380,8 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
     || durationDays !== '1'
     || scheduleMode !== 'interval'
     || dailyTime !== '21:00'
+    || postCount !== '10'
+    || customStartEnabled
     || orderMode !== 'diversified'
     || coverEnabled
     || coverOriginKey
@@ -469,7 +489,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
   // sobrepor. Isso é correto, mas era invisível — e foi o que levou o usuário a
   // reagendar por cima achando que o primeiro lote tinha falhado.
   const stackedAfterExistingPlan = (() => {
-    if (!review || review.request.scheduleMode !== 'interval') return false;
+    if (!review || review.request.scheduleMode === 'daily_time' || review.request.startAt) return false;
     const first = review.schedule.firstExecuteAt ? Date.parse(review.schedule.firstExecuteAt) : Number.NaN;
     if (!Number.isFinite(first)) return false;
     const interval = Number(review.request.intervalMinutes);
@@ -617,6 +637,9 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
       intervalMinutes: Number(intervalMinutes),
       durationDays,
       dailyTime: scheduleMode === 'daily_time' ? dailyTime : null,
+      postCount: scheduleMode === 'sequential' ? postCount : null,
+      // Valor do campo em horário de São Paulo; o servidor converte para UTC.
+      startAt: scheduleMode === 'sequential' && customStartEnabled ? customStartAt : null,
       caption: caption || null,
       orderMode,
       rotationSeed: seed,
@@ -640,7 +663,9 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
     if (!profileSelection.ids.length) return setMessage('Selecione pelo menos um perfil online.');
     if (!mediaSummary || BigInt(mediaSummary.eligible) === BigInt(0)) return setMessage('A origem não possui mídias elegíveis para o formato.');
     if (caption.length > 2200) return setMessage('A legenda excede 2.200 caracteres.');
+    if (scheduleMode === 'sequential' && projected.slotsPerProfile < BigInt(1)) return setMessage('Informe quantas postagens cada perfil vai receber.');
     if (projected.slotsPerProfile < BigInt(1)) return setMessage('Intervalo e duração precisam formar pelo menos um horário.');
+    if (scheduleMode === 'sequential' && customStartEnabled && !saoPauloLocalDateTimeToIso(customStartAt)) return setMessage('Escolha a data e a hora de início.');
     if (coverEnabled && !coverOrigin) return setMessage('Selecione a pasta/grupo das capas.');
     if (coverEnabled && !selectedCover) return setMessage('Selecione uma imagem para usar como capa.');
     if (coverEnabled && profileSelection.ids.some((id) => profiles.find((profile) => profile.id === id)?.provider !== 'zernio')) return setMessage('A capa personalizada está disponível apenas para perfis Zernio.');
@@ -717,6 +742,9 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
     setDurationDays('1');
     setScheduleMode('interval');
     setDailyTime('21:00');
+    setPostCount('10');
+    setCustomStartEnabled(false);
+    setCustomStartAt('');
     setOrderMode('diversified');
     setCaption('');
     setSeed(rotationSeed());
@@ -828,8 +856,17 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
                 <label className={styles.field}>Nome do lote *<input maxLength={160} value={name} onChange={(event) => { invalidateReview(); setName(event.target.value); }} disabled={!canManage} placeholder="Ex.: campanha de setembro" /></label>
                 <label className={styles.field}>Formato<select value={format} onChange={(event) => { invalidateReview(); setFormat(event.target.value as BulkFormat); }} disabled={!canManage}><option value="image">Imagem</option><option value="reel">Reel</option><option value="story">Story</option></select></label>
                 <label className={`${styles.field} ${styles.wideField}`}>Origem de mídia *<select value={originKey} onChange={(event) => { invalidateReview(); setOriginKey(event.target.value); }} disabled={!canManage}><option value="">Selecione uma origem</option>{origins.map((item) => <option key={`${item.type}:${item.groupId ?? ''}`} value={`${item.type}:${item.groupId ?? ''}`}>{item.name}</option>)}</select><small>Ao trocar a origem, a seleção anterior é substituída. Todas as mídias elegíveis serão usadas.</small></label>
-                <label className={`${styles.field} ${styles.wideField}`}>Esquema de horários<select value={scheduleMode} onChange={(event) => { invalidateReview(); setScheduleMode(event.target.value as BulkScheduleMode); }} disabled={!canManage}><option value="interval">Intervalo contínuo</option><option value="daily_time">Uma vez por dia em horário fixo</option></select><small>{scheduleMode === 'daily_time' ? 'Cada perfil receberá uma publicação por dia no horário de São Paulo.' : 'Os horários são calculados a partir do intervalo e da duração.'}</small></label>
-                {scheduleMode === 'interval' ? <><label className={styles.field}>Intervalo (minutos)<input type="number" min={MIN_BULK_INTERVAL_MINUTES} step="1" value={intervalMinutes} onChange={(event) => { invalidateReview(); setIntervalMinutes(event.target.value); }} disabled={!canManage} /><small>Mínimo de {MIN_BULK_INTERVAL_MINUTES} minutos entre publicações do mesmo perfil.</small></label><label className={styles.field}>Duração (dias de 24h)<input type="number" min="1" max={MAX_BULK_DURATION_DAYS} step="1" value={durationDays} onChange={(event) => { invalidateReview(); setDurationDays(event.target.value); }} disabled={!canManage} /></label></> : <><label className={styles.field}>Horário diário<input type="time" value={dailyTime} onChange={(event) => { invalidateReview(); setDailyTime(event.target.value); }} disabled={!canManage} /></label><label className={styles.field}>Quantidade de dias<input type="number" min="1" max={MAX_BULK_DURATION_DAYS} step="1" value={durationDays} onChange={(event) => { invalidateReview(); setDurationDays(event.target.value); }} disabled={!canManage} /></label></>}
+                <label className={`${styles.field} ${styles.wideField}`}>Esquema de horários<select value={scheduleMode} onChange={(event) => { invalidateReview(); setScheduleMode(event.target.value as BulkScheduleMode); }} disabled={!canManage}><option value="interval">Intervalo contínuo</option><option value="daily_time">Uma vez por dia em horário fixo</option><option value="sequential">Sequencial</option></select><small>{scheduleMode === 'daily_time' ? 'Cada perfil receberá uma publicação por dia no horário de São Paulo.' : scheduleMode === 'sequential' ? 'Cada perfil recebe a quantidade escolhida, uma após a outra no intervalo informado, sem o intervalo mínimo entre postagens do mesmo perfil.' : 'Os horários são calculados a partir do intervalo e da duração.'}</small></label>
+                {scheduleMode === 'interval' && <><label className={styles.field}>Intervalo (minutos)<input type="number" min={MIN_BULK_INTERVAL_MINUTES} step="1" value={intervalMinutes} onChange={(event) => { invalidateReview(); setIntervalMinutes(event.target.value); }} disabled={!canManage} /><small>Mínimo de {MIN_BULK_INTERVAL_MINUTES} minutos entre publicações do mesmo perfil.</small></label><label className={styles.field}>Duração (dias de 24h)<input type="number" min="1" max={MAX_BULK_DURATION_DAYS} step="1" value={durationDays} onChange={(event) => { invalidateReview(); setDurationDays(event.target.value); }} disabled={!canManage} /></label></>}
+                {scheduleMode === 'daily_time' && <><label className={styles.field}>Horário diário<input type="time" value={dailyTime} onChange={(event) => { invalidateReview(); setDailyTime(event.target.value); }} disabled={!canManage} /></label><label className={styles.field}>Quantidade de dias<input type="number" min="1" max={MAX_BULK_DURATION_DAYS} step="1" value={durationDays} onChange={(event) => { invalidateReview(); setDurationDays(event.target.value); }} disabled={!canManage} /></label></>}
+                {scheduleMode === 'sequential' && <>
+                  <label className={styles.field}>Intervalo (minutos)<input type="number" min={MIN_SEQUENTIAL_INTERVAL_MINUTES} step="1" value={intervalMinutes} onChange={(event) => { invalidateReview(); setIntervalMinutes(event.target.value); }} disabled={!canManage} /><small>Tempo entre uma postagem e a próxima do mesmo perfil.</small></label>
+                  <label className={styles.field}>Postagens por perfil<input type="number" min="1" step="1" value={postCount} onChange={(event) => { invalidateReview(); setPostCount(event.target.value); }} disabled={!canManage} /><small>Até {MAX_PROFILE_PUBLICATIONS_PER_24H} em 24 horas por perfil, o limite da Meta, e no máximo {MAX_BULK_DURATION_DAYS} dias de sequência.</small></label>
+                  <label className={`${styles.startToggle} ${styles.wideField}`}><input type="checkbox" checked={customStartEnabled} onChange={(event) => { invalidateReview(); setCustomStartEnabled(event.target.checked); if (event.target.checked && !customStartAt) setCustomStartAt(nextFullHourInSaoPaulo()); }} disabled={!canManage} />Escolher horário inicial</label>
+                  {customStartEnabled
+                    ? <label className={`${styles.field} ${styles.wideField}`}>Horário inicial (São Paulo)<input type="datetime-local" step="60" value={customStartAt} onChange={(event) => { invalidateReview(); setCustomStartAt(event.target.value); }} disabled={!canManage} /><small>O primeiro perfil posta nesse horário; os demais entram espalhados nos 10 minutos seguintes.</small></label>
+                    : <p className={`${styles.startHint} ${styles.wideField}`}>Sem horário escolhido, a sequência começa depois do que cada perfil já tem agendado neste formato.</p>}
+                </>}
                 <label className={`${styles.field} ${styles.wideField}`}>Ordem da rotação<select value={orderMode} onChange={(event) => { invalidateReview(); setOrderMode(event.target.value as BulkOrderMode); }} disabled={!canManage}><option value="diversified">Diversificada e determinística</option><option value="same_order">Mesma ordem em todos os perfis</option></select></label>
                 <label className={`${styles.field} ${styles.wideField}`}>Legenda compartilhada<textarea maxLength={2200} value={caption} onChange={(event) => { invalidateReview(); setCaption(event.target.value); }} disabled={!canManage} placeholder="Opcional. Quebras de linha serão preservadas." /><small>{caption.length.toLocaleString('pt-BR')} / 2.200 unidades UTF-16</small></label>
               </div>
@@ -909,7 +946,13 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
             </section>}
 
             <div className={styles.reviewAction}>
-              <p>{scheduleMode === 'daily_time' ? `Cada perfil receberá uma publicação por dia às ${dailyTime}, no horário de São Paulo.` : 'O primeiro horário de cada perfil será a base segura da fila mais o intervalo informado.'}</p>
+              <p>{scheduleMode === 'daily_time'
+                ? `Cada perfil receberá uma publicação por dia às ${dailyTime}, no horário de São Paulo.`
+                : scheduleMode === 'sequential'
+                  ? customStartEnabled && saoPauloLocalDateTimeToIso(customStartAt)
+                    ? `A sequência começa em ${formatDate(saoPauloLocalDateTimeToIso(customStartAt))}, com os perfis espalhados nos 10 minutos seguintes.`
+                    : 'A sequência de cada perfil começa depois da fila atual dele, com os perfis espalhados em 10 minutos.'
+                  : 'O primeiro horário de cada perfil será a base segura da fila mais o intervalo informado.'}</p>
               <button ref={reviewTriggerRef} className="button button-secondary" type="button" onClick={() => void reviewPlan()} disabled={!canManage || reviewing || confirming}>{reviewing ? 'Revisando…' : 'Revisar plano compacto'}</button>
             </div>
           </div>
@@ -920,6 +963,8 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
           <header><div><span className="section-kicker">Confirmação</span><h3 id="bulk-review-title">Revise o plano compacto</h3></div><button type="button" onClick={() => setReview(null)} disabled={confirming} aria-label="Fechar revisão">×</button></header>
           <dl className={styles.reviewGrid}>
             <div><dt>Lote</dt><dd>{review.request.name}</dd></div>
+            {review.request.scheduleMode === 'sequential' && <div><dt>Esquema</dt><dd>Sequencial · a cada {formatInteger(review.request.intervalMinutes)} min</dd></div>}
+            {review.request.scheduleMode === 'sequential' && <div><dt>Início escolhido</dt><dd>{review.request.startAt ? formatDate(review.request.startAt) : 'Depois da fila atual'}</dd></div>}
             <div><dt>Perfis online</dt><dd>{formatInteger(review.schedule.profileCount)}</dd></div>
             <div><dt>Mídias elegíveis</dt><dd>{formatInteger(review.media.eligible)}</dd></div>
             <div><dt>Slots por perfil</dt><dd>{formatInteger(review.schedule.slotsPerProfile)}</dd></div>

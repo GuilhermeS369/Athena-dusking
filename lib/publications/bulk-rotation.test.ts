@@ -251,3 +251,21 @@ test('rejeita configuracoes que nao podem formar um plano valido', () => {
     mediaCount: 1,
   }), /não produzem nenhum slot/);
 });
+
+test('sequencial: conta por janela de 24 h, duração e conversão de horário de São Paulo', async () => {
+  const {
+    bulkSequentialDurationDays,
+    bulkSequentialPostsInAnyDay,
+    isoToSaoPauloLocalDateTime,
+    saoPauloLocalDateTimeToIso,
+  } = await import('./bulk-rotation.ts');
+  assert.equal(bulkSequentialPostsInAnyDay(15, 500), BigInt(97));
+  assert.equal(bulkSequentialPostsInAnyDay(5, 12), BigInt(12));
+  assert.equal(bulkSequentialDurationDays(5, 12), BigInt(1));
+  assert.equal(bulkSequentialDurationDays(60, 25), BigInt(2));
+  assert.equal(bulkSequentialDurationDays(1440, 7), BigInt(7));
+  assert.equal(saoPauloLocalDateTimeToIso('2026-09-16T21:00'), '2026-09-17T00:00:00.000Z');
+  assert.equal(saoPauloLocalDateTimeToIso('2026-09-16T24:00'), null);
+  assert.equal(saoPauloLocalDateTimeToIso('16/09/2026 21:00'), null);
+  assert.equal(isoToSaoPauloLocalDateTime('2026-09-17T00:00:00.000Z'), '2026-09-16T21:00');
+});

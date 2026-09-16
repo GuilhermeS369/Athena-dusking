@@ -101,7 +101,7 @@ Tabelas da fila: `publication_items` (~1,07 mi linhas), `publication_item_media`
 + `publication_item_media_archive` (arquivo frio).
 
 **Gatilhos em `publication_items`** (7): valida organização; `updated_at`; **unicidade de
-slot ativo** por (org, perfil, formato, `execute_at`) → `23505 active_publication_slot_conflict`;
+slot ativo** por (org, perfil, formato, `execute_at`) → `23505 active_publication_slot_conflict`, e no insert a **reserva de horizonte** de outro plano → `23505 bulk_publication_horizon_conflict` (desde a 432 plano sequencial não barra nem é barrado);
 valida capa de reel; **volta a preparação para `pending`** quando mudam `execute_at`,
 `caption`, `profile_id`, `format` ou capa (e o mesmo em `publication_item_media`); projeta o
 catálogo do perfil quando publica; zera `infrastructure_retry_count` só em avanço real (420).
@@ -122,7 +122,7 @@ sincronização de status do **lote** não é gatilho: é `sync_publication_batc
 | `claim_publication_dispatch_staging_items` / `activate_staged_publication_items` / `release_publication_dispatch_staging` (315) | pré-reserva itens futuros na janela; ativa quando vence; libera | `42501`, `22023` |
 | `claim_publication_items` (405, trava reconferida na 425, janela por formato na 426) | claim principal: filtros de status, lease, staging, **trava de atraso**, app bloqueado, disjuntor, slot em risco; prioridade 0 para quem tem `creation_id`; gasta tentativa só sem `creation_id`; lote → `processing` | `42501`, `22023` |
 | `assert_claimed_publication_profile_online` (088) | perfil online e sob lease, antes de cada chamada ao provedor | `P0002` |
-| `reserve_publication_dispatch_capacity` (372) | 2 advisory locks (**por app Meta** ou balde de perfil; + por perfil); reentrância; intervalo por perfil **e formato**; reserva irmã; 24 h; minuto por (org, provedor); minuto por app. Ao barrar volta a `waiting` com `next_attempt_at` e `last_error_code` | `22023`, `P0002` |
+| `reserve_publication_dispatch_capacity` (432, base 372) | 2 advisory locks (**por app Meta** ou balde de perfil; + por perfil); reentrância; intervalo por perfil **e formato**; reserva irmã; 24 h; minuto por (org, provedor); minuto por app. **Item de plano `sequential` pula o intervalo e a reserva irmã** (uma leitura por `bulk_publication_plans.batch_id`, índice único). Ao barrar volta a `waiting` com `next_attempt_at` e `last_error_code` | `22023`, `P0002` |
 | `reserve_publication_daily_limit` (029) | 100/24 h por perfil (legado; a checagem que vale está na reserva acima) | `22023`, `P0002` |
 | `defer_publication_item` (306) | grava `creation_id`, volta a `waiting` + `next_attempt_at`; conta polls | `22023`, `P0002` |
 | `complete_publication_item` (272) | terminal: `published` (+ `first_published_at` da mídia), `removed`, retry com backoff `60·2^(n-1)` + jitter, ou falha final em 5 | `22023`, `P0002` |
@@ -144,6 +144,8 @@ sincronização de status do **lote** não é gatilho: é `sync_publication_batc
 | `cancel_publication_queue_scope_sources` (428) | jobs de geração (cancela ou exclui perfis) e planos compactos (chunks, perfis, horizontes, plano); idempotente; sem tocar itens | `22023`, `P0002` |
 | `execute_publication_queue_cancellation` (428) | passada compacta da 197 com `archived_at is null` nos dois predicados e **sem** o update de `publication_batches` da organização inteira | `42501`, `P0002`, `P0001` |
 | `open_meta_analytics_run` (388) | abre a rodada do slot 09:00/15:00/21:00 (America/Sao_Paulo) | `42501` |
+| `review_bulk_sequential_rotation_schedule` / `create_bulk_sequential_rotation_plan_v2` (432) | esquema **Sequencial** da programação em massa: intervalo ≥ 1 min, quantidade por perfil, início opcional (`sequential_start_at`); regras em `assert_bulk_sequential_schedule` (≤ 7 dias, ≤ 100 posts por perfil em qualquer 24 h, início no futuro); plano nasce `schedule_mode = 'sequential'`, rotação v2, dispersão da 331; com início, `schedule_base_at = início − intervalo` | `42501`, `22023`, `P0001`, `23505` |
+| `process_bulk_rotation_generation_chunk` (432, base 328) | gera o plano inteiro; pula slot vencido (326) e slot a < 10 min de post do mesmo perfil e formato de outro lote — **no plano sequencial só o slot no mesmo instante exato** | `P0002`, `23505` |
 
 Índices que sustentam o claim: `publication_items_v2_dispatch_claim_idx`,
 `…_unstarted_current_claim_idx`, `…_provider_accepted_claim_idx`, `…_dispatch_staging_*`,
@@ -154,7 +156,7 @@ Autovacuum próprio (417): `publication_items` scale 0,02 / threshold 1000.
 `publication_rate_limit_settings` (linha global + `meta_official` + `zernio`): `enabled`,
 `max_provider_publications_per_minute` (meta 1.200), `max_profile_publications_per_24h` 100,
 `min_seconds_between_profile_publications` 45, `…_by_format` `{"reel":1500}`,
-`reservation_seconds` 300, `dispatch_lock_shards` 8, `max_publication_lateness_seconds` 300, `max_publication_lateness_seconds_by_format` `{"story": 3600}` (426).
+`reservation_seconds` 300, `dispatch_lock_shards` 8, `max_publication_lateness_seconds` 300, `max_publication_lateness_seconds_by_format` `{"story": 3600}` (426). Os dois intervalos mínimos **não valem para item de plano sequencial** (432).
 A linha global é **invisível ao `authenticated`** (RLS só para admin da org).
 `meta_apps.max_publications_per_minute` nasce **nulo** (sem cota por app).
 
@@ -209,11 +211,12 @@ Mudar `execute_at`, legenda, perfil, formato ou capa **zera a preparação** (ga
 |---|---|---|
 | Atraso máximo: depois disso o item **não** é publicado, é encerrado | `max_publication_lateness_seconds`, migration 405 (claim + varredura); **por formato** em `max_publication_lateness_seconds_by_format` (426) | 300 s para reel e demais; **story: 1 h enquanto `attempt_count < 5`** (decisão do dono em 09/09/2026: story é 1 por perfil por dia, perder um custa o dia inteiro; ele quis limite em tentativas, não em horas). Item com `creation_id` sempre passa. Falha de conteúdo não retenta |
 | Item vencido não é republicado, nem após incidente | decisão do dono, 07/09/2026 | — |
-| Mínimo entre posts do mesmo perfil, por formato | `publication_rate_limit_settings`, 330 | 45 s; reel 1.500 s |
+| Mínimo entre posts do mesmo perfil, por formato | `publication_rate_limit_settings`, 330 | 45 s; reel 1.500 s; **não vale para item de plano sequencial** (432) |
 | Máximo por perfil em 24 h | mesma tabela (e `reserve_publication_daily_limit`) | 100 |
 | Um item ativo por (perfil, formato, minuto) | gatilho `enforce_active_publication_slot_uniqueness` (177) | `23505` na violação |
 | Data única preserva o minuto; recorrente sorteia minuto 01–09 e segundo; janela cheia pula para a próxima de 10 min | README "Regras de agendamento" | — |
 | Planos em massa: intervalo mínimo 29 min; duração máxima 7 dias; perfis espalhados na janela; gerador nunca materializa slot vencido; horário a < 10 min de post do mesmo perfil+formato em outro lote é pulado e contado como ignorado | migrations 326–331, `lib/publications/bulk-rotation.ts` | — |
+| **Esquema Sequencial** (decisão do dono em 16/09/2026): intervalo e quantidade de postagens por perfil, horário inicial opcional (caixa na tela); **ignora toda limitação de minutos entre postagens do mesmo perfil** — o piso de 29 min, o pulo de 10 min entre lotes e o intervalo mínimo por formato da reserva (45 s / reel 1.500 s) — e herda o resto: rotação v2, dispersão de 10 min a partir do início, encadeamento depois da fila quando não há início, 7 dias, capa. Barrado na revisão: > 100 posts por perfil em qualquer 24 h (limite da Meta) e início a menos de 2 min | migration 432, `lib/publications/bulk-api.ts`, `bulk-rotation.ts` | o slot que cai no mesmo instante exato de outro item ativo do perfil e formato é pulado (a vaga única da 177 derrubaria o bloco) |
 | Perfil em checkpoint / token inválido é descartado | seção 5 | remove e ignora a agenda |
 | App da Meta com "API access blocked/deactivated" pausa 60 min | `flag_meta_app_api_blocked` (403) | itens da janela viram `ignored` |
 | Lote pausa com 5 falhas consecutivas (disjuntor) | `reconcile_publication_batch_runtime` (272) | retoma pela tela ("continuar") |
@@ -349,7 +352,7 @@ em `reauthorization_required` e não publicam.
 | `media_url_probe_mime_invalid` / `media_url_range_unsupported` / `media_url_tail_range_invalid` | objeto no R2 não é o que o item diz | **não retentável** | reenviar a mídia |
 | `media_storage_object_missing` | objeto sumiu do storage | **não retentável** | reenviar a mídia |
 | `preparation_*` (`media_count_invalid`, `carousel_media_count_invalid`, `image_media_invalid`, `reel_media_invalid`, `meta_credentials_missing`, `profile_organization_missing`) | dado do item | `preparation_status = blocked` + `next_preparation_at` em 900 s | corrigir o item; o gatilho da 264 zera a preparação ao editar |
-| `profile_min_interval`, `profile_24h_limit`, `provider_minute_limit`, `meta_app_minute_limit`, `daily_profile_limit`, `dispatch_rate_limit` | cotas nossas | adiamento sem gastar tentativa | não é erro |
+| `profile_min_interval`, `profile_24h_limit`, `provider_minute_limit`, `meta_app_minute_limit`, `daily_profile_limit`, `dispatch_rate_limit` | cotas nossas | adiamento sem gastar tentativa; `profile_min_interval` nunca aparece em item de plano sequencial (432) | não é erro |
 | `publication_past_due` | corte de atraso | `ignored` | a única perda por capacidade: seção 8.3 |
 | `profile_offline_suspended` | perfil saiu de `online` | `suspended`, tentativa devolvida | religar o perfil e retomar |
 | `missed_bulk_slot_expired`, `legacy_missed_schedule_requires_attention` | v1 legado | descarte/atenção | não ocorre em v2 |
@@ -518,7 +521,7 @@ Para subir de novo (Medium → Large/XL): mesma cerimônia; os tetos só sobem d
 | Continuar lote pausado | `POST …/batch/[id]/continue` | `resume_publication_batch_after_circuit_breaker` |
 | Limpar encerradas / concluídas / marcar falhas como vistas | `POST /api/publications/queue-actions` | arquiva sob lease pesado (250 por lote); `acknowledge_publication_failures` |
 | Excluir mídia (galeria) / excluir perfil | `/api/media/*`, `/api/profiles/*` | removem os itens da fila ligados |
-| Criar plano em massa | `POST /api/bulk-publications/confirm` | `create_bulk_rotation_plan_v2` / `create_bulk_daily_rotation_plan_v2`; gate `BULK_PUBLICATION_ROLLOUT` |
+| Criar plano em massa | `POST /api/bulk-publications/confirm` | `create_bulk_rotation_plan_v2` / `create_bulk_daily_rotation_plan_v2` / `create_bulk_sequential_rotation_plan_v2` (Sequencial, 432); gate `BULK_PUBLICATION_ROLLOUT` |
 | Cancelar job de geração | `PATCH /api/publication-generation-jobs/[id]` | `cancel_publication_generation_job` |
 
 ### 8.9 Scripts one-off que escrevem na fila (`scripts/workers/`) — leia antes de rodar
@@ -599,6 +602,7 @@ where status = 'waiting' and execute_at between now() and now() + interval '1 ho
 
 | Data | O que | Lição |
 |---|---|---|
+| 16/09 (13:30 BRT) | **Esquema Sequencial** na programação em massa (migration 432, pedido do dono): intervalo a partir de 1 min, quantidade por perfil, início opcional; libera só para os itens desse plano o piso de 29 min, o pulo de 10 min da geração, o intervalo mínimo por formato e a reserva irmã do despacho, e a reserva de horizonte. Ensaiado em produção dentro de transação desfeita, com 3 perfis da Pomodoro: 4 reels a cada 5 min, perfis a +3 min 20 s e +6 min 40 s (dispersão), rotação v2 exata, 2º post com o 1º em voo liberado e o mesmo item com o plano como intervalo adiado (`profile_min_interval`); início no instante exato de um reel de outro lote pulou só aquele slot e criou os de +3 e +6 min, sem conflito de horizonte | três funções do caminho quente foram copiadas por script de arquivos conferidos iguais à produção e comparadas por diff antes do `db push` |
 | 14/09 | três "Cancelar grupo" seguidos na Pomodoro: a tela guardava UMA operação (o 2º clique abandonou a 1ª com 2.146 ativos e 9.000 cancelados), o bloco abortava a rodada inteira se qualquer item do grupo estivesse em voo, a passada compacta (197) ainda cancelava arquivados e marcava lotes da org inteira, e a linha virava "Concluído" por falta do tom `cancelled`. Migration 428 + `athena-cancellation-worker` + fila de cancelamento na tela | operação em massa é do servidor, não da aba; cancelar não pode esperar janela sem item em voo; toda função antiga do caminho tem de ser reconferida quando uma correção (336) muda um predicado |
 | 31/08 | concorrência 64 → 160 apagou 3.315 posts | advisory lock por org; infra nunca vira terminal |
 | 02/09 | teto por minuto 600 → 1.200 derrubou a API | o teto alonga a posse do lock; pool 41 |

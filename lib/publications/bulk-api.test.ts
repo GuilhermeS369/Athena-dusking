@@ -10,6 +10,7 @@ import {
   hasBulkManageRole,
   parseBulkIdempotencyKey,
   parseBulkRotationRequest,
+  sequentialStartAtError,
   verifyBulkReviewToken,
 } from './bulk-api.ts';
 
@@ -107,4 +108,50 @@ test('autoriza somente administradores e operadores a revisar ou confirmar', () 
   assert.equal(hasBulkManageRole('operator'), true);
   assert.equal(hasBulkManageRole('viewer'), false);
   assert.equal(hasBulkManageRole(undefined), false);
+});
+
+test('esquema sequencial aceita intervalo abaixo de 29 minutos, quantidade e início opcional em horário de São Paulo', () => {
+  const sequential = parseBulkRotationRequest({
+    ...request,
+    format: 'reel',
+    scheduleMode: 'sequential',
+    intervalMinutes: 5,
+    postCount: 12,
+    durationDays: '1',
+    startAt: '2026-09-20T21:00',
+  });
+  assert.equal(sequential.scheduleMode, 'sequential');
+  assert.equal(sequential.intervalMinutes, 5);
+  assert.equal(sequential.postCount, '12');
+  assert.equal(sequential.durationDays, '1');
+  assert.equal(sequential.startAt, '2026-09-21T00:00:00.000Z');
+  assert.equal(sequential.dailyTime, null);
+  // O pedido revisado volta com ISO, e precisa gerar o mesmo fingerprint na confirmação.
+  assert.equal(bulkRotationFingerprint(parseBulkRotationRequest(sequential)), bulkRotationFingerprint(sequential));
+
+  const semInicio = parseBulkRotationRequest({ ...sequential, startAt: null });
+  assert.equal(semInicio.startAt, null);
+  assert.notEqual(bulkRotationFingerprint(semInicio), bulkRotationFingerprint(sequential));
+
+  // Os outros esquemas não carregam campos do sequencial.
+  assert.equal(request.postCount, null);
+  assert.equal(request.startAt, null);
+});
+
+test('esquema sequencial barra o que a Meta ou o teto de 7 dias recusariam', () => {
+  const base = { ...request, scheduleMode: 'sequential', intervalMinutes: 5, postCount: 12, startAt: null };
+  assert.throws(() => parseBulkRotationRequest({ ...base, intervalMinutes: 0 }), /pelo menos 1 minuto/);
+  assert.throws(() => parseBulkRotationRequest({ ...base, postCount: 0 }), /Quantidade de postagens/);
+  assert.throws(() => parseBulkRotationRequest({ ...base, intervalMinutes: 14, postCount: 101 }), /100 publicações em 24 horas/);
+  assert.doesNotThrow(() => parseBulkRotationRequest({ ...base, intervalMinutes: 15, postCount: 200 }));
+  assert.throws(() => parseBulkRotationRequest({ ...base, intervalMinutes: 120, postCount: 85 }), /passa de 7 dias/);
+  assert.throws(() => parseBulkRotationRequest({ ...base, startAt: 'amanhã' }), /Horário inicial/);
+  assert.throws(() => parseBulkRotationRequest({ ...base, startAt: '2026-02-30T10:00' }), /Horário inicial/);
+});
+
+test('início do sequencial precisa de 2 minutos de folga', () => {
+  const now = Date.parse('2026-09-16T12:00:00.000Z');
+  assert.equal(sequentialStartAtError(null, now), null);
+  assert.equal(sequentialStartAtError('2026-09-16T12:05:00.000Z', now), null);
+  assert.match(sequentialStartAtError('2026-09-16T12:01:00.000Z', now) ?? '', /2 minutos/);
 });

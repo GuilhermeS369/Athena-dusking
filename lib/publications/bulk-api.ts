@@ -1,6 +1,14 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
-import { MAX_BULK_DURATION_DAYS, MIN_BULK_INTERVAL_MINUTES } from './bulk-rotation.ts';
+import {
+  MAX_BULK_DURATION_DAYS,
+  MAX_PROFILE_PUBLICATIONS_PER_24H,
+  MIN_BULK_INTERVAL_MINUTES,
+  MIN_SEQUENTIAL_INTERVAL_MINUTES,
+  bulkSequentialDurationDays,
+  bulkSequentialPostsInAnyDay,
+  saoPauloLocalDateTimeToIso,
+} from './bulk-rotation.ts';
 import type { BulkRotationFormat, BulkRotationOrderMode, BulkRotationScheduleMode } from './bulk-rotation';
 
 export type BulkMediaOrigin = { type: 'group'; groupId: string } | { type: 'ungrouped'; groupId: null };
@@ -22,6 +30,10 @@ export type BulkRotationRequest = {
   intervalMinutes: number;
   durationDays: string;
   dailyTime: string | null;
+  /** Só no esquema sequencial: postagens por perfil. */
+  postCount: string | null;
+  /** Só no esquema sequencial: início escolhido (ISO, UTC) ou null para começar depois da fila atual. */
+  startAt: string | null;
   caption: string | null;
   orderMode: BulkRotationOrderMode;
   rotationSeed: string;
@@ -41,6 +53,31 @@ export type BulkDatabaseError = {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DAILY_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+const ISO_WITH_ZONE_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})$/;
+// Folga mínima entre a revisão e o horário inicial: o plano ainda precisa ser
+// confirmado e gerado antes do primeiro post. Na confirmação o banco só exige
+// que o início esteja no futuro.
+export const SEQUENTIAL_START_MIN_LEAD_MS = 2 * 60_000;
+
+/** Aceita o valor do campo (horário de São Paulo) ou um ISO com fuso, e devolve ISO em UTC. */
+function parseSequentialStartAt(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string') throw new RangeError('Horário inicial inválido.');
+  const local = saoPauloLocalDateTimeToIso(value);
+  if (local) return local;
+  if (ISO_WITH_ZONE_PATTERN.test(value.trim()) && !Number.isNaN(Date.parse(value))) {
+    return new Date(value).toISOString();
+  }
+  throw new RangeError('Horário inicial inválido.');
+}
+
+/** Mensagem para um início que já passou ou está perto demais; null quando está bom. */
+export function sequentialStartAtError(startAt: string | null, now = Date.now()) {
+  if (!startAt) return null;
+  return Date.parse(startAt) < now + SEQUENTIAL_START_MIN_LEAD_MS
+    ? 'O horário inicial precisa estar pelo menos 2 minutos no futuro.'
+    : null;
+}
 
 function reviewSecret() {
   const secret = process.env.BULK_REVIEW_SECRET ?? process.env.SESSION_SECRET;
@@ -59,6 +96,7 @@ export function parseBulkRotationRequest(value: unknown): BulkRotationRequest {
   const intervalMinutes = input.intervalMinutes;
   const durationDays = typeof input.durationDays === 'number' ? String(input.durationDays) : input.durationDays;
   const dailyTime = input.dailyTime === undefined || input.dailyTime === null ? null : input.dailyTime;
+  const postCount = typeof input.postCount === 'number' ? String(input.postCount) : input.postCount;
   const caption = input.caption === null || input.caption === undefined || input.caption === '' ? null : input.caption;
   const orderMode = input.orderMode;
   const rotationSeed = typeof input.rotationSeed === 'string' ? input.rotationSeed.trim() : '';
@@ -69,14 +107,29 @@ export function parseBulkRotationRequest(value: unknown): BulkRotationRequest {
   if (!name || name.length > 160) throw new RangeError('Nome do lote deve ter entre 1 e 160 caracteres.');
   if (!profileIds.length || !profileIds.every((id) => typeof id === 'string' && UUID_PATTERN.test(id))) throw new RangeError('Perfis inválidos.');
   if (!['image', 'reel', 'story'].includes(String(format))) throw new RangeError('Formato inválido.');
-  if (!['interval', 'daily_time'].includes(String(scheduleMode))) throw new RangeError('Esquema de horário inválido.');
-  if (scheduleMode === 'interval' && !Number.isSafeInteger(intervalMinutes)) throw new RangeError('Intervalo inválido.');
+  if (!['interval', 'daily_time', 'sequential'].includes(String(scheduleMode))) throw new RangeError('Esquema de horário inválido.');
+  if ((scheduleMode === 'interval' || scheduleMode === 'sequential') && !Number.isSafeInteger(intervalMinutes)) throw new RangeError('Intervalo inválido.');
   if (scheduleMode === 'interval' && Number(intervalMinutes) < MIN_BULK_INTERVAL_MINUTES) {
     throw new RangeError(`O intervalo mínimo entre publicações é de ${MIN_BULK_INTERVAL_MINUTES} minutos.`);
   }
-  if (typeof durationDays !== 'string' || !/^[1-9]\d*$/.test(durationDays)) throw new RangeError('Duração inválida.');
-  if (Number(durationDays) > MAX_BULK_DURATION_DAYS) {
-    throw new RangeError(`A duração máxima de uma programação em massa é de ${MAX_BULK_DURATION_DAYS} dias.`);
+  let sequentialStartAt: string | null = null;
+  let resolvedDurationDays = durationDays;
+  if (scheduleMode === 'sequential') {
+    if (Number(intervalMinutes) < MIN_SEQUENTIAL_INTERVAL_MINUTES) throw new RangeError('O intervalo precisa ser de pelo menos 1 minuto.');
+    if (typeof postCount !== 'string' || !/^[1-9]\d*$/.test(postCount) || postCount.length > 9) throw new RangeError('Quantidade de postagens inválida.');
+    if (BigInt(postCount) * BigInt(Number(intervalMinutes)) > BigInt(MAX_BULK_DURATION_DAYS * 1440)) {
+      throw new RangeError(`A sequência passa de ${MAX_BULK_DURATION_DAYS} dias. Reduza o intervalo ou a quantidade de postagens.`);
+    }
+    if (bulkSequentialPostsInAnyDay(Number(intervalMinutes), postCount) > BigInt(MAX_PROFILE_PUBLICATIONS_PER_24H)) {
+      throw new RangeError(`Com esse intervalo cada perfil passaria de ${MAX_PROFILE_PUBLICATIONS_PER_24H} publicações em 24 horas, o limite da Meta. Aumente o intervalo ou reduza a quantidade.`);
+    }
+    sequentialStartAt = parseSequentialStartAt(input.startAt);
+    resolvedDurationDays = bulkSequentialDurationDays(Number(intervalMinutes), postCount).toString();
+  } else {
+    if (typeof durationDays !== 'string' || !/^[1-9]\d*$/.test(durationDays)) throw new RangeError('Duração inválida.');
+    if (Number(durationDays) > MAX_BULK_DURATION_DAYS) {
+      throw new RangeError(`A duração máxima de uma programação em massa é de ${MAX_BULK_DURATION_DAYS} dias.`);
+    }
   }
   if (scheduleMode === 'daily_time' && (typeof dailyTime !== 'string' || !DAILY_TIME_PATTERN.test(dailyTime))) throw new RangeError('Horário diário inválido.');
   if (caption !== null && (typeof caption !== 'string' || caption.length > 2200)) throw new RangeError('Legenda inválida.');
@@ -120,9 +173,11 @@ export function parseBulkRotationRequest(value: unknown): BulkRotationRequest {
     origin: type === 'group' ? { type, groupId: groupId as string } : { type, groupId: null },
     format: format as BulkRotationFormat,
     scheduleMode: scheduleMode as BulkRotationScheduleMode,
-    intervalMinutes: scheduleMode === 'interval' ? Number(intervalMinutes) : 1440,
-    durationDays,
+    intervalMinutes: scheduleMode === 'daily_time' ? 1440 : Number(intervalMinutes),
+    durationDays: resolvedDurationDays as string,
     dailyTime: scheduleMode === 'daily_time' ? dailyTime as string : null,
+    postCount: scheduleMode === 'sequential' ? postCount as string : null,
+    startAt: sequentialStartAt,
     caption: caption as string | null,
     orderMode: orderMode as BulkRotationOrderMode,
     rotationSeed,

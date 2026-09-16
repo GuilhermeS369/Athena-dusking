@@ -140,11 +140,18 @@ export function bulkPublicationProjection(
   durationDays: string,
   intervalMinutes: string,
   profileCount: number,
-  scheduleMode: 'interval' | 'daily_time' = 'interval',
+  scheduleMode: 'interval' | 'daily_time' | 'sequential' = 'interval',
+  postCount = '',
 ) {
   try {
-    const days = BigInt(durationDays);
     const profiles = BigInt(Math.max(0, Math.trunc(profileCount)));
+    if (scheduleMode === 'sequential') {
+      // A quantidade é por perfil e não depende da duração: a sequência dura o que durar.
+      if (!/^[1-9]\d*$/.test(postCount.trim())) return { slotsPerProfile: BigInt(0), expectedPublications: BigInt(0) };
+      const slotsPerProfile = BigInt(postCount.trim());
+      return { slotsPerProfile, expectedPublications: slotsPerProfile * profiles };
+    }
+    const days = BigInt(durationDays);
     if (days < BigInt(1)) {
       return { slotsPerProfile: BigInt(0), expectedPublications: BigInt(0) };
     }

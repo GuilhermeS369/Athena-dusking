@@ -11,11 +11,24 @@ export const MIN_BULK_DURATION_DAYS = BigInt(1);
 // duração passou a definir sozinha quanto é materializado de uma vez. Espelhado
 // no banco pelo gatilho bulk_publication_plans_enforce_duration_cap (329).
 export const MAX_BULK_DURATION_DAYS = 7;
+// Esquema SEQUENCIAL (decisão do dono em 16/09/2026): o operador escolhe o
+// intervalo e a quantidade de postagens por perfil, e opcionalmente o horário
+// inicial. Ignora TODA limitação de minutos entre postagens do mesmo perfil — o
+// piso de 29 minutos acima, o pulo de 10 minutos entre lotes da geração e o
+// intervalo mínimo por formato da reserva de despacho (45 s; reel 1.500 s). O
+// que continua valendo: rotação, dispersão de 10 minutos a partir do início,
+// teto de 7 dias e o limite de 100 publicações por perfil em 24 horas, que é da
+// própria Meta (acima dele o post é recusado e vence por atraso).
+export const MIN_SEQUENTIAL_INTERVAL_MINUTES = 1;
+export const MAX_PROFILE_PUBLICATIONS_PER_24H = 100;
+// Janela de dispersão padrão dos planos (bulk_publication_plans.spread_window_seconds, migration 331).
+export const BULK_SPREAD_WINDOW_SECONDS = 600;
+const SAO_PAULO_TIME_ZONE = 'America/Sao_Paulo';
 
 export type BulkRotationAlgorithmVersion = typeof LEGACY_BULK_ROTATION_ALGORITHM_VERSION | typeof BULK_ROTATION_ALGORITHM_VERSION;
 export type BulkRotationOrderMode = 'same_order' | 'diversified';
 export type BulkRotationFormat = 'image' | 'reel' | 'story';
-export type BulkRotationScheduleMode = 'interval' | 'daily_time';
+export type BulkRotationScheduleMode = 'interval' | 'daily_time' | 'sequential';
 export type BulkRotationInteger = bigint | number | string;
 
 export type CompactBulkRotationPlan = {
@@ -160,6 +173,62 @@ export function isBulkRotationDailyTime(value: string) {
 
 export function bulkRotationDailySlotCount(repeatDays: BulkRotationInteger) {
   return requirePositiveBigInt(repeatDays, 'repeatDays');
+}
+
+/**
+ * Maior número de postagens de UM perfil que cabem em qualquer janela de 24 h
+ * numa sequência. A reserva de despacho conta `published_at >= agora - 24 h`
+ * (inclusivo), por isso o `+ 1`: com intervalo de 15 min cabem 97, não 96.
+ */
+export function bulkSequentialPostsInAnyDay(intervalMinutes: number, postCount: BulkRotationInteger) {
+  const interval = requirePositiveSafeInteger(intervalMinutes, 'intervalMinutes');
+  const count = requirePositiveBigInt(postCount, 'postCount');
+  const perDay = BigInt(Math.floor(1440 / interval) + 1);
+  return count < perDay ? count : perDay;
+}
+
+/** Dias corridos (arredondados para cima) que a sequência ocupa; nunca menos que 1. */
+export function bulkSequentialDurationDays(intervalMinutes: number, postCount: BulkRotationInteger) {
+  const interval = requirePositiveSafeInteger(intervalMinutes, 'intervalMinutes');
+  const count = requirePositiveBigInt(postCount, 'postCount');
+  const totalMinutes = count * BigInt(interval);
+  const days = (totalMinutes + MINUTES_PER_DAY - BIGINT_ONE) / MINUTES_PER_DAY;
+  return days < BIGINT_ONE ? BIGINT_ONE : days;
+}
+
+function saoPauloWallClockMs(instantMs: number) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: SAO_PAULO_TIME_ZONE,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(instantMs));
+  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
+  return Date.UTC(value('year'), value('month') - 1, value('day'), value('hour'), value('minute'), value('second'));
+}
+
+/**
+ * Converte o valor de um `<input type="datetime-local">` ("2026-09-16T21:00")
+ * lido como horário de SÃO PAULO — não o fuso do navegador — para ISO em UTC.
+ * Devolve null para texto que não seja uma data e hora reais.
+ */
+export function saoPauloLocalDateTimeToIso(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const [year, month, day, hour, minute] = match.slice(1).map(Number);
+  const wanted = Date.UTC(year, month - 1, day, hour, minute);
+  const check = new Date(wanted);
+  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day
+    || check.getUTCHours() !== hour || check.getUTCMinutes() !== minute) return null;
+  let instant = wanted - (saoPauloWallClockMs(wanted) - wanted);
+  instant -= saoPauloWallClockMs(instant) - wanted;
+  if (saoPauloWallClockMs(instant) !== wanted) return null;
+  return new Date(instant).toISOString();
+}
+
+/** Inverso de saoPauloLocalDateTimeToIso, para preencher o campo a partir de um instante. */
+export function isoToSaoPauloLocalDateTime(value: Date | string) {
+  const instant = requireDate(value, 'value').getTime();
+  return new Date(saoPauloWallClockMs(instant)).toISOString().slice(0, 16);
 }
 
 export function makeCompactBulkRotationPlan(input: {

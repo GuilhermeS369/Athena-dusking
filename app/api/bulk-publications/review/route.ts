@@ -6,6 +6,7 @@ import {
   createBulkReviewToken,
   hasBulkManageRole,
   parseBulkRotationRequest,
+  sequentialStartAtError,
 } from '@/lib/publications/bulk-api';
 import { bulkPublishingEnabled } from '@/lib/publications/bulk-feature';
 import { getOrganizationContext } from '@/lib/organizations/server';
@@ -34,6 +35,9 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Corpo da requisição inválido.' }, { status: 400 });
   }
+
+  const startAtError = compactRequest.scheduleMode === 'sequential' ? sequentialStartAtError(compactRequest.startAt) : null;
+  if (startAtError) return NextResponse.json({ error: startAtError }, { status: 400 });
 
   const organizationId = context.activeOrganization.id;
   const supabase = await createSupabaseServerClient();
@@ -78,13 +82,24 @@ export async function POST(request: Request) {
   };
   const scheduleFunction = compactRequest.scheduleMode === 'daily_time'
     ? 'review_bulk_daily_rotation_schedule'
-    : 'review_bulk_rotation_schedule';
+    : compactRequest.scheduleMode === 'sequential'
+      ? 'review_bulk_sequential_rotation_schedule'
+      : 'review_bulk_rotation_schedule';
   const scheduleArgs = compactRequest.scheduleMode === 'daily_time'
     ? {
       p_organization_id: organizationId,
       p_profile_ids: compactRequest.profileIds,
       p_repeat_days: compactRequest.durationDays,
       p_daily_time: compactRequest.dailyTime,
+    }
+    : compactRequest.scheduleMode === 'sequential'
+    ? {
+      p_organization_id: organizationId,
+      p_profile_ids: compactRequest.profileIds,
+      p_interval_minutes: compactRequest.intervalMinutes,
+      p_post_count: compactRequest.postCount,
+      p_start_at: compactRequest.startAt,
+      p_format: compactRequest.format,
     }
     : {
       p_organization_id: organizationId,

@@ -150,3 +150,14 @@ test('seleção com shift volta à alternância quando a âncora saiu do filtro'
   assert.deepEqual(selectBulkProfileRange(['a'], ['b', 'c'], 'c', 'a', true), ['a', 'c']);
   assert.deepEqual(selectBulkProfileRange(['a', 'c'], ['b', 'c'], 'c', null, false), ['a']);
 });
+
+test('projeção sequencial usa a quantidade por perfil e ignora a duração', () => {
+  assert.deepEqual(bulkPublicationProjection('', '5', 40, 'sequential', '12'), {
+    slotsPerProfile: BigInt(12),
+    expectedPublications: BigInt(480),
+  });
+  assert.deepEqual(bulkPublicationProjection('1', '5', 40, 'sequential', ''), {
+    slotsPerProfile: BigInt(0),
+    expectedPublications: BigInt(0),
+  });
+});
