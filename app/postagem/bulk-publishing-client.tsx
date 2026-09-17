@@ -879,7 +879,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
                   <label className={`${styles.startToggle} ${styles.wideField}`}><input type="checkbox" checked={customStartEnabled} onChange={(event) => { invalidateReview(); setCustomStartEnabled(event.target.checked); if (event.target.checked && !customStartAt) setCustomStartAt(nextFullHourInSaoPaulo()); }} disabled={!canManage} />Escolher horário inicial</label>
                   {customStartEnabled
                     ? <label className={`${styles.field} ${styles.wideField}`}>Horário inicial (São Paulo)<input type="datetime-local" step="60" value={customStartAt} onChange={(event) => { invalidateReview(); setCustomStartAt(event.target.value); }} disabled={!canManage} /><small>Pelo menos 30 minutos à frente. O primeiro perfil posta nesse horário; os demais entram espalhados nos 10 minutos seguintes.</small></label>
-                    : <p className={`${styles.startHint} ${styles.wideField}`}>Sem horário escolhido, a sequência começa depois do que cada perfil já tem agendado neste formato.</p>}
+                    : <p className={`${styles.startHint} ${styles.wideField}`}>Sem horário escolhido, a sequência começa depois do que cada perfil já tem agendado neste formato, e nunca antes de 30 minutos da confirmação.</p>}
                 </>}
                 <label className={`${styles.field} ${styles.wideField}`}>Ordem da rotação<select value={orderMode} onChange={(event) => { invalidateReview(); setOrderMode(event.target.value as BulkOrderMode); }} disabled={!canManage}><option value="diversified">Diversificada e determinística</option><option value="same_order">Mesma ordem em todos os perfis</option></select></label>
                 <label className={`${styles.field} ${styles.wideField}`}>Legenda compartilhada<textarea maxLength={2200} value={caption} onChange={(event) => { invalidateReview(); setCaption(event.target.value); }} disabled={!canManage} placeholder="Opcional. Quebras de linha serão preservadas." /><small>{caption.length.toLocaleString('pt-BR')} / 2.200 unidades UTF-16</small></label>
@@ -967,7 +967,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
                 : scheduleMode === 'sequential'
                   ? customStartEnabled && saoPauloLocalDateTimeToIso(customStartAt)
                     ? `A sequência começa em ${formatDate(saoPauloLocalDateTimeToIso(customStartAt))}, com os perfis espalhados nos 10 minutos seguintes.`
-                    : 'A sequência de cada perfil começa depois da fila atual dele, com os perfis espalhados em 10 minutos.'
+                    : 'A sequência de cada perfil começa depois da fila atual dele e pelo menos 30 minutos à frente, com os perfis espalhados em 10 minutos.'
                   : 'O primeiro horário de cada perfil será a base segura da fila mais o intervalo informado.'}</p>
               <button ref={reviewTriggerRef} className="button button-secondary" type="button" onClick={() => void reviewPlan()} disabled={!canManage || reviewing || confirming}>{reviewing ? 'Revisando…' : 'Revisar plano compacto'}</button>
             </div>
