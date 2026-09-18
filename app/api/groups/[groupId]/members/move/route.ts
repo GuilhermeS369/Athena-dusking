@@ -8,6 +8,23 @@ type MoveMembersPayload = {
   profileIds?: unknown;
 };
 
+/**
+ * Traduz o código do Postgres para algo acionável.
+ *
+ * O `23514` é o gatilho `enforce_group_membership_organization` (migration 002):
+ * ele recusa vínculo para perfil apagado ou de outra organização. Desde a
+ * migration 435 a RPC pula esses casos em vez de falhar, então ver este código
+ * aqui significa que apareceu um caminho novo — e a mensagem precisa dizer isso
+ * em vez de mandar a pessoa adivinhar.
+ */
+function describeMoveError(code: string | undefined) {
+  if (code === '23514') return 'Algum perfil selecionado não existe mais ou é de outra organização';
+  if (code === 'P0002') return 'Grupo de origem ou de destino não encontrado';
+  if (code === '22023') return 'Grupos inválidos para esta movimentação';
+  if (code === '42501') return 'Somente administradores e operadores podem mover perfis';
+  return 'Não foi possível mover os perfis selecionados';
+}
+
 function parseProfileIds(value: unknown) {
   const values = Array.isArray(value) ? value : [];
   return [...new Set(values.map((item) => String(item ?? '').trim()).filter(Boolean))];
@@ -49,7 +66,24 @@ export async function POST(
     });
 
     if (error) {
-      return NextResponse.json({ error: 'Não foi possível mover os perfis selecionados.' }, { status: 400 });
+      // O erro do banco precisa aparecer em algum lugar. Sem isto a falha chega
+      // à tela como uma frase genérica e a causa se perde — foi exatamente o que
+      // aconteceu em 18/09/2026, quando 10 vínculos podres no "xTESTE LEXY"
+      // derrubaram a movimentação dos 66 e a tela não deu pista nenhuma.
+      console.error('Falha ao mover perfis entre grupos.', {
+        organizationId: context.activeOrganization.id,
+        sourceGroupId: groupId,
+        targetGroupId,
+        profileCount: profileIds.length,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+      return NextResponse.json({
+        error: `${describeMoveError(error.code)} (código ${error.code ?? 'desconhecido'}).`,
+        code: error.code ?? null,
+      }, { status: 400 });
     }
 
     const result = data as { movedProfileIds?: string[]; skippedProfileIds?: string[] } | null;

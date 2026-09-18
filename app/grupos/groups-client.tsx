@@ -334,7 +334,14 @@ export default function GroupsClient({
   ), [groups]);
   const memberModalGroup = groups.find((group) => group.id === memberModalGroupId) ?? null;
   const sortedCurrentMemberships = useMemo(() => {
-    const list = memberModalGroup ? [...(membershipsByGroup.get(memberModalGroup.id) ?? [])] : [];
+    // Só vínculo com perfil de verdade. Um vínculo pode sobreviver ao perfil
+    // (resíduo de 07/09/2026, quando a remoção Meta ainda não o limpava), e a
+    // lista renderizada já descartava esses — mas a CONTAGEM e o "selecionar
+    // todos" não, então a aba dizia 66 mostrando 56 e mandava 66 para o servidor.
+    // Filtrar aqui alinha tudo que deriva desta lista.
+    const list = memberModalGroup
+      ? (membershipsByGroup.get(memberModalGroup.id) ?? []).filter((membership) => profileById.has(membership.profile_id))
+      : [];
     if (memberSort === 'username') {
       list.sort((first, second) => (profileById.get(first.profile_id)?.username ?? '').localeCompare(profileById.get(second.profile_id)?.username ?? '', 'pt-BR', { sensitivity: 'base', numeric: true }));
     } else {
@@ -677,7 +684,7 @@ export default function GroupsClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetGroupId, profileIds }),
       });
-      const payload = await response.json() as { error?: string; movedProfileIds?: string[] };
+      const payload = await response.json() as { error?: string; movedProfileIds?: string[]; skippedProfileIds?: string[] };
       if (!response.ok) {
         setMessage(payload.error ?? 'Não foi possível mover os perfis selecionados.');
         return;
@@ -690,6 +697,13 @@ export default function GroupsClient({
       ]);
       setSelectedMemberIds([]);
       setMoveTargetGroupId('');
+      // Desde a migration 435 o servidor move o que dá e devolve o resto em
+      // `skippedProfileIds`. Dizer quantos ficaram é o que separa "moveu tudo"
+      // de "moveu quase tudo" — calar seria a versão silenciosa do bug antigo.
+      const skipped = payload.skippedProfileIds?.length ?? 0;
+      setMessage(skipped > 0
+        ? `${movedIds.length} perfil(is) movido(s) para “${targetGroup?.name ?? 'o grupo escolhido'}”. ${skipped} não pôde(ram) ser movido(s) e ficou(aram) onde estava(m).`
+        : `${movedIds.length} perfil(is) movido(s) para “${targetGroup?.name ?? 'o grupo escolhido'}”.`);
     } catch {
       setMessage('Não foi possível conectar ao servidor.');
     } finally {
