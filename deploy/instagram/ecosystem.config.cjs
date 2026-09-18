@@ -38,6 +38,7 @@ module.exports = {
     // Publicador 1: preparacao, staging (spool) e despacho direto.
     npmWorker('athena-publication-worker', 'worker:publication', {
       PUBLICATION_WORKER_ID: 'athena-vps-publication-1',
+      PUBLICATION_WORKER_SLIDING_WINDOW: 'true',
     }),
     // Publicadores 2 a 5: so caminho direto. Ligam pela conta da secao 8.3 do mestre.
     npmWorker('athena-publication-worker-2', 'worker:publication', {
@@ -64,6 +65,7 @@ module.exports = {
       PUBLICATION_WORKER_MODE: 'direct',
       PUBLICATION_WORKER_PREPARATION_ENABLED: 'false',
       PUBLICATION_WORKER_STAGING_ENABLED: 'false',
+      PUBLICATION_WORKER_SLIDING_WINDOW: 'true',
     }),
     // Publicador 5: so caminho direto, ligado em 15/09/2026 02:3xZ. Motivo: o bloco das
     // 07:00 BRT de 15/09 traz reels em quatro intervalos seguidos (298/488/549/313 em
