@@ -45,12 +45,16 @@ module.exports = {
       PUBLICATION_WORKER_MODE: 'direct',
       PUBLICATION_WORKER_PREPARATION_ENABLED: 'false',
       PUBLICATION_WORKER_STAGING_ENABLED: 'false',
+      // Janela deslizante ligada em 17/09/2026 (2o e 3o processos, decisao do dono
+      // depois do veredito do canario). Ver docs/fila-de-publicacao-MASTER.md, secao 4.
+      PUBLICATION_WORKER_SLIDING_WINDOW: 'true',
     }),
     npmWorker('athena-publication-worker-3', 'worker:publication', {
       PUBLICATION_WORKER_ID: 'athena-vps-publication-3',
       PUBLICATION_WORKER_MODE: 'direct',
       PUBLICATION_WORKER_PREPARATION_ENABLED: 'false',
       PUBLICATION_WORKER_STAGING_ENABLED: 'false',
+      PUBLICATION_WORKER_SLIDING_WINDOW: 'true',
     }),
     // Publicador 4: so caminho direto, ligado em 12/09/2026. O bloco das 07:00 BRT
     // (500-680 posts num intervalo de 5 min) passava da conta de 3 publicadores:
