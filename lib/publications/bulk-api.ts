@@ -217,8 +217,14 @@ export function parseBulkRotationRequest(value: unknown): BulkRotationRequest {
  * o arquivo original (ver docs/fila-de-publicacao-MASTER.md).
  */
 export function isBulkVideoVariantAllowed(organizationId: string, allowlist = process.env.BULK_VIDEO_VARIANT_ORG_IDS) {
-  const ids = (allowlist ?? '').split(',').map((entry) => entry.trim().toLowerCase()).filter(Boolean);
-  return ids.includes('*') || ids.includes(organizationId.toLowerCase());
+  // Tolerante ao que a colagem produz: em 20/09/2026 a variável foi gravada pelo
+  // PowerShell com os dois ids e a opção não apareceu para nenhuma organização.
+  // O que importa são os UUIDs (ou `*`) que existem no texto, não o separador,
+  // as aspas, a quebra de linha ou o BOM em volta deles.
+  const text = (allowlist ?? '').replace(/ /g, '').toLowerCase();
+  if (/(^|[\s,;"'])\*($|[\s,;"'])/.test(text)) return true;
+  const ids: string[] = text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g) ?? [];
+  return ids.includes(organizationId.toLowerCase());
 }
 
 export function bulkRotationFingerprint(request: BulkRotationRequest) {

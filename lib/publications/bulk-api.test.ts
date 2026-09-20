@@ -195,4 +195,11 @@ test('variante de vídeo só é liberada para organização na allowlist; vazio 
   assert.equal(isBulkVideoVariantAllowed(org, 'outra-org'), false);
   assert.equal(isBulkVideoVariantAllowed(org, ' outra , 695be08f-3084-4046-a91d-9052b2a1582b '), true);
   assert.equal(isBulkVideoVariantAllowed(org, '*'), true);
+  // O que a colagem pelo PowerShell produz: quebra de linha, aspas, BOM, UTF-16.
+  const a1 = '58785306-4dfb-432f-8de0-f0b33f91f3de';
+  assert.equal(isBulkVideoVariantAllowed(org, a1 + '\r\n' + org.toLowerCase() + '\r\n'), true);
+  assert.equal(isBulkVideoVariantAllowed(a1, '\ufeff"' + a1 + '","' + org + '"'), true);
+  assert.equal(isBulkVideoVariantAllowed(a1, [...a1].join('\u0000')), true);
+  assert.equal(isBulkVideoVariantAllowed(org, a1), false);
+  assert.equal(isBulkVideoVariantAllowed(org, 'abc*def'), false);
 });
