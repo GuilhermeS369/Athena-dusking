@@ -22,6 +22,8 @@ import {
   scheduleZernioMediaDownloadRecovery,
   sanitizedZernioDiagnostic,
   urlFingerprint,
+  videoVariantFor,
+  videoVariantsEnabled,
   zernioOutcome,
   zernioFailureResult,
   zernioExistingPostId,
@@ -1229,4 +1231,124 @@ test('loadWorkItem carrega formato e tamanho da capa para a decisão da Meta', a
     createSupabase: () => ({ from: (table) => queryResult(tabelas[table]) }),
   });
   assert.deepEqual(result.cover, { id: 'capa-1', storage_path: 'org/capa.jpg', kind: 'image', mime_type: 'image/jpeg', size_bytes: 2048 });
+});
+
+// ---------------------------------------------------------------------------
+// Variante de video por post (migration 436)
+// ---------------------------------------------------------------------------
+
+const itemComVariante = (variant) => ({
+  id: 'item-v', format: 'reel', profile: { provider: 'meta_official' },
+  media: [{ id: 'video-1', storage_path: 'org/original.mp4', kind: 'video' }],
+  variant,
+});
+const variantePronta = { status: 'ready', storage_path: 'org/variants/2026-09-21/item-v-abc.mp4', source_media_asset_id: 'video-1', recipe: 'micro' };
+
+async function comBucketDeVariantes(run) {
+  const before = process.env.R2_BUCKET_INSTAGRAM_VARIANTS;
+  process.env.R2_BUCKET_INSTAGRAM_VARIANTS = 'athena-instagram-variants';
+  try { return await run(); } finally {
+    if (before === undefined) delete process.env.R2_BUCKET_INSTAGRAM_VARIANTS; else process.env.R2_BUCKET_INSTAGRAM_VARIANTS = before;
+  }
+}
+
+test('variante pronta: a URL sai do bucket de variantes e NADA e registrado contra a midia original', async () => {
+  const assinados = [];
+  let registros = 0;
+  const urls = await comBucketDeVariantes(() => buildVerifiedMediaUrls(itemComVariante(variantePronta), {
+    createTemporaryUrl: async (storagePath, options) => { assinados.push([storagePath, options?.bucket]); return 'https://r2/variante'; },
+    probeMediaUrl: async (url) => ({ url, fingerprint: 'f' }),
+    recordMediaDeliveryAttempt: async () => { registros += 1; },
+  }));
+  assert.deepEqual(urls, ['https://r2/variante']);
+  assert.deepEqual(assinados, [['org/variants/2026-09-21/item-v-abc.mp4', 'athena-instagram-variants']]);
+  assert.equal(registros, 0);
+});
+
+test('variante ainda nao pronta NUNCA cai para o arquivo original', async () => {
+  let assinou = false;
+  await assert.rejects(() => buildVerifiedMediaUrls(itemComVariante({ ...variantePronta, status: 'processing', storage_path: null }), {
+    createTemporaryUrl: async () => { assinou = true; return 'https://r2/original'; },
+    probeMediaUrl: async (url) => ({ url, fingerprint: 'f' }),
+    recordMediaDeliveryAttempt: async () => {},
+  }), (error) => error.code === 'preparation_variant_pending' && error.retryable === true);
+  assert.equal(assinou, false);
+});
+
+test('variante de outra midia e recusada sem nova tentativa', () => {
+  assert.throws(
+    () => videoVariantFor(itemComVariante({ ...variantePronta, source_media_asset_id: 'outro-video' }), { id: 'video-1', kind: 'video' }),
+    (error) => error.code === 'video_variant_source_mismatch' && error.retryable === false,
+  );
+});
+
+test('objeto da variante ausente no R2: re-enfileira, nao registra contra o original e nao posta o cru', async () => {
+  const reenfileirados = [];
+  let registros = 0;
+  let assinaturas = 0;
+  await comBucketDeVariantes(() => assert.rejects(() => buildVerifiedMediaUrls(itemComVariante(variantePronta), {
+    createTemporaryUrl: async () => { assinaturas += 1; return 'https://r2/variante'; },
+    probeMediaUrl: async () => { throw Object.assign(new Error('404'), { code: 'media_url_probe_http_404', retryable: false }); },
+    recordMediaDeliveryAttempt: async () => { registros += 1; },
+    requeueVideoVariant: async (item, reason) => { reenfileirados.push([item.id, reason]); },
+  }), (error) => error.code === 'video_variant_object_missing' && error.retryable === true));
+  assert.deepEqual(reenfileirados, [['item-v', 'media_url_probe_http_404']]);
+  assert.equal(registros, 0);
+  assert.equal(assinaturas, 1);
+});
+
+test('a capa do Reel (imagem) e o item sem variante seguem o caminho de sempre', async () => {
+  assert.equal(videoVariantFor(itemComVariante(variantePronta), { id: 'capa-1', kind: 'image' }), null);
+  assert.equal(videoVariantFor(itemComVariante(null), { id: 'video-1', kind: 'video' }), null);
+  let registros = 0;
+  const urls = await buildVerifiedMediaUrls(itemComVariante(null), {
+    createTemporaryUrl: async (storagePath) => `https://r2/${storagePath}`,
+    probeMediaUrl: async (url) => ({ url, fingerprint: 'f' }),
+    recordMediaDeliveryAttempt: async () => { registros += 1; },
+  });
+  assert.deepEqual(urls, ['https://r2/org/original.mp4']);
+  assert.equal(registros, 1);
+});
+
+test('a preparacao avisa que o item espera variante e recusa variante de outra midia', () => {
+  const profile = { organization_id: 'org-1', provider: 'meta_official', instagram_user_id: '1', encrypted_access_token: 'x' };
+  const base = { format: 'reel', profile, media: [{ id: 'video-1', kind: 'video' }] };
+  assert.equal(validatePreparedPublicationWorkItem({ ...base, variant: null }).awaitsVariant, false);
+  assert.equal(validatePreparedPublicationWorkItem({ ...base, variant: variantePronta }).awaitsVariant, true);
+  assert.throws(
+    () => validatePreparedPublicationWorkItem({ ...base, variant: { ...variantePronta, source_media_asset_id: 'outro' } }),
+    (error) => error.code === 'preparation_variant_source_mismatch',
+  );
+});
+
+test('loadWorkItem so embute a tabela de variantes com a chave ligada', async () => {
+  const selects = [];
+  const tabelas = {
+    instagram_profiles: { data: { id: 'p', organization_id: 'org-1', provider: 'meta_official', status: 'online' }, error: null },
+    publication_item_media: { data: [], error: null },
+    publication_items: { data: { container_poll_count: 0, reel_cover_media_asset_id: null, publication_item_video_variants: variantePronta }, error: null },
+  };
+  const createSupabase = () => ({
+    from: (table) => {
+      const chain = queryResult(tabelas[table]);
+      const select = chain.select;
+      chain.select = (columns) => { if (table === 'publication_items') selects.push(columns); return select.call(chain); };
+      return chain;
+    },
+  });
+  const item = { id: 'item-v', profile_id: 'p', organization_id: 'org-1', format: 'reel', caption: null, creation_id: null };
+  const before = process.env.PUBLICATION_WORKER_VIDEO_VARIANTS;
+  try {
+    delete process.env.PUBLICATION_WORKER_VIDEO_VARIANTS;
+    assert.equal(videoVariantsEnabled(), false);
+    await loadWorkItem(item, { createSupabase });
+    process.env.PUBLICATION_WORKER_VIDEO_VARIANTS = 'true';
+    const ligado = await loadWorkItem(item, { createSupabase });
+    assert.equal(selects[0].includes('publication_item_video_variants'), false);
+    assert.equal(selects[1].includes('publication_item_video_variants(status, storage_path'), true);
+    assert.equal(ligado.variant.storage_path, variantePronta.storage_path);
+    assert.equal(ligado.variant.source_media_asset_id, 'video-1');
+  } finally {
+    if (before === undefined) delete process.env.PUBLICATION_WORKER_VIDEO_VARIANTS; else process.env.PUBLICATION_WORKER_VIDEO_VARIANTS = before;
+  }
 });

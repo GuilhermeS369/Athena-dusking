@@ -13,6 +13,8 @@
     "worker:queue-summary:once": "node scripts/workers/queue-summary-worker.mjs --once",
     "worker:publication-cancellation": "node scripts/workers/publication-cancellation-worker.mjs",
     "worker:publication-cancellation:once": "node scripts/workers/publication-cancellation-worker.mjs --once",
+    "worker:video-variants": "node scripts/workers/publication-video-variant-worker.mjs",
+    "worker:video-variants:once": "node scripts/workers/publication-video-variant-worker.mjs --once",
     "worker:publication": "node scripts/workers/publication-worker.mjs",
     "worker:publication:once": "node scripts/workers/publication-worker.mjs --once",
     "worker:publication-generation": "node scripts/workers/publication-generation-worker.mjs",

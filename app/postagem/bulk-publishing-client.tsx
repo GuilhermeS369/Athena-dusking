@@ -97,6 +97,15 @@ type CompactRequest = {
     origin: { type: 'group'; groupId: string } | { type: 'ungrouped'; groupId: null };
     mediaAssetId: string;
   } | { enabled: false };
+  videoVariant?: VideoVariantRecipe;
+};
+
+// Variante de vídeo por post (migration 436). A lista bate com BULK_VIDEO_VARIANT_RECIPES.
+type VideoVariantRecipe = 'container' | 'micro' | 'light';
+const videoVariantLabels: Record<VideoVariantRecipe, string> = {
+  micro: 'Micro (padrão) — imagem idêntica; muda o áudio e a marca interna do arquivo',
+  container: 'Só o embrulho (teste) — vídeo e áudio idênticos; muda só o metadado',
+  light: 'Leve (teste) — recodifica o vídeo com diferença imperceptível',
 };
 
 type ScheduleReview = {
@@ -157,6 +166,8 @@ type BulkPublishingClientProps = {
   canManage: boolean;
   profiles: BulkProfile[];
   groups: BulkProfileGroup[];
+  /** A organização está liberada para criar plano com vídeo único por post (BULK_VIDEO_VARIANT_ORG_IDS). */
+  videoVariantAvailable?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   onPlanConfirmed?: () => void;
 };
@@ -216,7 +227,7 @@ type SummariesResponse = { summaries?: Record<string, ComposerSummaryRow>; error
  */
 const SUMMARY_CHUNK_SIZE = 250;
 
-export default function BulkPublishingClient({ canManage, profiles, groups, onDirtyChange, onPlanConfirmed }: BulkPublishingClientProps) {
+export default function BulkPublishingClient({ canManage, profiles, groups, videoVariantAvailable = false, onDirtyChange, onPlanConfirmed }: BulkPublishingClientProps) {
   const origins = useMemo<BulkOrigin[]>(() => [
     { type: 'ungrouped', groupId: null, name: 'Sem grupo' },
     ...groups.map((group) => ({ type: 'group' as const, groupId: group.id, name: group.name })),
@@ -272,6 +283,8 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
   const [coverHasMore, setCoverHasMore] = useState(false);
   const [loadingCovers, setLoadingCovers] = useState(false);
   const [loadingMoreCovers, setLoadingMoreCovers] = useState(false);
+  const [videoVariantEnabled, setVideoVariantEnabled] = useState(false);
+  const [videoVariantRecipe, setVideoVariantRecipe] = useState<VideoVariantRecipe>('micro');
   const [review, setReview] = useState<ReviewResponse | null>(null);
   const [progress, setProgress] = useState<PlanProgress | null>(null);
   const mediaRequestRef = useRef<{ sequence: number; controller: AbortController | null }>({ sequence: 0, controller: null });
@@ -400,6 +413,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
     || coverEnabled
     || coverOriginKey
     || selectedCover
+    || videoVariantEnabled
   );
 
   useEffect(() => {
@@ -427,6 +441,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
   useEffect(() => {
     if (format !== 'reel') {
       coverRequestRef.current.controller?.abort();
+      setVideoVariantEnabled(false);
       setCoverEnabled(false);
       setCoverOriginKey('');
       setCoverAssets([]);
@@ -666,6 +681,8 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
           mediaAssetId: selectedCover.id,
         }
         : { enabled: false },
+      // A chave só entra quando ligada: o fingerprint da revisão é o JSON do pedido.
+      ...(videoVariantAvailable && videoVariantEnabled && format === 'reel' ? { videoVariant: videoVariantRecipe } : {}),
     };
   }
 
@@ -746,6 +763,8 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
     setName('');
     setFormat('reel');
     setOriginKey('');
+    setVideoVariantEnabled(false);
+    setVideoVariantRecipe('micro');
     setCoverEnabled(false);
     setCoverOriginKey('');
     setCoverAssets([]);
@@ -961,6 +980,28 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
               </div>}
             </section>}
 
+            {format === 'reel' && videoVariantAvailable && <section className={`${styles.card} ${styles.coverCard} ${videoVariantEnabled ? styles.coverCardActive : ''}`}>
+              <header className={styles.coverHeader}>
+                <div><strong>Vídeo único por post</strong><small>Cada publicação sobe uma cópia com diferenças invisíveis, para o mesmo arquivo não se repetir entre os perfis</small></div>
+                <button
+                  className={styles.coverToggle}
+                  type="button"
+                  role="switch"
+                  aria-checked={videoVariantEnabled}
+                  onClick={() => { invalidateReview(); setVideoVariantEnabled((current) => !current); }}
+                  disabled={!canManage}
+                ><span aria-hidden="true" />{videoVariantEnabled ? 'Ativado' : 'Desativado'}</button>
+              </header>
+              {videoVariantEnabled && <div className={styles.coverBody}>
+                <p className={styles.coverNotice}>A cópia é gerada antes do horário e apagada depois de postar. Se a cópia de um post não ficar pronta a tempo, esse post não é publicado: o arquivo original nunca sobe no lugar. Vale para perfis da API oficial da Meta.</p>
+                <label className={`${styles.field} ${styles.coverOriginField}`}>Tipo de alteração
+                  <select value={videoVariantRecipe} onChange={(event) => { invalidateReview(); setVideoVariantRecipe(event.target.value as VideoVariantRecipe); }} disabled={!canManage}>
+                    {(Object.keys(videoVariantLabels) as VideoVariantRecipe[]).map((recipe) => <option key={recipe} value={recipe}>{videoVariantLabels[recipe]}</option>)}
+                  </select>
+                </label>
+              </div>}
+            </section>}
+
             <div className={styles.reviewAction}>
               <p>{scheduleMode === 'daily_time'
                 ? `Cada perfil receberá uma publicação por dia às ${dailyTime}, no horário de São Paulo.`
@@ -989,6 +1030,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, onDi
             <div><dt>Última execução</dt><dd>{formatDate(review.schedule.lastExecuteAt)}</dd></div>
             <div><dt>Revisão válida até</dt><dd>{formatDate(review.expiresAt)}</dd></div>
             <div><dt>Capa do Reel</dt><dd>{review.cover ? 'Personalizada' : 'Automática'}</dd></div>
+            {videoVariantAvailable && review.request.format === 'reel' && <div><dt>Vídeo único por post</dt><dd>{review.request.videoVariant ? videoVariantLabels[review.request.videoVariant].split(' — ')[0] : 'Desativado'}</dd></div>}
           </dl>
           {stackedAfterExistingPlan && <p className={styles.reviewNotice} role="status">Estes perfis já têm um lote deste formato agendado. O novo lote não se sobrepõe: ele começa em {formatDate(review.schedule.firstExecuteAt)}, depois que o atual terminar.</p>}
           {review.cover && <div className={styles.reviewCover}>{review.cover.thumbnailUrl && <img src={review.cover.thumbnailUrl} alt={review.cover.originalName} />}<div><span>Origem: {review.cover.originName}</span><strong>{review.cover.originalName}</strong></div></div>}

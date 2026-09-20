@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  BULK_VIDEO_VARIANT_RECIPES,
   bulkDatabaseErrorResponse,
   bulkRotationFingerprint,
   createBulkReviewToken,
   decodeBulkMediaCursor,
   encodeBulkMediaCursor,
   hasBulkManageRole,
+  isBulkVideoVariantAllowed,
   parseBulkIdempotencyKey,
   parseBulkRotationRequest,
   reelCoverIneligibleReason,
@@ -166,3 +168,31 @@ test('capa de Reel só é aceita em JPEG até 8 MB, com o motivo em português',
   assert.match(reelCoverIneligibleReason({ mime_type: 'image/jpeg', size_bytes: 8 * 1024 * 1024 + 1 }) ?? '', /8 MB/);
 });
 
+test('variante de vídeo: só Reel, só receita conhecida, e ausente não muda o fingerprint de hoje', () => {
+  const base = {
+    name: 'Reels', profileIds: ['30000000-0000-4000-8000-000000000001'], origin: { type: 'ungrouped', groupId: null },
+    format: 'reel', intervalMinutes: 60, durationDays: 3, caption: null, orderMode: 'diversified', rotationSeed: 'seed',
+  };
+  const semVariante = parseBulkRotationRequest(base);
+  assert.equal('videoVariant' in semVariante, false);
+  assert.equal('videoVariant' in parseBulkRotationRequest({ ...base, videoVariant: null }), false);
+  assert.equal(bulkRotationFingerprint(parseBulkRotationRequest({ ...base, videoVariant: null })), bulkRotationFingerprint(semVariante));
+
+  const micro = parseBulkRotationRequest({ ...base, videoVariant: 'micro' });
+  assert.equal(micro.videoVariant, 'micro');
+  assert.notEqual(bulkRotationFingerprint(micro), bulkRotationFingerprint(semVariante));
+  assert.notEqual(bulkRotationFingerprint(micro), bulkRotationFingerprint(parseBulkRotationRequest({ ...base, videoVariant: 'light' })));
+
+  assert.throws(() => parseBulkRotationRequest({ ...base, videoVariant: 'visible' }), /variante de vídeo inválida/i);
+  assert.throws(() => parseBulkRotationRequest({ ...base, format: 'story', videoVariant: 'micro' }), /só existe para Reels/);
+  assert.deepEqual([...BULK_VIDEO_VARIANT_RECIPES], ['container', 'micro', 'light']);
+});
+
+test('variante de vídeo só é liberada para organização na allowlist; vazio libera ninguém', () => {
+  const org = '695BE08F-3084-4046-A91D-9052B2A1582B';
+  assert.equal(isBulkVideoVariantAllowed(org, ''), false);
+  assert.equal(isBulkVideoVariantAllowed(org, undefined), false);
+  assert.equal(isBulkVideoVariantAllowed(org, 'outra-org'), false);
+  assert.equal(isBulkVideoVariantAllowed(org, ' outra , 695be08f-3084-4046-a91d-9052b2a1582b '), true);
+  assert.equal(isBulkVideoVariantAllowed(org, '*'), true);
+});

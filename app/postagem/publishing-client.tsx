@@ -123,6 +123,7 @@ export default function PublishingClient({
   groups,
   assignments,
   bulkPublishingEnabled,
+  bulkVideoVariantAvailable = false,
 }: {
   activeOrganization: Organization;
   profiles: Profile[];
@@ -131,6 +132,7 @@ export default function PublishingClient({
   groups: Group[];
   assignments: Assignment[];
   bulkPublishingEnabled: boolean;
+  bulkVideoVariantAvailable?: boolean;
 }) {
   const canManage = ['admin', 'operator'].includes(activeOrganization.role);
   const [profileId, setProfileId] = useState('');
@@ -473,6 +475,7 @@ export default function PublishingClient({
             canManage={canManage}
             profiles={profiles}
             groups={groups}
+            videoVariantAvailable={bulkVideoVariantAvailable}
             onDirtyChange={setBulkDraftDirty}
             onPlanConfirmed={() => setBulkFeedRefreshSignal((signal) => signal + 1)}
           />

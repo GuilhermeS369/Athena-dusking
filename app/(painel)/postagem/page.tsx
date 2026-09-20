@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 
 import { bulkPublishingEnabled } from '@/lib/publications/bulk-feature';
+import { isBulkVideoVariantAllowed } from '@/lib/publications/bulk-api';
 import { Suspense } from 'react';
 
 import PageLoadingSkeleton from '@/app/components/page-loading-skeleton';
@@ -134,6 +135,7 @@ async function PublishingPageContent() {
     <PublishingClient
       activeOrganization={context.activeOrganization}
       bulkPublishingEnabled={bulkPublishingEnabled(context.activeOrganization.role)}
+      bulkVideoVariantAvailable={isBulkVideoVariantAllowed(context.activeOrganization.id)}
       // Os horários ocupados de cada perfil NÃO vão aqui. Eram 89% destas props
       // (13,8 MiB para 1.401 perfis, 367.744 timestamps) e só são lidos depois
       // de escolher um destino — o cliente os busca em /api/publications/composer/slots

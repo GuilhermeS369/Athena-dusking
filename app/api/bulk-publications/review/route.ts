@@ -5,6 +5,7 @@ import {
   bulkRotationFingerprint,
   createBulkReviewToken,
   hasBulkManageRole,
+  isBulkVideoVariantAllowed,
   parseBulkRotationRequest,
   reelCoverIneligibleReason,
   sequentialStartAtError,
@@ -40,6 +41,10 @@ export async function POST(request: Request) {
   if (startAtError) return NextResponse.json({ error: startAtError }, { status: 400 });
 
   const organizationId = context.activeOrganization.id;
+  // Variante de vídeo por post (436): só organizações liberadas. A confirmação repete.
+  if (compactRequest.videoVariant && !isBulkVideoVariantAllowed(organizationId)) {
+    return NextResponse.json({ error: 'Variante de vídeo por post ainda não está liberada para esta organização.' }, { status: 403 });
+  }
   const supabase = await createSupabaseServerClient();
   let cover: { id: string; originalName: string; originName: string; thumbnailUrl: string | null } | null = null;
   if (compactRequest.reelCover.enabled) {

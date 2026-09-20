@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import {
   bulkDatabaseErrorResponse,
   hasBulkManageRole,
+  isBulkVideoVariantAllowed,
   parseBulkIdempotencyKey,
   parseBulkRotationRequest,
   verifyBulkReviewToken,
@@ -44,6 +45,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Revisão expirada ou incompatível. Revise o plano novamente.' }, { status: 409 });
   }
 
+  // Variante de vídeo por post (436): só organizações liberadas. Conferido aqui e
+  // na revisão; o painel esconde a opção, mas quem decide é o servidor.
+  const videoVariant = compactRequest.videoVariant ?? null;
+  if (videoVariant && !isBulkVideoVariantAllowed(context.activeOrganization.id)) {
+    return NextResponse.json({ error: 'Variante de vídeo por post ainda não está liberada para esta organização.' }, { status: 403 });
+  }
+
   const supabase = await createSupabaseServerClient();
   if (compactRequest.reelCover.enabled) {
     // A capa vale para a API oficial da Meta e para a Zernio (433). A função de
@@ -56,12 +64,15 @@ export async function POST(request: Request) {
     });
     if (coverError || eligible !== true) return NextResponse.json({ error: 'A imagem de capa não está mais disponível. Revise o plano novamente.' }, { status: 409 });
   }
+  // Sem receita o caminho é exatamente o de antes (funções v2). Com receita, os
+  // wrappers v3 da 436: chamam a v2 e gravam a receita na mesma transação.
+  const planVersion = videoVariant ? 'v3' : 'v2';
   const planFunction = compactRequest.scheduleMode === 'daily_time'
-    ? 'create_bulk_daily_rotation_plan_v2'
+    ? `create_bulk_daily_rotation_plan_${planVersion}`
     : compactRequest.scheduleMode === 'sequential'
-      ? 'create_bulk_sequential_rotation_plan_v2'
-      : 'create_bulk_rotation_plan_v2';
-  const planArgs = compactRequest.scheduleMode === 'sequential'
+      ? `create_bulk_sequential_rotation_plan_${planVersion}`
+      : `create_bulk_rotation_plan_${planVersion}`;
+  const baseArgs = compactRequest.scheduleMode === 'sequential'
     ? {
       p_organization_id: context.activeOrganization.id,
       p_request_key: idempotencyKey,
@@ -121,6 +132,7 @@ export async function POST(request: Request) {
     p_algorithm_version: BULK_ROTATION_ALGORITHM_VERSION,
     p_chunk_size: 500,
     };
+  const planArgs = videoVariant ? { ...baseArgs, p_video_variant_recipe: videoVariant } : baseArgs;
   const { data, error } = await supabase.rpc(planFunction, planArgs);
 
   if (error) {
@@ -128,6 +140,7 @@ export async function POST(request: Request) {
       organizationId: context.activeOrganization.id,
       planFunction,
       scheduleMode: compactRequest.scheduleMode,
+      videoVariant,
       format: compactRequest.format,
       profileCount: compactRequest.profileIds.length,
       code: error.code,

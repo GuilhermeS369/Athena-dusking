@@ -21,6 +21,14 @@ export type BulkReelCover = {
   enabled: false;
 };
 
+/**
+ * Receita de variante de vídeo por post (migration 436). `micro` é o padrão do
+ * painel; `container` e `light` existem para o teste de desempenho das postagens.
+ * A lista tem de bater com o check da tabela e com scripts/workers/video-variant-recipes.mjs.
+ */
+export const BULK_VIDEO_VARIANT_RECIPES = ['container', 'micro', 'light'] as const;
+export type BulkVideoVariantRecipe = typeof BULK_VIDEO_VARIANT_RECIPES[number];
+
 export type BulkRotationRequest = {
   name: string;
   profileIds: string[];
@@ -38,6 +46,12 @@ export type BulkRotationRequest = {
   orderMode: BulkRotationOrderMode;
   rotationSeed: string;
   reelCover: BulkReelCover;
+  /**
+   * Ausente = posta o arquivo original. A chave só entra no objeto quando há
+   * receita: o fingerprint da revisão é o JSON do pedido, e uma chave nova com
+   * `null` invalidaria toda revisão aberta no momento do deploy.
+   */
+  videoVariant?: BulkVideoVariantRecipe;
 };
 
 export type BulkReviewTokenPayload = {
@@ -168,6 +182,15 @@ export function parseBulkRotationRequest(value: unknown): BulkRotationRequest {
     throw new RangeError('Configuração de capa inválida.');
   }
 
+  let videoVariant: BulkVideoVariantRecipe | null = null;
+  if (input.videoVariant !== undefined && input.videoVariant !== null) {
+    if (!BULK_VIDEO_VARIANT_RECIPES.includes(input.videoVariant as BulkVideoVariantRecipe)) {
+      throw new RangeError('Opção de variante de vídeo inválida.');
+    }
+    if (format !== 'reel') throw new RangeError('Variante de vídeo só existe para Reels.');
+    videoVariant = input.videoVariant as BulkVideoVariantRecipe;
+  }
+
   return {
     name,
     profileIds: profileIds as string[],
@@ -183,7 +206,19 @@ export function parseBulkRotationRequest(value: unknown): BulkRotationRequest {
     orderMode: orderMode as BulkRotationOrderMode,
     rotationSeed,
     reelCover,
+    ...(videoVariant ? { videoVariant } : {}),
   };
+}
+
+/**
+ * Organizações que podem criar plano com variante de vídeo. Vazio = ninguém.
+ * A opção só pode ser liberada depois de os CINCO publicadores estarem com
+ * PUBLICATION_WORKER_VIDEO_VARIANTS ligada: um publicador sem a chave postaria
+ * o arquivo original (ver docs/fila-de-publicacao-MASTER.md).
+ */
+export function isBulkVideoVariantAllowed(organizationId: string, allowlist = process.env.BULK_VIDEO_VARIANT_ORG_IDS) {
+  const ids = (allowlist ?? '').split(',').map((entry) => entry.trim().toLowerCase()).filter(Boolean);
+  return ids.includes('*') || ids.includes(organizationId.toLowerCase());
 }
 
 export function bulkRotationFingerprint(request: BulkRotationRequest) {

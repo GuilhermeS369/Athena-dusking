@@ -31,6 +31,22 @@ export const PUBLICATION_MAX_ATTEMPTS = 5;
 function mediaStorageBackend() {
   return (process.env.MEDIA_STORAGE_BACKEND || 'supabase').toLowerCase();
 }
+// VARIANTE DE VIDEO POR POST (migration 436). Desligada = o codigo de sempre: o
+// select do item nao embute a tabela lateral e o post sobe o arquivo original.
+// So pode ligar DEPOIS de a 436 estar aplicada e o cache de schema do PostgREST
+// recarregado: com a chave ligada e a tabela ausente, o select do item falha,
+// todo item vira invalido e a preparacao trava a fila.
+// A opcao so aparece no painel quando os CINCO publicadores estiverem ligados:
+// um publicador com a chave desligada postaria o arquivo cru.
+// Funcao, nao constante, pelo mesmo motivo de mediaStorageBackend().
+export function videoVariantsEnabled() {
+  return process.env.PUBLICATION_WORKER_VIDEO_VARIANTS === 'true';
+}
+function videoVariantBucket() {
+  const bucket = process.env.R2_BUCKET_INSTAGRAM_VARIANTS;
+  if (!bucket) throw mediaDeliveryError('Bucket de variantes de vídeo não configurado.', 'video_variant_bucket_missing', true);
+  return bucket;
+}
 let r2ClientPromise = null;
 async function getR2Client() {
   if (!r2ClientPromise) {
@@ -511,9 +527,10 @@ function storageSignedUrlError(error) {
   return typed;
 }
 
-export async function createTemporaryUrl(storagePath) {
-  if (mediaStorageBackend() === 'r2') {
-    const bucket = process.env.R2_BUCKET_INSTAGRAM_MEDIA || 'instagram-media';
+export async function createTemporaryUrl(storagePath, options = {}) {
+  // options.bucket: so a variante de video usa (mora em bucket proprio, sempre no R2).
+  if (mediaStorageBackend() === 'r2' || options.bucket) {
+    const bucket = options.bucket || process.env.R2_BUCKET_INSTAGRAM_MEDIA || 'instagram-media';
     try {
       const [{ GetObjectCommand }, { getSignedUrl }, client] = await Promise.all([
         import('@aws-sdk/client-s3'),
@@ -671,11 +688,58 @@ async function latestProviderUrlFingerprint(item, media) {
   return data?.url_fingerprint ?? null;
 }
 
+/**
+ * A variante que este video TEM de usar, ou null quando o item nao tem variante.
+ * NUNCA devolve null para "variante esperada e indisponivel": nesse caso lanca,
+ * porque cair para o arquivo original e exatamente o que o dono proibiu
+ * (20/09/2026). A capa do Reel passa por aqui como imagem e nao e afetada.
+ */
+export function videoVariantFor(item, media) {
+  if (!item?.variant || media?.kind !== 'video') return null;
+  if (item.variant.source_media_asset_id !== media.id) {
+    throw mediaDeliveryError('A variante de vídeo pertence a outra mídia.', 'video_variant_source_mismatch', false);
+  }
+  if (item.variant.status !== 'ready' || !item.variant.storage_path) {
+    throw mediaDeliveryError('Variante de vídeo ainda não está pronta; o post não sobe com o arquivo original.', 'preparation_variant_pending', true);
+  }
+  return item.variant;
+}
+
+async function requeueVideoVariant(item, reason) {
+  const supabase = createSupabase();
+  const { error } = await supabase.rpc('requeue_publication_video_variant', { p_item_id: item.id, p_reason: reason });
+  if (error) throw error;
+}
+
+async function buildVerifiedVideoVariantUrl(item, variant, media, options) {
+  const createUrl = options.createTemporaryUrl ?? createTemporaryUrl;
+  const probeUrl = options.probeMediaUrl ?? probeMediaUrl;
+  const requeue = options.requeueVideoVariant ?? requeueVideoVariant;
+  // SEM recordMediaDeliveryAttempt, nem no sucesso nem na falha: a 098 poe a
+  // midia ORIGINAL em quarentena com 2 falhas e cancela todos os itens que a
+  // usam. Defeito de uma variante nunca pode contar contra o original. (E uma
+  // chamada de banco a menos por post.)
+  try {
+    const url = await createUrl(variant.storage_path, { bucket: videoVariantBucket() });
+    return (await probeUrl(url, media.kind)).url;
+  } catch (error) {
+    const missing = error?.code === 'media_storage_object_missing' || error?.code === 'media_url_probe_http_404';
+    if (!missing) throw error;
+    // Banco diz 'ready' e o objeto nao existe: a variante volta para a fila do
+    // worker e o item para a preparacao. Nao cai para o original.
+    await requeue(item, error.code)
+      .catch((requeueError) => console.error('Falha ao re-enfileirar a variante de vídeo.', errorInfo(requeueError)));
+    throw mediaDeliveryError('O arquivo da variante de vídeo não está no armazenamento.', 'video_variant_object_missing', true);
+  }
+}
+
 export async function buildVerifiedMediaUrls(item, options = {}) {
   const createUrl = options.createTemporaryUrl ?? createTemporaryUrl;
   const probeUrl = options.probeMediaUrl ?? probeMediaUrl;
   const recordAttempt = options.recordMediaDeliveryAttempt ?? recordMediaDeliveryAttempt;
   return Promise.all(item.media.map(async (media) => {
+    const variant = videoVariantFor(item, media);
+    if (variant) return buildVerifiedVideoVariantUrl(item, variant, media, options);
     let probe;
     let emittedUrl;
     let emittedUrlFingerprint;
@@ -1414,7 +1478,10 @@ export async function loadWorkItem(item, options = {}) {
       .order('position'),
     supabase
       .from('publication_items')
-      .select('container_poll_count, provider_creation_started_at, zernio_recovery_count, zernio_recovery_poll_at, reel_cover_media_asset_id')
+      .select(videoVariantsEnabled()
+        // PK = FK na tabela lateral: o PostgREST embute como objeto (ou null).
+        ? 'container_poll_count, provider_creation_started_at, zernio_recovery_count, zernio_recovery_poll_at, reel_cover_media_asset_id, publication_item_video_variants(status, storage_path, size_bytes, source_media_asset_id, recipe)'
+        : 'container_poll_count, provider_creation_started_at, zernio_recovery_count, zernio_recovery_poll_at, reel_cover_media_asset_id')
       .eq('id', item.id)
       .eq('organization_id', item.organization_id)
       .maybeSingle(),
@@ -1482,6 +1549,19 @@ export async function loadWorkItem(item, options = {}) {
     profile: profileResult.data,
     media,
     cover,
+    variant: normalizedVideoVariant(stateResult.data.publication_item_video_variants),
+  };
+}
+
+function normalizedVideoVariant(embedded) {
+  const row = Array.isArray(embedded) ? embedded[0] : embedded;
+  if (!row) return null;
+  return {
+    status: row.status,
+    storage_path: row.storage_path ?? null,
+    size_bytes: row.size_bytes ?? null,
+    source_media_asset_id: row.source_media_asset_id,
+    recipe: row.recipe,
   };
 }
 
@@ -1559,7 +1639,12 @@ export function validatePreparedPublicationWorkItem(workItem) {
     if (workItem.format === 'reel' && workItem.media[0]?.kind !== 'video') {
       throw publicationDataError('Reel requer um vídeo.', 'preparation_reel_media_invalid');
     }
-    return { ready: true, provider: 'meta_official', mediaCount: workItem.media.length };
+    if (workItem.variant && workItem.variant.source_media_asset_id !== workItem.media[0]?.id) {
+      throw publicationDataError('A variante de vídeo pertence a outra mídia.', 'preparation_variant_source_mismatch');
+    }
+    // awaitsVariant: a decisao ready/blocked e da RPC resolve_publication_preparation_for_variant,
+    // que le a variante com a linha travada. Aqui so se diz que ela existe.
+    return { ready: true, provider: 'meta_official', mediaCount: workItem.media.length, awaitsVariant: Boolean(workItem.variant) };
   }
   throw publicationDataError('Provedor do perfil não suportado.', 'preparation_provider_unsupported');
 }
@@ -1610,7 +1695,20 @@ export async function preparePublicationQueueDirect(options = {}) {
         creation_id: null,
         correlation_id: options.correlationId ?? null,
       }, options);
-      validatePreparedPublicationWorkItem(workItem);
+      const prepared = validatePreparedPublicationWorkItem(workItem);
+      if (prepared.awaitsVariant) {
+        // Variante pronta -> ready. Ainda nao pronta -> UM bloqueio longo, que o
+        // worker de variantes encurta ao concluir (o p_retry_seconds fixo de 900
+        // daqui faria o item voltar a cada 15 min so para ser bloqueado de novo).
+        const { data: resolved, error: resolveError } = await supabase.rpc('resolve_publication_preparation_for_variant', {
+          p_item_id: item.id,
+          p_worker_id: workerId,
+        });
+        if (resolveError) throw resolveError;
+        return resolved?.status === 'ready'
+          ? { itemId: item.id, state: 'ready' }
+          : { itemId: item.id, state: 'blocked', errorCode: resolved?.variantStatus === 'failed' ? 'preparation_variant_failed' : 'preparation_variant_pending' };
+      }
       const { error: completionError } = await supabase.rpc('complete_publication_preparation', {
         p_item_id: item.id,
         p_worker_id: workerId,
