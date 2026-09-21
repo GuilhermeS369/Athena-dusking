@@ -27,6 +27,7 @@
     "worker:profile-analytics:direct": "tsx scripts/workers/profile-analytics-direct-worker.ts",
     "worker:profile-analytics:direct:once": "tsx scripts/workers/profile-analytics-direct-worker.ts --once",
   "probe:meta-analytics": "tsx scripts/workers/meta-analytics-probe.ts",
+    "audit:video-variants": "tsx scripts/workers/audit-video-variant-canary.ts",
     "worker:zernio-sync": "node scripts/workers/zernio-sync-worker.mjs",
     "worker:zernio-sync:once": "node scripts/workers/zernio-sync-worker.mjs --once",
     "worker:operational-health": "node scripts/workers/validate-operational-health.mjs",
