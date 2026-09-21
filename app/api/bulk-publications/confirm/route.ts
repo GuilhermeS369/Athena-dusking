@@ -64,9 +64,11 @@ export async function POST(request: Request) {
     });
     if (coverError || eligible !== true) return NextResponse.json({ error: 'A imagem de capa não está mais disponível. Revise o plano novamente.' }, { status: 409 });
   }
-  // Sem receita o caminho é exatamente o de antes (funções v2). Com receita, os
-  // wrappers v3 da 436: chamam a v2 e gravam a receita na mesma transação.
-  const planVersion = videoVariant ? 'v3' : 'v2';
+  // Sem receita nem lista o caminho é exatamente o de antes (funções v2). Com
+  // receita, os wrappers v3 da 436. Com lista de legendas, os v4 da 437 (chamam a
+  // v3, então a receita continua valendo junto).
+  const captionVariants = compactRequest.captionVariants ?? null;
+  const planVersion = captionVariants ? 'v4' : videoVariant ? 'v3' : 'v2';
   const planFunction = compactRequest.scheduleMode === 'daily_time'
     ? `create_bulk_daily_rotation_plan_${planVersion}`
     : compactRequest.scheduleMode === 'sequential'
@@ -132,7 +134,9 @@ export async function POST(request: Request) {
     p_algorithm_version: BULK_ROTATION_ALGORITHM_VERSION,
     p_chunk_size: 500,
     };
-  const planArgs = videoVariant ? { ...baseArgs, p_video_variant_recipe: videoVariant } : baseArgs;
+  const planArgs = captionVariants
+    ? { ...baseArgs, p_video_variant_recipe: videoVariant, p_caption_variants: captionVariants }
+    : videoVariant ? { ...baseArgs, p_video_variant_recipe: videoVariant } : baseArgs;
   const { data, error } = await supabase.rpc(planFunction, planArgs);
 
   if (error) {
@@ -141,6 +145,8 @@ export async function POST(request: Request) {
       planFunction,
       scheduleMode: compactRequest.scheduleMode,
       videoVariant,
+      // Só a quantidade: as legendas são conteúdo do cliente e não vão para o log.
+      captionVariantCount: captionVariants?.length ?? 0,
       format: compactRequest.format,
       profileCount: compactRequest.profileIds.length,
       code: error.code,

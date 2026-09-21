@@ -203,3 +203,42 @@ test('variante de vídeo só é liberada para organização na allowlist; vazio 
   assert.equal(isBulkVideoVariantAllowed(org, a1), false);
   assert.equal(isBulkVideoVariantAllowed(org, 'abc*def'), false);
 });
+
+test('lista de legendas: chave só aparece com lista, e sem ela o fingerprint é o de hoje', () => {
+  const base = {
+    name: 'Reels', profileIds: ['30000000-0000-4000-8000-000000000001'], origin: { type: 'ungrouped', groupId: null },
+    format: 'reel', intervalMinutes: 60, durationDays: 3, caption: null, orderMode: 'diversified', rotationSeed: 'seed',
+  };
+  const semLista = parseBulkRotationRequest(base);
+  assert.equal('captionVariants' in semLista, false);
+  assert.equal('captionVariants' in parseBulkRotationRequest({ ...base, captionVariants: null }), false);
+  assert.equal(bulkRotationFingerprint(parseBulkRotationRequest({ ...base, captionVariants: null })), bulkRotationFingerprint(semLista));
+
+  const comLista = parseBulkRotationRequest({ ...base, captionVariants: [' A ', 'B\nlinha 2', 'C'] });
+  assert.deepEqual(comLista.captionVariants, ['A', 'B\nlinha 2', 'C']);
+  assert.equal(comLista.caption, null);
+  assert.notEqual(bulkRotationFingerprint(comLista), bulkRotationFingerprint(semLista));
+  // Revisar e confirmar passam o pedido pelo parser duas vezes: tem de sair igual.
+  const deNovo = parseBulkRotationRequest(JSON.parse(JSON.stringify(comLista)));
+  assert.deepEqual(deNovo, comLista);
+  assert.equal(bulkRotationFingerprint(deNovo), bulkRotationFingerprint(comLista));
+  // A ordem da lista faz parte do pedido.
+  assert.notEqual(bulkRotationFingerprint(parseBulkRotationRequest({ ...base, captionVariants: ['C', 'B\nlinha 2', 'A'] })), bulkRotationFingerprint(comLista));
+  // Convive com a variante de vídeo.
+  const ambos = parseBulkRotationRequest({ ...base, videoVariant: 'micro', captionVariants: ['A', 'B'] });
+  assert.equal(ambos.videoVariant, 'micro');
+  assert.deepEqual(ambos.captionVariants, ['A', 'B']);
+});
+
+test('lista de legendas: recusa junto com legenda única, em Story e lista inválida', () => {
+  const base = {
+    name: 'Reels', profileIds: ['30000000-0000-4000-8000-000000000001'], origin: { type: 'ungrouped', groupId: null },
+    format: 'reel', intervalMinutes: 60, durationDays: 3, caption: null, orderMode: 'diversified', rotationSeed: 'seed',
+  };
+  assert.throws(() => parseBulkRotationRequest({ ...base, caption: 'Única', captionVariants: ['A', 'B'] }), /não as duas/);
+  assert.throws(() => parseBulkRotationRequest({ ...base, format: 'story', captionVariants: ['A', 'B'] }), /Story não leva legenda/);
+  assert.throws(() => parseBulkRotationRequest({ ...base, captionVariants: ['A'] }), /pelo menos 2/);
+  assert.throws(() => parseBulkRotationRequest({ ...base, captionVariants: ['A', 'A'] }), /iguais/);
+  assert.throws(() => parseBulkRotationRequest({ ...base, captionVariants: ['A', 'x'.repeat(2201)] }), /limite é 2\.200/);
+  assert.throws(() => parseBulkRotationRequest({ ...base, captionVariants: 'A;B' }), /Lista de legendas inválida/);
+});

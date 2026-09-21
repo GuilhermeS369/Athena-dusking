@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { composerSummaryFromRow, type ComposerProfileSummary, type ComposerSummaryRow } from '@/lib/publications/composer-summaries';
 
 import {
@@ -23,6 +23,7 @@ import {
   saoPauloLocalDateTimeToIso,
 } from '@/lib/publications/bulk-rotation';
 import type { ProfilePublicationMetrics } from '@/lib/publications/composer';
+import { MAX_BULK_CAPTION_LIST_TOTAL_LENGTH, parseBulkCaptionList } from '@/lib/publications/bulk-caption-list';
 import styles from './bulk-publishing.module.css';
 
 type BulkFormat = 'image' | 'reel' | 'story';
@@ -98,6 +99,7 @@ type CompactRequest = {
     mediaAssetId: string;
   } | { enabled: false };
   videoVariant?: VideoVariantRecipe;
+  captionVariants?: string[];
 };
 
 // Variante de vídeo por post (migration 436). A lista bate com BULK_VIDEO_VARIANT_RECIPES.
@@ -263,6 +265,16 @@ export default function BulkPublishingClient({ canManage, profiles, groups, vide
   const [customStartAt, setCustomStartAt] = useState('');
   const [orderMode, setOrderMode] = useState<BulkOrderMode>('diversified');
   const [caption, setCaption] = useState('');
+  // Lista de legendas (migration 437): no modo 'list' a caixa é separada no ";" e
+  // cada post recebe uma legenda, trocando a cada post do perfil.
+  const [captionMode, setCaptionMode] = useState<'shared' | 'list'>('shared');
+  // A validação ao vivo usa o valor adiado (colar 300 mil caracteres não trava a
+  // digitação); revisar e confirmar validam o texto atual, sem adiamento.
+  const deferredCaption = useDeferredValue(caption);
+  const captionList = useMemo(
+    () => (captionMode === 'list' ? parseBulkCaptionList(deferredCaption) : null),
+    [captionMode, deferredCaption],
+  );
   const [seed, setSeed] = useState(rotationSeed);
   const [idempotencyKey, setIdempotencyKey] = useState(requestKey);
   const [loadingMedia, setLoadingMedia] = useState(false);
@@ -402,6 +414,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, vide
     || profileSelection.ids.length
     || originKey
     || caption
+    || captionMode !== 'shared'
     || format !== 'reel'
     || intervalMinutes !== '60'
     || durationDays !== '1'
@@ -437,6 +450,11 @@ export default function BulkPublishingClient({ canManage, profiles, groups, vide
     // `originKey` represents the single origin and is the stable dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [originKey, format]);
+
+  useEffect(() => {
+    // Story não leva legenda no Instagram (a Meta ignora); a lista não vale para Story.
+    if (format === 'story') setCaptionMode('shared');
+  }, [format]);
 
   useEffect(() => {
     if (format !== 'reel') {
@@ -669,7 +687,8 @@ export default function BulkPublishingClient({ canManage, profiles, groups, vide
       postCount: scheduleMode === 'sequential' ? postCount : null,
       // Valor do campo em horário de São Paulo; o servidor converte para UTC.
       startAt: scheduleMode === 'sequential' && customStartEnabled ? customStartAt : null,
-      caption: caption || null,
+      // No modo "uma para todos" o pedido sai idêntico ao de antes da lista.
+      caption: captionMode === 'list' ? null : caption || null,
       orderMode,
       rotationSeed: seed,
       reelCover: coverEnabled && coverOrigin && selectedCover
@@ -683,6 +702,8 @@ export default function BulkPublishingClient({ canManage, profiles, groups, vide
         : { enabled: false },
       // A chave só entra quando ligada: o fingerprint da revisão é o JSON do pedido.
       ...(videoVariantAvailable && videoVariantEnabled && format === 'reel' ? { videoVariant: videoVariantRecipe } : {}),
+      // Mesma regra: a chave só entra com a lista ligada.
+      ...(captionMode === 'list' && format !== 'story' ? { captionVariants: parseBulkCaptionList(caption).items } : {}),
     };
   }
 
@@ -693,7 +714,10 @@ export default function BulkPublishingClient({ canManage, profiles, groups, vide
     if (!name.trim()) return setMessage('Informe o nome do lote.');
     if (!profileSelection.ids.length) return setMessage('Selecione pelo menos um perfil online.');
     if (!mediaSummary || BigInt(mediaSummary.eligible) === BigInt(0)) return setMessage('A origem não possui mídias elegíveis para o formato.');
-    if (caption.length > 2200) return setMessage('A legenda excede 2.200 caracteres.');
+    if (captionMode === 'list') {
+      const list = parseBulkCaptionList(caption);
+      if (list.errors.length) return setMessage(`Lista de legendas: ${list.errors[0]}`);
+    } else if (caption.length > 2200) return setMessage('A legenda excede 2.200 caracteres.');
     if (scheduleMode === 'sequential' && projected.slotsPerProfile < BigInt(1)) return setMessage('Informe quantas postagens cada perfil vai receber.');
     if (projected.slotsPerProfile < BigInt(1)) return setMessage('Intervalo e duração precisam formar pelo menos um horário.');
     if (scheduleMode === 'sequential' && customStartEnabled && !saoPauloLocalDateTimeToIso(customStartAt)) return setMessage('Escolha a data e a hora de início.');
@@ -780,6 +804,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, vide
     setCustomStartAt('');
     setOrderMode('diversified');
     setCaption('');
+    setCaptionMode('shared');
     setSeed(rotationSeed());
     setIdempotencyKey(requestKey());
     setReview(null);
@@ -901,7 +926,42 @@ export default function BulkPublishingClient({ canManage, profiles, groups, vide
                     : <p className={`${styles.startHint} ${styles.wideField}`}>Sem horário escolhido, a sequência começa depois do que cada perfil já tem agendado neste formato, e nunca antes de 30 minutos da confirmação.</p>}
                 </>}
                 <label className={`${styles.field} ${styles.wideField}`}>Ordem da rotação<select value={orderMode} onChange={(event) => { invalidateReview(); setOrderMode(event.target.value as BulkOrderMode); }} disabled={!canManage}><option value="diversified">Diversificada e determinística</option><option value="same_order">Mesma ordem em todos os perfis</option></select></label>
-                <label className={`${styles.field} ${styles.wideField}`}>Legenda compartilhada<textarea maxLength={2200} value={caption} onChange={(event) => { invalidateReview(); setCaption(event.target.value); }} disabled={!canManage} placeholder="Opcional. Quebras de linha serão preservadas." /><small>{caption.length.toLocaleString('pt-BR')} / 2.200 unidades UTF-16</small></label>
+                <div className={`${styles.captionField} ${styles.wideField}`}>
+                  <div className={styles.captionMode} role="radiogroup" aria-label="Modo da legenda">
+                    <label><input type="radio" name="bulk-caption-mode" checked={captionMode === 'shared'} onChange={() => { invalidateReview(); setCaptionMode('shared'); }} disabled={!canManage} /> Uma legenda para todos os posts</label>
+                    <label><input type="radio" name="bulk-caption-mode" checked={captionMode === 'list'} onChange={() => { invalidateReview(); setCaptionMode('list'); }} disabled={!canManage || format === 'story'} /> Lista de legendas (separadas por ;)</label>
+                    {format === 'story' && <small>Story não leva legenda no Instagram.</small>}
+                  </div>
+                  <label className={styles.field}>{captionMode === 'list' ? 'Legendas' : 'Legenda compartilhada'}
+                    <textarea
+                      maxLength={captionMode === 'list' ? undefined : 2200}
+                      value={caption}
+                      onChange={(event) => { invalidateReview(); setCaption(event.target.value); }}
+                      disabled={!canManage}
+                      className={captionList && captionList.errors.length > 0 && caption.trim() ? styles.fieldError : undefined}
+                      aria-invalid={captionList ? captionList.errors.length > 0 && Boolean(caption.trim()) : undefined}
+                      aria-describedby="bulk-caption-feedback"
+                      placeholder={captionMode === 'list'
+                        ? 'Cole as legendas separadas por ;\nEx.: primeira legenda; segunda legenda; terceira legenda\nQuebras de linha dentro de cada legenda são mantidas.'
+                        : 'Opcional. Quebras de linha serão preservadas.'}
+                    />
+                  </label>
+                  <div id="bulk-caption-feedback" className={styles.captionFeedback} aria-live="polite">
+                    {!captionList
+                      ? <small>{caption.length.toLocaleString('pt-BR')} / 2.200 unidades UTF-16</small>
+                      : !caption.trim()
+                        ? <small>Cada ";" separa uma legenda da próxima. O ";" japonês de largura cheia (；) não separa.</small>
+                        : <>
+                          <small>{formatInteger(captionList.items.length)} {captionList.items.length === 1 ? 'legenda' : 'legendas'} · maior {captionList.longest.toLocaleString('pt-BR')}/2.200 · total {captionList.total.toLocaleString('pt-BR')}/{MAX_BULK_CAPTION_LIST_TOTAL_LENGTH.toLocaleString('pt-BR')}</small>
+                          {captionList.errors.length > 0
+                            ? <ul className={styles.validationList}>
+                              {captionList.errors.slice(0, 5).map((error) => <li key={error}>{error}</li>)}
+                              {captionList.errors.length > 5 && <li>e mais {formatInteger(captionList.errors.length - 5)}.</li>}
+                            </ul>
+                            : <small>Cada perfil passa por todas antes de repetir e nunca repete a do post anterior.{profileSelection.ids.length > 0 && ` Com ${formatInteger(captionList.items.length)} legendas e ${formatInteger(profileSelection.ids.length)} perfis, em cada horário cada legenda sai em média em ${(profileSelection.ids.length / captionList.items.length).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} perfil(is).`}</small>}
+                        </>}
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -1030,6 +1090,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, vide
             <div><dt>Última execução</dt><dd>{formatDate(review.schedule.lastExecuteAt)}</dd></div>
             <div><dt>Revisão válida até</dt><dd>{formatDate(review.expiresAt)}</dd></div>
             <div><dt>Capa do Reel</dt><dd>{review.cover ? 'Personalizada' : 'Automática'}</dd></div>
+            <div><dt>Legenda</dt><dd>{review.request.captionVariants ? `Lista com ${formatInteger(review.request.captionVariants.length)} legendas (troca a cada post)` : review.request.caption ? 'Uma para todos' : 'Sem legenda'}</dd></div>
             {videoVariantAvailable && review.request.format === 'reel' && <div><dt>Vídeo único por post</dt><dd>{review.request.videoVariant ? videoVariantLabels[review.request.videoVariant].split(' — ')[0] : 'Desativado'}</dd></div>}
           </dl>
           {stackedAfterExistingPlan && <p className={styles.reviewNotice} role="status">Estes perfis já têm um lote deste formato agendado. O novo lote não se sobrepõe: ele começa em {formatDate(review.schedule.firstExecuteAt)}, depois que o atual terminar.</p>}

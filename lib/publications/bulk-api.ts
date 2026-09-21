@@ -10,6 +10,7 @@ import {
   saoPauloLocalDateTimeToIso,
 } from './bulk-rotation.ts';
 import type { BulkRotationFormat, BulkRotationOrderMode, BulkRotationScheduleMode } from './bulk-rotation';
+import { validateBulkCaptionVariants } from './bulk-caption-list.ts';
 
 export type BulkMediaOrigin = { type: 'group'; groupId: string } | { type: 'ungrouped'; groupId: null };
 
@@ -52,6 +53,12 @@ export type BulkRotationRequest = {
    * `null` invalidaria toda revisão aberta no momento do deploy.
    */
   videoVariant?: BulkVideoVariantRecipe;
+  /**
+   * Lista de legendas (migration 437): cada post recebe uma, trocando a cada post
+   * do perfil. Ausente = modo de sempre (`caption`, uma para todos). Mesma regra da
+   * chave acima: só entra no objeto quando há lista. Com lista, `caption` é null.
+   */
+  captionVariants?: string[];
 };
 
 export type BulkReviewTokenPayload = {
@@ -191,6 +198,13 @@ export function parseBulkRotationRequest(value: unknown): BulkRotationRequest {
     videoVariant = input.videoVariant as BulkVideoVariantRecipe;
   }
 
+  let captionVariants: string[] | null = null;
+  if (input.captionVariants !== undefined && input.captionVariants !== null) {
+    if (caption !== null) throw new RangeError('Use uma legenda para todos os posts ou a lista de legendas, não as duas.');
+    if (format === 'story') throw new RangeError('Story não leva legenda no Instagram; a lista de legendas não vale para Story.');
+    captionVariants = validateBulkCaptionVariants(input.captionVariants);
+  }
+
   return {
     name,
     profileIds: profileIds as string[],
@@ -207,6 +221,7 @@ export function parseBulkRotationRequest(value: unknown): BulkRotationRequest {
     rotationSeed,
     reelCover,
     ...(videoVariant ? { videoVariant } : {}),
+    ...(captionVariants ? { captionVariants } : {}),
   };
 }
 

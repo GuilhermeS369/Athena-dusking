@@ -68,6 +68,8 @@ const SCALING_RELATIONS = [
   'publication_items',
   // 436: uma linha por post de Reel com variante; cresce com a fila.
   'publication_item_video_variants',
+  // 437: lista de legendas de cada plano em massa; cresce com os planos.
+  'bulk_publication_plan_captions',
   'twitter_profiles',
   'twitter_group_members',
   'twitter_media_group_members',
@@ -131,6 +133,7 @@ const RELATION_KEYS = new Map<string, string[]>([
   ['profile_group_members', ['group_id', 'profile_id']],
   ['publication_items', ['id']],
   ['publication_item_video_variants', ['publication_item_id']],
+  ['bulk_publication_plan_captions', ['plan_id', 'ordinal']],
   ['twitter_profiles', ['id']],
   ['twitter_group_members', ['group_id', 'profile_id']],
   ['twitter_media_group_members', ['group_id', 'asset_id']],
