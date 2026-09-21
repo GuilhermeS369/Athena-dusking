@@ -589,8 +589,16 @@ async function main() {
     databaseConcurrency: config.databaseConcurrency, cacheDirectory: config.cacheDirectory, runOnce: config.runOnce,
   });
   await heartbeat(context, 'starting');
-  let lastHeartbeatAt = Date.now();
   let lastGcAt = 0;
+  // SINAL DE VIDA POR RELOGIO, nao entre lotes. Em 20/09/2026 um lote de 30 variantes
+  // `light` em full HD (25 s cada, 4 em paralelo) levou mais de 3 min e o monitor
+  // acusou "worker sem heartbeat" com o processo vivo e produzindo.
+  let currentStatus = 'idle';
+  const heartbeatTimer = setInterval(() => {
+    bandwidth.flush();
+    heartbeat(context, currentStatus).catch(() => {});
+  }, config.heartbeatIntervalMs);
+  heartbeatTimer.unref();
 
   while (!stopping) {
     let claimedCount = 0;
@@ -604,6 +612,7 @@ async function main() {
       if (error) throw error;
       const variants = data ?? [];
       claimedCount = variants.length;
+      currentStatus = claimedCount > 0 ? 'processing' : 'idle';
       if (claimedCount > 0) {
         const tightest = Math.min(...variants.map((variant) => new Date(variant.execute_at).getTime()));
         context.counters.tightestLeadHours = Number(((tightest - Date.now()) / 3_600_000).toFixed(2));
@@ -613,11 +622,6 @@ async function main() {
       if (Date.now() - lastGcAt >= config.gcIntervalMs) {
         lastGcAt = Date.now();
         await collectGarbage(context);
-      }
-      if (Date.now() - lastHeartbeatAt >= config.heartbeatIntervalMs) {
-        lastHeartbeatAt = Date.now();
-        bandwidth.flush();
-        await heartbeat(context, claimedCount > 0 ? 'processing' : 'idle');
       }
     } catch (error) {
       // Rede, banco ou R2 fora: nunca derruba o processo. As linhas reivindicadas
@@ -632,6 +636,7 @@ async function main() {
     await sleep(waitMs);
   }
 
+  clearInterval(heartbeatTimer);
   bandwidth.flush();
   await heartbeat(context, 'stopped').catch(() => {});
   console.log(`${LOG} encerrado`, context.counters);

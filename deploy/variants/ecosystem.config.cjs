@@ -42,6 +42,11 @@ module.exports = {
         VIDEO_VARIANT_WORKER_LEAD_HOURS: '30',
         // Teto de conexoes do pool do Supabase que este processo pode ocupar.
         VIDEO_VARIANT_WORKER_DB_CONCURRENCY: '2',
+        // Lote pequeno: a `light` em full HD leva ~25 s por variante (medido em
+        // 20/09/2026). Com 12 por lote e 4 em paralelo o lote fecha em ~75 s, bem
+        // dentro do lease de 300 s, e um plano novo com post proximo espera no
+        // maximo isso para passar na frente. Na `micro` o custo e so mais claims.
+        VIDEO_VARIANT_WORKER_CLAIM_LIMIT: '12',
         VIDEO_VARIANT_WORKER_CACHE_DIR: '/var/cache/athena-variants',
         VIDEO_VARIANT_WORKER_CACHE_MAX_GB: '60',
         // Franquia da KVM 4: 16 TB/mes. Avisa no heartbeat em 60% e 80%.
