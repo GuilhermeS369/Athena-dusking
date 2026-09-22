@@ -61,6 +61,16 @@ function percent(plan: BulkPlanProgress) {
   }
 }
 
+// A API devolve os planos do mais novo para o mais velho. Na seção de
+// concluídas o operador lê de cima para baixo, então invertemos — e ordenamos
+// por `updatedAt` (o instante em que o gerador encerrou o lote), não por
+// `createdAt`: um lote criado antes pode terminar depois, e o que acabou de
+// terminar precisa cair no fim da lista.
+function finishedAt(plan: BulkPlanProgress) {
+  const value = Date.parse(plan.updatedAt || plan.createdAt);
+  return Number.isNaN(value) ? 0 : value;
+}
+
 function formatDate(value: string | null) {
   if (!value) return '—';
   return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(new Date(value));
@@ -210,7 +220,7 @@ export default function BulkPlanProgressList({ plans, location }: { plans: BulkP
   const waiting = plans.filter((plan) => groupOf(plan) === 'waiting');
   const running = plans.filter((plan) => groupOf(plan) === 'running');
   const attention = plans.filter((plan) => groupOf(plan) === 'attention');
-  const finished = plans.filter((plan) => groupOf(plan) === 'finished');
+  const finished = plans.filter((plan) => groupOf(plan) === 'finished').sort((a, b) => finishedAt(a) - finishedAt(b));
   if (!waiting.length && !running.length && !attention.length && !finished.length) return null;
 
   const hiddenFinished = Math.max(0, finished.length - visibleFinishedPlans);
@@ -246,8 +256,8 @@ export default function BulkPlanProgressList({ plans, location }: { plans: BulkP
 
       {finished.length > 0 && (
         <Group tone="finished" title={`Concluídas · ${finished.length}`} hint="Já viraram publicações agendadas na fila de publicação.">
-          {finished.slice(0, visibleFinishedPlans).map((plan) => <FinishedRow key={plan.planId} plan={plan} />)}
-          {hiddenFinished > 0 && <p className={styles.overflowNote}>e mais {hiddenFinished} programação(ões) concluída(s) recentemente.</p>}
+          {hiddenFinished > 0 && <p className={styles.overflowNote}>e mais {hiddenFinished} programação(ões) concluída(s) antes destas.</p>}
+          {finished.slice(-visibleFinishedPlans).map((plan) => <FinishedRow key={plan.planId} plan={plan} />)}
         </Group>
       )}
     </section>
