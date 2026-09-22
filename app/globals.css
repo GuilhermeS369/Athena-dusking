@@ -1055,6 +1055,13 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 .dash-bars small { min-width: 30px; color: #6d6679; font-size: 10.5px; text-align: right; }
 .dash-bars em { display: block; height: 4px; border-radius: 3px; background: #221d2e; grid-column: 1 / -1; }
 .dash-bars em i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, #7c5cf0, #a78bfa); }
+/* Seis linhas inteiras (48px cada, medido: a sexta termina em 281px) e a
+   pontinha da sétima, para ficar óbvio que há mais; o resto rola no cartão. */
+.dash-bars-scroll { max-height: 300px; overflow-y: auto; padding-right: 8px; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #3a3348 transparent; }
+.dash-bars-scroll::-webkit-scrollbar { width: 6px; }
+.dash-bars-scroll::-webkit-scrollbar-track { background: transparent; }
+.dash-bars-scroll::-webkit-scrollbar-thumb { border-radius: 3px; background: #3a3348; }
+.dash-bars-scroll::-webkit-scrollbar-thumb:hover { background: #544a68; }
 
 .dash-rank { display: grid; gap: 6px; }
 .dash-rank a { display: grid; align-items: center; gap: 3px 8px; grid-template-columns: 14px minmax(0, 1fr) auto; color: inherit; text-decoration: none; }

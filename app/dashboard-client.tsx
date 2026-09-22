@@ -720,12 +720,19 @@ function RankingCard({ items, metric }: { items: Array<{ profile: DashboardData[
  * "Instagram 1,2 mil" não dizia se era tudo ou um terço. A porcentagem à
  * direita responde isso sem ocupar mais uma linha.
  */
+// Acima disto a lista rola dentro do cartão em vez de esticá-lo. Antes ela era
+// cortada em seis e os demais grupos simplesmente não apareciam.
+const BREAKDOWN_VISIBLE_ROWS = 6;
+
 function BreakdownCard({ title, items, empty }: { title: string; items: Array<{ label: string; value: number }>; empty: string }) {
-  const ordered = [...items].sort((left, right) => right.value - left.value).slice(0, 6);
+  const ordered = [...items].sort((left, right) => right.value - left.value);
   const max = Math.max(1, ...ordered.map((item) => item.value));
+  // Sobre TODOS os itens: com a lista cortada, a porcentagem dividia pelo
+  // total dos seis primeiros e somava 100% mesmo havendo mais grupos.
   const total = ordered.reduce((sum, item) => sum + item.value, 0);
+  const scrolls = ordered.length > BREAKDOWN_VISIBLE_ROWS;
   return <article className="dash-card"><h3>{title}</h3>{ordered.some((item) => item.value > 0)
-    ? <div className="dash-bars">{ordered.map((item) => <div key={item.label} title={`${item.label}: ${item.value.toLocaleString('pt-BR')}`}>
+    ? <div className={scrolls ? 'dash-bars dash-bars-scroll' : 'dash-bars'}>{ordered.map((item, index) => <div key={`${item.label}-${index}`} title={`${item.label}: ${item.value.toLocaleString('pt-BR')}`}>
       <span>{item.label}</span>
       <em><i style={{ width: `${Math.max(2, (item.value / max) * 100)}%` }} /></em>
       <strong>{formatCompact(item.value)}</strong>
