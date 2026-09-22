@@ -103,11 +103,12 @@ type CompactRequest = {
 };
 
 // Variante de vídeo por post (migration 436). A lista bate com BULK_VIDEO_VARIANT_RECIPES.
-type VideoVariantRecipe = 'container' | 'micro' | 'light';
+type VideoVariantRecipe = 'container' | 'micro' | 'light' | 'bookend';
 const videoVariantLabels: Record<VideoVariantRecipe, string> = {
   micro: 'Micro (padrão) — imagem idêntica; muda o áudio e a marca interna do arquivo',
   container: 'Só o embrulho (teste) — vídeo e áudio idênticos; muda só o metadado',
   light: 'Leve (teste) — recodifica o vídeo com diferença imperceptível',
+  bookend: 'Congela o início + tela preta no fim (teste) — sem recodificar o vídeo',
 };
 
 type ScheduleReview = {

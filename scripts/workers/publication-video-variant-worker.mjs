@@ -37,7 +37,7 @@ import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import {
-  buildFfmpegArgs,
+  buildVariantSteps,
   buildFfprobeArgs,
   drawVideoVariantParams,
   isVideoVariantRecipe,
@@ -140,6 +140,7 @@ export function classifyVariantError(error, attemptCount = 1) {
   const terminalCodes = new Set([
     'video_variant_source_missing',
     'video_variant_source_without_video',
+    'video_variant_source_unsupported',
     'video_variant_recipe_unknown',
   ]);
   const terminal = terminalCodes.has(code);
@@ -400,13 +401,25 @@ async function processVariant(context, variant) {
     for (let draw = 1; draw <= 3; draw += 1) {
       const params = drawVideoVariantParams(variant.recipe);
       const outputPath = path.join(workDirectory, `variant-${draw}.mp4`);
+      const drawDirectory = path.join(workDirectory, `draw-${draw}`);
+      fs.mkdirSync(drawDirectory, { recursive: true });
       const encodeStarted = Date.now();
+      let steps;
       try {
-        await run('ffmpeg', buildFfmpegArgs({ params, source, inputPath: sourcePath, outputPath }), {
-          timeout: config.ffmpegTimeoutMs, maxBuffer: 8 * 1024 * 1024,
-        });
+        steps = buildVariantSteps({ params, source, inputPath: sourcePath, outputPath, workDir: drawDirectory });
       } catch (error) {
-        throw variantError('video_variant_ffmpeg_failed', String(error.stderr || error.message).slice(-600));
+        throw variantError(error.message === 'video_variant_source_unsupported' ? 'video_variant_source_unsupported' : 'video_variant_recipe_unknown', error.message);
+      }
+      for (const step of steps) {
+        if (step.kind === 'file') {
+          fs.writeFileSync(step.path, step.content);
+          continue;
+        }
+        try {
+          await run('ffmpeg', step.args, { timeout: config.ffmpegTimeoutMs, maxBuffer: 8 * 1024 * 1024 });
+        } catch (error) {
+          throw variantError('video_variant_ffmpeg_failed', String(error.stderr || error.message).slice(-600));
+        }
       }
       const encodeMs = Date.now() - encodeStarted;
       const problem = validateVariantProbe({ source, output: await probeFile(outputPath), params });

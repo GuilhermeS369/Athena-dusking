@@ -11,6 +11,8 @@ import { BULK_VIDEO_VARIANT_RECIPES } from './bulk-api.ts';
 
 const read = (relative: string) => readFile(new URL(relative, import.meta.url), 'utf8');
 const migration = await read('../../supabase/migrations/436_publication_video_variants.sql');
+// 439 estende as tres listas de receita da 436 com a `bookend` (22/09/2026).
+const bookendMigration = await read('../../supabase/migrations/439_video_variant_bookend_recipe.sql');
 const sequentialMigration = await read('../../supabase/migrations/432_bulk_sequential_schedule.sql');
 const publisher = await read('../../scripts/workers/publication-direct-dispatch.mjs');
 const recipes = await read('../../scripts/workers/video-variant-recipes.mjs');
@@ -24,12 +26,13 @@ function functionBody(sql: string, name: string) {
 
 test('a lista de receitas é a mesma no painel, no worker e nos checks do banco', () => {
   const expected = [...BULK_VIDEO_VARIANT_RECIPES];
-  assert.deepEqual(expected, ['container', 'micro', 'light']);
-  assert.ok(recipes.includes("Object.freeze(['container', 'micro', 'light'])"));
-  const checks = migration.match(/in \('container', 'micro', 'light'\)/g) ?? [];
+  assert.deepEqual(expected, ['container', 'micro', 'light', 'bookend']);
+  assert.ok(recipes.includes("Object.freeze(['container', 'micro', 'light', 'bookend'])"));
+  const checks = bookendMigration.match(/in \('container', 'micro', 'light', 'bookend'\)/g) ?? [];
   // coluna do plano, coluna da tabela lateral e a função que grava a receita.
-  assert.ok(checks.length >= 3, `esperava 3 checks de receita, achei ${checks.length}`);
-  assert.ok(!migration.includes("'visible'"));
+  assert.equal(checks.length, 3, `esperava 3 listas de receita na 439, achei ${checks.length}`);
+  assert.ok(bookendMigration.includes('revoke all on function public.apply_bulk_plan_video_variant_recipe'));
+  assert.ok(!migration.includes("'visible'") && !bookendMigration.includes("'visible'"));
 });
 
 test('a tabela quente não ganha coluna, gatilho nem mudança no claim', () => {

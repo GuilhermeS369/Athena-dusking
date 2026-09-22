@@ -27,7 +27,7 @@ export type BulkReelCover = {
  * painel; `container` e `light` existem para o teste de desempenho das postagens.
  * A lista tem de bater com o check da tabela e com scripts/workers/video-variant-recipes.mjs.
  */
-export const BULK_VIDEO_VARIANT_RECIPES = ['container', 'micro', 'light'] as const;
+export const BULK_VIDEO_VARIANT_RECIPES = ['container', 'micro', 'light', 'bookend'] as const;
 export type BulkVideoVariantRecipe = typeof BULK_VIDEO_VARIANT_RECIPES[number];
 
 export type BulkRotationRequest = {

@@ -185,7 +185,7 @@ test('variante de vídeo: só Reel, só receita conhecida, e ausente não muda o
 
   assert.throws(() => parseBulkRotationRequest({ ...base, videoVariant: 'visible' }), /variante de vídeo inválida/i);
   assert.throws(() => parseBulkRotationRequest({ ...base, format: 'story', videoVariant: 'micro' }), /só existe para Reels/);
-  assert.deepEqual([...BULK_VIDEO_VARIANT_RECIPES], ['container', 'micro', 'light']);
+  assert.deepEqual([...BULK_VIDEO_VARIANT_RECIPES], ['container', 'micro', 'light', 'bookend']);
 });
 
 test('variante de vídeo só é liberada para organização na allowlist; vazio libera ninguém', () => {

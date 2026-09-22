@@ -12,6 +12,8 @@ import {
   VIDEO_VARIANT_RECIPES,
   buildFfmpegArgs,
   buildFfprobeArgs,
+  buildVariantSteps,
+  bookendExtraSeconds,
   drawVideoVariantParams,
   isVideoVariantRecipe,
   summarizeSourceProbe,
@@ -29,7 +31,18 @@ const h264Source = Object.freeze({
   audioBitrate: 128_000,
   audioSampleRate: 44_100,
   durationSeconds: 15,
+  width: 1080,
+  height: 1920,
+  pixFmt: 'yuv420p',
+  profile: 'High',
+  level: 40,
+  nominalFrameRate: '30/1',
+  nominalFps: 30,
+  timeScale: 15360,
 });
+
+// Receitas de um passo so (a bookend tem varios e usa buildVariantSteps).
+const SINGLE_STEP_RECIPES = VIDEO_VARIANT_RECIPES.filter((recipe) => recipe !== 'bookend');
 
 function argsFor(recipe, source = h264Source) {
   const params = drawVideoVariantParams(recipe);
@@ -38,7 +51,7 @@ function argsFor(recipe, source = h264Source) {
 
 test('micro e a receita padrao e visible nao existe', () => {
   assert.equal(DEFAULT_VIDEO_VARIANT_RECIPE, 'micro');
-  assert.deepEqual([...VIDEO_VARIANT_RECIPES], ['container', 'micro', 'light']);
+  assert.deepEqual([...VIDEO_VARIANT_RECIPES], ['container', 'micro', 'light', 'bookend']);
   assert.equal(isVideoVariantRecipe('visible'), false);
   assert.throws(() => drawVideoVariantParams('visible'), /video_variant_recipe_unknown/);
 });
@@ -77,7 +90,7 @@ test('micro copia o video, marca a faixa e regrava o audio no bitrate da fonte',
 });
 
 test('toda receita poe o moov na frente e marca o embrulho', () => {
-  for (const recipe of VIDEO_VARIANT_RECIPES) {
+  for (const recipe of SINGLE_STEP_RECIPES) {
     const { params, args } = argsFor(recipe);
     const line = args.join(' ');
     assert.ok(line.includes('-movflags +faststart'), recipe);
@@ -185,6 +198,53 @@ async function streamMd5(filePath, map, copy) {
   return stdout.trim();
 }
 
+test('bookend sorteia poucos quadros congelados e 0,5 a 2 s de preto, com semente de audio', () => {
+  for (let index = 0; index < 500; index += 1) {
+    const params = drawVideoVariantParams('bookend');
+    assert.ok(params.freeze_frames >= 3 && params.freeze_frames <= 9);
+    assert.ok(params.black_seconds >= 0.5 && params.black_seconds <= 2);
+    assert.ok(Number.isInteger(params.audio_seed));
+    assert.ok(Math.abs(params.audio_gain_db) >= 0.05);
+  }
+});
+
+test('bookend monta pedacos e junta sem recodificar o original', () => {
+  const params = { ...drawVideoVariantParams('bookend'), freeze_frames: 6, black_seconds: 1 };
+  const steps = buildVariantSteps({ params, source: h264Source, inputPath: 'in.mp4', outputPath: 'out.mp4', workDir: '/w' });
+  const lines = steps.map((step) => (step.kind === 'file' ? step.content : step.args.join(' ')));
+  assert.equal(steps.length, 7);
+  assert.ok(lines[1].includes('-frames:v 6') && lines[1].includes('-bf 0') && lines[1].includes('-video_track_timescale 15360'));
+  assert.ok(lines[2].includes('color=black:s=1080x1920:r=30/1') && lines[2].includes('-frames:v 30'));
+  assert.ok(lines[3].includes('-c:v copy'), 'o original entra por copia');
+  assert.equal(lines[4], "file '/w/freeze.mp4'\nfile '/w/middle.mp4'\nfile '/w/black.mp4'\n");
+  assert.ok(lines[5].includes('-f concat') && lines[5].includes('-c copy'));
+  assert.ok(lines[6].includes('adelay=200:all=1') && lines[6].includes('apad=pad_dur=1.0000'));
+  assert.ok(lines[6].includes('h264_metadata=sei_user_data=') && lines[6].includes('-movflags +faststart'));
+  assert.ok(!lines.join(' ').includes('libx264 -preset veryfast -b:v'), 'nao recodifica o video inteiro');
+  assert.equal(bookendExtraSeconds(params, h264Source), (6 + 30) / 30);
+  assert.throws(() => buildFfmpegArgs({ params, source: h264Source, inputPath: 'a', outputPath: 'b' }), /buildVariantSteps/);
+});
+
+test('bookend recusa fonte que nao e H.264 yuv420p (so da para emendar sem recodificar nesse caso)', () => {
+  const params = drawVideoVariantParams('bookend');
+  assert.throws(() => buildVariantSteps({ params, source: { ...h264Source, videoCodec: 'hevc' }, inputPath: 'a', outputPath: 'b', workDir: '/w' }), /video_variant_source_unsupported/);
+  assert.throws(() => buildVariantSteps({ params, source: { ...h264Source, pixFmt: 'yuv420p10le' }, inputPath: 'a', outputPath: 'b', workDir: '/w' }), /video_variant_source_unsupported/);
+});
+
+test('bookend sem audio sai so com a faixa de video marcada', () => {
+  const steps = buildVariantSteps({ params: drawVideoVariantParams('bookend'), source: { ...h264Source, hasAudio: false }, inputPath: 'in.mp4', outputPath: 'out.mp4', workDir: '/w' });
+  const last = steps.at(-1).args.join(' ');
+  assert.ok(!last.includes('anoisesrc') && !last.includes('-c:a'));
+  assert.ok(last.includes('h264_metadata=sei_user_data='));
+});
+
+test('a validacao espera a bookend mais longa que a fonte', () => {
+  const params = { recipe: 'bookend', freeze_frames: 6, black_seconds: 1 };
+  const output = (duration) => ({ streams: [{ codec_type: 'video', codec_name: 'h264' }, { codec_type: 'audio' }], format: { duration: String(duration) } });
+  assert.equal(validateVariantProbe({ source: h264Source, output: output(15 + 1.2), params }), null);
+  assert.equal(validateVariantProbe({ source: h264Source, output: output(15), params }), 'video_variant_output_duration_changed');
+});
+
 test('com ffmpeg: duas execucoes da mesma receita sobre a mesma fonte nunca dao o mesmo arquivo', { skip: !ffmpegAvailable() }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'athena-variant-test-'));
   try {
@@ -205,17 +265,26 @@ test('com ffmpeg: duas execucoes da mesma receita sobre a mesma fonte nunca dao 
       for (let index = 0; index < 2; index += 1) {
         const outputPath = path.join(directory, `${recipe}-${index}.mp4`);
         const params = drawVideoVariantParams(recipe);
-        await run('ffmpeg', buildFfmpegArgs({ params, source, inputPath: sourcePath, outputPath }));
+        const workDir = fs.mkdtempSync(path.join(directory, 'passos-'));
+        for (const step of buildVariantSteps({ params, source, inputPath: sourcePath, outputPath, workDir })) {
+          if (step.kind === 'file') fs.writeFileSync(step.path, step.content);
+          else await run('ffmpeg', step.args);
+        }
         assert.equal(validateVariantProbe({ source, output: await probe(outputPath), params }), null, recipe);
         hashes.add(sha256(outputPath));
         const head = fs.readFileSync(outputPath).subarray(0, 4096).toString('latin1');
         assert.ok(head.includes('moov'), `${recipe}: moov na frente`);
-        if (recipe !== 'light') {
+        if (recipe === 'bookend') {
+          // O original entra intacto entre os congelados e o preto: a contagem de
+          // quadros e fonte + congelados + preto.
+          const frames = async (file) => Number((await run('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0', file])).stdout.trim());
+          assert.equal(await frames(outputPath), await frames(sourcePath) + params.freeze_frames + Math.round(params.black_seconds * 30), 'bookend: quadros a mais');
+        } else if (recipe !== 'light') {
           assert.equal(await streamMd5(outputPath, '0:v', false), sourcePixels, `${recipe}: pixels intactos`);
         } else {
           assert.notEqual(await streamMd5(outputPath, '0:v', false), sourcePixels, 'light: pixels mudam');
         }
-        if (recipe === 'micro') {
+        if (recipe === 'micro' || recipe === 'bookend') {
           assert.notEqual(await streamMd5(outputPath, '0:a', false), sourceAudio, 'micro: audio muda');
         }
       }
