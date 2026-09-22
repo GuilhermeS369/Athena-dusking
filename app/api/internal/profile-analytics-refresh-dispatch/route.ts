@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 
 import { resolveAnalyticsPressure } from '@/lib/integrations/analytics-pressure';
 import { runMetaAnalyticsRefresh } from '@/lib/integrations/meta-analytics-refresh';
+import { META_ANALYTICS_SLOTS } from '@/lib/integrations/meta-analytics-slots';
 import { dispatchProfileAnalyticsRefreshJobs } from '@/lib/integrations/profile-analytics-refresh-worker';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
@@ -39,7 +40,8 @@ const META_BATCH_LIMIT = 30;
 const META_TIME_BUDGET_MS = 25_000;
 
 /**
- * A coleta acontece em três horários, não continuamente.
+ * A coleta acontece em horários fixos, não continuamente (lista em
+ * `META_ANALYTICS_SLOTS`; eram três até 22/09/2026, passaram a sete).
  *
  * O worker da VPS tem folga de sobra; quem não tem é o Supabase. Projetado para
  * 5.000 perfis com metade publicando 25 posts/dia, a linha por post responde por
@@ -51,7 +53,7 @@ const META_TIME_BUDGET_MS = 25_000;
  * `open_meta_analytics_run` (migration 387), que também é o objeto que a tela lê
  * para mostrar o progresso no lugar do antigo botão "atualizar".
  */
-const META_SLOTS = ['09:00', '15:00', '21:00'];
+const META_SLOTS = META_ANALYTICS_SLOTS;
 
 function integerEnv(name: string, fallback: number, minimum: number, maximum: number) {
   const parsed = Number.parseInt(process.env[name] ?? '', 10);

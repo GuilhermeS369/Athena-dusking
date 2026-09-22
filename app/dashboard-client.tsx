@@ -833,7 +833,9 @@ function CollectionIndicator({ status }: { status: CollectionStatus | null }) {
   if (!status) return null;
 
   const run = status.run;
-  const hoje = new Date().toISOString().slice(0, 10);
+  // Data de Brasília, como `slot_date`. Em UTC, das 21:00 à meia-noite já é
+  // amanhã e a rodada das 21:00 sumia do indicador.
+  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
   const rodadaDeHoje = run && run.slot_date === hoje ? run : null;
   const emAndamento = Boolean(rodadaDeHoje && !rodadaDeHoje.finished_at);
 
