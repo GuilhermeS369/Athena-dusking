@@ -19,6 +19,14 @@
         "monitor:queue"
       ],
       "port": 4599
+    },
+    {
+      "name": "vps-health-monitor",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "C:/Users/guilh/.claude/projects/C--Dusking-Pomodoro/tools/vpsmon/server.mjs"
+      ],
+      "port": 4601
     }
   ]
 }
