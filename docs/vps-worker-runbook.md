@@ -1,5 +1,14 @@
 # Runbook — worker de publicação na VPS
 
+> **Atenção (22/09/2026).** A fila mudou de máquina: hoje os publicadores rodam em `ssh athena-nova`
+> (`root@76.13.238.104`, Hostinger KVM 2, Ubuntu 26.04, `srv2000866`). O IP `179.198.110.201` que aparece
+> nos exemplos abaixo é o da **VPS antiga**, que ficou de pé como reserva, com o Athena parado. O motivo da
+> troca e o corte estão na seção 11 do `docs/fila-de-publicacao-MASTER.md`: a Meta passou a descartar toda
+> legenda enviada do IP antigo. Ao seguir este runbook, troque o IP dos exemplos pelo da máquina em uso —
+> ou use os apelidos do `~/.ssh/config` (`athena-nova`, `athena-variantes`, `athena-vps`). Na máquina nova o
+> Node tem de vir do repositório da NodeSource: o pacote do Ubuntu 26.04 (22.22.1) **não** importa `.ts`
+> direto, e o publicador precisa disso.
+
 Este runbook prepara a VPS para iniciar em modo seguro de observação. Nesta etapa, o worker não publica no Instagram por padrão.
 
 ## 0. Acesso SSH correto a partir do Windows

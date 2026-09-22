@@ -57,7 +57,7 @@ process.stdout.write(JSON.stringify({updated:Object.keys(values).sort(),mode:(fs
 '@
   $encodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($remoteScript))
   $remoteCommand = "node -e `"eval(Buffer.from(process.argv[1],'base64').toString('utf8'))`" $encodedScript"
-  $remoteAudit = $payload | ssh -i C:\Users\guilh\.ssh\athena_vps_worker_ed25519 -o BatchMode=yes -o ConnectTimeout=10 root@179.198.110.201 $remoteCommand | ConvertFrom-Json
+  $remoteAudit = $payload | ssh -i C:\Users\guilh\.ssh\athena_vps_worker_ed25519 -o BatchMode=yes -o ConnectTimeout=10 root@76.13.238.104 $remoteCommand | ConvertFrom-Json
   if ($LASTEXITCODE -ne 0 -or $remoteAudit.mode -ne '600' -or $remoteAudit.updated.Count -ne 6) { throw 'Auditoria remota falhou.' }
   [ordered]@{ productionConfigured = @('connect', 'observability'); previewConfigured = @('connect', 'observability'); vpsUpdated = $remoteAudit.updated; vpsMode = $remoteAudit.mode; vpsBackup = $remoteAudit.backup; valuesPrinted = $false } | ConvertTo-Json -Depth 4
 }
