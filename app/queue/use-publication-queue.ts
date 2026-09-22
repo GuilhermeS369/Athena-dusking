@@ -11,6 +11,7 @@ import type {
   QueueFormatFilter,
   QueueGroup,
   PausedPublicationBatchSummary,
+  MetaProfileActionBlock,
   QueueResumption,
   QueueSummary,
   QueueSummaryPage,
@@ -95,6 +96,8 @@ export function usePublicationQueue({
     blockedItems: 0,
     batches: [],
   });
+  // Perfis com erro 9 da Meta (438). A lista vem do servidor e só some quando alguém limpa.
+  const [actionBlocks, setActionBlocks] = useState<MetaProfileActionBlock[]>([]);
   const [cancellationOperations, setCancellationOperations] = useState<QueueCancellationOperation[]>([]);
   const [dismissedCancellationIds, setDismissedCancellationIds] = useState<string[]>([]);
   // Um execute por vez a partir desta aba, mesmo com várias operações correndo.
@@ -215,6 +218,44 @@ export function usePublicationQueue({
     }
   }
 
+  async function refreshActionBlocks() {
+    try {
+      const response = await fetch('/api/publications/action-blocks', { cache: 'no-store' });
+      if (!response.ok) return;
+      const payload = await response.json() as { blocks?: MetaProfileActionBlock[] };
+      setActionBlocks(Array.isArray(payload.blocks) ? payload.blocks : []);
+    } catch {
+      // Falha de rede preserva a última lista; o aviso não some sozinho.
+    }
+  }
+
+  async function clearActionBlocks(blockIds: string[]) {
+    if (!canManage || blockIds.length === 0) return;
+    const question = blockIds.length === 1
+      ? 'Limpar este aviso? Os reels que foram cancelados continuam cancelados; para o perfil voltar a postar, agende de novo.'
+      : `Limpar ${blockIds.length} avisos? Os reels que foram cancelados continuam cancelados; para os perfis voltarem a postar, agende de novo.`;
+    if (!window.confirm(question)) return;
+    setMessage('');
+    setQueueActionId('action-blocks');
+    try {
+      const response = await fetch('/api/publications/action-blocks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blockIds }),
+      });
+      const payload = await response.json() as { blocks?: MetaProfileActionBlock[]; error?: string };
+      if (!response.ok) {
+        setMessage(payload.error ?? 'Não foi possível limpar os avisos.');
+        return;
+      }
+      setActionBlocks(Array.isArray(payload.blocks) ? payload.blocks : []);
+    } catch {
+      setMessage('Não foi possível conectar ao servidor.');
+    } finally {
+      setQueueActionId(null);
+    }
+  }
+
   async function refreshQueue(append = false, force = false) {
     if (append && (!queueCursor || !hasMoreBatches || loadingMoreBatches)) return;
     if (!append && refreshing && !force) return;
@@ -266,11 +307,11 @@ export function usePublicationQueue({
   }
 
   async function refreshAll(_force = false) {
-    await Promise.all([refreshGenerationJobs(), refreshSummary(aggregateTab), refreshPausedBatches()]);
+    await Promise.all([refreshGenerationJobs(), refreshSummary(aggregateTab), refreshPausedBatches(), refreshActionBlocks()]);
   }
 
   useEffect(() => {
-    void Promise.all([refreshGenerationJobs(), refreshPausedBatches()]);
+    void Promise.all([refreshGenerationJobs(), refreshPausedBatches(), refreshActionBlocks()]);
   // Jobs e alertas sao independentes da pagina agregada ativa.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -444,7 +485,7 @@ export function usePublicationQueue({
 
   useEffect(() => {
     const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') void refreshPausedBatches();
+      if (document.visibilityState === 'visible') void Promise.all([refreshPausedBatches(), refreshActionBlocks()]);
     };
     const interval = window.setInterval(refreshWhenVisible, 10_000);
     window.addEventListener('focus', refreshWhenVisible);
@@ -884,6 +925,9 @@ export function usePublicationQueue({
     refreshGenerationJobs,
     refreshSummary,
     refreshPausedBatches,
+    actionBlocks,
+    refreshActionBlocks,
+    clearActionBlocks,
     refreshAll,
     handleQueueAction,
     resumeBatchProfile,

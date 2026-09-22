@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -7,6 +8,8 @@ import {
   claimedProfileRemainsOnline,
   deferFirstZernioMediaDownloadFailure,
   ensureClaimedProfileOnlineOrSuspend,
+  cancelMetaActionBlockedProfileReels,
+  isMetaActionBlocked,
   isMetaTerminalProfileDisconnection,
   isPublicationInfrastructureError,
   isZernioTerminalAccountDisconnection,
@@ -1351,4 +1354,64 @@ test('loadWorkItem so embute a tabela de variantes com a chave ligada', async ()
   } finally {
     if (before === undefined) delete process.env.PUBLICATION_WORKER_VIDEO_VARIANTS; else process.env.PUBLICATION_WORKER_VIDEO_VARIANTS = before;
   }
+});
+
+// ---------------------------------------------------------------------------
+// Meta 9 "User is performing too many actions" (migration 438, 21/09/2026)
+// ---------------------------------------------------------------------------
+
+test('reconhece o erro Meta 9 pelo codigo ou pela mensagem', () => {
+  assert.equal(isMetaActionBlocked({ errorCode: '9', errorMessage: 'User is performing too many actions' }), true);
+  assert.equal(isMetaActionBlocked({ errorCode: '9' }), true);
+  assert.equal(isMetaActionBlocked({ errorCode: '400', errorMessage: 'User is performing too many actions' }), true, 'a mensagem vale sozinha');
+});
+
+test('o erro 9 nao se confunde com 190, 25, 200 nem com cota nossa', () => {
+  assert.equal(isMetaActionBlocked({ errorCode: '190', errorMessage: 'Error validating access token' }), false);
+  assert.equal(isMetaActionBlocked({ errorCode: '25', errorMessage: 'User access is restricted' }), false);
+  assert.equal(isMetaActionBlocked({ errorCode: '200', errorMessage: 'API access blocked' }), false);
+  assert.equal(isMetaActionBlocked({ errorCode: '4', errorMessage: 'Application request limit reached' }), false);
+  assert.equal(isMetaActionBlocked({ errorCode: '9004', errorMessage: 'Only photo or video can be accepted as media type' }), false);
+  assert.equal(isMetaActionBlocked({ errorCode: '9007', errorMessage: 'Media ID is not available' }), false);
+  // O 9 nunca e confundido com a queda de perfil, que remove a conta.
+  assert.equal(isMetaTerminalProfileDisconnection({ errorCode: '9', errorMessage: 'User is performing too many actions' }), false);
+});
+
+test('o erro 9 chama a RPC que cancela os reels do perfil, com o subcodigo quando houver', async () => {
+  const calls = [];
+  const createSupabase = () => ({
+    rpc: async (name, args) => { calls.push([name, args]); return { data: { cancelledReels: 12, blockId: 'b1' }, error: null }; },
+  });
+  const data = await cancelMetaActionBlockedProfileReels(
+    { id: 'item-9' }, 'worker-1',
+    { errorCode: '9', errorMessage: 'User is performing too many actions', providerDiagnostic: { errorSubcode: 2207042 } },
+    { createSupabase },
+  );
+  assert.deepEqual(calls, [['cancel_meta_action_blocked_profile_reels', {
+    p_item_id: 'item-9',
+    p_worker_id: 'worker-1',
+    p_error_code: '9',
+    p_error_message: 'User is performing too many actions',
+    p_error_subcode: 2207042,
+  }]]);
+  assert.equal(data.cancelledReels, 12);
+});
+
+test('falha da RPC do erro 9 sobe para o tratamento de infraestrutura do ciclo', async () => {
+  const createSupabase = () => ({ rpc: async () => ({ data: null, error: { code: 'PGRST003', message: 'Timed out acquiring connection' } }) });
+  await assert.rejects(
+    () => cancelMetaActionBlockedProfileReels({ id: 'i' }, 'w', { errorCode: '9' }, { createSupabase }),
+    (error) => error.code === 'PGRST003',
+  );
+});
+
+test('o ramo do erro 9 fica depois do 190/25 e antes do complete_publication_item', () => {
+  const source = fs.readFileSync(new URL('./publication-direct-dispatch.mjs', import.meta.url), 'utf8');
+  const disconnection = source.indexOf("state: 'meta_profile_removed'");
+  const actionBlock = source.indexOf("state: 'meta_action_blocked'");
+  const complete = source.indexOf("supabase.rpc('complete_publication_item'", actionBlock);
+  assert.ok(disconnection > 0 && actionBlock > disconnection && complete > actionBlock);
+  const branch = source.slice(actionBlock - 600, actionBlock);
+  assert.ok(branch.includes('isMetaActionBlocked(result)'));
+  assert.ok(branch.includes('releasePublicationDispatchCapacity'));
 });

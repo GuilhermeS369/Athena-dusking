@@ -1196,6 +1196,37 @@ export function isMetaTerminalProfileDisconnection(result) {
   return /error validating access token|invalid(?:ated)? access token|session has been invalidated|log in to www\.instagram\.com|login to www\.instagram\.com|follow the instructions given|checkpoint/.test(value);
 }
 
+/**
+ * Meta 9 "User is performing too many actions": bloqueio TEMPORARIO de acao da
+ * conta, nao queda. Em 21/09/2026 atingiu 848 reels de 189 perfis; todos seguiram
+ * online e voltaram a publicar reel sozinhos em ~3-4 h. Sem tratamento virava
+ * `failed` na 1a tentativa e 5 seguidos pausavam o LOTE inteiro (CAI MANO: 2.971
+ * posts vencidos). Decisao do dono (21/09/2026): cancelar os reels abertos SO
+ * daquele perfil e avisar na Fila (migration 438). A mensagem vale sozinha porque
+ * o codigo pode mudar, como aconteceu com o 25. Ver docs/fila-de-publicacao-MASTER.md,
+ * secoes 5 e 6.1.
+ */
+export function isMetaActionBlocked(result) {
+  const code = String(result?.errorCode ?? result?.code ?? '').trim();
+  const value = [result?.errorMessage, result?.message].filter(Boolean).join(' ');
+  return code === '9' || /performing too many actions/i.test(value);
+}
+
+export async function cancelMetaActionBlockedProfileReels(workItem, workerId, result, options = {}) {
+  const supabase = (options.createSupabase ?? createSupabase)();
+  const { data, error } = await supabase.rpc('cancel_meta_action_blocked_profile_reels', {
+    p_item_id: workItem.id,
+    p_worker_id: workerId,
+    p_error_code: result.errorCode ?? '9',
+    p_error_message: result.errorMessage ?? 'User is performing too many actions',
+    p_error_subcode: Number.isInteger(result.providerDiagnostic?.errorSubcode)
+      ? result.providerDiagnostic.errorSubcode
+      : null,
+  });
+  if (error) throw error;
+  return data;
+}
+
 function zernioDisconnectionSignal(result) {
   const value = [result?.errorCode, result?.errorMessage, result?.providerDiagnostic?.category, result?.providerDiagnostic?.providerCode]
     .filter(Boolean).join(' ').toLowerCase();
@@ -2668,6 +2699,16 @@ async function processClaimedItemComLivro(item, workerId, options = {}) {
       const disconnection = await finalizeMetaProfileDisconnection(workItem, workerId, result);
       if (capacityReserved) await releasePublicationDispatchCapacity(item.id);
       return { itemId: item.id, state: 'meta_profile_removed', disconnection };
+    }
+
+    // Depois do 190/25 (que removem o perfil) e antes do complete: o 9 nao vira
+    // `failed` nem conta no disjuntor; cancela os reels do perfil (438).
+    if (workItem.profile.provider === 'meta_official'
+      && result.state === 'failed'
+      && isMetaActionBlocked(result)) {
+      const block = await cancelMetaActionBlockedProfileReels(workItem, workerId, result);
+      if (capacityReserved) await releasePublicationDispatchCapacity(item.id);
+      return { itemId: item.id, state: 'meta_action_blocked', cancelledReels: block?.cancelledReels ?? null };
     }
 
     if (workItem.profile.provider === 'zernio'

@@ -102,6 +102,55 @@ function PausedBatchAlert({ queue }: { queue: ReturnType<typeof usePublicationQu
   );
 }
 
+// Erro 9 da Meta, "User is performing too many actions" (migration 438): bloqueio
+// temporário da conta. O publicador cancela os reels abertos do perfil e o lote
+// segue para os outros. Em 21/09/2026 os 189 perfis afetados voltaram a publicar
+// sozinhos em 3–4 h (mediana 3 h 18 min).
+function ActionBlockAlert({ queue, canManage }: { queue: ReturnType<typeof usePublicationQueue>; canManage: boolean }) {
+  const blocks = queue.actionBlocks;
+  if (blocks.length === 0) return null;
+  const busy = queue.queueActionId === 'action-blocks';
+  const totalReels = blocks.reduce((sum, block) => sum + (block.cancelledReelCount || 0), 0);
+  return (
+    <section className="queue-action-block" role="status" aria-live="polite">
+      <div className="queue-action-block-icon" aria-hidden="true">⏸</div>
+      <div className="queue-action-block-content">
+        <div className="queue-action-block-heading">
+          <div>
+            <strong>Perfis com ações limitadas pela Meta</strong>
+            <span>{blocks.length.toLocaleString('pt-BR')} perfil(is) · {totalReels.toLocaleString('pt-BR')} reel(s) cancelado(s)</span>
+          </div>
+          {canManage && <button type="button" className="queue-action-block-clear-all" disabled={busy} onClick={() => void queue.clearActionBlocks(blocks.map((block) => block.id))}>Limpar todos</button>}
+        </div>
+        <p className="queue-action-block-note">A Meta respondeu “too many actions”: é um bloqueio temporário da conta, não queda. O perfil segue online e os stories continuam; os reels dele foram cancelados para não travar o lote. Ele só precisa de um intervalo — costuma voltar em 3 a 4 h. Depois, agende os reels de novo.</p>
+        <div className="queue-action-block-list">
+          {blocks.map((block) => <article key={block.id}>
+            <div className="queue-action-block-profile">
+              <strong>@{block.username || 'perfil sem nome'}</strong>
+              <small>desde {formatShortDate(block.firstDetectedAt)}{block.occurrences > 1 ? ` · último ${formatShortDate(block.lastDetectedAt)}` : ''}</small>
+            </div>
+            <div className="queue-action-block-groups">
+              {block.groupNames.length > 0
+                ? block.groupNames.map((name) => <span key={name} className="queue-action-block-chip">{name}</span>)
+                : <span className="queue-action-block-chip queue-action-block-chip-muted">Sem grupo</span>}
+            </div>
+            <div className="queue-action-block-batch">
+              <span>Lote</span>
+              <strong>{block.batchName || 'Sem campanha'}</strong>
+              {block.cancelledBatchNames.filter((name) => name !== block.batchName).length > 0 && <small>também: {block.cancelledBatchNames.filter((name) => name !== block.batchName).join(', ')}</small>}
+            </div>
+            <div className="queue-action-block-count">
+              <strong>{block.cancelledReelCount.toLocaleString('pt-BR')}</strong>
+              <small>reel(s) cancelado(s){block.occurrences > 1 ? ` · ×${block.occurrences}` : ''}</small>
+            </div>
+            {canManage && <button type="button" className="queue-action-block-clear" disabled={busy} onClick={() => void queue.clearActionBlocks([block.id])} aria-label={`Limpar aviso de @${block.username ?? 'perfil'}`}>Limpar</button>}
+          </article>)}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function progressPercent(completed: number, total: number) {
   if (!total) return 0;
   return Math.round((completed / total) * 100);
@@ -496,6 +545,7 @@ export default function QueueClient({ activeOrganization }: QueueClientProps) {
       {!canManage && <p className="inline-message" role="alert">Seu papel permite acompanhar a fila, mas não executar ações operacionais.</p>}
       <QueueCancellationList queue={queue} />
       <PausedBatchAlert queue={queue} />
+      <ActionBlockAlert queue={queue} canManage={canManage} />
 
       <ReferenceQueueView queue={queue} tab={aggregateTab} setTab={setAggregateTab} canManage={canManage} />
       {/* Programação em massa: até aqui a tela da fila era cega para planos em

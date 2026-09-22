@@ -210,6 +210,24 @@ export type PausedPublicationBatchSummary = {
   batches: PausedPublicationBatch[];
 };
 
+// Perfil que recebeu da Meta o erro 9 "User is performing too many actions"
+// (migration 438): os reels abertos dele foram cancelados; o perfil segue online.
+export type MetaProfileActionBlock = {
+  id: string;
+  profileId: string;
+  username: string | null;
+  profileStatus: string | null;
+  groupNames: string[];
+  batchName: string | null;
+  cancelledBatchNames: string[];
+  errorCode: string | null;
+  errorMessage: string | null;
+  firstDetectedAt: string;
+  lastDetectedAt: string;
+  occurrences: number;
+  cancelledReelCount: number;
+};
+
 // Operação durável de cancelamento em massa (tabela
 // publication_queue_cancellation_operations). A tela lê a lista do servidor; o
 // rótulo do alvo vem gravado na própria operação.
