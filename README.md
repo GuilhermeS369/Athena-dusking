@@ -80,7 +80,7 @@ Tokens do Instagram são criptografados antes de serem persistidos. A mídia per
 
 ### Diagnóstico de perfis conectados
 
-Ao terminar a autorização, a tela **Perfis** informa se uma conta foi criada, se um perfil já registrado foi reconectado ou a causa conhecida de uma falha no callback. O sistema nunca mostra tokens, códigos OAuth ou segredos na interface.
+Ao terminar a autorização, a tela **Perfis** informa se uma conta foi criada, se um perfil já registrado foi reconectado, se um perfil excluído pelo operador foi reativado ou a causa conhecida de uma falha no callback. O sistema nunca mostra tokens, códigos OAuth ou segredos na interface.
 
 Para checagem operacional no SQL Editor do Supabase, use apenas campos públicos:
 
@@ -100,7 +100,12 @@ from public.instagram_profiles
 order by updated_at desc;
 ```
 
-Não selecione nem compartilhe `encrypted_access_token`. Um registro com `deleted_at` preenchido foi removido logicamente e não aparece no sistema. Para uma conta nova, deve existir uma linha com `deleted_at` nulo; para uma reconexão da mesma conta e organização, essa mesma linha é atualizada e recebe um token renovado. A restrição de unicidade permite diversos perfis, desde que cada `instagram_user_id` seja distinto dentro da organização.
+Não selecione nem compartilhe `encrypted_access_token`. Um registro com `deleted_at` preenchido foi removido logicamente e não aparece no sistema. Para uma conta nova, deve existir uma linha com `deleted_at` nulo; para uma reconexão da mesma conta e organização, essa mesma linha é atualizada e recebe um token renovado. A unicidade de `instagram_user_id` dentro da organização vale só entre perfis vivos (e para os ids sintéticos `zernio:*`, inclusive apagados) desde a migration 440. Reconectar pela Meta uma conta cuja linha foi apagada:
+
+- excluída pelo operador (`last_error_code = 'profile_removed_by_operator'`): a **mesma linha é reativada** (`deleted_at` volta a nulo, token novo, histórico e métricas diárias de volta), sem grupos e sem as publicações canceladas na exclusão;
+- apagada por qualquer outro motivo (checkpoint 190/25, exclusão de dados): nasce uma **linha nova**, e a antiga continua apagada como registro.
+
+Nos dois casos o incidente de queda da linha antiga recebe `reconnected_at`; se a volta foi pelo mesmo app da Meta, a vaga presa desse app é liberada.
 
 ## Fila e cron
 

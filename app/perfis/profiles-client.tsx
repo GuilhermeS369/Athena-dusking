@@ -504,6 +504,8 @@ export default function ProfilesClient({
         ? 'A conexão Zernio retornou, mas nenhuma conta Instagram foi encontrada para sincronizar.'
         : connectionResult.connected === 'takeover'
       ? `Perfil já existente assumido pela API da Meta: as credenciais da Zernio foram substituídas e o histórico de views, os grupos e os posts foram preservados.${groupAssignmentSuffix}`
+        : connectionResult.connected === 'restored'
+      ? `Perfil excluído foi reativado com token novo: o histórico e as métricas diárias voltaram. As publicações canceladas na exclusão não voltam.${groupAssignmentSuffix || ' Ele volta sem grupos — adicione-o aos grupos de novo.'}`
         : connectionResult.connected === 'updated'
       ? `Perfil reconectado e token atualizado com sucesso.${groupAssignmentSuffix}`
       : `Perfil conectado e salvo com sucesso.${groupAssignmentSuffix}`

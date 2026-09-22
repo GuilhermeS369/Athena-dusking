@@ -191,6 +191,13 @@ na hora, sem nenhum passo extra.
    entra em `meta_apps_safe` e soma na vaga presa. Volta para o app de origem
    marca a transferência como resolvida.
 
+   **Adendo de 22/09/2026 (migration 440).** Isto vale para perfil **vivo**. Uma
+   conta cuja linha foi apagada e é reconectada não grava transferência: se foi
+   excluída pelo operador a linha é reativada, senão nasce perfil novo, e em
+   ambos o rastro da vaga antiga é o incidente de queda, que recebe
+   `reconnected_at` e só libera a vaga quando a volta é pelo mesmo app. Gravar
+   transferência também contaria a mesma vaga duas vezes.
+
 4. **A tela não dizia nada disso.** O cartão passa a separar as duas causas —
    "N por queda · N movido(s) para outro app" — e o aviso de bloqueio aponta a
    saída pelo Bulk Meta, com a ressalva de que a conexão antiga continua

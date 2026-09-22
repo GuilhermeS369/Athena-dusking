@@ -56,7 +56,7 @@ function redirectWithError(
 function redirectWithSuccess(
   origin: string,
   returnTo: string,
-  outcome: 'created' | 'updated' | 'takeover',
+  outcome: 'created' | 'updated' | 'takeover' | 'restored',
   groupAssignment?: { status: 'assigned' | 'failed'; groupName: string | null; error?: string },
 ) {
   const url = new URL(safeReturnTo(returnTo), origin);
@@ -364,7 +364,9 @@ export async function GET(request: Request) {
 
     const connectResult = (connectRows ?? [])[0] as {
       profile_id: string | null;
-      outcome: 'created' | 'updated' | 'takeover' | 'conflict';
+      // `restored`: perfil excluído pelo operador reativado na mesma linha
+      // (migration 440).
+      outcome: 'created' | 'updated' | 'takeover' | 'restored' | 'conflict';
       previous_provider: string | null;
       previous_username: string | null;
     } | undefined;
