@@ -29,6 +29,10 @@ function npmWorker(name, script, env = {}) {
     max_restarts: 20,
     restart_delay: 5000,
     kill_timeout: 15000,
+    // Carimbo de hora no log (pendencia da secao 12 do mestre, achada em 13/09/2026: sem
+    // isso nenhuma linha dos -out-/-error- tem data e filtrar log "por horario" nao filtra
+    // nada). Entrou em 22/09/2026 com a VPS nova, onde todo processo ja nasceu com ele.
+    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
     env: { NODE_ENV: 'production', ...env },
   };
 }
