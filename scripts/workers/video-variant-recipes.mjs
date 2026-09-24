@@ -27,7 +27,27 @@
  *              43-52 s: ~1-2 s por video, trecho original IDENTICO a fonte quadro a
  *              quadro, zero aviso de decodificacao. O MP4 sai com 2 descricoes de
  *              video no cabecalho (a dos pedacos x264 e a do original): valido pelo
- *              padrao, e o teste e justamente se a Meta aceita. So H.264 yuv420p.
+ *              padrao, e a Meta aceitou (22/09/2026). So H.264 yuv420p.
+ *   bookend_mid a bookend + poucos quadros congelados NO MEIO (3 a 9). O original e
+ *              cortado sem recodificar EXATAMENTE num quadro-chave perto do meio e as
+ *              duas metades entram por copia. Medido em 23/09/2026 na VPS de variantes
+ *              com 4 videos reais (28-46 s, todos com B-frames e quadros-chave IDR a
+ *              cada 2-9 s): 2,1-2,9 s por video e as duas metades IDENTICAS a fonte
+ *              quadro a quadro, em todos os cortes testados. O teste de 22/09 que
+ *              duplicou 9 s errou no TEMPO do corte, nao no corte: passar ao divisor um
+ *              tempo um fio acima do quadro-chave faz ele cortar no quadro-chave
+ *              SEGUINTE. Por isso o corte vai meio quadro antes do quadro-chave, o
+ *              quadro congelado sai da primeira imagem da segunda metade, e o worker
+ *              confere a contagem de quadros da primeira metade antes de seguir.
+ *
+ * NIVEIS NO PAINEL (23/09/2026, decisao do dono): 1 = micro, 2 = bookend (PADRAO),
+ * 3 = bookend_mid. `container` e `light` sairam do painel, mas o worker continua
+ * sabendo gera-las: variante ja agendada com elas pode voltar para a fila (objeto
+ * sumiu do R2) e nao pode virar erro.
+ *
+ * FONTE QUE NAO DA PARA EMENDAR SEM RECODIFICAR (nao H.264 yuv420p): bookend e
+ * bookend_mid saem como micro (`applied_recipe`), em vez de falhar. Com a bookend
+ * como padrao, falhar ali tiraria o post da fila.
  *
  * UNICIDADE. Nao depende de quantas vezes o arquivo e postado: cada variante
  * leva uma marca de 122 bits aleatorios (UUID v4) mais uma semente de 32 bits
@@ -43,8 +63,13 @@
 
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 
-export const VIDEO_VARIANT_RECIPES = Object.freeze(['container', 'micro', 'light', 'bookend']);
-export const DEFAULT_VIDEO_VARIANT_RECIPE = 'micro';
+// Tudo que o worker sabe gerar (inclusive as que sairam do painel).
+export const VIDEO_VARIANT_RECIPES = Object.freeze(['container', 'micro', 'light', 'bookend', 'bookend_mid']);
+// O que o painel oferece, em ordem de nivel. Bate com BULK_VIDEO_VARIANT_RECIPES.
+export const OFFERED_VIDEO_VARIANT_RECIPES = Object.freeze(['micro', 'bookend', 'bookend_mid']);
+export const DEFAULT_VIDEO_VARIANT_RECIPE = 'bookend';
+// Receitas que emendam pedacos novos no original sem recodifica-lo.
+const SPLICED_RECIPES = new Set(['bookend', 'bookend_mid']);
 
 // -90 dBFS em amplitude linear: 10^(-90/20). Abaixo do piso de ruido de qualquer
 // gravacao de celular; existe para a faixa de audio regravada nunca repetir.
@@ -66,6 +91,11 @@ const BOOKEND_FREEZE_MIN_FRAMES = 3;
 const BOOKEND_FREEZE_MAX_FRAMES = 9;
 const BOOKEND_BLACK_MIN_TENTHS = 5;
 const BOOKEND_BLACK_MAX_TENTHS = 20;
+// bookend_mid: o congelado do meio fica perto do quadro-chave mais proximo de um
+// ponto sorteado entre 30% e 70% do video, com pelo menos 1 s de video dos dois lados.
+const MID_POSITION_MIN_PCT = 30;
+const MID_POSITION_MAX_PCT = 70;
+const MID_EDGE_MARGIN_SECONDS = 1;
 
 export function isVideoVariantRecipe(value) {
   return VIDEO_VARIANT_RECIPES.includes(value);
@@ -97,15 +127,19 @@ export function drawVideoVariantParams(recipe, random = cryptoRandom) {
     tag_uuid: random.uuid().replaceAll('-', '').toLowerCase(),
     tag_extra: random.hex(8),
   };
-  if (recipe === 'micro' || recipe === 'bookend') {
+  if (recipe === 'micro' || SPLICED_RECIPES.has(recipe)) {
     params.audio_seed = uint32(random);
     const magnitude = AUDIO_GAIN_MIN_DB
       + (random.int(0, 10_000) / 10_000) * (AUDIO_GAIN_MAX_DB - AUDIO_GAIN_MIN_DB);
     params.audio_gain_db = Number((random.int(0, 1) === 0 ? -magnitude : magnitude).toFixed(4));
   }
-  if (recipe === 'bookend') {
+  if (SPLICED_RECIPES.has(recipe)) {
     params.freeze_frames = random.int(BOOKEND_FREEZE_MIN_FRAMES, BOOKEND_FREEZE_MAX_FRAMES);
     params.black_seconds = random.int(BOOKEND_BLACK_MIN_TENTHS, BOOKEND_BLACK_MAX_TENTHS) / 10;
+  }
+  if (recipe === 'bookend_mid') {
+    params.mid_freeze_frames = random.int(BOOKEND_FREEZE_MIN_FRAMES, BOOKEND_FREEZE_MAX_FRAMES);
+    params.mid_position_pct = random.int(MID_POSITION_MIN_PCT, MID_POSITION_MAX_PCT);
   }
   if (recipe === 'light') {
     // O filtro noise aceita semente ate 2^31-1 (o anoisesrc aceita 32 bits).
@@ -162,6 +196,86 @@ export function summarizeSourceProbe(probe) {
   };
 }
 
+/** So a bookend_mid precisa saber onde ficam os quadros-chave da fonte. */
+export function recipeNeedsKeyframes(recipe) {
+  return recipe === 'bookend_mid';
+}
+
+/**
+ * Pacotes de video da fonte (tempo e flag), sem decodificar nada: ~0,2 s para um
+ * video de 45 s. Alimenta parseKeyframes.
+ */
+export function buildKeyframeProbeArgs(filePath) {
+  return ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time,flags', '-of', 'csv=p=0', filePath];
+}
+
+/**
+ * Quadros-chave da fonte em ordem de tela: { seconds, framesBefore }, onde
+ * framesBefore e quantos quadros aparecem antes dele -- o tamanho exato da
+ * primeira metade quando o corte e ali. Contado sobre os carimbos, nao sobre
+ * tempo x taxa: video de taxa irregular erraria a conta.
+ */
+export function parseKeyframes(csv) {
+  const packets = String(csv || '').split(/\r?\n/).flatMap((line) => {
+    const [time, flags = ''] = line.split(',');
+    const seconds = Number(time);
+    return Number.isFinite(seconds) && time.trim() !== '' ? [{ seconds, key: flags.includes('K') }] : [];
+  });
+  packets.sort((a, b) => a.seconds - b.seconds);
+  return packets.flatMap((packet, index) => (packet.key ? [{ seconds: packet.seconds, framesBefore: index }] : []));
+}
+
+/** So da para emendar sem recodificar quando a fonte e H.264 yuv420p com resolucao conhecida. */
+export function canSplice(source) {
+  return source?.videoCodec === 'h264' && source.pixFmt === 'yuv420p' && Boolean(source.width) && Boolean(source.height);
+}
+
+/** A receita que de fato sai: a da linha, ou `micro` quando a fonte nao aceita emenda. */
+export function appliedRecipe(params) {
+  return params?.applied_recipe ?? params?.recipe;
+}
+
+/**
+ * Quadro-chave onde o congelado do meio entra: o mais perto do ponto sorteado,
+ * com pelo menos 1 s de video dos dois lados. Null quando o video nao tem nenhum.
+ */
+export function chooseMidCut(params, source) {
+  const duration = Number(source?.durationSeconds);
+  if (!(duration > 0) || !Array.isArray(source?.keyframes)) return null;
+  const target = duration * (Number(params.mid_position_pct) / 100);
+  let best = null;
+  for (const keyframe of source.keyframes) {
+    if (keyframe.seconds < MID_EDGE_MARGIN_SECONDS || keyframe.seconds > duration - MID_EDGE_MARGIN_SECONDS) continue;
+    if (keyframe.framesBefore < 1) continue;
+    if (!best || Math.abs(keyframe.seconds - target) < Math.abs(best.seconds - target)) best = keyframe;
+  }
+  return best;
+}
+
+/** A bookend_mid vira bookend simples (sem o meio), com o motivo gravado nos parametros. */
+export function withoutMidFreeze(params, reason) {
+  const { mid_cut_seconds: _cut, mid_cut_frame: _frame, ...rest } = params;
+  return { ...rest, mid_freeze_frames: 0, mid_skipped: reason };
+}
+
+/**
+ * Completa os parametros sorteados com o que depende da fonte. Puro: o resultado
+ * vai inteiro para recipe_params e, com a fonte, reproduz a variante.
+ */
+export function resolveVariantParams(params, source) {
+  if (SPLICED_RECIPES.has(params.recipe) && !canSplice(source)) {
+    return { ...params, applied_recipe: 'micro' };
+  }
+  if (params.recipe !== 'bookend_mid') return { ...params };
+  const cut = chooseMidCut(params, source);
+  if (!cut) return withoutMidFreeze(params, 'sem_quadro_chave_no_meio');
+  return { ...params, mid_cut_seconds: cut.seconds, mid_cut_frame: cut.framesBefore };
+}
+
+function hasMidFreeze(params) {
+  return params.recipe === 'bookend_mid' && params.mid_freeze_frames > 0 && Number.isFinite(params.mid_cut_seconds);
+}
+
 function seiTag(params) {
   return `h264_metadata=sei_user_data=${params.tag_uuid}+${params.tag_extra}`;
 }
@@ -181,8 +295,9 @@ export function buildFfmpegArgs({ params, source, inputPath, outputPath }) {
   if (!isVideoVariantRecipe(params?.recipe)) {
     throw new Error(`video_variant_recipe_unknown:${params?.recipe}`);
   }
-  if (params.recipe === 'bookend') {
-    throw new Error('bookend tem varios passos: use buildVariantSteps');
+  const recipe = appliedRecipe(params);
+  if (SPLICED_RECIPES.has(recipe)) {
+    throw new Error(`${recipe} tem varios passos: use buildVariantSteps`);
   }
   const head = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', inputPath];
   const tail = [...containerTagArgs(params), '-movflags', '+faststart', '-f', 'mp4', outputPath];
@@ -191,12 +306,12 @@ export function buildFfmpegArgs({ params, source, inputPath, outputPath }) {
     ? ['-c:v', 'copy', '-bsf:v', seiTag(params)]
     : ['-c:v', 'copy'];
 
-  if (params.recipe === 'container') {
+  if (recipe === 'container') {
     const maps = source.hasAudio ? ['-map', '0:v:0', '-map', '0:a:0'] : ['-map', '0:v:0'];
     return [...head, ...maps, '-c', 'copy', ...tail];
   }
 
-  if (params.recipe === 'micro') {
+  if (recipe === 'micro') {
     if (!source.hasAudio) {
       // Sem audio nao ha o que regravar: fica a marca na faixa de video.
       return [...head, '-map', '0:v:0', ...videoCopy, ...tail];
@@ -246,9 +361,10 @@ function bookendBlackFrames(params, source) {
   return Math.max(1, Math.round(params.black_seconds * source.nominalFps));
 }
 
-/** Quanto a variante bookend fica mais longa que a fonte, em segundos. */
+/** Quanto a variante emendada (bookend, bookend_mid) fica mais longa que a fonte, em segundos. */
 export function bookendExtraSeconds(params, source) {
-  return (params.freeze_frames + bookendBlackFrames(params, source)) / source.nominalFps;
+  const middle = hasMidFreeze(params) ? params.mid_freeze_frames : 0;
+  return (params.freeze_frames + middle + bookendBlackFrames(params, source)) / source.nominalFps;
 }
 
 function x264Profile(profile) {
@@ -260,17 +376,24 @@ function x264Profile(profile) {
 
 /**
  * Os passos para gerar UMA variante. Receita de um passo so (container, micro,
- * light) vira um ffmpeg; a bookend monta pedacos e junta sem recodificar o
- * original. Passo `file` grava um arquivo de texto (a lista do concat).
- * Tudo que for intermediario vai para `workDir`, que o worker apaga no fim.
+ * light) vira um ffmpeg; bookend e bookend_mid montam pedacos e juntam sem
+ * recodificar o original. Tipos de passo:
+ *   ffmpeg          roda o ffmpeg com `args`;
+ *   file            grava `content` em `path` (a lista do concat);
+ *   expect_frames   o arquivo `path` tem de ter exatamente `frames` quadros --
+ *                   o worker confere antes de seguir e, se divergir, refaz sem o
+ *                   congelado do meio (withoutMidFreeze).
+ * `params` ja passou por resolveVariantParams. Tudo que for intermediario vai
+ * para `workDir`, que o worker apaga no fim.
  */
 export function buildVariantSteps({ params, source, inputPath, outputPath, workDir }) {
-  if (params?.recipe !== 'bookend') {
+  if (!SPLICED_RECIPES.has(appliedRecipe(params))) {
     return [{ kind: 'ffmpeg', args: buildFfmpegArgs({ params, source, inputPath, outputPath }) }];
   }
-  if (source.videoCodec !== 'h264' || source.pixFmt !== 'yuv420p' || !source.width || !source.height) {
+  if (!canSplice(source)) {
     throw new Error('video_variant_source_unsupported');
   }
+  const middleFreeze = hasMidFreeze(params);
   const join = (name) => `${workDir}/${name}`;
   const quiet = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y'];
   // Pedacos novos: mesma resolucao, taxa nominal, escala de tempo e perfil da
@@ -289,10 +412,29 @@ export function buildVariantSteps({ params, source, inputPath, outputPath, workD
     { kind: 'ffmpeg', args: [...quiet, '-i', inputPath, '-map', '0:v:0', '-frames:v', '1', '-update', '1', join('first.png')] },
     { kind: 'ffmpeg', args: [...quiet, '-loop', '1', '-i', join('first.png'), '-frames:v', String(params.freeze_frames), ...piece, join('freeze.mp4')] },
     { kind: 'ffmpeg', args: [...quiet, '-f', 'lavfi', '-i', `color=black:s=${source.width}x${source.height}:r=${source.nominalFrameRate}`, '-frames:v', String(blackFrames), ...piece, join('black.mp4')] },
-    { kind: 'ffmpeg', args: [...quiet, '-i', inputPath, '-map', '0:v:0', '-an', '-c:v', 'copy', '-video_track_timescale', String(source.timeScale), join('middle.mp4')] },
-    { kind: 'file', path: join('list.txt'), content: ['freeze.mp4', 'middle.mp4', 'black.mp4'].map((name) => `file '${join(name)}'`).join('\n') + '\n' },
-    { kind: 'ffmpeg', args: [...quiet, '-f', 'concat', '-safe', '0', '-i', join('list.txt'), '-c', 'copy', join('joined.mp4')] },
   ];
+  let pieces;
+  if (!middleFreeze) {
+    steps.push({ kind: 'ffmpeg', args: [...quiet, '-i', inputPath, '-map', '0:v:0', '-an', '-c:v', 'copy', '-video_track_timescale', String(source.timeScale), join('middle.mp4')] });
+    pieces = ['freeze.mp4', 'middle.mp4', 'black.mp4'];
+  } else {
+    // Corte SEM recodificar, no quadro-chave escolhido. O divisor corta no primeiro
+    // quadro-chave >= o tempo pedido: pedir meio quadro ANTES garante que seja este,
+    // e nao o seguinte (o erro do teste de 22/09, que duplicou 9 s).
+    const splitAt = (params.mid_cut_seconds - 0.5 / source.nominalFps).toFixed(6);
+    steps.push(
+      { kind: 'ffmpeg', args: [...quiet, '-i', inputPath, '-map', '0:v:0', '-an', '-c:v', 'copy', '-f', 'segment', '-segment_times', splitAt, '-reset_timestamps', '1', '-segment_format', 'mp4', '-segment_format_options', `video_track_timescale=${source.timeScale}`, join('part%d.mp4')] },
+      { kind: 'expect_frames', path: join('part0.mp4'), frames: params.mid_cut_frame },
+      // O quadro congelado e a PRIMEIRA imagem da segunda metade: nunca diverge do corte.
+      { kind: 'ffmpeg', args: [...quiet, '-i', join('part1.mp4'), '-map', '0:v:0', '-frames:v', '1', '-update', '1', join('mid.png')] },
+      { kind: 'ffmpeg', args: [...quiet, '-loop', '1', '-i', join('mid.png'), '-frames:v', String(params.mid_freeze_frames), ...piece, join('midfreeze.mp4')] },
+    );
+    pieces = ['freeze.mp4', 'part0.mp4', 'midfreeze.mp4', 'part1.mp4', 'black.mp4'];
+  }
+  steps.push(
+    { kind: 'file', path: join('list.txt'), content: pieces.map((name) => `file '${join(name)}'`).join('\n') + '\n' },
+    { kind: 'ffmpeg', args: [...quiet, '-f', 'concat', '-safe', '0', '-i', join('list.txt'), '-c', 'copy', join('joined.mp4')] },
+  );
   const tail = ['-map_metadata', '1', '-metadata', `comment=${params.tag_uuid}${params.tag_extra}`, '-movflags', '+faststart', '-f', 'mp4', outputPath];
   const videoOut = ['-c:v', 'copy', '-bsf:v', seiTag(params)];
   if (!source.hasAudio) {
@@ -302,9 +444,22 @@ export function buildVariantSteps({ params, source, inputPath, outputPath, workD
   const noise = `anoisesrc=color=white:amplitude=${AUDIO_NOISE_AMPLITUDE}`
     + `:seed=${params.audio_seed}:sample_rate=${source.audioSampleRate}`;
   // Mesma regravacao da micro, atrasada pelos quadros congelados e completada com
-  // silencio pela tela preta, para o som continuar sincronizado com a imagem.
-  const graph = `[1:a:0]volume=${params.audio_gain_db}dB,adelay=${freezeMs}:all=1,apad=pad_dur=${blackSeconds}[a0];`
-    + '[a0][2:a]amix=inputs=2:duration=first:normalize=0[a]';
+  // silencio pela tela preta, para o som continuar sincronizado com a imagem. Na
+  // bookend_mid o som tambem para durante o congelado do meio: corta no mesmo
+  // quadro-chave e completa a primeira parte com silencio (apad mantem o formato).
+  let graph;
+  if (!middleFreeze) {
+    graph = `[1:a:0]volume=${params.audio_gain_db}dB,adelay=${freezeMs}:all=1,apad=pad_dur=${blackSeconds}[a0];`
+      + '[a0][2:a]amix=inputs=2:duration=first:normalize=0[a]';
+  } else {
+    const cut = params.mid_cut_seconds.toFixed(6);
+    const middleSeconds = (params.mid_freeze_frames / source.nominalFps).toFixed(4);
+    graph = `[1:a:0]volume=${params.audio_gain_db}dB,asplit[x][y];`
+      + `[x]atrim=0:${cut},asetpts=PTS-STARTPTS,apad=pad_dur=${middleSeconds}[a1];`
+      + `[y]atrim=${cut},asetpts=PTS-STARTPTS[a2];`
+      + `[a1][a2]concat=n=2:v=0:a=1,adelay=${freezeMs}:all=1,apad=pad_dur=${blackSeconds}[a0];`
+      + '[a0][2:a]amix=inputs=2:duration=first:normalize=0[a]';
+  }
   steps.push({
     kind: 'ffmpeg',
     args: [
@@ -333,13 +488,14 @@ export function validateVariantProbe({ source, output, params }) {
   } catch {
     return 'video_variant_output_without_video';
   }
+  const recipe = appliedRecipe(params);
   if (source.hasAudio && !summary.hasAudio) return 'video_variant_output_lost_audio';
-  if (params.recipe !== 'light' && summary.videoCodec !== source.videoCodec) {
+  if (recipe !== 'light' && summary.videoCodec !== source.videoCodec) {
     return 'video_variant_output_codec_changed';
   }
   if (source.durationSeconds && summary.durationSeconds) {
-    // A bookend fica mais longa de proposito (congelados + preto).
-    const expected = source.durationSeconds + (params.recipe === 'bookend' ? bookendExtraSeconds(params, source) : 0);
+    // As emendadas ficam mais longas de proposito (congelados + preto).
+    const expected = source.durationSeconds + (SPLICED_RECIPES.has(recipe) ? bookendExtraSeconds(params, source) : 0);
     // Meio segundo de folga: o AAC regravado arredonda o fim para o quadro de audio.
     if (Math.abs(summary.durationSeconds - expected) > 0.5) {
       return 'video_variant_output_duration_changed';

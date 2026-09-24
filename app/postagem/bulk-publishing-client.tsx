@@ -102,13 +102,14 @@ type CompactRequest = {
   captionVariants?: string[];
 };
 
-// Variante de vídeo por post (migration 436). A lista bate com BULK_VIDEO_VARIANT_RECIPES.
-type VideoVariantRecipe = 'container' | 'micro' | 'light' | 'bookend';
+// Variante de vídeo por post (migration 436), em níveis (decisão do dono em 23/09/2026).
+// A ordem e as chaves batem com BULK_VIDEO_VARIANT_RECIPES; nenhum nível recodifica o vídeo.
+type VideoVariantRecipe = 'micro' | 'bookend' | 'bookend_mid';
+const DEFAULT_VIDEO_VARIANT_RECIPE: VideoVariantRecipe = 'bookend';
 const videoVariantLabels: Record<VideoVariantRecipe, string> = {
-  micro: 'Micro (padrão) — imagem idêntica; muda o áudio e a marca interna do arquivo',
-  container: 'Só o embrulho (teste) — vídeo e áudio idênticos; muda só o metadado',
-  light: 'Leve (teste) — recodifica o vídeo com diferença imperceptível',
-  bookend: 'Congela o início + tela preta no fim (teste) — sem recodificar o vídeo',
+  micro: 'Nível 1 — Assinatura: imagem idêntica; muda o áudio e a marca interna do arquivo',
+  bookend: 'Nível 2 (padrão) — Congela o início + tela preta no fim',
+  bookend_mid: 'Nível 3 — Nível 2 + congela alguns quadros no meio do vídeo',
 };
 
 type ScheduleReview = {
@@ -297,7 +298,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, vide
   const [loadingCovers, setLoadingCovers] = useState(false);
   const [loadingMoreCovers, setLoadingMoreCovers] = useState(false);
   const [videoVariantEnabled, setVideoVariantEnabled] = useState(false);
-  const [videoVariantRecipe, setVideoVariantRecipe] = useState<VideoVariantRecipe>('micro');
+  const [videoVariantRecipe, setVideoVariantRecipe] = useState<VideoVariantRecipe>(DEFAULT_VIDEO_VARIANT_RECIPE);
   const [review, setReview] = useState<ReviewResponse | null>(null);
   const [progress, setProgress] = useState<PlanProgress | null>(null);
   const mediaRequestRef = useRef<{ sequence: number; controller: AbortController | null }>({ sequence: 0, controller: null });
@@ -789,7 +790,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, vide
     setFormat('reel');
     setOriginKey('');
     setVideoVariantEnabled(false);
-    setVideoVariantRecipe('micro');
+    setVideoVariantRecipe(DEFAULT_VIDEO_VARIANT_RECIPE);
     setCoverEnabled(false);
     setCoverOriginKey('');
     setCoverAssets([]);
@@ -1055,7 +1056,7 @@ export default function BulkPublishingClient({ canManage, profiles, groups, vide
               </header>
               {videoVariantEnabled && <div className={styles.coverBody}>
                 <p className={styles.coverNotice}>A cópia é gerada antes do horário e apagada depois de postar. Se a cópia de um post não ficar pronta a tempo, esse post não é publicado: o arquivo original nunca sobe no lugar. Vale para perfis da API oficial da Meta.</p>
-                <label className={`${styles.field} ${styles.coverOriginField}`}>Tipo de alteração
+                <label className={`${styles.field} ${styles.coverOriginField}`}>Nível de alteração
                   <select value={videoVariantRecipe} onChange={(event) => { invalidateReview(); setVideoVariantRecipe(event.target.value as VideoVariantRecipe); }} disabled={!canManage}>
                     {(Object.keys(videoVariantLabels) as VideoVariantRecipe[]).map((recipe) => <option key={recipe} value={recipe}>{videoVariantLabels[recipe]}</option>)}
                   </select>

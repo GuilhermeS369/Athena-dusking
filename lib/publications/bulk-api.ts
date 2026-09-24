@@ -23,11 +23,13 @@ export type BulkReelCover = {
 };
 
 /**
- * Receita de variante de vídeo por post (migration 436). `micro` é o padrão do
- * painel; `container` e `light` existem para o teste de desempenho das postagens.
- * A lista tem de bater com o check da tabela e com scripts/workers/video-variant-recipes.mjs.
+ * Receitas de variante de vídeo por post que o painel oferece, em ordem de nível
+ * (decisão do dono em 23/09/2026): 1 `micro`, 2 `bookend` (padrão), 3 `bookend_mid`.
+ * `container` e `light` saíram do painel e da função que grava a receita do plano
+ * (migration 441), mas o worker continua sabendo gerá-las para o que já foi agendado.
+ * Bate com OFFERED_VIDEO_VARIANT_RECIPES em scripts/workers/video-variant-recipes.mjs.
  */
-export const BULK_VIDEO_VARIANT_RECIPES = ['container', 'micro', 'light', 'bookend'] as const;
+export const BULK_VIDEO_VARIANT_RECIPES = ['micro', 'bookend', 'bookend_mid'] as const;
 export type BulkVideoVariantRecipe = typeof BULK_VIDEO_VARIANT_RECIPES[number];
 
 export type BulkRotationRequest = {

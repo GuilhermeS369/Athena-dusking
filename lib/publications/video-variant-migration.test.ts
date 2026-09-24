@@ -11,8 +11,10 @@ import { BULK_VIDEO_VARIANT_RECIPES } from './bulk-api.ts';
 
 const read = (relative: string) => readFile(new URL(relative, import.meta.url), 'utf8');
 const migration = await read('../../supabase/migrations/436_publication_video_variants.sql');
-// 439 estende as tres listas de receita da 436 com a `bookend` (22/09/2026).
+// 439 estendeu as listas de receita da 436 com a `bookend` (22/09/2026); a 441 as
+// reorganiza em niveis (23/09/2026): checks aceitam as cinco, o painel grava tres.
 const bookendMigration = await read('../../supabase/migrations/439_video_variant_bookend_recipe.sql');
+const levelsMigration = await read('../../supabase/migrations/441_video_variant_levels.sql');
 const sequentialMigration = await read('../../supabase/migrations/432_bulk_sequential_schedule.sql');
 const publisher = await read('../../scripts/workers/publication-direct-dispatch.mjs');
 const recipes = await read('../../scripts/workers/video-variant-recipes.mjs');
@@ -24,15 +26,20 @@ function functionBody(sql: string, name: string) {
   return sql.slice(open, sql.indexOf('$$', open));
 }
 
-test('a lista de receitas é a mesma no painel, no worker e nos checks do banco', () => {
-  const expected = [...BULK_VIDEO_VARIANT_RECIPES];
-  assert.deepEqual(expected, ['container', 'micro', 'light', 'bookend']);
-  assert.ok(recipes.includes("Object.freeze(['container', 'micro', 'light', 'bookend'])"));
-  const checks = bookendMigration.match(/in \('container', 'micro', 'light', 'bookend'\)/g) ?? [];
-  // coluna do plano, coluna da tabela lateral e a função que grava a receita.
-  assert.equal(checks.length, 3, `esperava 3 listas de receita na 439, achei ${checks.length}`);
-  assert.ok(bookendMigration.includes('revoke all on function public.apply_bulk_plan_video_variant_recipe'));
-  assert.ok(!migration.includes("'visible'") && !bookendMigration.includes("'visible'"));
+test('níveis: o painel oferece três receitas, o worker gera as cinco e os checks do banco aceitam as cinco', () => {
+  assert.deepEqual([...BULK_VIDEO_VARIANT_RECIPES], ['micro', 'bookend', 'bookend_mid']);
+  assert.ok(recipes.includes("OFFERED_VIDEO_VARIANT_RECIPES = Object.freeze(['micro', 'bookend', 'bookend_mid'])"));
+  assert.ok(recipes.includes("VIDEO_VARIANT_RECIPES = Object.freeze(['container', 'micro', 'light', 'bookend', 'bookend_mid'])"));
+  assert.ok(recipes.includes("DEFAULT_VIDEO_VARIANT_RECIPE = 'bookend'"));
+  // Coluna do plano e coluna da tabela lateral: historico com container/light continua valido.
+  const checks = levelsMigration.match(/in \('container', 'micro', 'light', 'bookend', 'bookend_mid'\)/g) ?? [];
+  assert.equal(checks.length, 2, `esperava 2 checks com as cinco receitas na 441, achei ${checks.length}`);
+  // A funcao que grava a receita de um plano novo so aceita os tres niveis.
+  const apply = functionBody(levelsMigration, 'apply_bulk_plan_video_variant_recipe');
+  assert.ok(apply.includes("not in ('micro', 'bookend', 'bookend_mid')"));
+  assert.ok(!apply.includes("'light'") && !apply.includes("'container'"));
+  assert.ok(levelsMigration.includes('revoke all on function public.apply_bulk_plan_video_variant_recipe'));
+  assert.ok(!migration.includes("'visible'") && !bookendMigration.includes("'visible'") && !levelsMigration.includes("'visible'"));
 });
 
 test('a tabela quente não ganha coluna, gatilho nem mudança no claim', () => {

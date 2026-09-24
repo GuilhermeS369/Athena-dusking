@@ -181,11 +181,15 @@ test('variante de vídeo: só Reel, só receita conhecida, e ausente não muda o
   const micro = parseBulkRotationRequest({ ...base, videoVariant: 'micro' });
   assert.equal(micro.videoVariant, 'micro');
   assert.notEqual(bulkRotationFingerprint(micro), bulkRotationFingerprint(semVariante));
-  assert.notEqual(bulkRotationFingerprint(micro), bulkRotationFingerprint(parseBulkRotationRequest({ ...base, videoVariant: 'light' })));
+  assert.notEqual(bulkRotationFingerprint(micro), bulkRotationFingerprint(parseBulkRotationRequest({ ...base, videoVariant: 'bookend' })));
 
   assert.throws(() => parseBulkRotationRequest({ ...base, videoVariant: 'visible' }), /variante de vídeo inválida/i);
   assert.throws(() => parseBulkRotationRequest({ ...base, format: 'story', videoVariant: 'micro' }), /só existe para Reels/);
-  assert.deepEqual([...BULK_VIDEO_VARIANT_RECIPES], ['container', 'micro', 'light', 'bookend']);
+  // container e light sairam do painel em 23/09/2026: pedido com elas e recusado.
+  assert.throws(() => parseBulkRotationRequest({ ...base, videoVariant: 'light' }), /variante de vídeo inválida/i);
+  assert.throws(() => parseBulkRotationRequest({ ...base, videoVariant: 'container' }), /variante de vídeo inválida/i);
+  assert.equal(parseBulkRotationRequest({ ...base, videoVariant: 'bookend_mid' }).videoVariant, 'bookend_mid');
+  assert.deepEqual([...BULK_VIDEO_VARIANT_RECIPES], ['micro', 'bookend', 'bookend_mid']);
 });
 
 test('variante de vídeo só é liberada para organização na allowlist; vazio libera ninguém', () => {

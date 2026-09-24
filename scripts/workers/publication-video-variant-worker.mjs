@@ -37,12 +37,17 @@ import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import {
+  buildKeyframeProbeArgs,
   buildVariantSteps,
   buildFfprobeArgs,
   drawVideoVariantParams,
   isVideoVariantRecipe,
+  parseKeyframes,
+  recipeNeedsKeyframes,
+  resolveVariantParams,
   summarizeSourceProbe,
   validateVariantProbe,
+  withoutMidFreeze,
 } from './video-variant-recipes.mjs';
 
 const run = promisify(execFile);
@@ -368,6 +373,37 @@ async function probeFile(filePath) {
   return JSON.parse(stdout);
 }
 
+async function countVideoPackets(filePath) {
+  const { stdout } = await run('ffprobe', [
+    '-v', 'error', '-count_packets', '-select_streams', 'v:0',
+    '-show_entries', 'stream=nb_read_packets', '-of', 'csv=p=0', filePath,
+  ]);
+  return Number(stdout.trim());
+}
+
+// A primeira metade do corte (bookend_mid) nao tem o tamanho esperado: o divisor
+// cortou em outro quadro-chave. Nao e erro do arquivo; a variante sai sem o meio.
+class MidCutMismatch extends Error {}
+
+async function runVariantSteps(steps, config) {
+  for (const step of steps) {
+    if (step.kind === 'file') {
+      fs.writeFileSync(step.path, step.content);
+      continue;
+    }
+    if (step.kind === 'expect_frames') {
+      const frames = fs.existsSync(step.path) ? await countVideoPackets(step.path) : -1;
+      if (frames !== step.frames) throw new MidCutMismatch(`primeira metade com ${frames} quadros, esperado ${step.frames}`);
+      continue;
+    }
+    try {
+      await run('ffmpeg', step.args, { timeout: config.ffmpegTimeoutMs, maxBuffer: 8 * 1024 * 1024 });
+    } catch (error) {
+      throw variantError('video_variant_ffmpeg_failed', String(error.stderr || error.message).slice(-600));
+    }
+  }
+}
+
 async function processVariant(context, variant) {
   const { config, database, r2, cache, bandwidth, probeCache, counters } = context;
   const itemId = variant.publication_item_id;
@@ -392,6 +428,17 @@ async function processVariant(context, variant) {
       }
       probeCache.set(assetId, source);
     }
+    if (recipeNeedsKeyframes(variant.recipe) && !source.keyframes) {
+      // Lista de pacotes, sem decodificar: ~0,2 s para 45 s de video. Fica no cache
+      // junto do resumo, porque o mesmo original gera muitas variantes.
+      try {
+        const { stdout } = await run('ffprobe', buildKeyframeProbeArgs(sourcePath), { maxBuffer: 32 * 1024 * 1024 });
+        source = { ...source, keyframes: parseKeyframes(stdout) };
+      } catch {
+        source = { ...source, keyframes: [] };
+      }
+      probeCache.set(assetId, source);
+    }
 
     workDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'athena-variant-'));
     const { PutObjectCommand, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
@@ -399,27 +446,28 @@ async function processVariant(context, variant) {
     // Ate tres sorteios: o indice unico de bytes (436) recusa saida repetida.
     // Com 122 bits de marca isso so acontece por defeito, e o log acusa.
     for (let draw = 1; draw <= 3; draw += 1) {
-      const params = drawVideoVariantParams(variant.recipe);
+      let params = resolveVariantParams(drawVideoVariantParams(variant.recipe), source);
       const outputPath = path.join(workDirectory, `variant-${draw}.mp4`);
       const drawDirectory = path.join(workDirectory, `draw-${draw}`);
-      fs.mkdirSync(drawDirectory, { recursive: true });
-      const encodeStarted = Date.now();
-      let steps;
-      try {
-        steps = buildVariantSteps({ params, source, inputPath: sourcePath, outputPath, workDir: drawDirectory });
-      } catch (error) {
-        throw variantError(error.message === 'video_variant_source_unsupported' ? 'video_variant_source_unsupported' : 'video_variant_recipe_unknown', error.message);
-      }
-      for (const step of steps) {
-        if (step.kind === 'file') {
-          fs.writeFileSync(step.path, step.content);
-          continue;
-        }
+      const buildSteps = () => {
+        fs.rmSync(drawDirectory, { recursive: true, force: true });
+        fs.mkdirSync(drawDirectory, { recursive: true });
         try {
-          await run('ffmpeg', step.args, { timeout: config.ffmpegTimeoutMs, maxBuffer: 8 * 1024 * 1024 });
+          return buildVariantSteps({ params, source, inputPath: sourcePath, outputPath, workDir: drawDirectory });
         } catch (error) {
-          throw variantError('video_variant_ffmpeg_failed', String(error.stderr || error.message).slice(-600));
+          throw variantError(error.message === 'video_variant_source_unsupported' ? 'video_variant_source_unsupported' : 'video_variant_recipe_unknown', error.message);
         }
+      };
+      const encodeStarted = Date.now();
+      try {
+        await runVariantSteps(buildSteps(), config);
+      } catch (error) {
+        if (!(error instanceof MidCutMismatch)) throw error;
+        // O divisor cortou em outro quadro-chave: refaz sem o congelado do meio (a
+        // variante continua valida e unica; so perde o meio). O motivo fica gravado.
+        console.error(`${LOG} corte do meio divergiu; variante sai sem o meio`, { itemId, assetId, message: error.message });
+        params = withoutMidFreeze(params, 'corte_divergiu');
+        await runVariantSteps(buildSteps(), config);
       }
       const encodeMs = Date.now() - encodeStarted;
       const problem = validateVariantProbe({ source, output: await probeFile(outputPath), params });
