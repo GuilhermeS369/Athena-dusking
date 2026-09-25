@@ -33,7 +33,6 @@ test('layout de 11 campos cai em cada lugar', () => {
   assert.equal(account.refreshToken, refresh);
   assert.equal(account.accessToken, '2086347760765153280-NX6zD8OfR8Jyb82SfoGAEvzbD3OqsB');
   assert.equal(account.accessSecret, 'eBkXbQZpQYhVX0JCmOhTvpKMkI45p6efvLpe88KfHMCrN');
-  assert.equal(account.device, '');
   assert.equal(account.cookie, cookie);
   assert.equal(account.authToken, authToken);
 });
@@ -86,6 +85,35 @@ test('exatamente três campos com dois-pontos continua sendo o formato curto', (
   assert.equal(account.email, '');
 });
 
+// login|senha|email|senha|telefone|token_longo|auth_token|2fa|data|n|n|n|false|pais| email|senha|refresh|client_id
+test('modelo de 18 campos com telefone, data, contadores e país', () => {
+  const longHex = 'a'.repeat(128);
+  const refresh = `M.C515_BL2.0.U.MsaArtifacts.-${'x'.repeat(200)}$$`;
+  const linha = `TestLogin1|PassWord12|user1@outlook.com|ep111|+201118654336|${longHex}|${authToken}|HOMWGUD7F23GIAZI|04-02-2021|1|9|0|false|Egypt | user1@outlook.com|ep111|${refresh}|${uuid}`;
+  const { accounts, errors } = parseMoreLoginAccounts(linha);
+  assert.deepEqual(errors, []);
+  const [account] = accounts;
+  assert.equal(account.login, 'TestLogin1');
+  assert.equal(account.password, 'PassWord12');
+  assert.equal(account.twoFa, 'HOMWGUD7F23GIAZI');
+  assert.equal(account.email, 'user1@outlook.com');
+  assert.equal(account.emailPassword, 'ep111');
+  assert.equal(account.phone, '+201118654336');
+  assert.equal(account.authToken, authToken);
+  assert.equal(account.clientId, uuid);
+  assert.equal(buildMoreLoginCookie(account), `auth_token=${authToken}`);
+  assert.equal(buildMoreLoginProfileNote(account), 'email: user1@outlook.com\nsenha do email: ep111\ntelefone: +201118654336');
+});
+
+test('cookie em base64 é convertido para extrair o auth_token', () => {
+  const cookieText = `lang=en; auth_token=${authToken}; ct0=abcdef0123456789`;
+  const base64 = Buffer.from(cookieText).toString('base64');
+  assert.equal(extractAuthToken(base64), authToken);
+  const [account] = parseMoreLoginAccounts(`login1|senha1|e@e.com|ep|${base64}`).accounts;
+  assert.equal(account.authToken, authToken);
+  assert.equal(buildMoreLoginCookie(account), `auth_token=${authToken}`);
+});
+
 test('os dois layouts geram a mesma planilha', () => {
   const [deOnze] = parseMoreLoginAccounts(onzeCampos).accounts;
   const [deSete] = parseMoreLoginAccounts(seteCampos).accounts;
@@ -119,12 +147,10 @@ test('senha do email não é confundida com chave 2FA', () => {
 test('campo "-" e campo ausente contam como vazio', () => {
   const [account] = parseMoreLoginAccounts('login1|senha1|-|-|-|-|-').accounts;
   assert.equal(account.email, '');
-  assert.equal(account.device, '');
+  assert.equal(account.phone, '');
   assert.equal(account.cookie, '');
   assert.equal(account.authToken, '');
   assert.equal(account.twoFa, '');
-  const [comDevice] = parseMoreLoginAccounts('l|p|e@e.com|ep|Pixel 7').accounts;
-  assert.equal(comDevice.device, 'Pixel 7');
 });
 
 test('formato curto com : ou ; continua funcionando', () => {
@@ -158,11 +184,11 @@ test('auth_token sai avulso ou do meio do cookie', () => {
   assert.equal(buildMoreLoginCookie(account), `auth_token=${authToken}`);
 });
 
-test('observação leva só email, senha do email e device', () => {
+test('observação leva email, senha do email e telefone', () => {
   const [account] = parseMoreLoginAccounts(onzeCampos).accounts;
   assert.equal(buildMoreLoginProfileNote(account), 'email: jacob8522@hotmail.com\nsenha do email: jacob@556914');
-  const [comDevice] = parseMoreLoginAccounts('l|p|e@e.com|ep|Pixel 7').accounts;
-  assert.equal(buildMoreLoginProfileNote(comDevice), 'email: e@e.com\nsenha do email: ep\ndevice: Pixel 7');
+  const [comTelefone] = parseMoreLoginAccounts('l|p|e@e.com|ep|+201118654336').accounts;
+  assert.equal(buildMoreLoginProfileNote(comTelefone), 'email: e@e.com\nsenha do email: ep\ntelefone: +201118654336');
   const [semNada] = parseMoreLoginAccounts('l:p:AAAABBBBCCCCDDDD').accounts;
   assert.equal(buildMoreLoginProfileNote(semNada), '');
 });

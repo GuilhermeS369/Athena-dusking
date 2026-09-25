@@ -9,6 +9,12 @@
 //   login|senha|2fa|email|senha do email|client_id|refresh_token|access_token|access_secret|device|cookie
 //   login|senha|email|senha do email|OAUTH2|2fa|token
 //   login:senha:2fa:email:senha do email:token_longo:auth_token
+//   login|senha|email|senha do email|telefone|token_longo|auth_token|2fa|data|n|n|n|false|pais| email|senha|refresh_token|client_id
+//
+// Metadados que alguns lotes carregam (telefone, data, contadores, booleano,
+// país, e o e-mail/refresh repetidos) são reconhecidos e ignorados na planilha,
+// menos o telefone, que vai para a observação. Um cookie que chegue em base64 é
+// decodificado para extrair o auth_token.
 //
 // Por isso nada aqui depende da posição, fora login e senha, que são sempre os
 // dois primeiros. Cada campo seguinte é reconhecido pelo que ele é: e-mail tem
@@ -31,9 +37,9 @@ export type MoreLoginAccount = {
   refreshToken: string;
   accessToken: string;
   accessSecret: string;
-  device: string;
+  phone: string;
   cookie: string;
-  /** Valor de `auth_token`, avulso ou extraído do cookie — é o que loga o perfil no X. */
+  /** Valor de `auth_token`, avulso ou extraído do cookie (inclusive base64) — é o que loga o perfil no X. */
   authToken: string;
 };
 
@@ -44,40 +50,77 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const BASE32_PATTERN = /^[A-Z2-7]{16,64}$/;
 const HEX_TOKEN_PATTERN = /^[0-9a-f]{40}$/i;
 const ACCESS_TOKEN_PATTERN = /^\d{6,}-[A-Za-z0-9]+$/;
+const BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/;
 const LONG_TOKEN_LENGTH = 80;
-const DEVICE_MAX_LENGTH = 32;
 
 export function normalizeTwoFaSecret(value: string) {
   return value.replace(/\s+/g, '').replace(/-/g, '').toUpperCase();
 }
 
-export function extractAuthToken(cookie: string) {
-  const match = cookie.match(/(?:^|[;,\s])auth_token=([^;,\s]+)/);
-  if (match) return match[1].trim();
+// Telefone: só dígitos (com + e separadores), nove ou mais dígitos. Nove evita
+// confundir com data (dd-mm-yyyy tem oito) ou com os contadores curtos do lote.
+const PHONE_PATTERN = /^\+?\d{9,}$/;
+function isPhone(value: string) {
+  return PHONE_PATTERN.test(value.replace(/[\s()-]/g, ''));
+}
+
+// Base64 que decodifica para texto imprimível — usado para achar um cookie que
+// veio codificado. Vale no navegador (atob global) e no Node 22.
+function decodeBase64(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length < 24 || trimmed.length % 4 !== 0 || !BASE64_PATTERN.test(trimmed)) return '';
+  try {
+    const decoded = atob(trimmed);
+    // Só serve se for texto legível (cookie/JSON), não binário.
+    return /[^\t\n\r\x20-\x7e]/.test(decoded) ? '' : decoded;
+  } catch {
+    return '';
+  }
+}
+
+const AUTH_TOKEN_IN_TEXT = /(?:^|[;,\s"'])auth_token["']?\s*[=:]\s*["']?([0-9a-f]{40})/i;
+
+export function extractAuthToken(value: string) {
+  const raw = value.trim();
+  const direct = raw.match(AUTH_TOKEN_IN_TEXT);
+  if (direct) return direct[1];
   // Linha que trouxe só o token, sem o resto do cookie.
-  return HEX_TOKEN_PATTERN.test(cookie.trim()) ? cookie.trim() : '';
+  if (HEX_TOKEN_PATTERN.test(raw)) return raw;
+  // Cookie que chegou em base64 — decodifica e procura de novo ("faz converter").
+  const decoded = decodeBase64(raw);
+  if (decoded) {
+    const fromBase64 = decoded.match(AUTH_TOKEN_IN_TEXT);
+    if (fromBase64) return fromBase64[1];
+    if (HEX_TOKEN_PATTERN.test(decoded.trim())) return decoded.trim();
+  }
+  return '';
 }
 
 function isCookie(value: string) {
-  return value.includes('auth_token=') || (value.includes('=') && value.includes(';'));
+  if (value.includes('auth_token=') || (value.includes('=') && value.includes(';'))) return true;
+  // Cookie codificado em base64 que, decodificado, carrega um auth_token.
+  return Boolean(extractAuthToken(value)) && decodeBase64(value) !== '';
 }
 
-type Slot = 'cookie' | 'clientId' | 'refreshToken' | 'accessToken' | 'authToken' | 'twoFa' | 'extra';
+type Slot = 'cookie' | 'clientId' | 'refreshToken' | 'accessToken' | 'authToken' | 'twoFa' | 'phone' | 'extra';
 
 function classify(value: string): Slot {
+  // Cookie (inclusive base64) vem antes da regra de comprimento, senão um cookie
+  // longo cairia como refresh_token.
   if (isCookie(value)) return 'cookie';
   if (UUID_PATTERN.test(value)) return 'clientId';
-  if (value.length > LONG_TOKEN_LENGTH) return 'refreshToken';
+  if (isPhone(value)) return 'phone';
   if (ACCESS_TOKEN_PATTERN.test(value)) return 'accessToken';
   if (HEX_TOKEN_PATTERN.test(value)) return 'authToken';
   if (BASE32_PATTERN.test(normalizeTwoFaSecret(value))) return 'twoFa';
+  if (value.length > LONG_TOKEN_LENGTH) return 'refreshToken';
   return 'extra';
 }
 
 type RawAccount = Omit<MoreLoginAccount, 'id' | 'line' | 'profileName'>;
 
 const EMPTY: Omit<RawAccount, 'login' | 'password'> = {
-  twoFa: '', email: '', emailPassword: '', clientId: '', refreshToken: '', accessToken: '', accessSecret: '', device: '', cookie: '', authToken: '',
+  twoFa: '', email: '', emailPassword: '', clientId: '', refreshToken: '', accessToken: '', accessSecret: '', phone: '', cookie: '', authToken: '',
 };
 
 function parseExtendedLine(rawParts: string[]): RawAccount {
@@ -115,8 +158,6 @@ function parseExtendedLine(rawParts: string[]): RawAccount {
     const secretIndex = extras.findIndex((value) => value.length >= 30);
     if (secretIndex !== -1) account.accessSecret = extras.splice(secretIndex, 1)[0];
   }
-  const deviceIndex = extras.findIndex((value) => value.length <= DEVICE_MAX_LENGTH);
-  if (deviceIndex !== -1) account.device = extras[deviceIndex];
 
   account.authToken = account.authToken || extractAuthToken(account.cookie);
   return account;
@@ -176,6 +217,6 @@ export function buildMoreLoginProfileNote(account: MoreLoginAccount) {
   return [
     account.email ? `email: ${account.email}` : '',
     account.emailPassword ? `senha do email: ${account.emailPassword}` : '',
-    account.device ? `device: ${account.device}` : '',
+    account.phone ? `telefone: ${account.phone}` : '',
   ].filter(Boolean).join('\n');
 }
