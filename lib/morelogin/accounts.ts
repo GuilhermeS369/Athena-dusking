@@ -1,0 +1,168 @@
+// Leitura das linhas coladas no campo "Contas" do bulk import.
+//
+// Formato curto, o que a tela já usava: `usuario:senha:2fa` ou `usuario;senha;2fa`.
+//
+// Formato completo, separado por `|`. A ordem dos campos muda conforme o
+// fornecedor do lote — dois exemplos reais:
+//
+//   login|senha|2fa|email|senha do email|client_id|refresh_token|access_token|access_secret|device|cookie
+//   login|senha|email|senha do email|OAUTH2|2fa|token
+//
+// Por isso nada aqui depende da posição, fora login e senha, que são sempre os
+// dois primeiros. Cada campo seguinte é reconhecido pelo que ele é: e-mail tem
+// `@` e domínio, o 2FA é Base32, o cookie tem `chave=valor`, o auth_token são 40
+// caracteres hexadecimais, o client_id é um UUID. Campo vazio pode vir como `-`.
+//
+// Só login, senha, 2FA, e-mail, senha do e-mail, device e cookie viram coluna na
+// planilha; os campos de OAuth são guardados como vierem.
+
+export type MoreLoginAccount = {
+  id: string;
+  line: number;
+  profileName: string;
+  login: string;
+  password: string;
+  twoFa: string;
+  email: string;
+  emailPassword: string;
+  clientId: string;
+  refreshToken: string;
+  accessToken: string;
+  accessSecret: string;
+  device: string;
+  cookie: string;
+  /** Valor de `auth_token`, avulso ou extraído do cookie — é o que loga o perfil no X. */
+  authToken: string;
+};
+
+export type MoreLoginAccountError = { line: number; text: string; reason: string };
+
+const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BASE32_PATTERN = /^[A-Z2-7]{16,64}$/;
+const HEX_TOKEN_PATTERN = /^[0-9a-f]{40}$/i;
+const ACCESS_TOKEN_PATTERN = /^\d{6,}-[A-Za-z0-9]+$/;
+const LONG_TOKEN_LENGTH = 80;
+const DEVICE_MAX_LENGTH = 32;
+
+export function normalizeTwoFaSecret(value: string) {
+  return value.replace(/\s+/g, '').replace(/-/g, '').toUpperCase();
+}
+
+export function extractAuthToken(cookie: string) {
+  const match = cookie.match(/(?:^|[;,\s])auth_token=([^;,\s]+)/);
+  if (match) return match[1].trim();
+  // Linha que trouxe só o token, sem o resto do cookie.
+  return HEX_TOKEN_PATTERN.test(cookie.trim()) ? cookie.trim() : '';
+}
+
+function isCookie(value: string) {
+  return value.includes('auth_token=') || (value.includes('=') && value.includes(';'));
+}
+
+type Slot = 'cookie' | 'clientId' | 'refreshToken' | 'accessToken' | 'authToken' | 'twoFa' | 'extra';
+
+function classify(value: string): Slot {
+  if (isCookie(value)) return 'cookie';
+  if (UUID_PATTERN.test(value)) return 'clientId';
+  if (value.length > LONG_TOKEN_LENGTH) return 'refreshToken';
+  if (ACCESS_TOKEN_PATTERN.test(value)) return 'accessToken';
+  if (HEX_TOKEN_PATTERN.test(value)) return 'authToken';
+  if (BASE32_PATTERN.test(normalizeTwoFaSecret(value))) return 'twoFa';
+  return 'extra';
+}
+
+type RawAccount = Omit<MoreLoginAccount, 'id' | 'line' | 'profileName'>;
+
+const EMPTY: Omit<RawAccount, 'login' | 'password'> = {
+  twoFa: '', email: '', emailPassword: '', clientId: '', refreshToken: '', accessToken: '', accessSecret: '', device: '', cookie: '', authToken: '',
+};
+
+function parseExtendedLine(line: string): RawAccount {
+  // `-` é o marcador de campo vazio usado nos lotes.
+  const parts = line.split('|').map((part) => (part.trim() === '-' ? '' : part.trim()));
+  const account: RawAccount = { ...EMPTY, login: parts[0] ?? '', password: parts[1] ?? '' };
+  const consumed = new Set([0, 1]);
+
+  // O e-mail é achado pelo formato, e a senha dele é sempre o campo seguinte —
+  // vale nos dois layouts conhecidos, e evita confundi-la com uma chave 2FA.
+  const emailIndex = parts.findIndex((value, index) => index >= 2 && EMAIL_PATTERN.test(value));
+  if (emailIndex !== -1) {
+    account.email = parts[emailIndex];
+    consumed.add(emailIndex);
+    const next = parts[emailIndex + 1];
+    if (next && !EMAIL_PATTERN.test(next) && !isCookie(next)) {
+      account.emailPassword = next;
+      consumed.add(emailIndex + 1);
+    }
+  }
+
+  const extras: string[] = [];
+  parts.forEach((value, index) => {
+    if (consumed.has(index) || !value) return;
+    // Primeiro do tipo ganha o campo: nos dois layouts o 2FA vem antes do
+    // access_secret, que é o único outro candidato plausível a Base32.
+    const slot = classify(value);
+    if (slot === 'extra') extras.push(value);
+    else if (slot === 'twoFa') account.twoFa = account.twoFa || normalizeTwoFaSecret(value);
+    else if (!account[slot]) account[slot] = value;
+    else extras.push(value);
+  });
+
+  if (account.accessToken) {
+    const secretIndex = extras.findIndex((value) => value.length >= 30);
+    if (secretIndex !== -1) account.accessSecret = extras.splice(secretIndex, 1)[0];
+  }
+  const deviceIndex = extras.findIndex((value) => value.length <= DEVICE_MAX_LENGTH);
+  if (deviceIndex !== -1) account.device = extras[deviceIndex];
+
+  account.authToken = account.authToken || extractAuthToken(account.cookie);
+  return account;
+}
+
+function parseShortLine(line: string): RawAccount {
+  const parts = line.split(/[:;]/);
+  return {
+    ...EMPTY,
+    login: parts[0]?.trim() ?? '',
+    password: parts[1]?.trim() ?? '',
+    twoFa: normalizeTwoFaSecret(parts.slice(2).join('')),
+  };
+}
+
+export function parseMoreLoginAccounts(input: string) {
+  const accounts: MoreLoginAccount[] = [];
+  const errors: MoreLoginAccountError[] = [];
+  input.split(/\r?\n/).forEach((rawLine, index) => {
+    const line = rawLine.trim();
+    if (!line) return;
+    const extended = line.includes('|');
+    const raw = extended ? parseExtendedLine(line) : parseShortLine(line);
+    if (!raw.login || !raw.password) {
+      errors.push({ line: index + 1, text: rawLine, reason: extended ? 'Formato completo precisa de pelo menos login|senha|2fa.' : 'Use usuario:senha:2fa ou usuario;senha;2fa.' });
+      return;
+    }
+    // No formato curto o 2FA sempre fez parte da linha; no completo ele pode
+    // vir vazio sem que a linha deixe de servir.
+    if (!extended && !raw.twoFa) {
+      errors.push({ line: index + 1, text: rawLine, reason: 'Usuário, senha e 2FA são obrigatórios.' });
+      return;
+    }
+    accounts.push({ id: `${index}-${raw.login}`, line: index + 1, profileName: raw.login.slice(0, 64), ...raw });
+  });
+  return { accounts, errors };
+}
+
+/** Coluna "Cookie": formato que a planilha do MoreLogin documenta para o X. */
+export function buildMoreLoginCookie(account: MoreLoginAccount) {
+  return account.authToken ? `auth_token=${account.authToken}` : '';
+}
+
+/** Coluna "Profile note": o que um operador precisa ler dentro do perfil. */
+export function buildMoreLoginProfileNote(account: MoreLoginAccount) {
+  return [
+    account.email ? `email: ${account.email}` : '',
+    account.emailPassword ? `senha do email: ${account.emailPassword}` : '',
+    account.device ? `device: ${account.device}` : '',
+  ].filter(Boolean).join('\n');
+}

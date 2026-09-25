@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
+import { type MoreLoginAccount, buildMoreLoginCookie, buildMoreLoginProfileNote, normalizeTwoFaSecret, parseMoreLoginAccounts } from '@/lib/morelogin/accounts';
 import { type MoreLoginProxyType, buildMoreLoginChromePackage, buildMoreLoginChromeRows } from '@/lib/morelogin/chrome-workbook';
 
 type Organization = {
@@ -14,14 +15,7 @@ type ImportTarget = 'chrome' | 'cloudphone';
 type ProxyType = MoreLoginProxyType;
 type CloudPhoneModel = 'Android 15' | 'Android 14' | 'Android 13' | 'Android 12' | 'Android 15A' | 'Android 11' | 'Android 16';
 
-type ParsedAccount = {
-  id: string;
-  line: number;
-  profileName: string;
-  login: string;
-  password: string;
-  twoFa: string;
-};
+type ParsedAccount = MoreLoginAccount;
 
 type ParsedProxy = {
   id: string;
@@ -39,33 +33,6 @@ type TotpState = Record<string, { code: string; valid: boolean; error?: string }
 const cloudPhoneHeaders = ['Profile name', 'Model', 'Proxy type', 'Proxy information', 'Proxy Name', 'Proxy Number', 'Group', 'Tags', 'Notes', 'Custom number'];
 const cloudPhoneModels: CloudPhoneModel[] = ['Android 15', 'Android 14', 'Android 13', 'Android 12', 'Android 15A', 'Android 11', 'Android 16'];
 const proxyTypes: ProxyType[] = ['HTTP', 'HTTPS', 'SOCKS5', 'SSH'];
-
-function normalizeSecret(value: string) {
-  return value.replace(/\s+/g, '').replace(/-/g, '').toUpperCase();
-}
-
-function parseAccounts(input: string) {
-  const accounts: ParsedAccount[] = [];
-  const errors: ParsedLineError[] = [];
-  input.split(/\r?\n/).forEach((rawLine, index) => {
-    const line = rawLine.trim();
-    if (!line) return;
-    const parts = line.split(/[:;]/);
-    if (parts.length < 3) {
-      errors.push({ line: index + 1, text: rawLine, reason: 'Use usuario:senha:2fa ou usuario;senha;2fa.' });
-      return;
-    }
-    const login = parts[0]?.trim() ?? '';
-    const password = parts[1]?.trim() ?? '';
-    const twoFa = normalizeSecret(parts.slice(2).join(':'));
-    if (!login || !password || !twoFa) {
-      errors.push({ line: index + 1, text: rawLine, reason: 'Usuário, senha e 2FA são obrigatórios.' });
-      return;
-    }
-    accounts.push({ id: `${index}-${login}`, line: index + 1, profileName: login.slice(0, 64), login, password, twoFa });
-  });
-  return { accounts, errors };
-}
 
 function parseProxies(input: string) {
   const proxies: ParsedProxy[] = [];
@@ -93,7 +60,7 @@ function parseProxies(input: string) {
 
 function decodeBase32(secret: string) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  const clean = normalizeSecret(secret).replace(/=+$/g, '');
+  const clean = normalizeTwoFaSecret(secret).replace(/=+$/g, '');
   if (!clean || /[^A-Z2-7]/.test(clean)) throw new Error('Chave 2FA fora do padrão Base32.');
   let bits = '';
   for (const character of clean) {
@@ -126,8 +93,10 @@ async function generateTotp(secret: string, timestamp = Date.now()) {
   return String(binary % 1000000).padStart(6, '0');
 }
 
-function profileNote(account: ParsedAccount) {
-  return [`usuario: ${account.login}`, `senha: ${account.password}`, `2fa: ${account.twoFa}`].join('\n');
+// O Cloud Phone não tem colunas de login, então a observação continua carregando
+// usuário, senha e 2FA — mais os campos extras do formato completo.
+function cloudPhoneNote(account: ParsedAccount) {
+  return [`usuario: ${account.login}`, `senha: ${account.password}`, `2fa: ${account.twoFa}`, buildMoreLoginProfileNote(account)].filter(Boolean).join('\n');
 }
 
 function buildCloudPhoneRows(accounts: ParsedAccount[], proxies: ParsedProxy[], proxyType: ProxyType, model: CloudPhoneModel, groupName: string) {
@@ -138,7 +107,7 @@ function buildCloudPhoneRows(accounts: ParsedAccount[], proxies: ParsedProxy[], 
     ['Nome do Perfil', 'Versão do modelo', 'Tipo de protocolo', 'Informações de proxy', 'Nome do Proxy', 'Número do Proxy', 'Grupo', 'Tags', 'Observações sobre o Cloud Phone', 'Número customizado'],
     ...accounts.map((account, index) => {
       const proxy = proxies[index];
-      return [account.profileName, model, proxy ? proxyType : '', proxy?.raw ?? '', '', '', workbookGroupName, '', profileNote(account), ''];
+      return [account.profileName, model, proxy ? proxyType : '', proxy?.raw ?? '', '', '', workbookGroupName, '', cloudPhoneNote(account), ''];
     }),
   ];
 }
@@ -148,7 +117,7 @@ function buildCloudPhoneRows(accounts: ParsedAccount[], proxies: ParsedProxy[], 
 async function downloadChromeWorkbook(accounts: ParsedAccount[], proxies: ParsedProxy[], proxyType: ProxyType, groupName: string, filename: string) {
   const { CFB } = await import('xlsx');
   const rows = buildMoreLoginChromeRows(
-    accounts.map((account, index) => ({ profileName: account.profileName, login: account.login, password: account.password, twoFa: account.twoFa, proxy: proxies[index]?.raw })),
+    accounts.map((account, index) => ({ profileName: account.profileName, login: account.login, password: account.password, twoFa: account.twoFa, proxy: proxies[index]?.raw, cookie: buildMoreLoginCookie(account), note: buildMoreLoginProfileNote(account) })),
     proxyType,
     groupName,
   );
@@ -187,7 +156,7 @@ export default function MoreLoginBulkClient({ activeOrganization }: { activeOrga
   const [message, setMessage] = useState('');
   const [messageTone, setMessageTone] = useState<'neutral' | 'success' | 'error'>('neutral');
 
-  const parsedAccounts = useMemo(() => parseAccounts(accountsText), [accountsText]);
+  const parsedAccounts = useMemo(() => parseMoreLoginAccounts(accountsText), [accountsText]);
   const parsedProxies = useMemo(() => parseProxies(proxiesText), [proxiesText]);
   const accounts = parsedAccounts.accounts;
   const proxies = parsedProxies.proxies;
@@ -196,13 +165,15 @@ export default function MoreLoginBulkClient({ activeOrganization }: { activeOrga
   const usableAccounts = useMemo(() => accounts.slice(0, 300), [accounts]);
   const overLimitCount = Math.max(accounts.length - 300, 0);
   const accountsWith2fa = usableAccounts.filter((account) => account.twoFa).length;
+  const accountsWithCookie = usableAccounts.filter((account) => account.authToken).length;
+  const accountsWithEmail = usableAccounts.filter((account) => account.email).length;
   const fixedProxyCount = Math.min(usableAccounts.length, proxies.length);
   const missingProxyCount = Math.max(usableAccounts.length - proxies.length, 0);
   const extraProxyCount = Math.max(proxies.length - usableAccounts.length, 0);
   const filteredAccounts = usableAccounts.filter((account) => {
     const term = filter.trim().toLowerCase();
     if (!term) return true;
-    return account.profileName.toLowerCase().includes(term) || account.login.toLowerCase().includes(term) || account.password.toLowerCase().includes(term);
+    return account.profileName.toLowerCase().includes(term) || account.login.toLowerCase().includes(term) || account.password.toLowerCase().includes(term) || account.email.toLowerCase().includes(term);
   });
 
   useEffect(() => {
@@ -210,6 +181,10 @@ export default function MoreLoginBulkClient({ activeOrganization }: { activeOrga
     async function refreshCodes() {
       const nextState: TotpState = {};
       await Promise.all(usableAccounts.map(async (account) => {
+        if (!account.twoFa) {
+          nextState[account.id] = { code: '------', valid: false, error: 'Linha sem chave 2FA.' };
+          return;
+        }
         try {
           nextState[account.id] = { code: await generateTotp(account.twoFa), valid: true };
         } catch (error) {
@@ -303,7 +278,7 @@ export default function MoreLoginBulkClient({ activeOrganization }: { activeOrga
 
   async function downloadWorkbook() {
     if (usableAccounts.length === 0) {
-      setMessage('Cole pelo menos uma conta válida no formato usuario:senha:2fa.');
+      setMessage('Cole pelo menos uma conta válida: login|senha|2fa|... ou usuario:senha:2fa.');
       setMessageTone('error');
       return;
     }
@@ -345,7 +320,7 @@ export default function MoreLoginBulkClient({ activeOrganization }: { activeOrga
         <div>
           <span className="section-kicker">{activeOrganization.name} · MoreLogin</span>
           <h1>Bulk Import</h1>
-          <p>Cole contas no formato <strong>usuario:senha:2fa</strong> ou <strong>usuario;senha;2fa</strong>, gere o Excel oficial para Chrome ou Cloud Phone e copie os códigos 2FA ao vivo abaixo.</p>
+          <p>Cole as linhas separadas por <strong>|</strong> — a ordem dos campos não importa, cada um é reconhecido pelo conteúdo (email, 2FA, cookie, auth_token, client_id). Só login e senha precisam vir nessa ordem, no começo. O formato curto <strong>usuario:senha:2fa</strong> continua valendo. Gere o Excel oficial para Chrome ou Cloud Phone e copie os códigos 2FA ao vivo abaixo.</p>
         </div>
       </header>
 
@@ -367,7 +342,7 @@ export default function MoreLoginBulkClient({ activeOrganization }: { activeOrga
 
       <section className="bulk-metric-grid" aria-label="Resumo do bulk import">
         <article className="metric-card"><span className="metric-label">Contas</span><strong>{usableAccounts.length}</strong><span className="metric-caption">{overLimitCount ? `${overLimitCount} fora do limite` : 'Linhas válidas'}</span></article>
-        <article className="metric-card"><span className="metric-label">Com 2FA</span><strong>{accountsWith2fa}</strong><span className="metric-caption">Códigos ao vivo</span></article>
+        <article className="metric-card"><span className="metric-label">Com 2FA</span><strong>{accountsWith2fa}</strong><span className="metric-caption">{accountsWithCookie} com cookie · {accountsWithEmail} com email</span></article>
         <article className="metric-card"><span className="metric-label">Proxies</span><strong>{proxies.length}</strong><span className="metric-caption">Linhas válidas</span></article>
         <article className="metric-card"><span className="metric-label">Modelo</span><strong>{target === 'chrome' ? 'Chrome' : model.replace('Android ', 'A')}</strong><span className="metric-caption">{target === 'chrome' ? 'Perfil de navegador' : 'Cloud Phone'}</span></article>
       </section>
@@ -388,8 +363,8 @@ export default function MoreLoginBulkClient({ activeOrganization }: { activeOrga
               <small>{usableAccounts.length} linha(s)</small>
             </span>
           </span>
-          <em>Uma por linha — usuario:senha:2fa ou usuario;senha;2fa</em>
-          <textarea id="bulk-accounts" value={accountsText} onChange={(event) => setAccountsText(event.target.value)} spellCheck={false} placeholder="usuario:senha:2fa ou usuario;senha;2fa" />
+          <em>Uma por linha — login|senha|... com os outros campos em qualquer ordem (ou o curto usuario:senha:2fa)</em>
+          <textarea id="bulk-accounts" value={accountsText} onChange={(event) => setAccountsText(event.target.value)} spellCheck={false} placeholder="login|senha|email|senha do email|OAUTH2|2fa|token" />
         </div>
         <label className="panel bulk-textarea-panel" htmlFor="bulk-proxies">
           <span><strong>Proxies (opcional)</strong><small>{proxies.length} linha(s)</small></span>
@@ -399,7 +374,7 @@ export default function MoreLoginBulkClient({ activeOrganization }: { activeOrga
       </section>
 
       <section className="bulk-alert-stack" aria-live="polite">
-        {target === 'chrome' && <p className="bulk-proxy-fixed-alert">Perfis Chrome saem com plataforma twitter (https://x.com). {fixedProxyCount} de {usableAccounts.length} perfis usam a proxy fixa da importação do Chrome (mesma proxy por perfil, pra não tomar ban).</p>}
+        {target === 'chrome' && <p className="bulk-proxy-fixed-alert">Perfis Chrome saem com plataforma twitter (https://x.com), o auth_token do cookie na coluna Cookie e email/senha do email na observação. {fixedProxyCount} de {usableAccounts.length} perfis usam a proxy fixa da importação do Chrome (mesma proxy por perfil, pra não tomar ban).</p>}
         {missingProxyCount > 0 && <p className="bulk-warning-alert">{missingProxyCount} perfil(is) ainda não têm proxy fixa. Gere o arquivo somente se eles puderem usar proxy colada depois ou nenhuma.</p>}
         {extraProxyCount > 0 && <p className="bulk-warning-alert">{extraProxyCount} proxy(s) sobrando não entram no Excel porque não há conta correspondente.</p>}
         {overLimitCount > 0 && <p className="bulk-error-alert">O MoreLogin aceita no máximo 300 linhas por importação. Baixaremos apenas as primeiras 300 válidas.</p>}

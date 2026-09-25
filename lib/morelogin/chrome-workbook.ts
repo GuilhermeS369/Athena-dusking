@@ -14,6 +14,8 @@ export type MoreLoginChromeProfile = {
   password: string;
   twoFa: string;
   proxy?: string;
+  cookie?: string;
+  note?: string;
 };
 
 export const MORELOGIN_CHROME_MAX_ROWS = 300;
@@ -56,14 +58,14 @@ export function buildMoreLoginChromeRows(profiles: MoreLoginChromeProfile[], pro
       profile.login,
       profile.password,
       profile.twoFa,
-      '',
+      profile.cookie ?? '',
       profile.proxy ? proxyType : '',
       profile.proxy ?? '',
       '',
       '',
       group,
       '',
-      '',
+      profile.note ?? '',
       '',
       '',
     ]),
