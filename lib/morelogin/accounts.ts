@@ -1,12 +1,14 @@
 // Leitura das linhas coladas no campo "Contas" do bulk import.
 //
-// Formato curto, o que a tela já usava: `usuario:senha:2fa` ou `usuario;senha;2fa`.
+// Formato curto, o que a tela já usava: `usuario:senha:2fa` ou `usuario;senha;2fa`
+// (exatamente três campos separados por `:` ou `;`).
 //
-// Formato completo, separado por `|`. A ordem dos campos muda conforme o
-// fornecedor do lote — dois exemplos reais:
+// Formato completo, com os campos separados por `|` ou por `:` (quatro campos ou
+// mais). A ordem muda conforme o fornecedor do lote — três exemplos reais:
 //
 //   login|senha|2fa|email|senha do email|client_id|refresh_token|access_token|access_secret|device|cookie
 //   login|senha|email|senha do email|OAUTH2|2fa|token
+//   login:senha:2fa:email:senha do email:token_longo:auth_token
 //
 // Por isso nada aqui depende da posição, fora login e senha, que são sempre os
 // dois primeiros. Cada campo seguinte é reconhecido pelo que ele é: e-mail tem
@@ -78,9 +80,9 @@ const EMPTY: Omit<RawAccount, 'login' | 'password'> = {
   twoFa: '', email: '', emailPassword: '', clientId: '', refreshToken: '', accessToken: '', accessSecret: '', device: '', cookie: '', authToken: '',
 };
 
-function parseExtendedLine(line: string): RawAccount {
+function parseExtendedLine(rawParts: string[]): RawAccount {
   // `-` é o marcador de campo vazio usado nos lotes.
-  const parts = line.split('|').map((part) => (part.trim() === '-' ? '' : part.trim()));
+  const parts = rawParts.map((part) => (part.trim() === '-' ? '' : part.trim()));
   const account: RawAccount = { ...EMPTY, login: parts[0] ?? '', password: parts[1] ?? '' };
   const consumed = new Set([0, 1]);
 
@@ -120,8 +122,7 @@ function parseExtendedLine(line: string): RawAccount {
   return account;
 }
 
-function parseShortLine(line: string): RawAccount {
-  const parts = line.split(/[:;]/);
+function parseShortLine(parts: string[]): RawAccount {
   return {
     ...EMPTY,
     login: parts[0]?.trim() ?? '',
@@ -130,14 +131,26 @@ function parseShortLine(line: string): RawAccount {
   };
 }
 
+// Decide o separador e se a linha é completa. `|` é sempre completo. Com `:`/`;`,
+// três campos ou menos é o curto `usuario:senha:2fa`; quatro ou mais é um lote
+// completo com os campos delimitados por `:` (login:senha:2fa:email:...:token).
+function splitLine(line: string): { extended: boolean; parts: string[] } {
+  if (line.includes('|')) return { extended: true, parts: line.split('|') };
+  const parts = line.split(/[:;]/);
+  return { extended: parts.length > 3, parts };
+}
+
 export function parseMoreLoginAccounts(input: string) {
   const accounts: MoreLoginAccount[] = [];
   const errors: MoreLoginAccountError[] = [];
   input.split(/\r?\n/).forEach((rawLine, index) => {
     const line = rawLine.trim();
     if (!line) return;
-    const extended = line.includes('|');
-    const raw = extended ? parseExtendedLine(line) : parseShortLine(line);
+    // Cabeçalhos "Account #1" que alguns exports intercalam entre os registros —
+    // não são conta e não podem bloquear o download como linha inválida.
+    if (/^account\s*#?\s*\d+$/i.test(line)) return;
+    const { extended, parts } = splitLine(line);
+    const raw = extended ? parseExtendedLine(parts) : parseShortLine(parts);
     if (!raw.login || !raw.password) {
       errors.push({ line: index + 1, text: rawLine, reason: extended ? 'Formato completo precisa de pelo menos login|senha|2fa.' : 'Use usuario:senha:2fa ou usuario;senha;2fa.' });
       return;

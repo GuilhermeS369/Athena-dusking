@@ -320,7 +320,7 @@ export default function MoreLoginBulkClient({ activeOrganization }: { activeOrga
         <div>
           <span className="section-kicker">{activeOrganization.name} · MoreLogin</span>
           <h1>Bulk Import</h1>
-          <p>Cole as linhas separadas por <strong>|</strong> — a ordem dos campos não importa, cada um é reconhecido pelo conteúdo (email, 2FA, cookie, auth_token, client_id). Só login e senha precisam vir nessa ordem, no começo. O formato curto <strong>usuario:senha:2fa</strong> continua valendo. Gere o Excel oficial para Chrome ou Cloud Phone e copie os códigos 2FA ao vivo abaixo.</p>
+          <p>Cole as linhas separadas por <strong>|</strong> ou por <strong>:</strong> — a ordem dos campos não importa, cada um é reconhecido pelo conteúdo (email, 2FA, cookie, auth_token, client_id). Só login e senha precisam vir nessa ordem, no começo. O formato curto <strong>usuario:senha:2fa</strong> continua valendo. Gere o Excel oficial para Chrome ou Cloud Phone e copie os códigos 2FA ao vivo abaixo.</p>
         </div>
       </header>
 
@@ -363,7 +363,7 @@ export default function MoreLoginBulkClient({ activeOrganization }: { activeOrga
               <small>{usableAccounts.length} linha(s)</small>
             </span>
           </span>
-          <em>Uma por linha — login|senha|... com os outros campos em qualquer ordem (ou o curto usuario:senha:2fa)</em>
+          <em>Uma por linha — login e senha primeiro, os outros campos em qualquer ordem, separados por | ou : (ou o curto usuario:senha:2fa)</em>
           <textarea id="bulk-accounts" value={accountsText} onChange={(event) => setAccountsText(event.target.value)} spellCheck={false} placeholder="login|senha|email|senha do email|OAUTH2|2fa|token" />
         </div>
         <label className="panel bulk-textarea-panel" htmlFor="bulk-proxies">

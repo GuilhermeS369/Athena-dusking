@@ -53,6 +53,39 @@ test('layout de 7 campos cai nos mesmos lugares, com a ordem trocada', () => {
   assert.equal(account.cookie, '');
 });
 
+// login:senha:2fa:email:senha do email:token_longo:auth_token — tudo com `:`.
+test('layout completo separado por dois-pontos cai nos mesmos lugares', () => {
+  const longToken = 'a'.repeat(128);
+  const linha = `TestUser1:abc123XY:TEF7LSEJF5UMZMD5:someone@rambler.ru:pw9xZ:${longToken}:${authToken}`;
+  const { accounts, errors } = parseMoreLoginAccounts(linha);
+  assert.deepEqual(errors, []);
+  const [account] = accounts;
+  assert.equal(account.login, 'TestUser1');
+  assert.equal(account.password, 'abc123XY');
+  assert.equal(account.twoFa, 'TEF7LSEJF5UMZMD5');
+  assert.equal(account.email, 'someone@rambler.ru');
+  assert.equal(account.emailPassword, 'pw9xZ');
+  assert.equal(account.refreshToken, longToken);
+  assert.equal(account.authToken, authToken);
+  assert.equal(buildMoreLoginCookie(account), `auth_token=${authToken}`);
+  assert.equal(buildMoreLoginProfileNote(account), 'email: someone@rambler.ru\nsenha do email: pw9xZ');
+});
+
+test('linhas de cabeçalho "Account #N" são ignoradas, não viram erro', () => {
+  const bloco = `Account #1\nTestUser1:abc123XY:TEF7LSEJF5UMZMD5:someone@rambler.ru:pw9xZ:${'a'.repeat(128)}:${authToken}\nAccount #2\nTestUser2:def456ZW:BEO7E6ZOMZ67SCKM:other@rambler.ru:pw2Yy:${'c'.repeat(128)}:${authToken}`;
+  const { accounts, errors } = parseMoreLoginAccounts(bloco);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(accounts.map((account) => account.login), ['TestUser1', 'TestUser2']);
+});
+
+test('exatamente três campos com dois-pontos continua sendo o formato curto', () => {
+  const [account] = parseMoreLoginAccounts('login1:senha1:TEF7LSEJF5UMZMD5').accounts;
+  assert.equal(account.login, 'login1');
+  assert.equal(account.password, 'senha1');
+  assert.equal(account.twoFa, 'TEF7LSEJF5UMZMD5');
+  assert.equal(account.email, '');
+});
+
 test('os dois layouts geram a mesma planilha', () => {
   const [deOnze] = parseMoreLoginAccounts(onzeCampos).accounts;
   const [deSete] = parseMoreLoginAccounts(seteCampos).accounts;
