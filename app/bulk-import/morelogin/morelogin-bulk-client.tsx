@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
+import { type MoreLoginProxyType, buildMoreLoginChromePackage, buildMoreLoginChromeRows } from '@/lib/morelogin/chrome-workbook';
+
 type Organization = {
   id: string;
   name: string;
@@ -9,7 +11,7 @@ type Organization = {
 };
 
 type ImportTarget = 'chrome' | 'cloudphone';
-type ProxyType = 'HTTP' | 'HTTPS' | 'SOCKS5' | 'SSH';
+type ProxyType = MoreLoginProxyType;
 type CloudPhoneModel = 'Android 15' | 'Android 14' | 'Android 13' | 'Android 12' | 'Android 15A' | 'Android 11' | 'Android 16';
 
 type ParsedAccount = {
@@ -34,7 +36,6 @@ type ParsedProxy = {
 type ParsedLineError = { line: number; text: string; reason: string };
 type TotpState = Record<string, { code: string; valid: boolean; error?: string }>;
 
-const chromeHeaders = ['Profile name', 'Platform', 'User-defined platform domain name', 'Login account', 'Login password', '2FA key', 'Cookie', 'Proxy type', 'Proxy information', 'Proxy Name', 'Proxy Number', 'Profile group', 'Profile tag', 'Profile note', 'Custom number', 'UA'];
 const cloudPhoneHeaders = ['Profile name', 'Model', 'Proxy type', 'Proxy information', 'Proxy Name', 'Proxy Number', 'Group', 'Tags', 'Notes', 'Custom number'];
 const cloudPhoneModels: CloudPhoneModel[] = ['Android 15', 'Android 14', 'Android 13', 'Android 12', 'Android 15A', 'Android 11', 'Android 16'];
 const proxyTypes: ProxyType[] = ['HTTP', 'HTTPS', 'SOCKS5', 'SSH'];
@@ -129,19 +130,8 @@ function profileNote(account: ParsedAccount) {
   return [`usuario: ${account.login}`, `senha: ${account.password}`, `2fa: ${account.twoFa}`].join('\n');
 }
 
-function buildWorkbookRows(target: ImportTarget, accounts: ParsedAccount[], proxies: ParsedProxy[], proxyType: ProxyType, model: CloudPhoneModel, groupName: string) {
+function buildCloudPhoneRows(accounts: ParsedAccount[], proxies: ParsedProxy[], proxyType: ProxyType, model: CloudPhoneModel, groupName: string) {
   const workbookGroupName = groupName.trim() ? groupName : '';
-  if (target === 'chrome') {
-    return [
-      ['Notas para preencher: não altere campos. Dados a partir da quarta linha. Limite MoreLogin: 300 linhas.'],
-      chromeHeaders,
-      ['Nome do ambiente obrigatório', 'Sua plataforma opcional', 'Domínio customizado opcional', 'Conta de login', 'Senha de login', 'Chave 2FA', 'Cookie', 'Tipo de protocolo', 'Informações do proxy', 'Nome do Proxy', 'Número do Proxy', 'Grupo', 'Tag', 'OBS do ambiente', 'Número customizado', 'UA'],
-      ...accounts.map((account, index) => {
-        const proxy = proxies[index];
-        return [account.profileName, '', '', account.login, account.password, account.twoFa, '', proxy ? proxyType : '', proxy?.raw ?? '', '', '', workbookGroupName, '', profileNote(account), '', ''];
-      }),
-    ];
-  }
   return [
     ['Instruções de preenchimento: não altere campos. Dados a partir da quarta linha. Limite MoreLogin: 300 linhas.'],
     cloudPhoneHeaders,
@@ -151,6 +141,27 @@ function buildWorkbookRows(target: ImportTarget, accounts: ParsedAccount[], prox
       return [account.profileName, model, proxy ? proxyType : '', proxy?.raw ?? '', '', '', workbookGroupName, '', profileNote(account), ''];
     }),
   ];
+}
+
+// O MoreLogin recusava a planilha do SheetJS para Chrome; este caminho monta o
+// pacote idêntico ao modelo aceito (ver lib/morelogin/chrome-workbook.ts).
+async function downloadChromeWorkbook(accounts: ParsedAccount[], proxies: ParsedProxy[], proxyType: ProxyType, groupName: string, filename: string) {
+  const { CFB } = await import('xlsx');
+  const rows = buildMoreLoginChromeRows(
+    accounts.map((account, index) => ({ profileName: account.profileName, login: account.login, password: account.password, twoFa: account.twoFa, proxy: proxies[index]?.raw })),
+    proxyType,
+    groupName,
+  );
+  const archive = CFB.utils.cfb_new();
+  const encoder = new TextEncoder();
+  for (const [path, content] of Object.entries(buildMoreLoginChromePackage(rows))) CFB.utils.cfb_add(archive, path, encoder.encode(content));
+  const bytes: Uint8Array = CFB.write(archive, { fileType: 'zip', type: 'array', compression: true });
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function fileDateStamp() {
@@ -301,21 +312,15 @@ export default function MoreLoginBulkClient({ activeOrganization }: { activeOrga
       setMessageTone('error');
       return;
     }
-    const XLSX = await import('xlsx');
-    const workbook = XLSX.utils.book_new();
-    const sheetName = target === 'chrome' ? 'Perfil (obrigatório)' : 'Informações do telefone na nuve';
-    const rows = buildWorkbookRows(target, usableAccounts, proxies, proxyType, model, groupName);
-    const worksheet = XLSX.utils.aoa_to_sheet(rows);
-    worksheet['!cols'] = (target === 'chrome' ? chromeHeaders : cloudPhoneHeaders).map((header) => ({ wch: Math.max(header.length + 4, 18) }));
-    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+    const filename = target === 'chrome' ? `morelogin-chrome-${fileDateStamp()}.xlsx` : `morelogin-cloudphone-${fileDateStamp()}.xlsx`;
     if (target === 'chrome') {
-      const extraSheet = XLSX.utils.aoa_to_sheet([
-        ['Notas: use esta aba apenas para contas adicionais no mesmo perfil.'],
-        ['Profile name', 'Platform', 'User-defined platform domain name', 'Login account', 'Login password'],
-        ['Nome do perfil', 'Plataforma', 'Domínio customizado', 'Conta de login', 'Senha de login'],
-      ]);
-      XLSX.utils.book_append_sheet(workbook, extraSheet, 'Conta adicional (opcional)');
+      await downloadChromeWorkbook(usableAccounts, proxies, proxyType, groupName, filename);
     } else {
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.aoa_to_sheet(buildCloudPhoneRows(usableAccounts, proxies, proxyType, model, groupName));
+      worksheet['!cols'] = cloudPhoneHeaders.map((header) => ({ wch: Math.max(header.length + 4, 18) }));
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Informações do telefone na nuve');
       const optionsSheet = XLSX.utils.aoa_to_sheet([
         ['Socks5', 'Android 15'],
         ['HTTP', 'Android 14'],
@@ -326,9 +331,8 @@ export default function MoreLoginBulkClient({ activeOrganization }: { activeOrga
         ['', 'Android 16'],
       ]);
       XLSX.utils.book_append_sheet(workbook, optionsSheet, 'Opções');
+      XLSX.writeFile(workbook, filename, { bookType: 'xlsx' });
     }
-    const filename = target === 'chrome' ? `morelogin-chrome-${fileDateStamp()}.xlsx` : `morelogin-cloudphone-${fileDateStamp()}.xlsx`;
-    XLSX.writeFile(workbook, filename, { bookType: 'xlsx' });
     setMessage(`Arquivo ${filename} gerado com ${usableAccounts.length} perfil(is).`);
     setMessageTone('success');
   }
@@ -395,7 +399,7 @@ export default function MoreLoginBulkClient({ activeOrganization }: { activeOrga
       </section>
 
       <section className="bulk-alert-stack" aria-live="polite">
-        {target === 'chrome' && <p className="bulk-proxy-fixed-alert">{fixedProxyCount} de {usableAccounts.length} perfis usam a proxy fixa da importação do Chrome (mesma proxy por perfil, pra não tomar ban).</p>}
+        {target === 'chrome' && <p className="bulk-proxy-fixed-alert">Perfis Chrome saem com plataforma twitter (https://x.com). {fixedProxyCount} de {usableAccounts.length} perfis usam a proxy fixa da importação do Chrome (mesma proxy por perfil, pra não tomar ban).</p>}
         {missingProxyCount > 0 && <p className="bulk-warning-alert">{missingProxyCount} perfil(is) ainda não têm proxy fixa. Gere o arquivo somente se eles puderem usar proxy colada depois ou nenhuma.</p>}
         {extraProxyCount > 0 && <p className="bulk-warning-alert">{extraProxyCount} proxy(s) sobrando não entram no Excel porque não há conta correspondente.</p>}
         {overLimitCount > 0 && <p className="bulk-error-alert">O MoreLogin aceita no máximo 300 linhas por importação. Baixaremos apenas as primeiras 300 válidas.</p>}
