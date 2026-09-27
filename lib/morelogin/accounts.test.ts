@@ -77,6 +77,22 @@ test('linhas de cabeçalho "Account #N" são ignoradas, não viram erro', () => 
   assert.deepEqual(accounts.map((account) => account.login), ['TestUser1', 'TestUser2']);
 });
 
+// login:senha:auth_token:email:senha do email:2fa — o auth_token vem antes do email.
+test('layout de 6 campos com auth_token antes do email', () => {
+  const linha = `RonaldTest1:pw12345AB:${authToken}:someone@outlook.com:epzz:W5YUC5IQJRD76BNM`;
+  const { accounts, errors } = parseMoreLoginAccounts(linha);
+  assert.deepEqual(errors, []);
+  const [account] = accounts;
+  assert.equal(account.login, 'RonaldTest1');
+  assert.equal(account.password, 'pw12345AB');
+  assert.equal(account.authToken, authToken);
+  assert.equal(account.email, 'someone@outlook.com');
+  assert.equal(account.emailPassword, 'epzz');
+  assert.equal(account.twoFa, 'W5YUC5IQJRD76BNM');
+  assert.equal(buildMoreLoginCookie(account), `auth_token=${authToken}`);
+  assert.equal(buildMoreLoginProfileNote(account), 'email: someone@outlook.com\nsenha do email: epzz');
+});
+
 test('exatamente três campos com dois-pontos continua sendo o formato curto', () => {
   const [account] = parseMoreLoginAccounts('login1:senha1:TEF7LSEJF5UMZMD5').accounts;
   assert.equal(account.login, 'login1');
