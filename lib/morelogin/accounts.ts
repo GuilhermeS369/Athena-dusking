@@ -3,12 +3,13 @@
 // Formato curto, o que a tela já usava: `usuario:senha:2fa` ou `usuario;senha;2fa`
 // (exatamente três campos separados por `:` ou `;`).
 //
-// Formato completo, com os campos separados por `|` ou por `:` (quatro campos ou
-// mais). A ordem muda conforme o fornecedor do lote — três exemplos reais:
+// Formato completo, com os campos separados por `|`, por `----` ou por `:` (quatro
+// campos ou mais). A ordem muda conforme o fornecedor do lote — exemplos reais:
 //
 //   login|senha|2fa|email|senha do email|client_id|refresh_token|access_token|access_secret|device|cookie
 //   login|senha|email|senha do email|OAUTH2|2fa|token
 //   login:senha:2fa:email:senha do email:token_longo:auth_token
+//   login----senha----email----senha do email----2fa----auth_token  (campo vazio vira `--------`)
 //   login|senha|email|senha do email|telefone|token_longo|auth_token|2fa|data|n|n|n|false|pais| email|senha|refresh_token|client_id
 //
 // Metadados que alguns lotes carregam (telefone, data, contadores, booleano,
@@ -124,8 +125,9 @@ const EMPTY: Omit<RawAccount, 'login' | 'password'> = {
 };
 
 function parseExtendedLine(rawParts: string[]): RawAccount {
-  // `-` é o marcador de campo vazio usado nos lotes.
-  const parts = rawParts.map((part) => (part.trim() === '-' ? '' : part.trim()));
+  // Campo vazio pode chegar como `-` (um traço) ou como só traços — restos do
+  // separador `----` quando um campo do meio veio em branco.
+  const parts = rawParts.map((part) => (/^-+$/.test(part.trim()) ? '' : part.trim()));
   const account: RawAccount = { ...EMPTY, login: parts[0] ?? '', password: parts[1] ?? '' };
   const consumed = new Set([0, 1]);
 
@@ -172,11 +174,16 @@ function parseShortLine(parts: string[]): RawAccount {
   };
 }
 
-// Decide o separador e se a linha é completa. `|` é sempre completo. Com `:`/`;`,
-// três campos ou menos é o curto `usuario:senha:2fa`; quatro ou mais é um lote
-// completo com os campos delimitados por `:` (login:senha:2fa:email:...:token).
+// Decide o separador e se a linha é completa. `|` e `----` são sempre completos.
+// Com `:`/`;`, três campos ou menos é o curto `usuario:senha:2fa`; quatro ou mais
+// é um lote completo com os campos delimitados por `:` (login:senha:2fa:...:token).
 function splitLine(line: string): { extended: boolean; parts: string[] } {
   if (line.includes('|')) return { extended: true, parts: line.split('|') };
+  // Separador `----`: um campo vazio do meio aparece como `--------` (dois
+  // separadores seguidos). Divido pela unidade de quatro traços para preservar
+  // essa posição vazia — colapsá-la empurraria o 2FA para o lugar da senha do
+  // e-mail.
+  if (line.includes('----')) return { extended: true, parts: line.split('----') };
   const parts = line.split(/[:;]/);
   return { extended: parts.length > 3, parts };
 }

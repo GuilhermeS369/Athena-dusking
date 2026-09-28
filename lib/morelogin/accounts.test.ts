@@ -93,6 +93,30 @@ test('layout de 6 campos com auth_token antes do email', () => {
   assert.equal(buildMoreLoginProfileNote(account), 'email: someone@outlook.com\nsenha do email: epzz');
 });
 
+// login----senha----email----senha do email----2fa----auth_token, com a senha do
+// email vazia aparecendo como `--------`.
+test('layout separado por ---- com campo do meio vazio', () => {
+  const linha = `BrittanyTest----T6hDBPPu----someone@interia.com--------DGNOZTF3DBYAG4NX----${authToken}`;
+  const { accounts, errors } = parseMoreLoginAccounts(linha);
+  assert.deepEqual(errors, []);
+  const [account] = accounts;
+  assert.equal(account.login, 'BrittanyTest');
+  assert.equal(account.password, 'T6hDBPPu');
+  assert.equal(account.email, 'someone@interia.com');
+  assert.equal(account.emailPassword, ''); // veio vazio (--------)
+  assert.equal(account.twoFa, 'DGNOZTF3DBYAG4NX');
+  assert.equal(account.authToken, authToken);
+  assert.equal(buildMoreLoginCookie(account), `auth_token=${authToken}`);
+  assert.equal(buildMoreLoginProfileNote(account), 'email: someone@interia.com');
+});
+
+test('---- com senha do email preenchida cai no lugar certo', () => {
+  const [account] = parseMoreLoginAccounts(`Login1----Senha1----e@e.com----epzz----DGNOZTF3DBYAG4NX----${authToken}`).accounts;
+  assert.equal(account.emailPassword, 'epzz');
+  assert.equal(account.twoFa, 'DGNOZTF3DBYAG4NX');
+  assert.equal(account.authToken, authToken);
+});
+
 test('exatamente três campos com dois-pontos continua sendo o formato curto', () => {
   const [account] = parseMoreLoginAccounts('login1:senha1:TEF7LSEJF5UMZMD5').accounts;
   assert.equal(account.login, 'login1');
