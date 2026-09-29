@@ -10,6 +10,7 @@
 //   login|senha|email|senha do email|OAUTH2|2fa|token
 //   login:senha:2fa:email:senha do email:token_longo:auth_token
 //   login----senha----email----senha do email----2fa----auth_token  (campo vazio vira `--------`)
+//   login:senha:email|senha do email|refresh_token|client_id:auth_token:2fa  (mistura `:` e `|`)
 //   login|senha|email|senha do email|telefone|token_longo|auth_token|2fa|data|n|n|n|false|pais| email|senha|refresh_token|client_id
 //
 // Metadados que alguns lotes carregam (telefone, data, contadores, booleano,
@@ -174,16 +175,30 @@ function parseShortLine(parts: string[]): RawAccount {
   };
 }
 
+// Um campo é cookie quando carrega `auth_token=` ou pares `nome=valor;` — o único
+// caso em que `;`/`:` fazem parte do dado e não podem virar separador.
+function hasCookieField(parts: string[]) {
+  return parts.some((part) => part.includes('auth_token=') || (part.includes('=') && part.includes(';')));
+}
+
 // Decide o separador e se a linha é completa. `|` e `----` são sempre completos.
 // Com `:`/`;`, três campos ou menos é o curto `usuario:senha:2fa`; quatro ou mais
-// é um lote completo com os campos delimitados por `:` (login:senha:2fa:...:token).
+// é um lote completo delimitado por `:`.
 function splitLine(line: string): { extended: boolean; parts: string[] } {
-  if (line.includes('|')) return { extended: true, parts: line.split('|') };
   // Separador `----`: um campo vazio do meio aparece como `--------` (dois
   // separadores seguidos). Divido pela unidade de quatro traços para preservar
   // essa posição vazia — colapsá-la empurraria o 2FA para o lugar da senha do
   // e-mail.
   if (line.includes('----')) return { extended: true, parts: line.split('----') };
+  if (line.includes('|')) {
+    const byPipe = line.split('|');
+    // Alguns lotes misturam `|` e `:` como separador na mesma linha. Se não há
+    // cookie (onde `:`/`;` são dados), trato os dois como separador para não
+    // deixar `login:senha:email` grudado num campo só. Com cookie, divido só por
+    // `|` para não picotá-lo.
+    if (hasCookieField(byPipe)) return { extended: true, parts: byPipe };
+    return { extended: true, parts: line.split(/[|:]/) };
+  }
   const parts = line.split(/[:;]/);
   return { extended: parts.length > 3, parts };
 }

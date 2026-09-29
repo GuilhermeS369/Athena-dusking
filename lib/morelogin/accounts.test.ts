@@ -117,6 +117,30 @@ test('---- com senha do email preenchida cai no lugar certo', () => {
   assert.equal(account.authToken, authToken);
 });
 
+// login:senha:email|senha do email|refresh|client_id:auth_token:2fa — mistura : e |.
+test('linha que mistura : e | separa cada campo, sem grudar no login', () => {
+  const refresh = `M.C555_SN1.0.U.MsaArtifacts.-${'x'.repeat(200)}$`;
+  const linha = `arafatTest:E8A01ctxP:someone@outlook.com|emailpw01|${refresh}|${uuid}:${authToken}:K7ZEZGPOZNWAZICJ`;
+  const { accounts, errors } = parseMoreLoginAccounts(linha);
+  assert.deepEqual(errors, []);
+  const [account] = accounts;
+  assert.equal(account.login, 'arafatTest'); // não "arafatTest:E8A01ctxP:someone@..."
+  assert.equal(account.password, 'E8A01ctxP');
+  assert.equal(account.email, 'someone@outlook.com');
+  assert.equal(account.emailPassword, 'emailpw01');
+  assert.equal(account.clientId, uuid);
+  assert.equal(account.authToken, authToken);
+  assert.equal(account.twoFa, 'K7ZEZGPOZNWAZICJ');
+  assert.equal(buildMoreLoginCookie(account), `auth_token=${authToken}`);
+});
+
+// Uma linha com cookie de verdade (tem ; e =) continua dividida só por | para não picotar o cookie.
+test('linha com cookie e | não é dividida por dois-pontos', () => {
+  const [account] = parseMoreLoginAccounts(onzeCampos).accounts;
+  assert.equal(account.cookie, cookie);
+  assert.equal(account.authToken, authToken);
+});
+
 test('exatamente três campos com dois-pontos continua sendo o formato curto', () => {
   const [account] = parseMoreLoginAccounts('login1:senha1:TEF7LSEJF5UMZMD5').accounts;
   assert.equal(account.login, 'login1');
