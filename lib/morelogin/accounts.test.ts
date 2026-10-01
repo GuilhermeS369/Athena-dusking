@@ -201,11 +201,29 @@ test('UUID é client_id e o token longo é refresh_token, nas duas ordens', () =
   assert.equal(invertido.refreshToken, refresh);
 });
 
-test('senha do email não é confundida com chave 2FA', () => {
-  // A senha do e-mail é o campo logo depois dele, mesmo parecendo Base32.
-  const [account] = parseMoreLoginAccounts('u|p|e@e.com|ABCDEFGHIJKLMNOP|TEF7LSEJF5UMZMD5').accounts;
-  assert.equal(account.emailPassword, 'ABCDEFGHIJKLMNOP');
+test('senha do email minúscula logo após o e-mail não vira 2FA', () => {
+  // Senha do e-mail é minúscula/alfanumérica — fica na senha do e-mail; o 2FA
+  // (Base32 maiúsculo) vem depois e cai na chave.
+  const [account] = parseMoreLoginAccounts('u|p|e@e.com|senhaminuscula9|TEF7LSEJF5UMZMD5').accounts;
+  assert.equal(account.emailPassword, 'senhaminuscula9');
   assert.equal(account.twoFa, 'TEF7LSEJF5UMZMD5');
+});
+
+// login:senha:email:2fa:token_longo:auth_token — 2FA logo após o e-mail, sem senha do e-mail.
+test('2FA logo após o e-mail vai para a chave, não para a senha do e-mail', () => {
+  const longHex = 'a'.repeat(128);
+  const linha = `SaraTest:TR0JF0Vm:someone@interia.com:EFHUKIIBOEKN32ZX:${longHex}:${authToken}`;
+  const { accounts, errors } = parseMoreLoginAccounts(linha);
+  assert.deepEqual(errors, []);
+  const [account] = accounts;
+  assert.equal(account.login, 'SaraTest');
+  assert.equal(account.password, 'TR0JF0Vm');
+  assert.equal(account.email, 'someone@interia.com');
+  assert.equal(account.emailPassword, ''); // não existe senha do e-mail neste layout
+  assert.equal(account.twoFa, 'EFHUKIIBOEKN32ZX');
+  assert.equal(account.authToken, authToken);
+  assert.equal(buildMoreLoginCookie(account), `auth_token=${authToken}`);
+  assert.equal(buildMoreLoginProfileNote(account), 'email: someone@interia.com');
 });
 
 test('campo "-" e campo ausente contam como vazio', () => {

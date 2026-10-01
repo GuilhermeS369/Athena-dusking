@@ -9,6 +9,7 @@
 //   login|senha|2fa|email|senha do email|client_id|refresh_token|access_token|access_secret|device|cookie
 //   login|senha|email|senha do email|OAUTH2|2fa|token
 //   login:senha:2fa:email:senha do email:token_longo:auth_token
+//   login:senha:email:2fa:token_longo:auth_token  (2fa logo após o e-mail, sem senha do e-mail)
 //   login----senha----email----senha do email----2fa----auth_token  (campo vazio vira `--------`)
 //   login:senha:email|senha do email|refresh_token|client_id:auth_token:2fa  (mistura `:` e `|`)
 //   login|senha|email|senha do email|telefone|token_longo|auth_token|2fa|data|n|n|n|false|pais| email|senha|refresh_token|client_id
@@ -132,14 +133,17 @@ function parseExtendedLine(rawParts: string[]): RawAccount {
   const account: RawAccount = { ...EMPTY, login: parts[0] ?? '', password: parts[1] ?? '' };
   const consumed = new Set([0, 1]);
 
-  // O e-mail é achado pelo formato, e a senha dele é sempre o campo seguinte —
-  // vale nos dois layouts conhecidos, e evita confundi-la com uma chave 2FA.
+  // O e-mail é achado pelo formato. O campo seguinte costuma ser a senha dele,
+  // mas em alguns lotes é o próprio 2FA (login:senha:email:2fa:...). A senha do
+  // e-mail é sempre minúscula/alfanumérica; o 2FA é Base32 em maiúsculas. Então,
+  // se o campo seguinte tem cara de 2FA, deixo para o classificador pegá-lo como
+  // chave, em vez de gravá-lo como senha do e-mail.
   const emailIndex = parts.findIndex((value, index) => index >= 2 && EMAIL_PATTERN.test(value));
   if (emailIndex !== -1) {
     account.email = parts[emailIndex];
     consumed.add(emailIndex);
     const next = parts[emailIndex + 1];
-    if (next && !EMAIL_PATTERN.test(next) && !isCookie(next)) {
+    if (next && !EMAIL_PATTERN.test(next) && !isCookie(next) && !BASE32_PATTERN.test(next)) {
       account.emailPassword = next;
       consumed.add(emailIndex + 1);
     }
