@@ -81,6 +81,43 @@ test('migration 428: blocos sem bloqueio por item em voo, busy em vez de esperar
   assert.match(migration, /add column if not exists target_label text/);
 });
 
+// Migration 442 (07/10/2026). Claim abandonado: 'preparing' sem creation_id e com
+// lease vencido alem do corte de atraso. O claim o exclui, a varredura nao o
+// encerrava e o cancelamento em massa esperava 30 minutos por ele como "em voo"
+// (11 reels presos em 06/10; dois cancelamentos da "Tia Laura 2.0" em 07/10).
+test('migration 442: claim abandonado e encerrado pela varredura e cancelado pelo bloco', async () => {
+  const migration = await readFile(new URL('supabase/migrations/442_abandoned_claims_close_and_cancel.sql', root), 'utf8');
+  const abandoned = (alias: string) => new RegExp(
+    `${alias}\\.status in \\('preparing', 'publishing'\\)\\s+and ${alias}\\.creation_id is null\\s+and \\(${alias}\\.lease_until is null or ${alias}\\.lease_until <= timezone\\('utc', now\\(\\)\\)\\)`,
+    'g',
+  );
+
+  const expire = migration.slice(migration.indexOf('FUNCTION public.expire_late_publication_items'), migration.indexOf('FUNCTION public.cancel_publication_queue_scope_chunk'));
+  assert.match(expire, /or item\.status = 'preparing'/);
+  // As guardas que impedem tocar em item vivo continuam valendo para todos os status.
+  assert.match(expire, /and item\.creation_id is null/);
+  assert.match(expire, /and \(item\.lease_until is null or item\.lease_until <= timezone\('utc', now\(\)\)\)/);
+  assert.match(expire, /and item\.attempt_count < 5/);
+
+  const chunk = migration.slice(migration.indexOf('FUNCTION public.cancel_publication_queue_scope_chunk'), migration.indexOf('FUNCTION public.execute_server_publication_queue_cancellation'));
+  // Candidato a cancelar + contagem de cancelaveis.
+  assert.equal((chunk.match(abandoned('item_inner')) ?? []).length, 1);
+  assert.equal((chunk.match(abandoned('item_source')) ?? []).length, 1);
+  assert.match(chunk, /for update skip locked/);
+
+  const executor = migration.slice(migration.indexOf('FUNCTION public.execute_server_publication_queue_cancellation'));
+  // Contagem de cancelaveis + contagem de abandonados.
+  assert.equal((executor.match(abandoned('item_source')) ?? []).length, 2);
+  assert.match(executor, /into cancelable_count, in_flight_count, abandoned_count/);
+  assert.match(executor, /cancelable_count > 1500 or \(cancelable_count > 0 and \(in_flight_count > 0 or abandoned_count > 0\)\)/);
+  assert.match(executor, /interval '30 minutes'/);
+
+  // Em voo e so o item com lease vigente ou com conteiner: nas duas funcoes.
+  for (const body of [chunk, executor]) {
+    assert.match(body, /item_source\.status in \('preparing', 'publishing'\)\s+and not \(\s+item_source\.creation_id is null\s+and \(item_source\.lease_until is null or item_source\.lease_until <= timezone\('utc', now\(\)\)\)\s+\)/);
+  }
+});
+
 test('migration 428: a passada compacta ignora arquivados e nao mexe nos lotes da organizacao inteira', async () => {
   const migration = await readFile(new URL('supabase/migrations/428_publication_queue_cancellation_queue.sql', root), 'utf8');
   const compact = migration.slice(migration.indexOf('function public.execute_publication_queue_cancellation'), migration.indexOf('function public.execute_server_publication_queue_cancellation'));
