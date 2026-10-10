@@ -176,6 +176,25 @@ type ConfigModalProps = {
   onSaved: (rule: ContinuousPostingRule) => void;
 };
 
+const SOURCE_PREVIEW_LIMIT = 24;
+
+type SourcePreviewAsset = { id: string; originalName: string; kind: 'image' | 'video'; thumbnailUrl: string | null };
+type SourcePreviewState = { status: 'loading' | 'ready' | 'error'; assets: SourcePreviewAsset[]; hasMore: boolean };
+
+/**
+ * Miniatura de uma mídia da origem. Vídeo sem miniatura gerada chega com a URL
+ * do próprio arquivo: o <video> com `preload="metadata"` mostra o primeiro
+ * quadro sem baixar o vídeo inteiro.
+ */
+function SourcePreviewThumb({ asset }: { asset: SourcePreviewAsset }) {
+  const [broken, setBroken] = useState(false);
+  const [asVideo, setAsVideo] = useState(false);
+  if (!asset.thumbnailUrl || broken) return <span className={styles.previewThumb} title={asset.originalName} aria-label={asset.originalName}>{asset.kind === 'video' ? '▶' : '▣'}</span>;
+  if (asVideo) return <video className={styles.previewThumb} src={`${asset.thumbnailUrl}#t=0.1`} muted playsInline preload="metadata" title={asset.originalName} onError={() => setBroken(true)} />;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img className={styles.previewThumb} src={asset.thumbnailUrl} alt={asset.originalName} title={asset.originalName} loading="lazy" onError={() => { if (asset.kind === 'video') setAsVideo(true); else setBroken(true); }} />;
+}
+
 function ContinuousPostingConfigModal({ group, groups, format, rule, onClose, onSaved }: ConfigModalProps) {
   const titleId = useId();
   const fieldId = useId();
@@ -186,6 +205,10 @@ function ContinuousPostingConfigModal({ group, groups, format, rule, onClose, on
   const [windowStart, setWindowStart] = useState(minuteToTimeValue(rule?.windowStartMinute ?? DEFAULT_STORY_WINDOW.start));
   const [windowEnd, setWindowEnd] = useState(minuteToTimeValue(rule?.windowEndMinute ?? DEFAULT_STORY_WINDOW.end));
   const [caption, setCaption] = useState(rule?.caption ?? '');
+  // A legenda fica recolhida: a maioria das regras não usa, e o campo ocupava
+  // um terço do modal. Já nasce aberta quando a regra tem legenda.
+  const [captionOpen, setCaptionOpen] = useState(Boolean(rule?.caption));
+  const [preview, setPreview] = useState<SourcePreviewState>({ status: 'loading', assets: [], hasMore: false });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -193,6 +216,23 @@ function ContinuousPostingConfigModal({ group, groups, format, rule, onClose, on
   useModalFocus(dialogRef, close);
 
   // A origem salva pode ser um grupo que já não está na lista da tela.
+  // Prévia da origem: as primeiras mídias que a regra vai postar, pela mesma rota
+  // de revisão do plano em massa (mesma regra de elegibilidade da 085).
+  useEffect(() => {
+    let alive = true;
+    setPreview({ status: 'loading', assets: [], hasMore: false });
+    const query = new URLSearchParams({ originType: 'group', groupId: sourceGroupId, format, limit: String(SOURCE_PREVIEW_LIMIT) });
+    fetch(`/api/bulk-publications/media?${query.toString()}`)
+      .then(async (response) => {
+        const payload = await response.json() as { assets?: SourcePreviewAsset[]; hasMore?: boolean; error?: string };
+        if (!alive) return;
+        if (!response.ok || !payload.assets) setPreview({ status: 'error', assets: [], hasMore: false });
+        else setPreview({ status: 'ready', assets: payload.assets, hasMore: Boolean(payload.hasMore) });
+      })
+      .catch(() => { if (alive) setPreview({ status: 'error', assets: [], hasMore: false }); });
+    return () => { alive = false; };
+  }, [format, sourceGroupId]);
+
   const sourceOptions = useMemo(() => {
     const options = groups.some((option) => option.id === group.id) ? [...groups] : [group, ...groups];
     if (rule && !options.some((option) => option.id === rule.sourceGroupId)) {
@@ -262,7 +302,7 @@ function ContinuousPostingConfigModal({ group, groups, format, rule, onClose, on
           postsPerDay,
           windowStartMinute: format === 'story' ? startMinute : null,
           windowEndMinute: format === 'story' ? endMinute : null,
-          caption: caption.trim() || null,
+          caption: captionOpen ? caption.trim() || null : null,
         }),
       });
       const payload = await readJson(response);
@@ -317,6 +357,21 @@ function ContinuousPostingConfigModal({ group, groups, format, rule, onClose, on
             </option>)}
           </select>
           <small>{format === 'reel' ? 'Entram os vídeos prontos do grupo escolhido.' : 'Entram as fotos e os vídeos prontos do grupo escolhido.'} O ciclo recomeça quando as mídias acabam.</small>
+          <div className={styles.preview} aria-live="polite">
+            {preview.status === 'loading' && <p className={styles.note}>Carregando as mídias da origem…</p>}
+            {preview.status === 'error' && <p className={styles.warning}>Não foi possível carregar a prévia das mídias desta origem.</p>}
+            {preview.status === 'ready' && preview.assets.length === 0 && <p className={styles.warning}>Esta origem não tem {format === 'reel' ? 'vídeo pronto' : 'mídia pronta'}. Com ela a chave não liga.</p>}
+            {preview.status === 'ready' && preview.assets.length > 0 && <>
+              <p className={styles.note}>
+                {preview.hasMore
+                  ? `As ${preview.assets.length} primeiras mídias da origem (há mais):`
+                  : `${preview.assets.length === 1 ? 'A única mídia' : `As ${preview.assets.length} mídias`} da origem:`}
+              </p>
+              <div className={styles.previewGrid}>
+                {preview.assets.map((asset) => <SourcePreviewThumb key={asset.id} asset={asset} />)}
+              </div>
+            </>}
+          </div>
         </div>
 
         <fieldset className={styles.choices}>
@@ -367,8 +422,14 @@ function ContinuousPostingConfigModal({ group, groups, format, rule, onClose, on
         </fieldset>}
 
         <div className={styles.field}>
-          <label htmlFor={`${fieldId}-caption`}>Legenda <span className={styles.optional}>Opcional</span></label>
-          <textarea id={`${fieldId}-caption`} rows={3} maxLength={CONTINUOUS_POSTING_MAX_CAPTION_LENGTH} value={caption} onChange={(event) => setCaption(event.target.value)} />
+          <label className={styles.checkLine}>
+            <input type="checkbox" checked={captionOpen} onChange={(event) => setCaptionOpen(event.target.checked)} />
+            Postar com legenda
+          </label>
+          {captionOpen && <>
+            <textarea id={`${fieldId}-caption`} aria-label="Legenda" rows={3} maxLength={CONTINUOUS_POSTING_MAX_CAPTION_LENGTH} value={caption} onChange={(event) => setCaption(event.target.value)} />
+            <small>A mesma legenda vai em todos os posts desta regra.</small>
+          </>}
         </div>
 
         {rule && <div className={styles.sourceFacts} aria-live="polite">

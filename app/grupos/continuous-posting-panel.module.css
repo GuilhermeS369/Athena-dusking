@@ -97,8 +97,11 @@
   background: var(--surface);
   color: var(--text);
   font: inherit;
+  /* Tamanho fixo: herdando o do modal, o select abria a lista com a letra enorme. */
+  font-size: 13px;
   color-scheme: dark;
 }
+.field select option { font-size: 13px; }
 .field textarea { resize: vertical; }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--purple-bright); box-shadow: 0 0 0 3px #9f4cff33; }
 .field input[aria-invalid='true'] { border-color: #ef6b83aa; }
@@ -144,6 +147,15 @@
 p.note, p.warning { margin: 0; font-size: 11px; line-height: 1.5; }
 p.note { color: var(--text-subtle); }
 p.warning { color: var(--yellow); }
+
+/* Prévia das mídias da origem: uma faixa de miniaturas 9:16, pequena de propósito. */
+.preview { display: grid; gap: 7px; min-width: 0; }
+.previewGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px; max-height: 178px; overflow-y: auto; padding-right: 2px; }
+.previewThumb { display: grid; width: 100%; aspect-ratio: 9 / 16; place-items: center; overflow: hidden; border: 1px solid var(--border); border-radius: 7px; background: #0d0c12; color: var(--text-subtle); font-size: 12px; object-fit: cover; }
+
+/* Legenda recolhida atrás de uma caixa de marcar. */
+.field label.checkLine { display: inline-flex; align-items: center; gap: 9px; justify-self: start; cursor: pointer; }
+.field .checkLine input { width: 15px; min-height: 0; height: 15px; margin: 0; padding: 0; accent-color: var(--purple-bright); cursor: pointer; }
 
 /* Painel de avisos ------------------------------------------------------- */
 .notices { display: grid; gap: 14px; max-width: var(--grp-max-width, 1180px); margin: 24px auto; padding: 20px; border-color: var(--grp-line, #2f2b38); background: var(--grp-surface-flat, rgba(16, 15, 22, .92)); }
