@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { describeBlockedAdd, splitProfilesByOpenQueue, type OpenQueueRow } from '@/lib/groups/move-queue-guard';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
 import { fetchAllRows } from '@/lib/supabase/paginate';
@@ -129,8 +130,37 @@ export async function POST(
       }, { status: 409 });
     }
 
+    // A mesma trava da troca de grupo (migration 444, decisão do dono em
+    // 10/10/2026): perfil com fila aberta não entra em grupo. Sem ela, remover o
+    // perfil de um grupo e adicioná-lo a outro por aqui contornava a conferência
+    // da movimentação. Por perfil; se a conferência falhar, ninguém é adicionado.
+    const { data: queued, error: queueError } = await supabase.rpc('get_profiles_with_open_publication_queue', {
+      p_organization_id: organizationId,
+      p_profile_ids: profileIds,
+    });
+    if (queueError) {
+      console.error('Falha ao conferir a fila dos perfis antes de adicionar ao grupo.', {
+        organizationId,
+        groupId,
+        profileCount: profileIds.length,
+        code: queueError.code,
+        message: queueError.message,
+      });
+      return NextResponse.json({
+        error: `Não foi possível conferir a fila dos perfis; ninguém foi adicionado (código ${queueError.code ?? 'desconhecido'}).`,
+      }, { status: 500 });
+    }
+    const { blockedProfileIds, movableProfileIds: addableProfileIds, blockedOpenItems } = splitProfilesByOpenQueue(profileIds, queued as OpenQueueRow[] | null);
+    if (addableProfileIds.length === 0) {
+      return NextResponse.json({
+        error: describeBlockedAdd(blockedProfileIds.length, profileIds.length, blockedOpenItems),
+        code: 'profiles_with_open_queue',
+        blockedProfileIds,
+      }, { status: 409 });
+    }
+
     const { error } = await supabase.from('profile_group_members').upsert(
-      profileIds.map((profileId) => ({
+      addableProfileIds.map((profileId) => ({
         organization_id: organizationId,
         group_id: groupId,
         profile_id: profileId,
@@ -143,7 +173,7 @@ export async function POST(
       return NextResponse.json({ error: 'Não foi possível adicionar o perfil ao grupo.' }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true, profileIds }, { status: 201 });
+    return NextResponse.json({ ok: true, profileIds: addableProfileIds, blockedProfileIds, blockedOpenItems }, { status: 201 });
   } catch {
     return NextResponse.json({ error: 'Requisição inválida.' }, { status: 400 });
   }

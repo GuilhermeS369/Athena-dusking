@@ -36,3 +36,14 @@ export function describeBlockedMove(blockedCount: number, requestedCount: number
   }
   return `Nenhum perfil foi movido: os ${blockedCount} selecionados ainda têm fila aberta (${queue}). Cancele a fila deles antes de mover.`;
 }
+
+/** Frase para quando nenhum perfil do pedido pôde ser adicionado ao grupo. */
+export function describeBlockedAdd(blockedCount: number, requestedCount: number, blockedOpenItems: number) {
+  const queue = blockedOpenItems > 0
+    ? `${blockedOpenItems.toLocaleString('pt-BR')} post(s) na fila`
+    : 'plano em massa ativo';
+  if (requestedCount === 1) {
+    return `Este perfil ainda tem fila aberta (${queue}). Cancele a fila dele antes de adicioná-lo a um grupo.`;
+  }
+  return `Nenhum perfil foi adicionado: os ${blockedCount} selecionados ainda têm fila aberta (${queue}). Cancele a fila deles antes de adicioná-los a um grupo.`;
+}

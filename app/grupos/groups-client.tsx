@@ -662,7 +662,7 @@ export default function GroupsClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ profileIds: selectedProfileIds }),
       });
-      const payload = await response.json() as { error?: string; profileIds?: string[]; conflictProfileIds?: string[] };
+      const payload = await response.json() as { error?: string; profileIds?: string[]; conflictProfileIds?: string[]; blockedProfileIds?: string[] };
       if (!response.ok) {
         setMessage(payload.error ?? 'Não foi possível adicionar os perfis ao grupo.');
         if (payload.conflictProfileIds?.length) {
@@ -679,7 +679,14 @@ export default function GroupsClient({
       const addedIds = payload.profileIds ?? selectedProfileIds;
       const addedAt = new Date().toISOString();
       setMemberships((current) => [...current, ...addedIds.map((profileId) => ({ group_id: memberModalGroup.id, profile_id: profileId, created_at: addedAt }))]);
-      setSelectedProfileIds([]);
+      // Quem ficou de fora por ter fila aberta continua selecionado em
+      // "Disponíveis": é o que falta resolver para tentar de novo.
+      const blockedIds = payload.blockedProfileIds ?? [];
+      setSelectedProfileIds(blockedIds);
+      if (blockedIds.length > 0) {
+        setMessage(`${addedIds.length} perfil(is) adicionado(s). ${blockedIds.length} não entrou(aram) porque ainda tem(êm) fila aberta e continua(m) selecionado(s): cancele a fila dele(s) e adicione de novo.`);
+        return;
+      }
       setSearch('');
       setMemberModalTab('members');
     } catch {

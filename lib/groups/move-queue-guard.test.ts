@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { describeBlockedMove, splitProfilesByOpenQueue } from './move-queue-guard.ts';
+import { describeBlockedAdd, describeBlockedMove, splitProfilesByOpenQueue } from './move-queue-guard.ts';
 
 test('perfil sem fila passa mesmo que outros do pedido tenham fila', () => {
   const result = splitProfilesByOpenQueue(['a', 'b', 'c'], [
@@ -41,4 +41,15 @@ test('a rota confere a fila antes de mover e só move quem passou', () => {
   assert.ok(check > 0 && move > check, 'a conferência vem antes da movimentação');
   assert.match(route, /p_profile_ids: movableProfileIds/);
   assert.match(route, /nada foi movido/);
+});
+
+test('adicionar ao grupo passa pela mesma conferência e só adiciona quem passou', () => {
+  const route = readFileSync(new URL('../../app/api/groups/[groupId]/members/route.ts', import.meta.url), 'utf8');
+  const check = route.indexOf("rpc('get_profiles_with_open_publication_queue'");
+  const add = route.indexOf(".upsert(");
+  assert.ok(check > 0 && add > check, 'a conferência vem antes da adição');
+  assert.match(route, /addableProfileIds\.map/);
+  assert.match(route, /ninguém foi adicionado/);
+  assert.match(describeBlockedAdd(1, 1, 12), /Este perfil ainda tem fila aberta \(12 post\(s\) na fila\)/);
+  assert.match(describeBlockedAdd(4, 4, 0), /Nenhum perfil foi adicionado: os 4 selecionados/);
 });
