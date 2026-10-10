@@ -757,7 +757,7 @@ export default function GroupsClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetGroupId, profileIds }),
       });
-      const payload = await response.json() as { error?: string; movedProfileIds?: string[]; skippedProfileIds?: string[] };
+      const payload = await response.json() as { error?: string; movedProfileIds?: string[]; skippedProfileIds?: string[]; blockedProfileIds?: string[] };
       if (!response.ok) {
         setMessage(payload.error ?? 'Não foi possível mover os perfis selecionados.');
         return;
@@ -768,15 +768,21 @@ export default function GroupsClient({
         ...current.filter((item) => !(item.group_id === sourceGroupId && movedIds.includes(item.profile_id))),
         ...movedIds.map((profileId) => ({ group_id: targetGroupId, profile_id: profileId, created_at: movedAt })),
       ]);
-      setSelectedMemberIds([]);
-      setMoveTargetGroupId('');
+      // Quem ficou por ter fila aberta continua selecionado: é o que falta
+      // resolver (cancelar a fila) para tentar de novo.
+      const blockedIds = payload.blockedProfileIds ?? [];
+      setSelectedMemberIds(blockedIds);
+      if (blockedIds.length === 0) setMoveTargetGroupId('');
       // Desde a migration 435 o servidor move o que dá e devolve o resto em
       // `skippedProfileIds`. Dizer quantos ficaram é o que separa "moveu tudo"
       // de "moveu quase tudo" — calar seria a versão silenciosa do bug antigo.
       const skipped = payload.skippedProfileIds?.length ?? 0;
-      setMessage(skipped > 0
+      const blockedNote = blockedIds.length > 0
+        ? ` ${blockedIds.length} não foi(ram) movido(s) porque ainda tem(êm) fila aberta e continua(m) selecionado(s): cancele a fila dele(s) e mova de novo.`
+        : '';
+      setMessage((skipped > 0
         ? `${movedIds.length} perfil(is) movido(s) para “${targetGroup?.name ?? 'o grupo escolhido'}”. ${skipped} não pôde(ram) ser movido(s) e ficou(aram) onde estava(m).`
-        : `${movedIds.length} perfil(is) movido(s) para “${targetGroup?.name ?? 'o grupo escolhido'}”.`);
+        : `${movedIds.length} perfil(is) movido(s) para “${targetGroup?.name ?? 'o grupo escolhido'}”.`) + blockedNote);
     } catch {
       setMessage('Não foi possível conectar ao servidor.');
     } finally {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { describeBlockedMove, splitProfilesByOpenQueue, type OpenQueueRow } from '@/lib/groups/move-queue-guard';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
@@ -59,10 +60,41 @@ export async function POST(
     }
 
     const supabase = await createSupabaseServerClient();
+
+    // Perfil com fila aberta não troca de grupo (decisão do dono em 10/10/2026,
+    // migration 444). A conferência é por perfil, não pelo grupo de origem: quem
+    // está parado passa mesmo que o resto do grupo esteja rodando. Se a
+    // conferência falhar, nada é movido — mover às cegas é o erro que ela evita.
+    const { data: queued, error: queueError } = await supabase.rpc('get_profiles_with_open_publication_queue', {
+      p_organization_id: context.activeOrganization.id,
+      p_profile_ids: profileIds,
+    });
+    if (queueError) {
+      console.error('Falha ao conferir a fila dos perfis antes de mover.', {
+        organizationId: context.activeOrganization.id,
+        sourceGroupId: groupId,
+        profileCount: profileIds.length,
+        code: queueError.code,
+        message: queueError.message,
+      });
+      return NextResponse.json({
+        error: `Não foi possível conferir a fila dos perfis; nada foi movido (código ${queueError.code ?? 'desconhecido'}).`,
+        code: queueError.code ?? null,
+      }, { status: 500 });
+    }
+    const { blockedProfileIds, movableProfileIds, blockedOpenItems } = splitProfilesByOpenQueue(profileIds, queued as OpenQueueRow[] | null);
+    if (movableProfileIds.length === 0) {
+      return NextResponse.json({
+        error: describeBlockedMove(blockedProfileIds.length, profileIds.length, blockedOpenItems),
+        code: 'profiles_with_open_queue',
+        blockedProfileIds,
+      }, { status: 409 });
+    }
+
     const { data, error } = await supabase.rpc('move_profile_group_members', {
       p_source_group_id: groupId,
       p_target_group_id: targetGroupId,
-      p_profile_ids: profileIds,
+      p_profile_ids: movableProfileIds,
     });
 
     if (error) {
@@ -91,6 +123,8 @@ export async function POST(
       ok: true,
       movedProfileIds: result?.movedProfileIds ?? [],
       skippedProfileIds: result?.skippedProfileIds ?? [],
+      blockedProfileIds,
+      blockedOpenItems,
     });
   } catch {
     return NextResponse.json({ error: 'Requisição inválida.' }, { status: 400 });
