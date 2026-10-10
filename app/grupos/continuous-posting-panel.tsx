@@ -37,7 +37,8 @@ export type ContinuousPostingRulesResult = {
 
 const FORMATS: ContinuousPostingFormat[] = ['reel', 'story'];
 const FORMAT_LABEL: Record<ContinuousPostingFormat, string> = { reel: 'Reels', story: 'Stories' };
-const DEFAULT_STORY_WINDOW = { start: 8 * 60, end: 22 * 60 };
+// Faixa padrão do story (decisão do dono em 10/10/2026): 07:00 às 23:59, editável na tela.
+const DEFAULT_STORY_WINDOW = { start: 7 * 60, end: 23 * 60 + 59 };
 const NOTICE_PAGE_SIZE = 200;
 
 const ROTATION_OPTIONS: Array<{ value: ContinuousPostingRotationMode; label: string; help: string }> = [
