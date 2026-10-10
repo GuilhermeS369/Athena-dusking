@@ -1,8 +1,11 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
+import type { ContinuousPostingRule } from '@/lib/publications/continuous-posting';
+
+import { ContinuousPostingGroupControls, ContinuousPostingNotices, loadContinuousPostingRules } from './continuous-posting-panel';
 import styles from './groups.module.css';
 
 type Organization = { id: string; name: string; role: 'admin' | 'operator' | 'viewer' };
@@ -26,6 +29,7 @@ type Profile = {
   display_name: string | null;
   profile_picture_url: string | null;
   status: 'no_data' | 'online' | 'offline' | 'reauthorization_required';
+  provider: 'meta_official' | 'zernio';
 };
 
 type Membership = { group_id: string; profile_id: string; created_at: string };
@@ -69,6 +73,10 @@ type DeletionJob = {
 type MemberSort = 'recent' | 'oldest' | 'username';
 type MemberModalTab = 'available' | 'members';
 type FallenCount = { group_id: string; fallen_profile_count: number };
+/** Recorte da planilha: a exportação normal é só Meta, a da Zernio é só Zernio. */
+type ExportProvider = Profile['provider'];
+/** `scope` é o id do grupo ou 'all' (a organização inteira). */
+type ExportJob = { scope: string; provider: ExportProvider };
 
 type ExportRow = {
   group_id: string;
@@ -100,6 +108,28 @@ const statusLabel: Record<Profile['status'], string> = {
   offline: 'Desconectado',
   reauthorization_required: 'Reautorizar',
 };
+
+/**
+ * A Zernio é o provedor abandonado: os perfis dela continuam membros dos grupos,
+ * mas saem da lista principal e das contagens e vão para uma seção recolhida.
+ * O teste é "é Zernio?", e não "é Meta?", para que nenhum perfil suma das duas
+ * listas se um dia existir um terceiro provedor.
+ */
+function isZernioProfile(profile: Profile) {
+  return profile.provider === 'zernio';
+}
+
+function zernioStatusSummary(profiles: Profile[]) {
+  const count = (status: Profile['status']) => profiles.filter((profile) => profile.status === status).length;
+  const parts = [
+    `${count('online')} conectado(s)`,
+    `${count('offline')} desconectado(s)`,
+    `${count('reauthorization_required')} a reautorizar`,
+  ];
+  // "Sem dados" só aparece quando existe, para não poluir o caso comum.
+  if (count('no_data') > 0) parts.push(`${count('no_data')} sem dados`);
+  return parts.join(' · ');
+}
 
 function fileSafeName(value: string) {
   const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -237,11 +267,21 @@ export default function GroupsClient({
   const [moveTargetGroupId, setMoveTargetGroupId] = useState('');
   const [search, setSearch] = useState('');
   const [message, setMessage] = useState('');
+  // Postagem contínua (migration 443): só aparece para organização liberada em
+  // CONTINUOUS_POSTING_ORG_IDS; fora dela a rota responde allowed: false.
+  const [continuous, setContinuous] = useState<{ allowed: boolean; rules: ContinuousPostingRule[] }>({ allowed: false, rules: [] });
+  const reloadContinuous = useCallback(() => { void loadContinuousPostingRules().then((result) => setContinuous({ allowed: result.allowed, rules: result.rules })); }, []);
+  useEffect(() => { reloadContinuous(); }, [reloadContinuous]);
   const [recoveryBusyId, setRecoveryBusyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savingMembers, setSavingMembers] = useState(false);
-  const [exportingGroupId, setExportingGroupId] = useState<string | null>(null);
-  const [exportingAll, setExportingAll] = useState(false);
+  // Uma exportação por vez, de qualquer recorte: enquanto uma roda, todos os
+  // botões de exportar ficam travados.
+  const [exportJob, setExportJob] = useState<ExportJob | null>(null);
+  // A lista Zernio do card abre num modal: expandida dentro do card ela esticava
+  // a linha inteira da grade e deixava os cards vizinhos com um buraco.
+  const [zernioModalGroupId, setZernioModalGroupId] = useState<string | null>(null);
+  const [memberModalZernioOpen, setMemberModalZernioOpen] = useState(false);
   const [deletionJobs, setDeletionJobs] = useState<DeletionJob[]>([]);
   const [dismissedJobIds, setDismissedJobIds] = useState<string[]>([]);
   // Contador bumpado no clique para religar o laço de acompanhamento sem
@@ -333,6 +373,12 @@ export default function GroupsClient({
       || first.id.localeCompare(second.id)
   ), [groups]);
   const memberModalGroup = groups.find((group) => group.id === memberModalGroupId) ?? null;
+  const zernioModalGroup = groups.find((group) => group.id === zernioModalGroupId) ?? null;
+  const zernioModalProfiles = zernioModalGroup
+    ? (membershipsByGroup.get(zernioModalGroup.id) ?? [])
+      .map((membership) => profileById.get(membership.profile_id))
+      .filter((profile): profile is Profile => Boolean(profile && isZernioProfile(profile)))
+    : [];
   const sortedCurrentMemberships = useMemo(() => {
     // Só vínculo com perfil de verdade. Um vínculo pode sobreviver ao perfil
     // (resíduo de 07/09/2026, quando a remoção Meta ainda não o limpava), e a
@@ -358,14 +404,39 @@ export default function GroupsClient({
       return `${profile.username} ${profile.display_name ?? ''}`.toLocaleLowerCase('pt-BR').includes(term);
     });
   }, [sortedCurrentMemberships, memberFilterSearch, profileById]);
-  const currentMemberIds = filteredCurrentMemberships.map((membership) => membership.profile_id);
-  const availableProfiles = useMemo(() => profiles.filter((profile) => !groupByProfileId.has(profile.id)), [groupByProfileId, profiles]);
+  // A lista principal da aba "Neste grupo" é só Meta; os Zernio do grupo descem
+  // para a seção recolhida. Busca e ordenação valem para as duas.
+  const isZernioId = (profileId: string) => {
+    const profile = profileById.get(profileId);
+    return Boolean(profile && isZernioProfile(profile));
+  };
+  const currentMemberIds = filteredCurrentMemberships.map((membership) => membership.profile_id).filter((id) => !isZernioId(id));
+  const currentZernioMemberIds = filteredCurrentMemberships.map((membership) => membership.profile_id).filter(isZernioId);
+  const groupMetaMemberCount = sortedCurrentMemberships.filter((membership) => !isZernioId(membership.profile_id)).length;
+  const groupZernioMembers = sortedCurrentMemberships
+    .map((membership) => profileById.get(membership.profile_id))
+    .filter((profile): profile is Profile => Boolean(profile && isZernioProfile(profile)));
+  // "Disponíveis" oferece só perfis da Meta: Zernio sem grupo não entra em grupo
+  // novo por esta tela.
+  const availableProfiles = useMemo(() => profiles.filter((profile) => !isZernioProfile(profile) && !groupByProfileId.has(profile.id)), [groupByProfileId, profiles]);
   const filteredAvailableProfiles = useMemo(() => {
     const term = search.trim().toLocaleLowerCase('pt-BR');
     if (!term) return availableProfiles;
     return availableProfiles.filter((profile) => `${profile.username} ${profile.display_name ?? ''}`.toLocaleLowerCase('pt-BR').includes(term));
   }, [availableProfiles, search]);
-  const groupedProfileCount = groupByProfileId.size;
+  // Os números do topo contam Meta; a Zernio ganha um número próprio. Só entra
+  // vínculo com grupo que existe: o '__elsewhere__' de um conflito não é grupo.
+  const groupIds = useMemo(() => new Set(groups.map((group) => group.id)), [groups]);
+  const groupedProfiles = useMemo(
+    () => profiles.filter((profile) => groupIds.has(groupByProfileId.get(profile.id) ?? '')),
+    [groupByProfileId, groupIds, profiles],
+  );
+  const groupedProfileCount = groupedProfiles.filter((profile) => !isZernioProfile(profile)).length;
+  const groupedZernioCount = groupedProfiles.length - groupedProfileCount;
+  const ungroupedZernioCount = useMemo(
+    () => profiles.filter((profile) => isZernioProfile(profile) && !groupByProfileId.has(profile.id)).length,
+    [groupByProfileId, profiles],
+  );
   // Quem esta saindo: o que o servidor reporta como job ativo, mais o que esta
   // aba acabou de disparar. A uniao e o que trava o card.
   const deletingGroupIds = useMemo(() => new Set([
@@ -411,12 +482,14 @@ export default function GroupsClient({
     setSelectedProfileIds([]);
     setSelectedMemberIds([]);
     setMemberModalTab('available');
+    setMemberModalZernioOpen(false);
     setMemberModalGroupId(groupId);
     router.refresh();
   }
 
   function closeMemberModal() {
     setMemberModalGroupId(null);
+    setMemberModalZernioOpen(false);
     setSelectedProfileIds([]);
     setSelectedMemberIds([]);
     setSearch('');
@@ -711,12 +784,13 @@ export default function GroupsClient({
     }
   }
 
-  async function exportGroup(group: Group) {
-    setExportingGroupId(group.id);
+  async function exportGroup(group: Group, provider: ExportProvider) {
+    setExportJob({ scope: group.id, provider });
     setMessage('');
+    const zernio = provider === 'zernio';
 
     try {
-      const response = await fetch(`/api/groups/${group.id}/export`);
+      const response = await fetch(`/api/groups/${group.id}/export?provider=${provider}`);
       const payload = await response.json() as { group?: { name: string }; rows?: ExportRow[]; error?: string };
       if (!response.ok || !payload.group || !payload.rows) {
         setMessage(payload.error ?? 'Não foi possível preparar a exportação do grupo.');
@@ -725,14 +799,14 @@ export default function GroupsClient({
 
       const XLSX = await import('xlsx');
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, buildExportSheet(XLSX, payload.rows), 'Perfis do grupo');
-      const filename = `grupo-${fileSafeName(payload.group.name)}-${fileDateStamp()}.xlsx`;
+      XLSX.utils.book_append_sheet(workbook, buildExportSheet(XLSX, payload.rows), zernio ? 'Perfis Zernio do grupo' : 'Perfis do grupo');
+      const filename = `grupo-${fileSafeName(payload.group.name)}${zernio ? '-zernio' : ''}-${fileDateStamp()}.xlsx`;
       XLSX.writeFile(workbook, filename, { bookType: 'xlsx' });
-      setMessage(`Arquivo ${filename} gerado com ${payload.rows.length} perfil(is) e ${totalViewsOf(payload.rows).toLocaleString('pt-BR')} views.`);
+      setMessage(`Arquivo ${filename} gerado com ${payload.rows.length} perfil(is)${zernio ? ' Zernio' : ' da Meta'} e ${totalViewsOf(payload.rows).toLocaleString('pt-BR')} views.`);
     } catch {
       setMessage('Não foi possível gerar o arquivo Excel.');
     } finally {
-      setExportingGroupId(null);
+      setExportJob(null);
     }
   }
 
@@ -742,35 +816,66 @@ export default function GroupsClient({
    * Grupo sem nenhum perfil e sem nenhuma queda não gera linha, porque a view
    * projeta vínculos e não grupos; por isso a mensagem diz quantos grupos
    * entraram em vez de repetir o total da tela.
+   *
+   * O recorte por provedor é o mesmo da exportação por grupo: "Exportar todos"
+   * traz só Meta e "Exportar Zernio" só Zernio. Como a planilha nasce dos
+   * vínculos, perfil Zernio SEM grupo não tem linha — a mensagem diz quantos
+   * ficaram de fora em vez de deixar o arquivo parecer completo.
    */
-  async function exportAllGroups() {
-    setExportingAll(true);
+  async function exportAllGroups(provider: ExportProvider) {
+    setExportJob({ scope: 'all', provider });
     setMessage('');
+    const zernio = provider === 'zernio';
 
     try {
-      const response = await fetch('/api/groups/export-all');
+      const response = await fetch(`/api/groups/export-all?provider=${provider}`);
       const payload = await response.json() as { rows?: ExportRow[]; error?: string };
       if (!response.ok || !payload.rows) {
         setMessage(payload.error ?? 'Não foi possível preparar a exportação dos grupos.');
         return;
       }
+      const leftOut = zernio && ungroupedZernioCount > 0
+        ? ` ${ungroupedZernioCount} perfil(is) Zernio sem grupo ficaram de fora: a planilha lista perfis por grupo.`
+        : '';
       if (payload.rows.length === 0) {
-        setMessage('Não há nada para exportar: nenhum grupo tem perfis ou quedas registradas.');
+        setMessage(zernio
+          ? `Não há nada para exportar: nenhum grupo tem perfis Zernio ou quedas de perfis Zernio registradas.${leftOut}`
+          : 'Não há nada para exportar: nenhum grupo tem perfis da Meta ou quedas registradas.');
         return;
       }
 
       const XLSX = await import('xlsx');
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, buildExportSheet(XLSX, payload.rows), 'Perfis por grupo');
-      const filename = `grupos-${fileSafeName(activeOrganization.name)}-${fileDateStamp()}.xlsx`;
+      XLSX.utils.book_append_sheet(workbook, buildExportSheet(XLSX, payload.rows), zernio ? 'Perfis Zernio por grupo' : 'Perfis por grupo');
+      const filename = `grupos-${fileSafeName(activeOrganization.name)}${zernio ? '-zernio' : ''}-${fileDateStamp()}.xlsx`;
       XLSX.writeFile(workbook, filename, { bookType: 'xlsx' });
       const groupCount = new Set(payload.rows.map((row) => row.group_id)).size;
-      setMessage(`Arquivo ${filename} gerado com ${payload.rows.length} perfil(is) de ${groupCount} grupo(s) e ${totalViewsOf(payload.rows).toLocaleString('pt-BR')} views.`);
+      setMessage(`Arquivo ${filename} gerado com ${payload.rows.length} perfil(is)${zernio ? ' Zernio' : ' da Meta'} de ${groupCount} grupo(s) e ${totalViewsOf(payload.rows).toLocaleString('pt-BR')} views.${leftOut}`);
     } catch {
       setMessage('Não foi possível gerar o arquivo Excel.');
     } finally {
-      setExportingAll(false);
+      setExportJob(null);
     }
+  }
+
+  /**
+   * Recolher a seção solta a seleção dos Zernio: sem isso o "Remover" e o
+   * "Mover" de cima agiriam sobre perfis que não estão mais à vista.
+   */
+  function toggleMemberModalZernio() {
+    if (memberModalZernioOpen) setSelectedMemberIds((current) => current.filter((id) => !isZernioId(id)));
+    setMemberModalZernioOpen((current) => !current);
+  }
+
+  function renderCurrentMember(groupId: string, profileId: string) {
+    const profile = profileById.get(profileId);
+    if (!profile) return null;
+    const selected = selectedMemberIds.includes(profileId);
+    return <div className={`${styles.currentMember} ${selected ? styles.currentMemberSelected : ''}`} key={profileId}>
+      {canManage && <input type="checkbox" checked={selected} onChange={() => toggleSelectedMember(profileId)} aria-label={`Selecionar @${profile.username}`} />}
+      <ProfileIdentity profile={profile} compact />
+      {canManage && <button type="button" disabled={savingMembers} onClick={() => removeProfile(groupId, profileId)}>Remover</button>}
+    </div>;
   }
 
   function toggleSelectedProfile(profileId: string) {
@@ -812,10 +917,17 @@ export default function GroupsClient({
         <button
           className="button button-ghost"
           type="button"
-          title="Baixa um único .xlsx com os perfis de todos os grupos, nas mesmas colunas da exportação por grupo."
-          disabled={exportingAll || exportingGroupId !== null || groups.length === 0}
-          onClick={exportAllGroups}
-        >{exportingAll ? 'Exportando…' : '⇩ Exportar todos'}</button>
+          title="Baixa um único .xlsx com os perfis da Meta de todos os grupos, nas mesmas colunas da exportação por grupo."
+          disabled={exportJob !== null || groups.length === 0}
+          onClick={() => exportAllGroups('meta_official')}
+        >{exportJob?.scope === 'all' && exportJob.provider === 'meta_official' ? 'Exportando…' : '⇩ Exportar todos'}</button>
+        {(groupedZernioCount > 0 || ungroupedZernioCount > 0) && <button
+          className="button button-ghost"
+          type="button"
+          title="Baixa um único .xlsx só com os perfis Zernio de todos os grupos, nas mesmas colunas."
+          disabled={exportJob !== null || groups.length === 0}
+          onClick={() => exportAllGroups('zernio')}
+        >{exportJob?.scope === 'all' && exportJob.provider === 'zernio' ? 'Exportando…' : '⇩ Exportar Zernio'}</button>}
         {canManage && <button className="button button-primary" type="button" onClick={openCreateForm}>Criar grupo</button>}
       </div>
     </header>
@@ -824,6 +936,7 @@ export default function GroupsClient({
       <span><strong>{groups.length}</strong> {groups.length === 1 ? 'grupo' : 'grupos'}</span>
       <span><strong>{groupedProfileCount}</strong> perfis agrupados</span>
       <span><strong>{availableProfiles.length}</strong> perfis disponíveis</span>
+      {groupedZernioCount > 0 && <span title="Perfis do provedor antigo. Ficam fora das contagens acima e aparecem recolhidos dentro de cada grupo."><strong>{groupedZernioCount}</strong> perfis Zernio em grupos</span>}
     </section>
 
     {visibleJobs.map((job) => {
@@ -907,7 +1020,11 @@ export default function GroupsClient({
       {canManage && <button className="button button-primary" type="button" onClick={openCreateForm}>Criar primeiro grupo</button>}
     </section> : <section className={styles.grid} aria-label="Grupos de perfis">
       {sortedGroups.map((group) => {
-        const memberProfiles = (membershipsByGroup.get(group.id) ?? []).map((membership) => profileById.get(membership.profile_id)).filter((profile): profile is Profile => Boolean(profile));
+        const groupProfiles = (membershipsByGroup.get(group.id) ?? []).map((membership) => profileById.get(membership.profile_id)).filter((profile): profile is Profile => Boolean(profile));
+        // Tudo que o card conta e mostra é Meta; os Zernio do grupo ficam na
+        // seção recolhida logo abaixo.
+        const memberProfiles = groupProfiles.filter((profile) => !isZernioProfile(profile));
+        const zernioProfiles = groupProfiles.filter(isZernioProfile);
         const deleting = deletingGroupIds.has(group.id);
         return <article className={`panel ${styles.card} ${deleting ? styles.cardDeleting : ''}`} key={group.id} aria-busy={deleting}>
           <div className={styles.cardHeader}>
@@ -919,8 +1036,11 @@ export default function GroupsClient({
               {deleting
                 ? <span className={styles.deletingBadge}><span aria-hidden="true" />excluindo…</span>
                 : <>
-                  <span className={styles.fallenCount}>{fallenCountByGroup.get(group.id) ?? 0} caíram</span>
+                  <span className={styles.fallenCount} title="Quedas registradas do grupo, somando Meta e Zernio.">{fallenCountByGroup.get(group.id) ?? 0} caíram</span>
                   <span className={styles.memberCount}>{memberProfiles.length} {memberProfiles.length === 1 ? 'perfil' : 'perfis'}</span>
+                  <button className={styles.exportButton} type="button" aria-label={`Exportar perfis da Meta do grupo ${group.name}`} title={zernioProfiles.length > 0 ? 'Exportar perfis da Meta em planilha (os Zernio saem pela lista deles)' : 'Exportar perfis em planilha'} disabled={exportJob !== null} onClick={() => exportGroup(group, 'meta_official')}>
+                    <span aria-hidden="true">{exportJob?.scope === group.id && exportJob.provider === 'meta_official' ? '…' : '⇩'}</span>
+                  </button>
                 </>}
             </div>
           </div>
@@ -933,8 +1053,17 @@ export default function GroupsClient({
                 {memberProfiles.length > 5 && <span className={styles.moreAvatars}>+{memberProfiles.length - 5}</span>}
               </div>
               <span>{memberProfiles.slice(0, 2).map((profile) => `@${profile.username}`).join(', ')}{memberProfiles.length > 2 ? ' e mais' : ''}</span>
-            </> : <span className={styles.emptyMembers}>Nenhum perfil adicionado</span>}
+            </> : <span className={styles.emptyMembers}>{zernioProfiles.length > 0 ? 'Nenhum perfil da Meta neste grupo' : 'Nenhum perfil adicionado'}</span>}
           </div>
+          {zernioProfiles.length > 0 && <button
+            className={styles.zernioToggle}
+            type="button"
+            aria-haspopup="dialog"
+            title="Perfis do provedor antigo. Ficam fora da contagem do grupo."
+            onClick={() => setZernioModalGroupId(group.id)}
+          >
+            Ver perfis Zernio ({zernioProfiles.length})
+          </button>}
           {group.recovery_source_group_id
             ? <span className={styles.recoveryLane} title="Esta é a esteira de recuperação de outro grupo. Ela não é analisada como origem — é a coorte em observação.">
                 Esteira de recuperação
@@ -952,21 +1081,43 @@ export default function GroupsClient({
                 <span className={styles.recoveryTrack} aria-hidden="true" />
                 Recuperação
               </label>}
-          <div className={styles.actions}>
-            <button className={styles.exportButton} type="button" aria-label={`Exportar perfis do grupo ${group.name}`} title="Exportar perfis" disabled={exportingGroupId !== null || exportingAll || deleting} onClick={() => exportGroup(group)}>
-              <span aria-hidden="true">{exportingGroupId === group.id ? '…' : '⇩'}</span>
-            </button>
-          {canManage && <>
+          {continuous.allowed && !deleting && <ContinuousPostingGroupControls group={group} groups={groups} canManage={canManage} rules={continuous.rules} onChanged={reloadContinuous} />}
+          {canManage && <div className={styles.actions}>
             <button className="button button-primary" type="button" disabled={deleting} onClick={() => openMemberModal(group.id)}>Gerenciar perfis</button>
             <button className="button button-ghost" type="button" disabled={deleting} onClick={() => beginEdit(group)}>Editar</button>
             <button className={styles.deleteButton} type="button" disabled={deleting} onClick={() => openDeleteModal(group)}>
               {deleting ? 'Excluindo…' : 'Excluir'}
             </button>
-          </>}
-          </div>
+          </div>}
         </article>;
       })}
     </section>}
+
+    {continuous.allowed && <ContinuousPostingNotices groups={groups} canManage={canManage} />}
+
+    {zernioModalGroup && <div className={styles.backdrop} role="presentation" onMouseDown={() => setZernioModalGroupId(null)}>
+      <section className={`panel ${styles.modal}`} role="dialog" aria-modal="true" aria-labelledby="zernio-modal-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header className={styles.modalHeader}>
+          <div>
+            <span className="section-kicker">Perfis Zernio</span>
+            <h2 id="zernio-modal-title">{zernioModalGroup.name}</h2>
+            <p>{zernioModalProfiles.length} perfil(is) do provedor antigo neste grupo · {zernioStatusSummary(zernioModalProfiles)}</p>
+          </div>
+          <button className={styles.closeButton} type="button" aria-label="Fechar" onClick={() => setZernioModalGroupId(null)}>×</button>
+        </header>
+        <div className={styles.zernioBody}>
+          <div className={styles.zernioList}>
+            {zernioModalProfiles.map((profile) => <ProfileIdentity key={profile.id} profile={profile} compact />)}
+          </div>
+        </div>
+        <footer className={styles.modalActions}>
+          <button className="button button-ghost" type="button" onClick={() => setZernioModalGroupId(null)}>Fechar</button>
+          <button className="button button-primary" type="button" disabled={exportJob !== null} onClick={() => exportGroup(zernioModalGroup, 'zernio')}>
+            {exportJob?.scope === zernioModalGroup.id && exportJob.provider === 'zernio' ? 'Exportando…' : '⇩ Exportar perfis Zernio'}
+          </button>
+        </footer>
+      </section>
+    </div>}
 
     {deleteGroupTarget && <div className={styles.backdrop} role="presentation" onMouseDown={closeDeleteModal}>
       <section className={`panel ${styles.modal} ${styles.deleteModal}`} role="dialog" aria-modal="true" aria-labelledby="group-delete-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -1108,7 +1259,7 @@ export default function GroupsClient({
             Disponíveis{availableProfiles.length > 0 ? ` (${availableProfiles.length})` : ''}
           </button>
           <button type="button" role="tab" aria-selected={memberModalTab === 'members'} className={`${styles.memberTab} ${memberModalTab === 'members' ? styles.memberTabActive : ''}`} onClick={() => setMemberModalTab('members')}>
-            Neste grupo{sortedCurrentMemberships.length > 0 ? ` (${sortedCurrentMemberships.length})` : ''}
+            Neste grupo{groupMetaMemberCount > 0 ? ` (${groupMetaMemberCount})` : ''}
           </button>
         </div>
 
@@ -1169,17 +1320,51 @@ export default function GroupsClient({
               </label>}
             </>}
           </div>}
-          {sortedCurrentMemberships.length === 0 ? <div className={styles.noProfiles}><strong>Nenhum perfil adicionado ainda.</strong><span>Use a aba “Disponíveis” para adicionar perfis a este grupo.</span></div> : currentMemberIds.length === 0 ? <div className={styles.noProfiles}><strong>Nenhum perfil encontrado.</strong><span>Tente outro nome ou usuário.</span></div> : <div className={styles.memberList}>
-            {currentMemberIds.map((profileId) => {
-              const profile = profileById.get(profileId);
-              if (!profile) return null;
-              const selected = selectedMemberIds.includes(profileId);
-              return <div className={`${styles.currentMember} ${selected ? styles.currentMemberSelected : ''}`} key={profileId}>
-                {canManage && <input type="checkbox" checked={selected} onChange={() => toggleSelectedMember(profileId)} aria-label={`Selecionar @${profile.username}`} />}
-                <ProfileIdentity profile={profile} compact />
-                {canManage && <button type="button" disabled={savingMembers} onClick={() => removeProfile(memberModalGroup.id, profileId)}>Remover</button>}
-              </div>;
-            })}
+          {sortedCurrentMemberships.length === 0
+            ? <div className={styles.noProfiles}><strong>Nenhum perfil adicionado ainda.</strong><span>Use a aba “Disponíveis” para adicionar perfis a este grupo.</span></div>
+            : groupMetaMemberCount === 0
+              ? <div className={styles.noProfiles}><strong>Nenhum perfil da Meta neste grupo.</strong><span>Use a aba “Disponíveis” para adicionar perfis a este grupo.</span></div>
+              : currentMemberIds.length === 0
+                ? <div className={styles.noProfiles}><strong>Nenhum perfil encontrado.</strong><span>Tente outro nome ou usuário.</span></div>
+                : <div className={styles.memberList}>
+                  {currentMemberIds.map((profileId) => renderCurrentMember(memberModalGroup.id, profileId))}
+                </div>}
+          {groupZernioMembers.length > 0 && <div className={`${styles.zernioSection} ${styles.zernioSectionModal}`}>
+            <button
+              className={styles.zernioToggle}
+              type="button"
+              aria-expanded={memberModalZernioOpen}
+              aria-controls="member-modal-zernio"
+              onClick={toggleMemberModalZernio}
+            >
+              <span aria-hidden="true">{memberModalZernioOpen ? '▾' : '▸'}</span>
+              {memberModalZernioOpen ? 'Ocultar' : 'Ver'} perfis Zernio ({groupZernioMembers.length})
+            </button>
+            {memberModalZernioOpen && <div className={styles.zernioBody} id="member-modal-zernio">
+              <p className={styles.zernioSummary}>{zernioStatusSummary(groupZernioMembers)}</p>
+              <div className={styles.listHeader}>
+                <button
+                  className={styles.zernioExportButton}
+                  type="button"
+                  disabled={exportJob !== null}
+                  onClick={() => exportGroup(memberModalGroup, 'zernio')}
+                >{exportJob?.scope === memberModalGroup.id && exportJob.provider === 'zernio' ? 'Exportando…' : '⇩ Exportar perfis Zernio'}</button>
+                {canManage && currentZernioMemberIds.length > 0 && <label className={styles.selectAllMembers}>
+                  <input
+                    type="checkbox"
+                    checked={currentZernioMemberIds.every((id) => selectedMemberIds.includes(id))}
+                    ref={(input) => { if (input) input.indeterminate = currentZernioMemberIds.some((id) => selectedMemberIds.includes(id)) && !currentZernioMemberIds.every((id) => selectedMemberIds.includes(id)); }}
+                    onChange={() => toggleSelectAllMembers(currentZernioMemberIds)}
+                  />
+                  Selecionar todos os Zernio
+                </label>}
+              </div>
+              {currentZernioMemberIds.length === 0
+                ? <div className={styles.noProfiles}><strong>Nenhum perfil Zernio encontrado.</strong><span>Tente outro nome ou usuário.</span></div>
+                : <div className={styles.memberList}>
+                  {currentZernioMemberIds.map((profileId) => renderCurrentMember(memberModalGroup.id, profileId))}
+                </div>}
+            </div>}
           </div>}
         </div>}
 

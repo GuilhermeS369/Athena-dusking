@@ -42,6 +42,7 @@ import {
   resumirFasesPorItem,
   ociosidadeDoLote,
   processarComJanelaDeslizante,
+  reivindicarComPostagemContinua,
   META_REEL_COVER_MAX_BYTES,
   metaReelContainerFields,
   metaReelCoverIsSendable,
@@ -1177,6 +1178,212 @@ test('janela deslizante: nunca passa do teto de itens em voo, mesmo se o claim d
   for (const id of proc.emVoo()) await proc.terminar(id);
   const resultado = await promessa;
   assert.equal(resultado.motivoFim, 'janela_maxima');
+});
+
+// --- Postagem continua (09/10/2026) ---
+
+// Cliente falso: registra cada RPC na ordem e responde pelo roteiro do teste.
+function supabaseDeClaims(respostas = {}) {
+  const chamadas = [];
+  return {
+    chamadas,
+    rpc: async (nome, args) => {
+      chamadas.push({ nome, args });
+      const resposta = respostas[nome];
+      const valor = typeof resposta === 'function' ? await resposta(args) : resposta;
+      return valor ?? { data: [], error: null };
+    },
+  };
+}
+// Devolve tantos itens quantos o claim pediu, com um prefixo para distinguir a origem.
+const devolveOPedido = (prefixo) => (args) => ({
+  data: Array.from({ length: args.p_limit }, (_, i) => ({ id: `${prefixo}${i + 1}` })),
+  error: null,
+});
+async function semLogDeErro(operacao) {
+  const original = console.error;
+  const linhas = [];
+  console.error = (...args) => { linhas.push(args); };
+  try { return { valor: await operacao(), linhas }; } finally { console.error = original; }
+}
+
+test('postagem continua: chave desligada nao chama a RPC nova e o claim comum e o de sempre', async () => {
+  const supabase = supabaseDeClaims({ claim_publication_items: devolveOPedido('c') });
+  let marcou = 0;
+  const resultado = await reivindicarComPostagemContinua(supabase, {
+    workerId: 'w1', vagas: 7, leaseSeconds: 180, continuoLigado: false, limiteContinuo: 10,
+    aoTerminarContinuo: () => { marcou += 1; },
+  });
+  assert.deepEqual(supabase.chamadas, [
+    { nome: 'claim_publication_items', args: { p_worker_id: 'w1', p_limit: 7, p_lease_seconds: 180 } },
+  ]);
+  assert.equal(resultado.continuos.length, 0);
+  assert.equal(resultado.comuns.length, 7);
+  assert.equal(resultado.erroContinuo, null);
+  assert.equal(marcou, 0, 'a fase claimContinuo nao existe com a chave desligada');
+
+  // Sem `continuoLigado` (ou com valor que nao e exatamente `true`) tambem e desligado.
+  for (const valor of [undefined, 'true', 1]) {
+    const outro = supabaseDeClaims();
+    await reivindicarComPostagemContinua(outro, { workerId: 'w1', vagas: 3, leaseSeconds: 180, continuoLigado: valor });
+    assert.deepEqual(outro.chamadas.map((c) => c.nome), ['claim_publication_items']);
+  }
+
+  // Na reconciliacao a funcao do claim comum e outra e segue sem a continua.
+  const reconciliacao = supabaseDeClaims();
+  await reivindicarComPostagemContinua(reconciliacao, {
+    workerId: 'w1', vagas: 4, leaseSeconds: 60, continuoLigado: false,
+    funcaoDoClaimComum: 'claim_provider_accepted_publication_items',
+  });
+  assert.deepEqual(reconciliacao.chamadas, [
+    { nome: 'claim_provider_accepted_publication_items', args: { p_worker_id: 'w1', p_limit: 4, p_lease_seconds: 60 } },
+  ]);
+});
+
+test('postagem continua: sem vagas nao chama RPC nenhuma, ligada ou nao', async () => {
+  for (const continuoLigado of [false, true]) {
+    const supabase = supabaseDeClaims();
+    const resultado = await reivindicarComPostagemContinua(supabase, { workerId: 'w1', vagas: 0, leaseSeconds: 180, continuoLigado });
+    assert.deepEqual(supabase.chamadas, []);
+    assert.deepEqual(resultado, { continuos: [], comuns: [], erroContinuo: null });
+  }
+});
+
+test('postagem continua: chave ligada chama a continua antes e o claim comum fica so com a sobra', async () => {
+  const supabase = supabaseDeClaims({
+    claim_continuous_posting_items: { data: [{ id: 'k1' }, { id: 'k2' }, { id: 'k3' }], error: null },
+    claim_publication_items: devolveOPedido('c'),
+  });
+  const ordem = [];
+  const resultado = await reivindicarComPostagemContinua(supabase, {
+    workerId: 'w1', vagas: 8, leaseSeconds: 180, continuoLigado: true, limiteContinuo: 10,
+    aoTerminarContinuo: () => { ordem.push(`marca apos ${supabase.chamadas.length} chamada(s)`); },
+  });
+  assert.deepEqual(supabase.chamadas, [
+    { nome: 'claim_continuous_posting_items', args: { p_worker_id: 'w1', p_limit: 8, p_lease_seconds: 180 } },
+    { nome: 'claim_publication_items', args: { p_worker_id: 'w1', p_limit: 5, p_lease_seconds: 180 } },
+  ]);
+  assert.deepEqual(resultado.continuos.map((i) => i.id), ['k1', 'k2', 'k3']);
+  assert.equal(resultado.comuns.length, 5);
+  assert.deepEqual(ordem, ['marca apos 1 chamada(s)'], 'claimContinuo e marcado entre os dois claims');
+});
+
+test('postagem continua: respeita o limite por claim e nao chama o claim comum quando nao sobra vaga', async () => {
+  // Limite menor que as vagas: a continua pede so o limite.
+  const comLimite = supabaseDeClaims({
+    claim_continuous_posting_items: devolveOPedido('k'),
+    claim_publication_items: devolveOPedido('c'),
+  });
+  const a = await reivindicarComPostagemContinua(comLimite, { workerId: 'w1', vagas: 30, leaseSeconds: 180, continuoLigado: true, limiteContinuo: 10 });
+  assert.deepEqual(comLimite.chamadas.map((c) => [c.nome, c.args.p_limit]), [
+    ['claim_continuous_posting_items', 10],
+    ['claim_publication_items', 20],
+  ]);
+  assert.equal(a.continuos.length + a.comuns.length, 30);
+
+  // Vagas menores que o limite: a continua pede so as vagas e, ocupando todas, o comum nao roda.
+  const semSobra = supabaseDeClaims({ claim_continuous_posting_items: devolveOPedido('k') });
+  const b = await reivindicarComPostagemContinua(semSobra, { workerId: 'w1', vagas: 4, leaseSeconds: 180, continuoLigado: true, limiteContinuo: 10 });
+  assert.deepEqual(semSobra.chamadas.map((c) => [c.nome, c.args.p_limit]), [['claim_continuous_posting_items', 4]]);
+  assert.equal(b.continuos.length, 4);
+  assert.deepEqual(b.comuns, []);
+});
+
+test('postagem continua: falha da continua nao impede o claim comum, que segue com todas as vagas', async () => {
+  const falhas = [
+    // Erro devolvido pelo supabase-js (objeto simples, nao Error).
+    { data: null, error: { code: '42883', message: 'function claim_continuous_posting_items does not exist' } },
+    // Erro lancado (queda de rede).
+    () => { throw new TypeError('fetch failed'); },
+  ];
+  for (const falha of falhas) {
+    const supabase = supabaseDeClaims({
+      claim_continuous_posting_items: falha,
+      claim_publication_items: devolveOPedido('c'),
+    });
+    const { valor: resultado, linhas } = await semLogDeErro(() => reivindicarComPostagemContinua(supabase, {
+      workerId: 'w1', vagas: 6, leaseSeconds: 180, continuoLigado: true, limiteContinuo: 10,
+    }));
+    assert.deepEqual(supabase.chamadas.map((c) => [c.nome, c.args.p_limit]), [
+      ['claim_continuous_posting_items', 6],
+      ['claim_publication_items', 6],
+    ]);
+    assert.deepEqual(resultado.continuos, []);
+    assert.equal(resultado.comuns.length, 6);
+    assert.ok(resultado.erroContinuo);
+    assert.equal(linhas.length, 1, 'uma linha de log por falha, nao uma por item');
+    assert.equal(linhas[0][1].workerId, 'w1');
+    assert.ok('code' in linhas[0][1] && typeof linhas[0][1].message === 'string');
+  }
+});
+
+test('postagem continua: falha do claim comum continua subindo, com a chave ligada ou nao', async () => {
+  for (const continuoLigado of [false, true]) {
+    const supabase = supabaseDeClaims({
+      claim_continuous_posting_items: { data: [{ id: 'k1' }], error: null },
+      claim_publication_items: { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } },
+    });
+    await assert.rejects(
+      reivindicarComPostagemContinua(supabase, { workerId: 'w1', vagas: 5, leaseSeconds: 180, continuoLigado }),
+      (erro) => erro.code === '57014',
+    );
+  }
+});
+
+test('postagem continua: a reposicao da janela deslizante tambem passa pela continua', async () => {
+  const relogio = relogioSimulado();
+  const proc = processadorControlado(relogio);
+  let rodada = 0;
+  const supabase = supabaseDeClaims({
+    // Primeira reposicao: 2 continuos; depois a regra nao tem mais horario vencido.
+    claim_continuous_posting_items: () => { rodada += 1; return { data: rodada === 1 ? [{ id: 'k1' }, { id: 'k2' }] : [], error: null }; },
+    claim_publication_items: (args) => ({ data: rodada === 1 ? Array.from({ length: args.p_limit }, (_, i) => ({ id: `c${i + 1}` })) : [], error: null }),
+  });
+  const continuo = { reivindicados: 0, repostos: 0 };
+  // O mesmo `reivindicar` que `dispatchPublicationQueueDirect` entrega a janela.
+  const promessa = processarComJanelaDeslizante({
+    itens: itens([1, 2, 3, 4, 5, 6]), teto: 6, minVagasLivres: 4, intervaloEntreClaimsMs: 0, janelaMaxMs: 90_000,
+    now: relogio.now, sleep: relogio.sleep, processar: proc.processar,
+    reivindicar: async (vagas) => {
+      const novos = await reivindicarComPostagemContinua(supabase, {
+        workerId: 'w1', vagas, leaseSeconds: 180, continuoLigado: true, limiteContinuo: 3,
+      });
+      continuo.reivindicados += novos.continuos.length;
+      continuo.repostos += novos.continuos.length;
+      return [...novos.continuos, ...novos.comuns];
+    },
+  });
+  await assentar();
+  for (const id of [1, 2, 3, 4]) await proc.terminar(id);
+  assert.deepEqual(supabase.chamadas.map((c) => [c.nome, c.args.p_limit]), [
+    ['claim_continuous_posting_items', 3],
+    ['claim_publication_items', 2],
+  ]);
+  assert.deepEqual(proc.emVoo(), [5, 6, 'k1', 'k2', 'c1', 'c2'], 'continuos e comuns entram no mesmo fluxo, dentro do teto');
+  // Segunda reposicao: os dois claims voltam vazios e a reposicao encerra.
+  for (const id of [5, 6, 'k1', 'k2']) await proc.terminar(id);
+  assert.deepEqual(supabase.chamadas.slice(2).map((c) => [c.nome, c.args.p_limit]), [
+    ['claim_continuous_posting_items', 3],
+    ['claim_publication_items', 4],
+  ]);
+  for (const id of ['c1', 'c2']) await proc.terminar(id);
+  const resultado = await promessa;
+  assert.equal(resultado.motivoFim, 'fila_vazia');
+  assert.equal(resultado.itens.length, 10);
+  assert.equal(resultado.itensRepostos, 4);
+  assert.deepEqual(continuo, { reivindicados: 2, repostos: 2 });
+});
+
+test('postagem continua: o despacho usa a funcao nos dois pontos e so liga com a env em "true"', () => {
+  const fonte = fs.readFileSync(new URL('./publication-direct-dispatch.mjs', import.meta.url), 'utf8');
+  const despacho = fonte.slice(fonte.indexOf('export async function dispatchPublicationQueueDirect'));
+  assert.equal(despacho.match(/reivindicarComPostagemContinua\(supabase,/g)?.length, 2, 'lote inicial e reposicao da janela');
+  assert.equal(despacho.includes(".rpc('claim_publication_items'"), false, 'nenhum claim comum por fora da funcao');
+  assert.equal(despacho.includes('claim_continuous_posting_items'), false, 'a RPC nova so e chamada dentro da funcao');
+  assert.ok(despacho.indexOf("marcar('claimContinuo')") < despacho.indexOf("marcar('claimNoBanco')"));
+  assert.match(fonte, /const postagemContinuaLigada = `\$\{process\.env\.PUBLICATION_WORKER_CONTINUOUS_POSTING \?\? ''\}`\.trim\(\) === 'true';/);
+  assert.match(fonte, /const continuoNesteCiclo = postagemContinuaLigada && !reconciliationOnly;/);
+  assert.match(fonte, /integerEnv\('PUBLICATION_WORKER_CONTINUOUS_CLAIM_LIMIT', 10, 1, 100\)/);
 });
 
 test('capa de Reel na Meta: só JPEG até 8 MB é enviada', () => {

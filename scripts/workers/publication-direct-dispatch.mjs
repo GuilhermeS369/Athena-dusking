@@ -3025,6 +3025,68 @@ const JANELA_MIN_VAGAS_LIVRES = integerEnv('PUBLICATION_WORKER_SLIDING_MIN_FREE_
 const JANELA_INTERVALO_ENTRE_CLAIMS_MS = integerEnv('PUBLICATION_WORKER_SLIDING_CLAIM_INTERVAL_MS', 3000, 500, 60_000);
 const JANELA_DURACAO_MAX_MS = integerEnv('PUBLICATION_WORKER_SLIDING_WINDOW_MAX_MS', 90_000, 10_000, 600_000);
 
+// Postagem continua (09/10/2026, migration 443). So 'true' liga; qualquer outro
+// valor e desligado, e desligado significa nenhuma chamada nova ao banco.
+const postagemContinuaLigada = `${process.env.PUBLICATION_WORKER_CONTINUOUS_POSTING ?? ''}`.trim() === 'true';
+const POSTAGEM_CONTINUA_LIMITE_POR_CLAIM = integerEnv('PUBLICATION_WORKER_CONTINUOUS_CLAIM_LIMIT', 10, 1, 100);
+
+// Os dois claims de um ponto de reivindicacao, na ordem: primeiro a postagem
+// continua (`claim_continuous_posting_items` cria o item JA reivindicado, no
+// mesmo formato do claim comum), depois o claim comum com as vagas que sobraram.
+//
+//   - chave desligada: so o claim comum, com todas as vagas -- exatamente a
+//     chamada que existia antes desta funcao;
+//   - a continua pede `min(vagas, limiteContinuo)`; se ela ocupar todas as vagas
+//     o claim comum nao e chamado neste ponto;
+//   - falha da continua NUNCA derruba o ciclo: uma linha de log (nao uma por
+//     item) e o claim comum segue com todas as vagas. Falha do claim comum
+//     continua subindo, como sempre.
+//
+// `aoTerminarContinuo` existe para a telemetria marcar a fase `claimContinuo`
+// entre os dois claims; so e chamado com a chave ligada. `supabase` e injetado
+// para o teste nao precisar de banco.
+export async function reivindicarComPostagemContinua(supabase, options = {}) {
+  const vagas = Math.max(0, Math.floor(Number(options.vagas) || 0));
+  const funcaoDoClaimComum = options.funcaoDoClaimComum ?? 'claim_publication_items';
+  const { workerId, leaseSeconds } = options;
+  let continuos = [];
+  let erroContinuo = null;
+  if (vagas === 0) return { continuos, comuns: [], erroContinuo };
+
+  if (options.continuoLigado === true) {
+    const limiteContinuo = Math.max(1, Math.floor(Number(options.limiteContinuo) || 10));
+    try {
+      const { data, error } = await supabase.rpc('claim_continuous_posting_items', {
+        p_worker_id: workerId,
+        p_limit: Math.min(vagas, limiteContinuo),
+        p_lease_seconds: leaseSeconds,
+      });
+      if (error) throw error;
+      continuos = Array.isArray(data) ? data : [];
+    } catch (erro) {
+      erroContinuo = erro;
+      continuos = [];
+      const info = errorInfo(erro);
+      console.error('[publication-worker] claim da postagem continua falhou; seguindo com o claim comum', {
+        workerId,
+        code: info.code ?? null,
+        message: info.message ?? null,
+      });
+    }
+    if (typeof options.aoTerminarContinuo === 'function') options.aoTerminarContinuo();
+  }
+
+  const sobra = Math.max(0, vagas - continuos.length);
+  if (sobra === 0) return { continuos, comuns: [], erroContinuo };
+  const { data: claimed, error: claimError } = await supabase.rpc(funcaoDoClaimComum, {
+    p_worker_id: workerId,
+    p_limit: sobra,
+    p_lease_seconds: leaseSeconds,
+  });
+  if (claimError) throw claimError;
+  return { continuos, comuns: claimed ?? [], erroContinuo };
+}
+
 export async function dispatchPublicationQueueDirect(options = {}) {
   const workerId = options.workerId?.trim().slice(0, 120) || `direct-${randomUUID()}`;
   const configuredLimit = Number.isInteger(options.limit) ? Math.min(Math.max(options.limit, 1), 100) : 5;
@@ -3133,21 +3195,32 @@ export async function dispatchPublicationQueueDirect(options = {}) {
   marcar('reivindicarRecuperacao');
   const remainingRegularCapacity = Math.max(0, limit - recoveryItems.length);
   let regularItems = [];
+  // Postagem continua: nunca na reconciliacao. Com a chave desligada os dois
+  // pontos abaixo fazem so o claim comum, como antes.
+  const continuoNesteCiclo = postagemContinuaLigada && !reconciliationOnly;
+  const continuo = continuoNesteCiclo ? { reivindicados: 0, repostos: 0 } : null;
+  let itensContinuos = [];
   if (remainingRegularCapacity > 0) {
     const claimFunction = reconciliationOnly
       ? 'claim_provider_accepted_publication_items'
       : 'claim_publication_items';
-    const { data: claimed, error: claimError } = await supabase.rpc(claimFunction, {
-      p_worker_id: workerId,
-      p_limit: remainingRegularCapacity,
-      p_lease_seconds: leaseSeconds,
+    const reivindicados = await reivindicarComPostagemContinua(supabase, {
+      workerId,
+      vagas: remainingRegularCapacity,
+      leaseSeconds,
+      funcaoDoClaimComum: claimFunction,
+      continuoLigado: continuoNesteCiclo,
+      limiteContinuo: POSTAGEM_CONTINUA_LIMITE_POR_CLAIM,
+      // Marcado ANTES de `claimNoBanco`, que segue medindo so o claim comum.
+      aoTerminarContinuo: () => marcar('claimContinuo'),
     });
-    if (claimError) throw claimError;
-    regularItems = claimed ?? [];
+    regularItems = reivindicados.comuns;
+    itensContinuos = reivindicados.continuos;
+    if (continuo) continuo.reivindicados += itensContinuos.length;
   }
   marcar('claimNoBanco');
   const rotular = (item) => ({ ...item, correlation_id: options.correlationId ?? null });
-  const itensIniciais = [...regularItems, ...recoveryItems].map(rotular);
+  const itensIniciais = [...itensContinuos, ...regularItems, ...recoveryItems].map(rotular);
   // Janela deslizante (canario por env) ou o lote de sempre. A reposicao usa o
   // mesmo claim regular, com o mesmo lease; itens de recuperacao coordenada so
   // entram no lote inicial.
@@ -3160,13 +3233,19 @@ export async function dispatchPublicationQueueDirect(options = {}) {
     processar: (item) => processClaimedItem(item, workerId),
     reivindicar: (janelaDeslizanteLigada && !reconciliationOnly)
       ? async (vagas) => {
-        const { data: novos, error: erroDoClaim } = await supabase.rpc('claim_publication_items', {
-          p_worker_id: workerId,
-          p_limit: vagas,
-          p_lease_seconds: leaseSeconds,
+        const novos = await reivindicarComPostagemContinua(supabase, {
+          workerId,
+          vagas,
+          leaseSeconds,
+          funcaoDoClaimComum: 'claim_publication_items',
+          continuoLigado: continuoNesteCiclo,
+          limiteContinuo: POSTAGEM_CONTINUA_LIMITE_POR_CLAIM,
         });
-        if (erroDoClaim) throw erroDoClaim;
-        return (novos ?? []).map(rotular);
+        if (continuo) {
+          continuo.reivindicados += novos.continuos.length;
+          continuo.repostos += novos.continuos.length;
+        }
+        return [...novos.continuos, ...novos.comuns].map(rotular);
       }
       : null,
   });
@@ -3217,6 +3296,7 @@ export async function dispatchPublicationQueueDirect(options = {}) {
     janelaDeslizante: janelaDeslizanteLigada
       ? { janelaMs: janela.janelaMs, reposicoes: janela.reposicoes, itensRepostos: janela.itensRepostos, motivoFim: janela.motivoFim }
       : null,
+    continuo: continuo ? { ...continuo } : null,
   });
 
   console.info('Dispatcher direto de publicação concluído.', {
@@ -3247,5 +3327,6 @@ export async function dispatchPublicationQueueDirect(options = {}) {
     adaptiveConcurrency: { used: limit, next: nextLimit, maximum: effectiveMaximum },
     processed,
     batchRuntime,
+    continuo: continuo ? { ...continuo } : null,
   };
 }

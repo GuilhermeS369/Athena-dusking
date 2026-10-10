@@ -46,6 +46,9 @@ module.exports = {
       // Variante de video por post (migration 436), ligada em 20/09/2026 nos cinco: um
       // publicador sem a chave postaria o arquivo original. Secao 4 do mestre.
       PUBLICATION_WORKER_VIDEO_VARIANTS: 'true',
+      // Postagem continua (migration 443): nos cinco desde 10/10/2026. Ver
+      // docs/fila-de-publicacao-MASTER.md, secao 4.
+      PUBLICATION_WORKER_CONTINUOUS_POSTING: 'true',
     }),
     // Publicadores 2 a 5: so caminho direto. Ligam pela conta da secao 8.3 do mestre.
     npmWorker('athena-publication-worker-2', 'worker:publication', {
@@ -57,6 +60,9 @@ module.exports = {
       // depois do veredito do canario). Ver docs/fila-de-publicacao-MASTER.md, secao 4.
       PUBLICATION_WORKER_SLIDING_WINDOW: 'true',
       PUBLICATION_WORKER_VIDEO_VARIANTS: 'true',
+      // Postagem continua (migration 443): nos cinco desde 10/10/2026. Ver
+      // docs/fila-de-publicacao-MASTER.md, secao 4.
+      PUBLICATION_WORKER_CONTINUOUS_POSTING: 'true',
     }),
     npmWorker('athena-publication-worker-3', 'worker:publication', {
       PUBLICATION_WORKER_ID: 'athena-vps-publication-3',
@@ -65,6 +71,9 @@ module.exports = {
       PUBLICATION_WORKER_STAGING_ENABLED: 'false',
       PUBLICATION_WORKER_SLIDING_WINDOW: 'true',
       PUBLICATION_WORKER_VIDEO_VARIANTS: 'true',
+      // Postagem continua (migration 443): nos cinco desde 10/10/2026. Ver
+      // docs/fila-de-publicacao-MASTER.md, secao 4.
+      PUBLICATION_WORKER_CONTINUOUS_POSTING: 'true',
     }),
     // Publicador 4: so caminho direto, ligado em 12/09/2026. O bloco das 07:00 BRT
     // (500-680 posts num intervalo de 5 min) passava da conta de 3 publicadores:
@@ -76,6 +85,9 @@ module.exports = {
       PUBLICATION_WORKER_STAGING_ENABLED: 'false',
       PUBLICATION_WORKER_SLIDING_WINDOW: 'true',
       PUBLICATION_WORKER_VIDEO_VARIANTS: 'true',
+      // Postagem continua (migration 443): nos cinco desde 10/10/2026. Ver
+      // docs/fila-de-publicacao-MASTER.md, secao 4.
+      PUBLICATION_WORKER_CONTINUOUS_POSTING: 'true',
     }),
     // Publicador 5: so caminho direto, ligado em 15/09/2026 02:3xZ. Motivo: o bloco das
     // 07:00 BRT de 15/09 traz reels em quatro intervalos seguidos (298/488/549/313 em
@@ -90,6 +102,9 @@ module.exports = {
       // docs/fila-de-publicacao-MASTER.md, secao 4 (freios) e 12 (o que medir).
       PUBLICATION_WORKER_SLIDING_WINDOW: 'true',
       PUBLICATION_WORKER_VIDEO_VARIANTS: 'true',
+      // Postagem continua (migration 443): nos cinco desde 10/10/2026. Ver
+      // docs/fila-de-publicacao-MASTER.md, secao 4.
+      PUBLICATION_WORKER_CONTINUOUS_POSTING: 'true',
     }),
     npmWorker('athena-generation-worker', 'worker:publication-generation'),
     npmWorker('athena-queue-summary-worker', 'worker:queue-summary'),

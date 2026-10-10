@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { filterExportRowsByProvider, parseGroupExportProvider } from '@/lib/groups/export-provider';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { fetchAllRows } from '@/lib/supabase/paginate';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
@@ -21,7 +22,7 @@ type ExportRow = {
 };
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ groupId: string }> },
 ) {
   const { groupId } = await params;
@@ -29,6 +30,14 @@ export async function GET(
 
   if (!context.user || !context.activeOrganization) {
     return NextResponse.json({ error: 'Autenticação necessária.' }, { status: 401 });
+  }
+
+  // ?provider=meta_official|zernio recorta a planilha; sem o parâmetro saem os
+  // dois provedores, como sempre saiu. Valor desconhecido é erro, não "tudo":
+  // um typo aqui devolveria a planilha errada com cara de certa.
+  const providerParam = parseGroupExportProvider(new URL(request.url).searchParams.get('provider'));
+  if (!providerParam.ok) {
+    return NextResponse.json({ error: 'Provedor de exportação inválido.' }, { status: 400 });
   }
 
   // Fixado fora do callback: dentro da closure o TypeScript perde o estreitamento
@@ -71,8 +80,28 @@ export async function GET(
     return NextResponse.json({ error: 'Não foi possível preparar a exportação do grupo.' }, { status: 500 });
   }
 
+  // A view não tem coluna de provedor, então o recorte cruza profile_id com os
+  // perfis Zernio da organização. Sem filtro de deleted_at de propósito: a linha
+  // de queda aponta para perfil que pode já ter sido excluído. O provider fica
+  // fixado pelo .eq() e o id é a chave da relação — ordem total.
+  let zernioProfileIds = new Set<string>();
+  if (providerParam.provider) {
+    const zernioProfiles = await fetchAllRows<{ id: string }>((from, to) => supabase
+      .from('instagram_profiles_safe')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('provider', 'zernio')
+      .order('id', { ascending: true })
+      .range(from, to));
+    if (zernioProfiles.error) {
+      return NextResponse.json({ error: 'Não foi possível preparar a exportação do grupo.' }, { status: 500 });
+    }
+    zernioProfileIds = new Set(zernioProfiles.data.map((profile) => profile.id));
+  }
+  const rows = filterExportRowsByProvider(data, providerParam.provider, zernioProfileIds);
+
   return NextResponse.json({
     group: { id: group.id, name: group.name },
-    rows: data,
+    rows,
   });
 }

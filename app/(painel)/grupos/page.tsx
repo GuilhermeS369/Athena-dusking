@@ -26,7 +26,8 @@ export default async function GroupsPage() {
     // which would otherwise silently truncate the list and every count derived from it.
     fetchAllRows((from, to) => supabase
       .from('instagram_profiles_safe')
-      .select('id, username, display_name, profile_picture_url, status')
+      // provider separa a lista principal (Meta) da seção recolhida da Zernio.
+      .select('id, username, display_name, profile_picture_url, status, provider')
       .eq('organization_id', organizationId)
       .is('deleted_at', null)
       // username não é único no banco; sem o desempate por id a paginação

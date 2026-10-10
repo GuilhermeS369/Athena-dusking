@@ -117,9 +117,13 @@
  * com quatro ações e um card estreito, o flex-wrap deixava um botão sozinho na
  * última linha com largura de texto. O botão de exportar mantém o
  * `margin-right: auto` do layout antigo saindo do fluxo do grid. */
-.actions { display: grid; grid-template-columns: auto repeat(auto-fit, minmax(min(100%, 106px), 1fr)); align-items: center; gap: 8px; min-width: 0; padding-top: 14px; border-top: 1px solid var(--grp-line-soft); }
+/* Uma ação principal na linha de cima e as duas secundárias embaixo: com três
+ * colunas o card estreito quebrava cada botão numa linha própria. */
+.actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; padding-top: 14px; border-top: 1px solid var(--grp-line-soft); }
+.actions :global(.button-primary) { grid-column: 1 / -1; }
 .actions .button { width: 100%; min-width: 0; min-height: 40px; padding: 7px 10px; border-radius: 10px; font-size: 12px; line-height: 1.25; white-space: nowrap; }
-.exportButton { display: grid; width: 40px; min-height: 40px; place-items: center; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: #d8bdff; cursor: pointer; font: inherit; font-size: 20px; font-weight: 800; line-height: 1; }
+/* Exportar mora no cabeçalho do card, do tamanho dos selos de contagem. */
+.exportButton { display: grid; flex: 0 0 auto; width: 30px; height: 30px; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: #d8bdff; cursor: pointer; font: inherit; font-size: 13px; line-height: 1; }
 .exportButton:hover:not(:disabled) { border-color: var(--grp-accent); background: var(--grp-accent-soft); color: #fff; }
 .exportButton:focus-visible { outline: 3px solid #9f4cff55; outline-offset: 2px; }
 .exportButton:disabled { cursor: not-allowed; opacity: .5; }
@@ -369,3 +373,30 @@ p.removalHint { margin: 0; color: var(--text-muted); font-size: 12px; line-heigh
    estreitas o par quebra em duas linhas em vez de espremer os rótulos. */
 .headerActions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .headerActions .button { min-height: 40px; white-space: nowrap; }
+
+/* Seção recolhida dos perfis Zernio ------------------------------------------
+ *
+ * O provedor antigo sai da lista principal e das contagens e fica aqui, fechado
+ * por padrão, dentro do próprio grupo. Tracejado e sem preenchimento, no molde
+ * de `.recoveryLane`: é informação lateral, não deve competir com os perfis da
+ * Meta nem com a régua de ações. A mesma seção serve ao card e à aba "Neste
+ * grupo" do modal — lá a lista ganha as ações de membro.
+ */
+.zernioSection { display: grid; gap: 10px; min-width: 0; }
+.zernioSectionModal { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--grp-line-soft); }
+.zernioToggle { display: inline-flex; align-items: center; align-self: flex-start; justify-self: start; gap: 7px; padding: 5px 11px; border: 1px dashed #5b4a71; border-radius: var(--grp-chip-radius); background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 11px; font-weight: 750; }
+.zernioToggle:hover { border-color: var(--grp-accent); color: var(--text); }
+.zernioToggle:focus-visible { outline: 3px solid #9f4cff55; outline-offset: 2px; }
+.zernioBody { display: grid; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--grp-line-soft); border-radius: var(--grp-inner-radius); background: rgba(9, 8, 13, .44); }
+.zernioBody .listHeader { margin: 0; }
+p.zernioSummary { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.zernioExportButton { justify-self: start; height: 28px; padding: 0 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: #d8bdff; cursor: pointer; font: inherit; font-size: 11px; font-weight: 750; white-space: nowrap; }
+.zernioExportButton:hover:not(:disabled) { border-color: var(--grp-accent); background: var(--grp-accent-soft); color: #fff; }
+.zernioExportButton:disabled { cursor: not-allowed; opacity: .5; }
+.zernioList { display: grid; gap: 9px; max-height: 260px; overflow-y: auto; padding-right: 4px; }
+/* No celular o selo de status some das listas para caber o @; aqui ele é a
+ * informação que a seção existe para mostrar, então volta. */
+.zernioBody .statusBadge { display: inline-flex; }
+
+/* Lista Zernio no modal próprio: mais alta que a do card antigo. */
+.modal .zernioList { max-height: min(460px, 56vh); }
