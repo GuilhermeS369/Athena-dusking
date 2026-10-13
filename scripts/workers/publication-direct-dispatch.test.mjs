@@ -10,6 +10,8 @@ import {
   ensureClaimedProfileOnlineOrSuspend,
   cancelMetaActionBlockedProfileReels,
   isMetaActionBlocked,
+  isMetaUnsupportedRequest,
+  probeMetaAccount,
   isMetaTerminalProfileDisconnection,
   isPublicationInfrastructureError,
   isZernioTerminalAccountDisconnection,
@@ -1621,4 +1623,43 @@ test('o ramo do erro 9 fica depois do 190/25 e antes do complete_publication_ite
   const branch = source.slice(actionBlock - 600, actionBlock);
   assert.ok(branch.includes('isMetaActionBlocked(result)'));
   assert.ok(branch.includes('releasePublicationDispatchCapacity'));
+});
+
+test('Meta 100 "Unsupported request" exige o codigo E a mensagem', () => {
+  assert.equal(isMetaUnsupportedRequest({ errorCode: '100', errorMessage: 'Unsupported request - method type: post' }), true);
+  assert.equal(isMetaUnsupportedRequest({ errorCode: 100, errorMessage: 'Unsupported request - method type: get' }), true);
+  // 100 e o codigo generico de parametro invalido: sem a mensagem nao decide nada.
+  assert.equal(isMetaUnsupportedRequest({ errorCode: '100', errorMessage: 'The media type FOO is unknown.' }), false);
+  assert.equal(isMetaUnsupportedRequest({ errorCode: '100' }), false);
+  assert.equal(isMetaUnsupportedRequest({ errorCode: '190', errorMessage: 'Unsupported request - method type: post' }), false);
+});
+
+test('sonda do erro 100: so o me devolvendo o mesmo erro declara a conta morta', async () => {
+  const workItem = { profile: { encrypted_access_token: 'x' } };
+  const resposta = (ok, body) => ({ ok, json: async () => body });
+  const sonda = (fetchImpl) => probeMetaAccount(workItem, { metaFetch: fetchImpl, decryptToken: () => 'token' });
+  const chamadas = [];
+  assert.equal(await sonda(async (url, init, operacao) => {
+    chamadas.push({ url: String(url), auth: init.headers.Authorization, operacao });
+    return resposta(false, { error: { code: 100, message: 'Unsupported request - method type: get' } });
+  }), 'dead');
+  assert.match(chamadas[0].url, /\/me\?fields=id$/);
+  assert.equal(chamadas[0].auth, 'Bearer token');
+  assert.equal(chamadas[0].operacao, 'sonda_conta');
+  assert.equal(await sonda(async () => resposta(true, { id: '1' })), 'alive');
+  // Qualquer outra resposta nao decide: nem 190, nem 5xx, nem rede fora.
+  assert.equal(await sonda(async () => resposta(false, { error: { code: 190, message: 'Error validating access token' } })), 'unknown');
+  assert.equal(await sonda(async () => resposta(false, {})), 'unknown');
+  assert.equal(await sonda(async () => { throw new Error('fetch failed'); }), 'unknown');
+});
+
+test('o erro 100 e sondado antes do 190 e so a conta morta remove o perfil', () => {
+  const source = fs.readFileSync(new URL('./publication-direct-dispatch.mjs', import.meta.url), 'utf8');
+  const sonda = source.indexOf('&& isMetaUnsupportedRequest(result)) {');
+  const terminal = source.indexOf('&& isMetaTerminalProfileDisconnection(result)) {');
+  assert.ok(sonda > 0 && terminal > sonda, 'a sonda do 100 vem antes do desvio do 190/25');
+  const bloco = source.slice(sonda, terminal);
+  assert.match(bloco, /if \(veredito === 'dead'\) \{/);
+  assert.match(bloco, /result\.retryable = true;/);
+  assert.match(bloco, /state: 'meta_profile_removed'/);
 });

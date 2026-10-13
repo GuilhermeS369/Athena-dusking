@@ -1197,6 +1197,53 @@ export function isMetaTerminalProfileDisconnection(result) {
 }
 
 /**
+ * Meta 100 "Unsupported request - method type: post|get": a conta parou de
+ * responder a QUALQUER chamada da Graph API, inclusive `me` (sonda de 13/10/2026
+ * em `_josuepadua858`: 6 de 6 chamadas com este erro). Nao esta na referencia de
+ * erros da Meta. Nos tres casos vistos (Igor 2.0, 13/10/2026) era a antessala do
+ * checkpoint: dois viraram `190` em 3 a 6 horas; o terceiro seguiu `online`
+ * falhando um post por hora, e essas falhas contavam no disjuntor do lote.
+ *
+ * Decisao do dono (13/10/2026): tratar como checkpoint, COM confirmacao. O codigo
+ * 100 e generico ("parametro invalido") e sozinho nao prova nada, entao a mensagem
+ * e obrigatoria aqui e quem decide e a sonda `probeMetaAccount`: so o `me` tambem
+ * devolvendo este erro derruba o perfil. Ver docs/fila-de-publicacao-MASTER.md,
+ * secoes 5 e 6.1.
+ */
+export function isMetaUnsupportedRequest(result) {
+  const code = String(result?.errorCode ?? result?.code ?? '').trim();
+  if (code !== '100') return false;
+  const value = [result?.errorMessage, result?.message].filter(Boolean).join(' ').toLowerCase();
+  return /unsupported request - method type/.test(value);
+}
+
+/**
+ * Confirmacao do erro 100: uma chamada `GET me?fields=id` com o token do perfil.
+ *   'dead'    -> o `me` tambem devolveu 100 "Unsupported request": conta morta;
+ *   'alive'   -> o `me` respondeu 200: a conta esta de pe, o erro foi do post;
+ *   'unknown' -> qualquer outra coisa (rede, 5xx, outro erro): nao decide nada.
+ * So 'dead' derruba o perfil; nos outros dois o post e apenas retentado.
+ */
+export async function probeMetaAccount(workItem, options = {}) {
+  const fetchImpl = options.metaFetch ?? metaFetch;
+  try {
+    const accessToken = (options.decryptToken ?? decryptToken)(workItem.profile.encrypted_access_token);
+    const url = new URL(graphUrl('me'));
+    url.searchParams.set('fields', 'id');
+    const response = await fetchImpl(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(metaRequestTimeoutMs),
+    }, 'sonda_conta');
+    if (response.ok) return 'alive';
+    const body = await response.json().catch(() => ({}));
+    return isMetaUnsupportedRequest({ errorCode: body?.error?.code, errorMessage: body?.error?.message }) ? 'dead' : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
  * Meta 9 "User is performing too many actions": bloqueio TEMPORARIO de acao da
  * conta, nao queda. Em 21/09/2026 atingiu 848 reels de 189 perfis; todos seguiram
  * online e voltaram a publicar reel sozinhos em ~3-4 h. Sem tratamento virava
@@ -2691,6 +2738,21 @@ async function processClaimedItemComLivro(item, workerId, options = {}) {
       const block = await flagMetaAppApiBlocked(workItem, workerId, result);
       if (capacityReserved) await releasePublicationDispatchCapacity(item.id);
       return { itemId: item.id, state: 'meta_app_api_blocked', block };
+    }
+
+    // Meta 100 "Unsupported request": confirma com `me` antes de decidir. Conta
+    // morta segue o caminho do checkpoint (finalize, migration 448); conta de pe
+    // ou sonda inconclusiva so retenta o post, sem falha terminal na 1a tentativa.
+    if (workItem.profile.provider === 'meta_official'
+      && result.state === 'failed'
+      && isMetaUnsupportedRequest(result)) {
+      const veredito = await medirFase('sondaConta', () => (options.probeMetaAccount ?? probeMetaAccount)(workItem));
+      if (veredito === 'dead') {
+        const disconnection = await (options.finalizeMetaProfileDisconnection ?? finalizeMetaProfileDisconnection)(workItem, workerId, result);
+        if (capacityReserved) await releasePublicationDispatchCapacity(item.id);
+        return { itemId: item.id, state: 'meta_profile_removed', disconnection, reason: 'meta_unsupported_request' };
+      }
+      result.retryable = true;
     }
 
     if (workItem.profile.provider === 'meta_official'
