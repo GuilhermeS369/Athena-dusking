@@ -23,7 +23,7 @@ const ORPHANED_PROFILE_COLUMNS =
   'id, username, orphaned_from_meta_app_label, orphaned_at, last_error_message';
 
 const PENDING_DISCONNECTION_COLUMNS =
-  'id, profile_id, meta_app_id, username_snapshot, meta_app_label_snapshot, error_code, error_message, detected_at, signal';
+  'id, profile_id, meta_app_id, username_snapshot, meta_app_label_snapshot, error_code, error_message, detected_at, signal, profile:instagram_profiles(created_at)';
 
 export default async function MetaAppsPage() {
   const context = await getOrganizationContext();
@@ -72,7 +72,9 @@ export default async function MetaAppsPage() {
       .eq('organization_id', organizationId)
       .is('slot_released_at', null)
       .order('id')
-      .range(from, to)),
+      .range(from, to)
+      // Sem tipos gerados o cliente lê o embed como lista; pela FK ele é um só.
+      .returns<MetaPendingDisconnection[]>()),
     // Perfis que perderam o app quando ele saiu do cadastro. Vivos, com fila
     // agendada, e sem publicar: o token foi emitido pelo app que sumiu. Ordem
     // por `id` porque é chave primária, logo ordem total — `orphaned_at` é o

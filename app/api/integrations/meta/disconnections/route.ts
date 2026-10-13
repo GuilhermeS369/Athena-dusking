@@ -8,7 +8,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 export const dynamic = 'force-dynamic';
 
 const PENDING_COLUMNS =
-  'id, profile_id, meta_app_id, username_snapshot, meta_app_label_snapshot, error_code, error_message, detected_at, signal';
+  'id, profile_id, meta_app_id, username_snapshot, meta_app_label_snapshot, error_code, error_message, detected_at, signal, profile:instagram_profiles(created_at)';
 
 /**
  * Teto por chamada, alinhado ao da RPC. A tela confirma um app por vez — a
@@ -28,7 +28,9 @@ async function loadPending(organizationId: string) {
     .eq('organization_id', organizationId)
     .is('slot_released_at', null)
     .order('id')
-    .range(from, to));
+    .range(from, to)
+    // Sem tipos gerados o cliente lê o embed como lista; pela FK ele é um só.
+    .returns<MetaPendingDisconnection[]>());
 }
 
 export async function GET() {

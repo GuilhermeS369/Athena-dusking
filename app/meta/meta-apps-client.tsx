@@ -295,7 +295,10 @@ function PendingQueue({
               {showAppLabel && incident.meta_app_label_snapshot && (
                 <span className={styles.fallAppLabel}>{incident.meta_app_label_snapshot}</span>
               )}
-              <span className={styles.fallDate}>{motivo.verb} {formatFallDate(incident.detected_at)}</span>
+              <span className={styles.fallDate}>
+                {incident.profile?.created_at && `entrou ${formatFallDate(incident.profile.created_at)} · `}
+                {motivo.verb} {formatFallDate(incident.detected_at)}
+              </span>
               <span className={`${styles.fallCode}${motivo.isFall ? '' : ` ${styles.fallCodeRemoved}`}`}>
                 {motivo.badge}
               </span>

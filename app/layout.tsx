@@ -59,6 +59,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20.4 12a8.4 8.4 0 1 1-2.5-6" /><path d="M20.6 4.3v4.6H16" /></symbol>
           <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
           <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5" /></symbol>
+          <symbol id="icon-logout" viewBox="0 0 24 24"><path d="M10 4.5H6.7C5.8 4.5 5 5.3 5 6.2v11.6c0 .9.8 1.7 1.7 1.7H10" /><path d="m15.5 8 4 4-4 4" /><path d="M19.5 12H10" /></symbol>
           <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 4.5 3 19.5h18L12 4.5Z" /><path d="M12 10v4M12 17h.01" /></symbol>
           {/* A marca: a coluna do templo de Atena.
 

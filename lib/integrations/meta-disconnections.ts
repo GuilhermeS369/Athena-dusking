@@ -36,6 +36,12 @@ export type MetaPendingDisconnection = {
   error_message: string | null;
   signal: MetaDisconnectionSignal;
   detected_at: string;
+  /**
+   * Quando o perfil entrou no Athena. Vem da linha do perfil, que sobrevive à
+   * queda porque a exclusão é lógica; numa conta religada depois de removida é
+   * a data da primeira entrada, não a da volta.
+   */
+  profile?: { created_at: string } | null;
 };
 
 /**

@@ -69,6 +69,9 @@ button:focus-visible { outline: 3px solid var(--purple-bright); outline-offset: 
 .organization-switcher select:focus { border-color: var(--purple-bright); box-shadow: 0 0 0 3px #9f4cff33; }
 .organization-switcher small { color: var(--text-subtle); font-size: 11px; }
 .sidebar-organization-switcher { margin-top: 22px; padding: 11px; border: 1px solid #2a2635; border-radius: 11px; background: rgba(29, 28, 41, .45); }
+.sidebar-account { display: grid; gap: 2px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #2a2635; }
+.sidebar-account-email { padding: 0 12px 4px; overflow: hidden; color: var(--text-subtle); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.nav-item:disabled { cursor: wait; opacity: .6; }
 .nav-item { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 36px; padding: 8px 12px; border: 0; border-radius: 9px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 13.5px; font-weight: 550; text-align: left; text-decoration: none; transition: background .15s ease, color .15s ease; }
 .nav-item:hover { background: #191823; color: var(--text); }
 /* Sem gradiente nem sombra: o item ativo precisa ser reconhecível, não saltar

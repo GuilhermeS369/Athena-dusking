@@ -1,0 +1,31 @@
+.shell { display: grid; gap: 16px; width: min(100%, 720px); margin: 0 auto; }
+.header { margin-bottom: 8px; }
+.header h1 { margin-top: 8px; font-size: clamp(27px, 2.4vw, 36px); letter-spacing: -.035em; }
+.header p { margin-top: 8px; color: var(--text-muted); font-size: 13px; line-height: 1.55; }
+
+.card { display: grid; gap: 14px; }
+.card h2 { margin: 0; font-size: 16px; letter-spacing: -.01em; }
+
+.facts { display: grid; gap: 10px; margin: 0; }
+.facts dt { color: var(--text-subtle); font-size: 11px; }
+.facts dd { margin: 3px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+
+.organizations { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.organizations li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.organizations strong { min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.organizations span { flex: 0 0 auto; color: var(--text-subtle); font-size: 11px; }
+
+.form { max-width: 380px; margin-top: 0; }
+.form :global(.button) { width: fit-content; }
+
+.hint { color: var(--text-muted); font-size: 12px; line-height: 1.55; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+.success, .error { padding: 11px 12px; border: 1px solid; border-radius: 10px; font-size: 12px; line-height: 1.5; }
+.success { border-color: #55d19a88; background: #103627; color: #b5f2d0; }
+.error { border-color: #ef6b8355; background: #3c1522; color: #ffb3c0; }
+
+@media (max-width: 600px) {
+  .actions :global(.button), .form :global(.button) { width: 100%; }
+  .organizations li { flex-direction: column; gap: 3px; }
+}

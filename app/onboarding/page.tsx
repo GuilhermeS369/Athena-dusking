@@ -2,6 +2,8 @@
 
 import { FormEvent, useState } from 'react';
 
+import { signOutAndLeave } from '@/lib/auth/sign-out-client';
+
 export default function OnboardingPage() {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
@@ -82,6 +84,14 @@ export default function OnboardingPage() {
 
         {message && <p className="auth-message" role="alert">{message}</p>}
         <p className="auth-note">O primeiro membro recebe o papel Administrador.</p>
+        <button
+          className="text-button"
+          style={{ display: 'block' }}
+          type="button"
+          onClick={() => void signOutAndLeave().catch(() => setMessage('Não foi possível encerrar a sessão.'))}
+        >
+          Sair desta conta
+        </button>
       </section>
     </main>
   );
