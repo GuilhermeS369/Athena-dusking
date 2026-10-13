@@ -39,9 +39,17 @@ function npmWorker(name, script, env = {}) {
 
 module.exports = {
   apps: [
-    // Publicador 1: preparacao, staging (spool) e despacho direto.
+    // Publicador 1: so despacho direto desde 13/10/2026, como os outros quatro.
+    // Preparacao e staging (spool) serviam aos posts agendados com antecedencia;
+    // a postagem continua cria o item ja pronto na hora do post (0 de 82.110
+    // posts continuos passaram por preparacao ou staging) e os modos antigos
+    // foram desativados (LEGACY_SCHEDULING_ENABLED). Para religar os dois lacos,
+    // apague as duas linhas abaixo e reinicie este processo com --update-env.
     npmWorker('athena-publication-worker', 'worker:publication', {
       PUBLICATION_WORKER_ID: 'athena-vps-publication-1',
+      PUBLICATION_WORKER_MODE: 'direct',
+      PUBLICATION_WORKER_PREPARATION_ENABLED: 'false',
+      PUBLICATION_WORKER_STAGING_ENABLED: 'false',
       PUBLICATION_WORKER_SLIDING_WINDOW: 'true',
       // Variante de video por post (migration 436), ligada em 20/09/2026 nos cinco: um
       // publicador sem a chave postaria o arquivo original. Secao 4 do mestre.
@@ -106,6 +114,10 @@ module.exports = {
       // docs/fila-de-publicacao-MASTER.md, secao 4.
       PUBLICATION_WORKER_CONTINUOUS_POSTING: 'true',
     }),
+    // PARADO desde 13/10/2026 (pm2 stop + pm2 save): so gera itens de plano em massa e
+    // de job de geracao, e os dois foram desativados. A entrada fica para religar com
+    // `pm2 start deploy/instagram/ecosystem.config.cjs --only athena-generation-worker`.
+    // Atencao: `pm2 start` do arquivo inteiro religa este processo.
     npmWorker('athena-generation-worker', 'worker:publication-generation'),
     npmWorker('athena-queue-summary-worker', 'worker:queue-summary'),
     // Fila de cancelamento (migration 428): drena as operacoes de cancelamento em
