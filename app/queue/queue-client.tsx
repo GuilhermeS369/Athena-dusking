@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 import { BulkPlanProgressFeed } from '@/app/components/bulk-plan-progress-list';
+import { useLegacySchedulingEnabled } from '@/app/components/legacy-scheduling-context';
 
 import type { Organization, QueueAggregateTab, QueueCancellationOperation } from './publication-queue-types';
 import { usePublicationQueue } from './use-publication-queue';
@@ -523,6 +524,7 @@ function ReferenceQueueView({
 
 export default function QueueClient({ activeOrganization }: QueueClientProps) {
   const canManage = ['admin', 'operator'].includes(activeOrganization.role);
+  const legacySchedulingEnabled = useLegacySchedulingEnabled();
   // Abre em "Por grupo", e não "Por conta". São dezenas de grupos contra 1.526
   // perfis: a mesma agregação, agrupada por muito menos chave, e é a leitura
   // que a operação abre primeiro. Não é a correção do estouro de tempo — os
@@ -537,7 +539,7 @@ export default function QueueClient({ activeOrganization }: QueueClientProps) {
       <header className="queue-page-header">
         <div><span>{activeOrganization.name} · Operação</span><h1>Fila de publicação</h1></div>
         <div className="queue-hero-actions">
-          <Link className="button button-ghost" href="/postagem" prefetch={false}>Nova postagem</Link>
+          {legacySchedulingEnabled && <Link className="button button-ghost" href="/postagem" prefetch={false}>Nova postagem</Link>}
         </div>
       </header>
 

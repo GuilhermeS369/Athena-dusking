@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
+import { useLegacySchedulingEnabled } from '@/app/components/legacy-scheduling-context';
 import { describeBulkPlanAttention, type BulkPlanAttention } from '@/lib/bulk-plan-attention';
 import { bulkPlanCount as count, groupOfBulkPlan as groupOf, type BulkPlanGroup } from '@/lib/publications/bulk-plan-grouping';
 
@@ -217,6 +218,7 @@ function Group({ title, hint, children, tone }: { title: string; hint: string; c
 }
 
 export default function BulkPlanProgressList({ plans, location }: { plans: BulkPlanProgress[]; location: 'postagem' | 'queue' }) {
+  const legacySchedulingEnabled = useLegacySchedulingEnabled();
   const waiting = plans.filter((plan) => groupOf(plan) === 'waiting');
   const running = plans.filter((plan) => groupOf(plan) === 'running');
   const attention = plans.filter((plan) => groupOf(plan) === 'attention');
@@ -233,7 +235,7 @@ export default function BulkPlanProgressList({ plans, location }: { plans: BulkP
           <h2 id={`bulk-progress-${location}`}>Acompanhamento da geração</h2>
           <p>Cada programação confirmada entra numa fila e vira publicações agendadas. Esta área atualiza sozinha.</p>
         </div>
-        {location === 'queue' && <Link href="/postagem" prefetch={false}>Nova programação</Link>}
+        {location === 'queue' && legacySchedulingEnabled && <Link href="/postagem" prefetch={false}>Nova programação</Link>}
       </header>
 
       {waiting.length > 0 && (

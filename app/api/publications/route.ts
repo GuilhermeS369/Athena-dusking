@@ -6,6 +6,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { fetchAllRowsByIds } from '@/lib/supabase/chunk';
 import { fetchAllRows } from '@/lib/supabase/paginate';
 import { isPostingTimeSlot, MAX_PUBLICATION_CAPTION_LENGTH, validateMediaForFormat } from '@/lib/publications/composer';
+import { isLegacySchedulingEnabled, LEGACY_SCHEDULING_DISABLED_CODE, LEGACY_SCHEDULING_DISABLED_MESSAGE } from '@/lib/publications/legacy-scheduling';
 import { signMediaPreviewUrl } from '@/lib/storage/media-storage';
 
 export const maxDuration = 60;
@@ -293,6 +294,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // "Postar agora" e "programar" do compositor antigo: desativados pela flag,
+  // antes de qualquer acesso ao banco. A leitura da fila (GET acima) segue aberta.
+  if (!isLegacySchedulingEnabled()) {
+    return NextResponse.json({ error: LEGACY_SCHEDULING_DISABLED_MESSAGE, code: LEGACY_SCHEDULING_DISABLED_CODE }, { status: 410 });
+  }
+
   const context = await getOrganizationContext();
   const organization = context.organizations.find((item) => item.id === context.activeOrganization?.id);
 

@@ -7,6 +7,7 @@ import type { DashboardData } from '@/lib/dashboard/server';
 import { dailyMetricRanking, dailyMetricValue, dashboardPeriodRange, filterDailyMetricsForPeriod, previousPeriodRange, saoPauloDateKey, sumDailyMetrics, type DashboardDailyMetric, type DashboardMetric } from '@/lib/dashboard/analytics-period';
 import { DASHBOARD_TODAY_HINT, dashboardCoverageStatus, type DashboardCoverageNote } from '@/lib/dashboard/coverage-notes';
 import type { DashboardV2Analytics, DashboardV2Operations, DashboardV2Section, DashboardV2TopPost } from '@/lib/dashboard/v2-types';
+import { useLegacySchedulingEnabled } from './components/legacy-scheduling-context';
 import { DashboardAreaChart, type ChartSeries } from './dashboard-chart';
 import twitterStyles from './x/twitter-dashboard.module.css';
 
@@ -119,6 +120,7 @@ export default function DashboardClient({
   twitterEnabled: boolean;
 }) {
   const router = useRouter();
+  const legacySchedulingEnabled = useLegacySchedulingEnabled();
   const [selectedPlatform, setSelectedPlatform] = useState('instagram');
   const [selectedProfileId, setSelectedProfileId] = useState('all');
   const [selectedSource, setSelectedSource] = useState('all');
@@ -537,7 +539,7 @@ export default function DashboardClient({
           {selectedPlatform === 'twitter'
             ? <IconButton label="Abrir Análises X" icon="activity" onClick={() => window.location.assign('/x/analises')} />
             : <CollectionIndicator status={collection} />}
-          <IconButton label="Nova postagem" icon="plus" primary onClick={() => window.location.assign(selectedPlatform === 'twitter' ? '/x/postagem' : '/postagem')} />
+          {(selectedPlatform === 'twitter' || legacySchedulingEnabled) && <IconButton label="Nova postagem" icon="plus" primary onClick={() => window.location.assign(selectedPlatform === 'twitter' ? '/x/postagem' : '/postagem')} />}
         </div>
       </header>
 

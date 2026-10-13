@@ -4,7 +4,9 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
+import { LegacySchedulingProvider } from '@/app/components/legacy-scheduling-context';
 import PageLoadingSkeleton from '@/app/components/page-loading-skeleton';
+import { signOutAndLeave } from '@/lib/auth/sign-out-client';
 
 type Organization = {
   id: string;
@@ -56,11 +58,15 @@ export default function AppShell({
   organizations,
   activeOrganization,
   twitterModuleEnabled,
+  userEmail,
+  legacySchedulingEnabled = false,
 }: {
   children: React.ReactNode;
   organizations: Organization[];
   activeOrganization: Organization;
   twitterModuleEnabled: boolean;
+  userEmail: string;
+  legacySchedulingEnabled?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -69,6 +75,7 @@ export default function AppShell({
   const [organizationMessage, setOrganizationMessage] = useState('');
   const [isSwitchingOrganization, setIsSwitchingOrganization] = useState(false);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [instagramOpen, setInstagramOpen] = useState(!pathname.startsWith('/x'));
   const [twitterOpen, setTwitterOpen] = useState(pathname.startsWith('/x'));
 
@@ -114,6 +121,25 @@ export default function AppShell({
       setIsSwitchingOrganization(false);
     }
   }
+
+  async function signOut() {
+    setOrganizationMessage('');
+    setIsSigningOut(true);
+
+    try {
+      await signOutAndLeave();
+    } catch {
+      setMenuOpen(false);
+      setOrganizationMessage('Não foi possível encerrar a sessão. Tente novamente.');
+      setIsSigningOut(false);
+    }
+  }
+
+  // Modos antigos de agendar desativados (LEGACY_SCHEDULING_ENABLED): a tela de
+  // Postagem do Instagram sai do menu. A do X/Twitter tem flags próprias e fica.
+  const visibleInstagramNavigation = legacySchedulingEnabled
+    ? instagramNavigation
+    : instagramNavigation.filter((item) => item.href !== '/postagem');
 
   const roleLabel = activeOrganization.role === 'admin' ? 'Administrador' : activeOrganization.role === 'operator' ? 'Operador' : 'Somente leitura';
 
@@ -166,7 +192,7 @@ export default function AppShell({
         </div>
         <nav className="main-nav" aria-label="Navegação principal">
           {generalNavigation.map((item) => renderNavigationItem(item))}
-          {renderSection('instagram', 'Instagram', instagramNavigation, instagramOpen, setInstagramOpen)}
+          {renderSection('instagram', 'Instagram', visibleInstagramNavigation, instagramOpen, setInstagramOpen)}
           {twitterModuleEnabled && renderSection('twitter', 'X/Twitter', twitterNavigation, twitterOpen, setTwitterOpen)}
           {utilityNavigation.map((item) => renderNavigationItem(item))}
         </nav>
@@ -176,6 +202,14 @@ export default function AppShell({
             {organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
           </select>
           <small>{roleLabel}</small>
+        </div>
+        <div className="sidebar-account">
+          {userEmail && <small className="sidebar-account-email" title={userEmail}>{userEmail}</small>}
+          {renderNavigationItem({ label: 'Minha conta', icon: 'user', href: '/conta' })}
+          <button className="nav-item" type="button" disabled={isSigningOut} onClick={() => void signOut()}>
+            <span className="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><use href="#icon-logout" /></svg></span>
+            <span>{isSigningOut ? 'Saindo…' : 'Sair'}</span>
+          </button>
         </div>
       </aside>
       {menuOpen && <button className="sidebar-backdrop" onClick={() => setMenuOpen(false)} aria-label="Fechar menu" type="button" />}
@@ -192,7 +226,9 @@ export default function AppShell({
           </select>
         </div>
         {organizationMessage && <p className="inline-message" role="alert">{organizationMessage}</p>}
-        {pendingHref ? <PageLoadingSkeleton variant="cards" /> : children}
+        <LegacySchedulingProvider value={legacySchedulingEnabled}>
+          {pendingHref ? <PageLoadingSkeleton variant="cards" /> : children}
+        </LegacySchedulingProvider>
       </main>
     </div>
   );

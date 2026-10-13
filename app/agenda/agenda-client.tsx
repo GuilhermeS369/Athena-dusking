@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
+import { useLegacySchedulingEnabled } from '@/app/components/legacy-scheduling-context';
+
 type Organization = { id: string; name: string; role: 'admin' | 'operator' | 'viewer' };
 type Profile = { id: string; username: string };
 type Item = {
@@ -33,6 +35,9 @@ export default function AgendaClient({ activeOrganization, profiles, items: init
   const [message, setMessage] = useState('');
   const [actionId, setActionId] = useState<string | null>(null);
   const canManage = activeOrganization.role !== 'viewer';
+  // A Agenda só exibe e age sobre o que já está na fila; o único caminho de
+  // criação daqui é o atalho para a tela de Postagem, que some com a flag.
+  const legacySchedulingEnabled = useLegacySchedulingEnabled();
 
   const byDay = useMemo(() => items.reduce<Record<string, Item[]>>((groups, item) => { const key = dayKey(item.execute_at ?? item.published_at); (groups[key] ??= []).push(item); return groups; }, {}), [items]);
 
@@ -92,7 +97,7 @@ export default function AgendaClient({ activeOrganization, profiles, items: init
   }
 
   return <main className="standalone-page agenda-page">
-    <header className="standalone-header"><div><span className="section-kicker">{activeOrganization.name} · Agenda</span><h1>Agenda de publicação</h1><p>Visualize horários, acompanhe o processamento e aja sobre publicações pendentes.</p></div><Link className="button button-secondary" href="/postagem">＋ Nova postagem</Link></header>
+    <header className="standalone-header"><div><span className="section-kicker">{activeOrganization.name} · Agenda</span><h1>Agenda de publicação</h1><p>Visualize horários, acompanhe o processamento e aja sobre publicações pendentes.</p></div>{legacySchedulingEnabled && <Link className="button button-secondary" href="/postagem">＋ Nova postagem</Link>}</header>
     {message && <p className="inline-message" role="status">{message}</p>}
     <section className="agenda-toolbar panel"><label>Perfil<select value={profileId} onChange={(event) => setProfileId(event.target.value)}><option value="">Todos os perfis</option>{profiles.map((profile) => <option key={profile.id} value={profile.id}>@{profile.username}</option>)}</select></label><label>Status<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">Todos</option><option value="waiting">Agendados</option><option value="ready">Prontos</option><option value="preparing">Processando</option><option value="publishing">Publicando</option><option value="failed">Falhos</option><option value="published">Publicados</option><option value="cancelled">Cancelados</option></select></label><label>Janela<select value={windowDays} onChange={(event) => setWindowDays(event.target.value)}><option value="7">Próximos 7 dias</option><option value="30">Próximos 30 dias</option><option value="90">Próximos 90 dias</option><option value="180">Próximos 6 meses</option></select></label><button type="button" className="button button-ghost" disabled={loading} aria-busy={loading} onClick={() => void loadAgendaPage(false)}>{loading ? 'Carregando…' : 'Atualizar'}</button><span>{items.length} publicação(ões){hasMore ? ' nesta página' : ''}</span></section>
     <div className="agenda-layout"><section className="agenda-timeline">{Object.entries(byDay).length === 0 ? <div className="panel empty-state"><span className="empty-state-icon">◷</span><h2>{loading ? 'Carregando agenda…' : 'Agenda sem publicações'}</h2><p>{loading ? 'Buscando a janela selecionada.' : 'Crie uma postagem para vê-la organizada por horário.'}</p></div> : <>{Object.entries(byDay).map(([day, entries]) => <section className="agenda-day" key={day}><h2>{day === 'sem-horario' ? 'Sem horário definido' : dayFormatter.format(new Date(`${day}T12:00:00`))}</h2><div>{entries.map((item) => <button type="button" key={item.id} className={`agenda-card status-${item.status}`} onClick={() => setSelected(item)}><time>{item.execute_at ? timeFormatter.format(new Date(item.execute_at)) : 'Agora'}</time><span><strong>{item.publication_batches?.[0]?.name || 'Publicação sem nome'}</strong><small>@{item.instagram_profiles?.[0]?.username ?? 'perfil'} · {item.format}</small></span><em>{labels[item.status] ?? item.status}</em></button>)}</div></section>)}{hasMore && <div className="agenda-load-more"><button type="button" className="button button-ghost" onClick={() => void loadAgendaPage(true)} disabled={loading} aria-busy={loading}>{loading ? 'Carregando…' : 'Ver mais publicações'}</button></div>}</>}</section>

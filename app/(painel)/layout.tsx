@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 
 import AppShell from '@/app/components/app-shell';
 import { getOrganizationContext } from '@/lib/organizations/server';
+import { isLegacySchedulingEnabled } from '@/lib/publications/legacy-scheduling';
 import { isTwitterModuleEnabled } from '@/lib/twitter/feature';
 
 export const dynamic = 'force-dynamic';
@@ -22,6 +23,8 @@ export default async function AuthenticatedPanelLayout({ children }: Readonly<{ 
       organizations={context.organizations}
       activeOrganization={context.activeOrganization}
       twitterModuleEnabled={isTwitterModuleEnabled(context.activeOrganization.id)}
+      userEmail={context.user.email ?? ''}
+      legacySchedulingEnabled={isLegacySchedulingEnabled()}
     >
       {children}
     </AppShell>

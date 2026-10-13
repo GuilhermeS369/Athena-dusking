@@ -1,5 +1,7 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
+import { isLegacySchedulingEnabled, LEGACY_SCHEDULING_DISABLED_MESSAGE } from '@/lib/publications/legacy-scheduling';
 import { bulkPublishingEnabled } from '@/lib/publications/bulk-feature';
 import { isBulkVideoVariantAllowed } from '@/lib/publications/bulk-api';
 import { Suspense } from 'react';
@@ -14,7 +16,25 @@ import { emptyScheduledCountsByFormat } from '@/lib/publications/composer';
 
 export const dynamic = 'force-dynamic';
 
+// Modos antigos de agendar desativados (LEGACY_SCHEDULING_ENABLED): a rota
+// continua existindo, mas mostra o aviso em vez do compositor. Nada é lido do
+// banco neste caminho; o compositor abaixo segue intacto e volta com a flag.
+function LegacySchedulingDisabledNotice() {
+  return (
+    <main className="standalone-page">
+      <div className="panel empty-state" role="status">
+        <span className="section-kicker">Postagem</span>
+        <h1>Programação desativada</h1>
+        <p>{LEGACY_SCHEDULING_DISABLED_MESSAGE}</p>
+        <Link className="button button-secondary" href="/grupos">Ir para Grupos</Link>
+      </div>
+    </main>
+  );
+}
+
 export default function PublishingPage() {
+  if (!isLegacySchedulingEnabled()) return <LegacySchedulingDisabledNotice />;
+
   return (
     <Suspense fallback={<PageLoadingSkeleton variant="form" />}>
       <PublishingPageContent />

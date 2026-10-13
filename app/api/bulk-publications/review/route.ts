@@ -11,6 +11,7 @@ import {
   sequentialStartAtError,
 } from '@/lib/publications/bulk-api';
 import { bulkPublishingEnabled } from '@/lib/publications/bulk-feature';
+import { isLegacySchedulingEnabled, LEGACY_SCHEDULING_DISABLED_CODE, LEGACY_SCHEDULING_DISABLED_MESSAGE } from '@/lib/publications/legacy-scheduling';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { signMediaPreviewUrl } from '@/lib/storage/media-storage';
@@ -19,6 +20,12 @@ export const dynamic = 'force-dynamic';
 const REVIEW_TTL_MS = 10 * 60 * 1000;
 
 export async function POST(request: Request) {
+  // Programar em massa: a revisão emite o token que a confirmação exige, então é
+  // barrada junto pela flag, antes de qualquer acesso ao banco.
+  if (!isLegacySchedulingEnabled()) {
+    return NextResponse.json({ error: LEGACY_SCHEDULING_DISABLED_MESSAGE, code: LEGACY_SCHEDULING_DISABLED_CODE }, { status: 410 });
+  }
+
   const context = await getOrganizationContext();
   if (!context.user || !context.activeOrganization) {
     return NextResponse.json({ error: 'Autenticação necessária.' }, { status: 401 });

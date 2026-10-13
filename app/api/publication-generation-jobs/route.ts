@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getOrganizationContext } from '@/lib/organizations/server';
+import { isLegacySchedulingEnabled, LEGACY_SCHEDULING_DISABLED_CODE, LEGACY_SCHEDULING_DISABLED_MESSAGE } from '@/lib/publications/legacy-scheduling';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -60,6 +61,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // Criação de job de geração (lotes grandes dos modos antigos): desativada pela
+  // flag, antes de qualquer acesso ao banco. Listar (GET) e cancelar seguem abertos.
+  if (!isLegacySchedulingEnabled()) {
+    return NextResponse.json({ error: LEGACY_SCHEDULING_DISABLED_MESSAGE, code: LEGACY_SCHEDULING_DISABLED_CODE }, { status: 410 });
+  }
+
   const context = await getOrganizationContext();
   const organization = context.organizations.find((item) => item.id === context.activeOrganization?.id);
 
