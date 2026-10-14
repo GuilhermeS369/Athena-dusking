@@ -158,3 +158,41 @@ export type DashboardV2Operations = {
   profiles_with_publications: number;
   profiles_pending_collection: number;
 };
+
+/**
+ * Contas plugadas x caídas por dia, servido por `get_dashboard_account_flow`
+ * (migration 449). Organização inteira, dia de Brasília.
+ *
+ * `by_reason` e `reasons[].key` usam a mesma chave
+ * (`fonte:sinal:código:subcódigo`), para o tooltip de um dia nomear os motivos
+ * com o rótulo da lista.
+ */
+export type DashboardAccountFlowReason = {
+  key: string;
+  source: 'meta' | 'zernio';
+  signal: string;
+  code: string | null;
+  subcode: string | null;
+  /** Falso só para remoção pedida pelo operador, que não conta como queda. */
+  is_fall: boolean;
+  total: number;
+  sample_message: string | null;
+  last_at: string;
+};
+
+export type DashboardAccountFlow = {
+  start_date: string;
+  end_date: string;
+  days: Array<{
+    date: string;
+    connected: number;
+    connected_meta: number;
+    connected_zernio: number;
+    fallen: number;
+    removed: number;
+    by_reason: Record<string, number>;
+  }>;
+  reasons: DashboardAccountFlowReason[];
+  totals: { connected: number; fallen: number; removed: number };
+  online_now: number;
+};

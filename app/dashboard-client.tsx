@@ -8,6 +8,7 @@ import { dailyMetricRanking, dailyMetricValue, dashboardPeriodRange, filterDaily
 import { DASHBOARD_TODAY_HINT, dashboardCoverageStatus, type DashboardCoverageNote } from '@/lib/dashboard/coverage-notes';
 import type { DashboardV2Analytics, DashboardV2Operations, DashboardV2Section, DashboardV2TopPost } from '@/lib/dashboard/v2-types';
 import { useLegacySchedulingEnabled } from './components/legacy-scheduling-context';
+import { DashboardAccountFlowSection } from './dashboard-account-flow';
 import { DashboardAreaChart, type ChartSeries } from './dashboard-chart';
 import twitterStyles from './x/twitter-dashboard.module.css';
 
@@ -637,6 +638,8 @@ export default function DashboardClient({
         <SourceHealthCard items={sourceHealth} counts={data.analytics.stateCounts} unavailable={data.summary.analyticsUnavailableProfiles} failedPublications={data.review.failedPublications} />
         <ScheduleCard data={data} />
       </section>
+
+      <DashboardAccountFlowSection organizationId={activeOrganization.id} />
       </>}
     </section>
   );

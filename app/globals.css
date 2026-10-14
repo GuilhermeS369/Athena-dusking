@@ -1103,6 +1103,70 @@ h2 { margin-top: 8px; font-size: clamp(1.15rem, 2vw, 1.45rem); letter-spacing: -
 .dash-facts dt { color: #8a8397; font-size: 11.5px; }
 .dash-facts dd { margin: 0; color: #fff; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 
+/* Plugadas × caídas (migration 449). Moldura igual à do bloco de métricas,
+   período próprio, e duas cores que diferem em matiz E luminosidade:
+   turquesa para o que entra, coral para o que cai. */
+.dash-flow { display: grid; gap: 14px; padding: 16px 18px; border: 1px solid #2c2738; border-radius: 14px; background: rgba(15, 14, 22, .96); }
+.dash-flow-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dash-flow-head h2 { margin: 0; color: #e8e3f0; font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+.dash-flow-head p { margin: 3px 0 0; color: #7d768c; font-size: 11.5px; }
+.dash-flow-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+.dash-flow-error { margin: 0; color: #fca5a5; font-size: 12px; }
+.dash-flow-kpis { display: grid; overflow: hidden; border: 1px solid #241f2e; border-radius: 11px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.dash-flow-kpi { display: grid; gap: 3px; padding: 10px 13px; border-right: 1px solid #241f2e; }
+.dash-flow-kpi:last-child { border-right: 0; }
+.dash-flow-kpi span { overflow: hidden; color: #8a8397; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.dash-flow-kpi strong { color: #fff; font-size: 21px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.dash-flow-kpi small { overflow: hidden; color: #6d6679; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.dash-flow-kpi-connected strong { color: #5eead4; }
+.dash-flow-kpi-fallen strong { color: #fda4af; }
+.dash-flow-body { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) 300px; }
+.dash-flow-main { min-width: 0; }
+
+.dash-flow-chart { position: relative; display: grid; height: 240px; padding-left: 38px; grid-template-rows: minmax(0, 1fr) auto; }
+.dash-flow-scale { position: absolute; top: 0; bottom: 34px; left: 0; display: flex; width: 34px; flex-direction: column; justify-content: space-between; color: #6d6679; font-size: 10px; text-align: right; }
+.dash-flow-columns { display: grid; min-height: 0; gap: 3px; border-bottom: 1px solid #2c2738; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(50% - 1px), #1d1927 calc(50% - 1px), #1d1927 50%); }
+.dash-flow-col { position: relative; display: grid; min-width: 0; outline: none; cursor: crosshair; grid-template-rows: minmax(0, 1fr) 0; }
+.dash-flow-col small { position: absolute; top: calc(100% + 4px); left: 50%; color: #6d6679; font-size: 10px; transform: translateX(-50%); white-space: nowrap; }
+.dash-flow-bars { display: flex; align-items: flex-end; justify-content: center; gap: 2px; min-height: 0; padding: 0 1px; border-radius: 5px 5px 0 0; transition: background .12s; }
+.dash-flow-bars i { display: block; width: min(14px, 45%); min-height: 1px; border-radius: 3px 3px 0 0; }
+.dash-flow-col-active .dash-flow-bars, .dash-flow-col:focus-visible .dash-flow-bars { background: rgba(255, 255, 255, .045); }
+.dash-flow-legend { margin-top: 20px; }
+.dash-flow-tooltip { position: absolute; top: 4px; z-index: 3; display: grid; gap: 4px; min-width: 190px; padding: 9px 11px; border: 1px solid #3a3348; border-radius: 9px; background: rgba(12, 11, 18, .97); box-shadow: 0 8px 24px rgba(0, 0, 0, .5); pointer-events: none; }
+.dash-flow-tooltip strong { color: #cfc7da; font-size: 11px; font-weight: 700; text-transform: capitalize; }
+.dash-flow-tooltip span, .dash-flow-tooltip em { display: flex; align-items: center; gap: 6px; color: #a79fb4; font-size: 11.5px; font-style: normal; white-space: nowrap; }
+.dash-flow-tooltip em { padding-left: 13px; color: #8a8397; font-size: 11px; }
+.dash-flow-tooltip span:nth-of-type(3) { padding-bottom: 4px; border-bottom: 1px solid #241f2e; }
+.dash-flow-tooltip i { width: 7px; height: 7px; flex: none; border-radius: 2px; }
+.dash-flow-tooltip b { margin-left: auto; padding-left: 12px; color: #fff; font-variant-numeric: tabular-nums; }
+
+.dash-flow-table-wrap { max-height: 300px; overflow: auto; border: 1px solid #241f2e; border-radius: 10px; scrollbar-width: thin; scrollbar-color: #3a3348 transparent; }
+.dash-flow-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.dash-flow-table th { position: sticky; top: 0; padding: 8px 10px; background: #14121c; color: #8a8397; font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-align: left; text-transform: uppercase; white-space: nowrap; }
+.dash-flow-table td { padding: 7px 10px; border-top: 1px solid #1f1b29; color: #cfc7da; text-transform: none; white-space: nowrap; }
+.dash-flow-table tr:hover td { background: rgba(255, 255, 255, .02); }
+.dash-flow-num { font-variant-numeric: tabular-nums; text-align: right; }
+.dash-flow-table th:nth-child(n+2):nth-child(-n+5) { text-align: right; }
+.dash-flow-num-connected { color: #5eead4 !important; }
+.dash-flow-num-fallen { color: #fda4af !important; }
+.dash-flow-reasons-cell { display: flex; gap: 10px; color: #8a8397 !important; white-space: normal !important; flex-wrap: wrap; }
+.dash-flow-reasons-cell b { color: #e8e3f0; }
+
+.dash-flow-reasons { display: flex; min-width: 0; flex-direction: column; gap: 10px; padding: 12px 13px; border: 1px solid #241f2e; border-radius: 11px; }
+.dash-flow-reasons h3 { margin: 0; color: #cfc7da; font-size: 12px; font-weight: 700; }
+.dash-flow-reasons .dash-bars > div { cursor: help; }
+.dash-flow-code { margin-left: 6px; padding: 1px 5px; border-radius: 4px; background: #2a2635; color: #a79fb4; font-size: 9.5px; font-style: normal; font-variant-numeric: tabular-nums; vertical-align: 1px; }
+.dash-flow-hint { margin-top: auto; color: #5d566a; font-size: 10px; }
+
+@media (max-width: 1180px) {
+  .dash-flow-body { grid-template-columns: minmax(0, 1fr); }
+  .dash-flow-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dash-flow-kpi { border-bottom: 1px solid #241f2e; }
+}
+@media (max-width: 620px) {
+  .dash-flow-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 1180px) {
   .dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dash-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
