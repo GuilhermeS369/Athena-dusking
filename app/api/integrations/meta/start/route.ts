@@ -11,6 +11,7 @@ import {
   META_OAUTH_COOKIE,
   safeReturnTo,
 } from '@/lib/integrations/meta-oauth';
+import { buildMetaUnifiedLoginUrl } from '@/lib/integrations/meta-unified-login';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
@@ -92,7 +93,9 @@ export async function GET(request: Request) {
       groupId: requestedGroupId,
     });
     const response = NextResponse.redirect(
-      buildMetaAuthorizationUrl(value, metaRedirectUri(url.origin), app.clientId),
+      app.authMode === 'unified_login' && app.unifiedConfigId
+        ? buildMetaUnifiedLoginUrl(value, metaRedirectUri(url.origin), app.clientId, app.unifiedConfigId)
+        : buildMetaAuthorizationUrl(value, metaRedirectUri(url.origin), app.clientId),
     );
 
     response.cookies.set(META_OAUTH_COOKIE, nonce, {

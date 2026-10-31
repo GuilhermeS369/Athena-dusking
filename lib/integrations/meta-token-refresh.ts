@@ -32,7 +32,7 @@ const SAVE_ATTEMPTS = 4;
 
 export type MetaTokenRefreshOutcome =
   | { status: 'refreshed'; profileId: string; username: string; expiresAt: string | null }
-  | { status: 'skipped'; profileId: string; username: string; reason: 'too_young' | 'not_meta' | 'expired'; message: string }
+  | { status: 'skipped'; profileId: string; username: string; reason: 'too_young' | 'not_meta' | 'expired' | 'unified_login'; message: string }
   | { status: 'failed'; profileId: string; username: string; message: string; needsReauthorization: boolean };
 
 type RefreshableProfile = MetaTokenProfile & {
@@ -40,10 +40,11 @@ type RefreshableProfile = MetaTokenProfile & {
   username: string;
   status: string;
   encrypted_access_token: string | null;
+  meta_app_id: string | null;
 };
 
 const REFRESHABLE_COLUMNS =
-  'id, username, status, provider, encrypted_access_token, token_expires_at, token_refreshed_at, token_refresh_attempted_at, token_refresh_error, token_refresh_failure_count';
+  'id, username, status, provider, meta_app_id, encrypted_access_token, token_expires_at, token_refreshed_at, token_refresh_attempted_at, token_refresh_error, token_refresh_failure_count';
 
 type RefreshResponse = {
   access_token?: string;
@@ -110,6 +111,27 @@ export async function refreshMetaProfileToken(
       reason: 'not_meta',
       message: 'Este perfil não usa a API oficial da Meta.',
     };
+  }
+
+  // Token de Unified Login não passa por `ig_refresh_token`. Tentar devolveria
+  // erro de autorização, e `recordFailure` marcaria a conta para reautorizar,
+  // suspendendo a fila dela. Falha nesta leitura segue o caminho de sempre.
+  if (profile.meta_app_id) {
+    const { data: app } = await admin
+      .from('meta_apps')
+      .select('auth_mode')
+      .eq('id', profile.meta_app_id)
+      .maybeSingle<{ auth_mode: string }>();
+
+    if (app?.auth_mode === 'unified_login') {
+      return {
+        status: 'skipped',
+        profileId: profile.id,
+        username: profile.username,
+        reason: 'unified_login',
+        message: 'O token deste perfil é de Unified Login e não usa a renovação de 60 dias.',
+      };
+    }
   }
 
   // A Meta recusa renovar antes de 24 h. Chamar mesmo assim gastaria uma

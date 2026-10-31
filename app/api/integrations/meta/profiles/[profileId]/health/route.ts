@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { META_GRAPH_API_VERSION } from '@/lib/integrations/meta-oauth';
+import { metaUnifiedGraphUrl } from '@/lib/integrations/meta-unified-login';
 import { createZernioClientForConnection, createZernioClientForOrganization } from '@/lib/integrations/zernio-client';
 import { getOrganizationContext } from '@/lib/organizations/server';
 import { decryptToken } from '@/lib/security/token-crypto';
@@ -60,7 +61,7 @@ export async function POST(
     const admin = createSupabaseAdminClient();
     const { data: profile, error: profileError } = await admin
       .from('instagram_profiles')
-      .select('id, organization_id, provider, encrypted_access_token, zernio_account_id, zernio_connection_id, deleted_at')
+      .select('id, organization_id, provider, instagram_user_id, meta_app_id, encrypted_access_token, zernio_account_id, zernio_connection_id, deleted_at')
       .eq('id', profileId)
       .eq('organization_id', organization.id)
       .is('deleted_at', null)
@@ -106,12 +107,21 @@ export async function POST(
     }
 
     const accessToken = decryptToken(profile.encrypted_access_token);
+    const { data: metaApp } = profile.meta_app_id
+      ? await admin.from('meta_apps').select('auth_mode').eq('id', profile.meta_app_id).maybeSingle()
+      : { data: null };
+    // No Unified Login `/me` é o system user: a conta se lê pelo id, em outro host.
     const metaResponse = await fetch(
-      `https://graph.instagram.com/${META_GRAPH_API_VERSION}/me?${new URLSearchParams({
-        // `name` faltava aqui e `display_name: payload.name` abaixo nunca atualizava (achado de 15/09/2026).
-        fields: 'user_id,username,name,account_type,profile_picture_url',
-        access_token: accessToken,
-      })}`,
+      metaApp?.auth_mode === 'unified_login'
+        ? `${metaUnifiedGraphUrl(encodeURIComponent(profile.instagram_user_id))}?${new URLSearchParams({
+          fields: 'username,name,profile_picture_url',
+          access_token: accessToken,
+        })}`
+        : `https://graph.instagram.com/${META_GRAPH_API_VERSION}/me?${new URLSearchParams({
+          // `name` faltava aqui e `display_name: payload.name` abaixo nunca atualizava (achado de 15/09/2026).
+          fields: 'user_id,username,name,account_type,profile_picture_url',
+          access_token: accessToken,
+        })}`,
       { cache: 'no-store' },
     );
     const payload = await metaResponse.json() as MetaHealthResponse;

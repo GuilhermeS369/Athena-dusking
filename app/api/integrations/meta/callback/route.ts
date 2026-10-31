@@ -19,6 +19,7 @@ import {
   safeReturnTo,
   verifySignedState,
 } from '@/lib/integrations/meta-oauth';
+import { connectMetaUnifiedAccounts } from '@/lib/integrations/meta-unified-connect';
 
 type MetaTokenResponse = {
   access_token?: string;
@@ -215,6 +216,81 @@ export async function GET(request: Request) {
     }
     const clientId = metaApp?.clientId ?? legacy!.clientId;
     const clientSecret = metaApp?.clientSecret ?? legacy!.clientSecret;
+
+    // Rota alternativa: só app cadastrado como Unified Login entra aqui. Abaixo
+    // deste bloco o fluxo é o de sempre, sem nenhuma condição nova.
+    if (metaApp?.authMode === 'unified_login') {
+      const supabase = await createSupabaseServerClient();
+      const { data: currentUser } = await supabase.auth.getUser();
+      if (currentUser.user?.id !== state.userId) {
+        return redirectWithError(url.origin, state.returnTo, 'session_changed');
+      }
+
+      const { data: membership } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('organization_id', state.organizationId)
+        .eq('user_id', state.userId)
+        .maybeSingle();
+      if (!membership) {
+        return redirectWithError(url.origin, state.returnTo, 'organization_forbidden');
+      }
+
+      const unified = await connectMetaUnifiedAccounts(createSupabaseAdminClient(), {
+        organizationId: state.organizationId,
+        userId: state.userId,
+        metaAppId: metaApp.id,
+        groupId: state.groupId,
+        clientId,
+        clientSecret,
+        code,
+        redirectUri: metaRedirectUri(url.origin),
+        requestId,
+        assignToGroup: assignProfileToGroup,
+      });
+
+      if (!unified.ok) {
+        return redirectWithError(url.origin, state.returnTo, unified.error, unified.diagnostic);
+      }
+      if (unified.connected.length === 0) {
+        return redirectWithError(
+          url.origin,
+          state.returnTo,
+          'profile_save_failed',
+          JSON.stringify({ stage: 'unified_save', requestId, failed: unified.failed }),
+        );
+      }
+      // Um token pode trazer várias contas. A que falhou não desfaz as outras,
+      // mas não pode sumir calada: vai como erro, com o que entrou no diagnóstico.
+      if (unified.failed.length > 0) {
+        return redirectWithError(
+          url.origin,
+          state.returnTo,
+          'profile_save_failed',
+          JSON.stringify({
+            stage: 'unified_save_partial',
+            requestId,
+            connected: unified.connected.map((account) => account.username),
+            failed: unified.failed,
+          }),
+        );
+      }
+
+      const unifiedResponse = redirectWithSuccess(
+        url.origin,
+        state.returnTo,
+        unified.connected[0].outcome,
+        unified.groupAssignment,
+      );
+      unifiedResponse.cookies.set(META_OAUTH_COOKIE, '', {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: 0,
+      });
+      return unifiedResponse;
+    }
 
     const tokenResponse = await fetch('https://api.instagram.com/oauth/access_token', {
       method: 'POST',

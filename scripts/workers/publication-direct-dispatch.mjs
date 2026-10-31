@@ -156,8 +156,40 @@ function decryptToken(payload) {
   ]).toString('utf8');
 }
 
-function graphUrl(path) {
-  return `https://graph.instagram.com/${graphVersion}/${path.replace(/^\//, '')}`;
+const META_INSTAGRAM_GRAPH_HOST = 'graph.instagram.com';
+const META_UNIFIED_GRAPH_HOST = 'graph.facebook.com';
+
+function graphUrl(path, host = META_INSTAGRAM_GRAPH_HOST) {
+  return `https://${host}/${graphVersion}/${path.replace(/^\//, '')}`;
+}
+
+// ROTA ALTERNATIVA: UNIFIED LOGIN (30/10/2026, migration 451).
+//
+// O host da Graph API depende do modo do app que detem o perfil. O modo nao muda
+// depois do cadastro, entao cada processo le uma vez por app e guarda: sao
+// dezenas de leituras na vida do processo, nenhuma por post. Se a leitura falhar,
+// vale o host de sempre e tenta de novo depois de um minuto: o perfil de Unified
+// Login erra esse post, mas a frota do modo antigo nunca para por causa disto.
+const metaAppGraphHosts = new Map();
+const META_APP_HOST_RETRY_MS = 60_000;
+
+export async function resolveMetaGraphHost(metaAppId, supabase) {
+  if (!metaAppId) return META_INSTAGRAM_GRAPH_HOST;
+  const known = metaAppGraphHosts.get(metaAppId);
+  if (known?.host) return known.host;
+  if (known && known.retryAt > Date.now()) return META_INSTAGRAM_GRAPH_HOST;
+
+  try {
+    const { data, error } = await supabase.from('meta_apps').select('auth_mode').eq('id', metaAppId).maybeSingle();
+    if (error || !data) throw new Error(error?.message ?? 'app da Meta nao encontrado');
+    const host = data.auth_mode === 'unified_login' ? META_UNIFIED_GRAPH_HOST : META_INSTAGRAM_GRAPH_HOST;
+    metaAppGraphHosts.set(metaAppId, { host });
+    return host;
+  } catch (error) {
+    metaAppGraphHosts.set(metaAppId, { retryAt: Date.now() + META_APP_HOST_RETRY_MS });
+    console.error('Modo do app da Meta nao lido; usando o host de sempre.', { metaAppId, message: error instanceof Error ? error.message : String(error) });
+    return META_INSTAGRAM_GRAPH_HOST;
+  }
 }
 
 // LOG POR FASE (15/09/2026). Ate aqui o caminho direto so media `porItemMs`, o
@@ -787,8 +819,8 @@ async function readInstagramResponse(response) {
   return body;
 }
 
-async function createInstagramContainer(profileId, accessToken, fields) {
-  const response = await metaFetch(graphUrl(`${encodeURIComponent(profileId)}/media`), {
+async function createInstagramContainer(profileId, accessToken, fields, graphHost) {
+  const response = await metaFetch(graphUrl(`${encodeURIComponent(profileId)}/media`, graphHost), {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(fields),
@@ -800,8 +832,8 @@ async function createInstagramContainer(profileId, accessToken, fields) {
   return result.id;
 }
 
-async function containerStatus(creationId, accessToken) {
-  const url = new URL(graphUrl(encodeURIComponent(creationId)));
+async function containerStatus(creationId, accessToken, graphHost) {
+  const url = new URL(graphUrl(encodeURIComponent(creationId), graphHost));
   // `status` junto: e o campo que traz o motivo em texto. Pedir so o
   // `status_code` foi o que deixou 76 falhas de 04/09 sem nenhuma explicacao.
   url.searchParams.set('fields', 'status_code,status');
@@ -813,8 +845,8 @@ async function containerStatus(creationId, accessToken) {
   return readInstagramResponse(response);
 }
 
-async function publishInstagramContainer(profileId, creationId, accessToken) {
-  const response = await metaFetch(graphUrl(`${encodeURIComponent(profileId)}/media_publish`), {
+async function publishInstagramContainer(profileId, creationId, accessToken, graphHost) {
+  const response = await metaFetch(graphUrl(`${encodeURIComponent(profileId)}/media_publish`, graphHost), {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ creation_id: creationId }),
@@ -880,23 +912,23 @@ async function createParentContainer(item, accessToken) {
   const urls = await medirFase('sondaMidia', () => buildVerifiedMediaUrls(item));
   if (item.format === 'image') {
     if (item.media[0].kind !== 'image') throw publicationDataError('Uma publicação de imagem requer arquivo de imagem.');
-    return createInstagramContainer(item.profile.instagram_user_id, accessToken, { image_url: urls[0], caption: item.caption ?? '' });
+    return createInstagramContainer(item.profile.instagram_user_id, accessToken, { image_url: urls[0], caption: item.caption ?? '' }, item.profile.graph_host);
   }
   if (item.format === 'reel') {
     if (item.media[0].kind !== 'video') throw publicationDataError('Um Reel requer arquivo de vídeo.');
-    return createInstagramContainer(item.profile.instagram_user_id, accessToken, metaReelContainerFields({ videoUrl: urls[0], caption: item.caption, coverUrl: await reelCoverUrl }));
+    return createInstagramContainer(item.profile.instagram_user_id, accessToken, metaReelContainerFields({ videoUrl: urls[0], caption: item.caption, coverUrl: await reelCoverUrl }), item.profile.graph_host);
   }
   if (item.format === 'story') {
     const media = item.media[0];
     return createInstagramContainer(item.profile.instagram_user_id, accessToken, media.kind === 'video'
       ? { media_type: 'STORIES', video_url: urls[0] }
-      : { media_type: 'STORIES', image_url: urls[0] });
+      : { media_type: 'STORIES', image_url: urls[0] }, item.profile.graph_host);
   }
 
   const children = await Promise.all(item.media.map((media, index) => createInstagramContainer(item.profile.instagram_user_id, accessToken, media.kind === 'video'
     ? { media_type: 'VIDEO', video_url: urls[index], is_carousel_item: 'true' }
-    : { image_url: urls[index], is_carousel_item: 'true' })));
-  return createInstagramContainer(item.profile.instagram_user_id, accessToken, { media_type: 'CAROUSEL', children: children.join(','), caption: item.caption ?? '' });
+    : { image_url: urls[index], is_carousel_item: 'true' }, item.profile.graph_host)));
+  return createInstagramContainer(item.profile.instagram_user_id, accessToken, { media_type: 'CAROUSEL', children: children.join(','), caption: item.caption ?? '' }, item.profile.graph_host);
 }
 
 async function processInstagramPublication(item, beforePublish, beforeProviderRequest) {
@@ -906,11 +938,11 @@ async function processInstagramPublication(item, beforePublish, beforeProviderRe
     if (beforeProviderRequest && !await beforeProviderRequest()) return suspendedWorkItem();
     if (!item.creation_id) return { state: 'processing', creationId: await createParentContainer(item, accessToken) };
 
-    const status = await containerStatus(item.creation_id, accessToken);
+    const status = await containerStatus(item.creation_id, accessToken, item.profile.graph_host);
     const veredito = metaContainerVerdict(status.status_code, status.status);
     if (veredito.kind === 'publish') {
       if (beforePublish && !await beforePublish()) return { state: 'deferred', reason: 'daily_profile_limit' };
-      return { state: 'published', metaMediaId: await publishInstagramContainer(item.profile.instagram_user_id, item.creation_id, accessToken) };
+      return { state: 'published', metaMediaId: await publishInstagramContainer(item.profile.instagram_user_id, item.creation_id, accessToken, item.profile.graph_host) };
     }
     if (veredito.kind === 'already_published') return { state: 'published', metaMediaId: null, recovered: true };
     if (veredito.kind === 'fail') {
@@ -1228,7 +1260,13 @@ export async function probeMetaAccount(workItem, options = {}) {
   const fetchImpl = options.metaFetch ?? metaFetch;
   try {
     const accessToken = (options.decryptToken ?? decryptToken)(workItem.profile.encrypted_access_token);
-    const url = new URL(graphUrl('me'));
+    // No Unified Login `me` e o system user e sempre responderia: quem prova que
+    // a conta esta de pe e a leitura dela pelo id.
+    const graphHost = workItem.profile.graph_host;
+    const url = new URL(graphUrl(
+      graphHost === META_UNIFIED_GRAPH_HOST ? encodeURIComponent(workItem.profile.instagram_user_id) : 'me',
+      graphHost,
+    ));
     url.searchParams.set('fields', 'id');
     const response = await fetchImpl(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -1543,7 +1581,7 @@ export async function loadWorkItem(item, options = {}) {
   const [profileResult, mediaResult, stateResult] = await Promise.all([
     supabase
       .from('instagram_profiles')
-      .select('id, organization_id, provider, instagram_user_id, encrypted_access_token, zernio_account_id, zernio_connection_id, status')
+      .select('id, organization_id, provider, instagram_user_id, meta_app_id, encrypted_access_token, zernio_account_id, zernio_connection_id, status')
       .eq('id', item.profile_id)
       .eq('organization_id', item.organization_id)
       .is('deleted_at', null)
@@ -1624,7 +1662,12 @@ export async function loadWorkItem(item, options = {}) {
     zernio_recovery_count: stateResult.data.zernio_recovery_count ?? 0,
     zernio_recovery_poll_at: stateResult.data.zernio_recovery_poll_at ?? null,
     execute_at: item.execute_at ?? null,
-    profile: profileResult.data,
+    profile: {
+      ...profileResult.data,
+      graph_host: profileResult.data.provider === 'meta_official'
+        ? await resolveMetaGraphHost(profileResult.data.meta_app_id, supabase)
+        : undefined,
+    },
     media,
     cover,
     variant: normalizedVideoVariant(stateResult.data.publication_item_video_variants),

@@ -55,6 +55,7 @@ export type MetaApp = {
   // 'blocked' = a Meta pode reabrir e a janela testa sozinha; 'deactivated' = o
   // app foi desativado e as contas precisam ser religadas em outro app.
   api_block_kind: 'blocked' | 'deactivated' | null;
+  auth_mode: 'instagram_login' | 'unified_login';
   created_at: string;
   updated_at: string;
 };
@@ -335,6 +336,8 @@ export default function MetaAppsClient({
   const [label, setLabel] = useState('');
   const [appId, setAppId] = useState('');
   const [appSecret, setAppSecret] = useState('');
+  const [authMode, setAuthMode] = useState<MetaApp['auth_mode']>('instagram_login');
+  const [unifiedConfigId, setUnifiedConfigId] = useState('');
   const [slotLimit, setSlotLimit] = useState(String(META_APP_DEFAULT_SLOT_LIMIT));
   const [saving, setSaving] = useState(false);
   const [busyAppId, setBusyAppId] = useState<string | null>(null);
@@ -708,6 +711,8 @@ export default function MetaAppsClient({
           appId,
           appSecret,
           instagramSlotLimit: Number(slotLimit) || META_APP_DEFAULT_SLOT_LIMIT,
+          authMode,
+          unifiedConfigId,
         }),
       });
       const payload = await response.json().catch(() => ({})) as { app?: MetaApp; error?: string };
@@ -720,6 +725,8 @@ export default function MetaAppsClient({
       setLabel('');
       setAppId('');
       setAppSecret('');
+      setAuthMode('instagram_login');
+      setUnifiedConfigId('');
       setSlotLimit(String(META_APP_DEFAULT_SLOT_LIMIT));
       if (payload.app) setApps((current) => [payload.app as MetaApp, ...current]);
       else await refreshApps();
@@ -1121,7 +1128,7 @@ export default function MetaAppsClient({
                       {full && app.active && <span className={`${styles.badge} ${styles.badgeFull}`}>Sem vaga</span>}
                     </span>
                     <span className={styles.meta}>
-                      App ID: {app.app_id} · {capacity.usedSlots} uso(s) · última conexão {formatDate(app.last_connected_at)}
+                      {app.auth_mode === 'unified_login' && 'Unified Login · '}App ID: {app.app_id} · {capacity.usedSlots} uso(s) · última conexão {formatDate(app.last_connected_at)}
                     </span>
                     {(() => {
                       const appFleet = fleetByApp.get(app.id);
@@ -1301,8 +1308,33 @@ export default function MetaAppsClient({
                 required
               />
             </label>
+            <label htmlFor="meta-app-auth-mode">
+              Tipo de app
+              <select
+                id="meta-app-auth-mode"
+                value={authMode}
+                onChange={(event) => setAuthMode(event.target.value as MetaApp['auth_mode'])}
+              >
+                <option value="instagram_login">Instagram Login (app antigo)</option>
+                <option value="unified_login">Unified Login (app novo, em teste)</option>
+              </select>
+            </label>
+            {authMode === 'unified_login' && (
+              <label htmlFor="meta-app-config-id">
+                Configuration ID
+                <input
+                  id="meta-app-config-id"
+                  value={unifiedConfigId}
+                  onChange={(event) => setUnifiedConfigId(event.target.value.replace(/\D/g, ''))}
+                  placeholder="config_id do link de login"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  required
+                />
+              </label>
+            )}
             <label htmlFor="meta-app-id">
-              App ID do Instagram
+              {authMode === 'unified_login' ? 'App ID da Meta' : 'App ID do Instagram'}
               <input
                 id="meta-app-id"
                 value={appId}

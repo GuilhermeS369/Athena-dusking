@@ -42,6 +42,8 @@ export async function POST(request: Request) {
     appId?: unknown;
     appSecret?: unknown;
     instagramSlotLimit?: unknown;
+    authMode?: unknown;
+    unifiedConfigId?: unknown;
   };
   const label = typeof body.label === 'string' ? body.label.trim().replace(/\s+/g, ' ') : '';
   const appId = typeof body.appId === 'string' ? body.appId.trim() : '';
@@ -52,7 +54,12 @@ export async function POST(request: Request) {
     && body.instagramSlotLimit <= 1000
     ? body.instagramSlotLimit
     : META_APP_DEFAULT_SLOT_LIMIT;
+  const isUnifiedLogin = body.authMode === 'unified_login';
+  const unifiedConfigId = typeof body.unifiedConfigId === 'string' ? body.unifiedConfigId.trim() : '';
 
+  if (isUnifiedLogin && !/^[0-9]{6,32}$/.test(unifiedConfigId)) {
+    return NextResponse.json({ error: 'O app de Unified Login precisa do Configuration ID, só numérico, criado no painel da Meta.' }, { status: 400 });
+  }
   if (label.length < 2 || label.length > 80) {
     return NextResponse.json({ error: 'Informe um nome entre 2 e 80 caracteres para este app.' }, { status: 400 });
   }
@@ -78,6 +85,8 @@ export async function POST(request: Request) {
       encrypted_app_secret: encryptToken(appSecret),
       instagram_slot_limit: instagramSlotLimit,
       created_by: context.user.id,
+      // Só na criação: o modo não muda depois (migration 451).
+      ...(isUnifiedLogin ? { auth_mode: 'unified_login', unified_config_id: unifiedConfigId } : {}),
     })
     .select('id')
     .maybeSingle();

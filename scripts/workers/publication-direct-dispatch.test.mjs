@@ -49,6 +49,7 @@ import {
   metaReelContainerFields,
   metaReelCoverIsSendable,
   resolveMetaReelCoverUrl,
+  resolveMetaGraphHost,
 } from './publication-direct-dispatch.mjs';
 
 test('limpeza automática não descarta backlog causado pela capacidade interna', async () => {
@@ -1651,6 +1652,61 @@ test('sonda do erro 100: so o me devolvendo o mesmo erro declara a conta morta',
   assert.equal(await sonda(async () => resposta(false, { error: { code: 190, message: 'Error validating access token' } })), 'unknown');
   assert.equal(await sonda(async () => resposta(false, {})), 'unknown');
   assert.equal(await sonda(async () => { throw new Error('fetch failed'); }), 'unknown');
+});
+
+test('sonda do Unified Login le a conta pelo id no host novo, porque o me e o system user', async () => {
+  const workItem = { profile: { encrypted_access_token: 'x', instagram_user_id: '1784', graph_host: 'graph.facebook.com' } };
+  const chamadas = [];
+  const resultado = await probeMetaAccount(workItem, {
+    decryptToken: () => 'token',
+    metaFetch: async (url) => {
+      chamadas.push(String(url));
+      return { ok: true, json: async () => ({ id: '1784' }) };
+    },
+  });
+  assert.equal(resultado, 'alive');
+  assert.match(chamadas[0], /^https:\/\/graph\.facebook\.com\/[^/]+\/1784\?fields=id$/);
+});
+
+function clienteDoModoDoApp(respostas) {
+  const leituras = [];
+  return {
+    leituras,
+    from: (tabela) => ({
+      select: (colunas) => ({
+        eq: (_coluna, appId) => ({
+          maybeSingle: async () => {
+            leituras.push({ tabela, colunas, appId });
+            return respostas[appId] ?? { data: null, error: { message: 'falhou' } };
+          },
+        }),
+      }),
+    }),
+  };
+}
+
+test('o host da Graph API vem do modo do app, e cada app e lido uma vez', async () => {
+  const cliente = clienteDoModoDoApp({
+    'app-antigo': { data: { auth_mode: 'instagram_login' }, error: null },
+    'app-novo': { data: { auth_mode: 'unified_login' }, error: null },
+  });
+
+  assert.equal(await resolveMetaGraphHost(null, cliente), 'graph.instagram.com');
+  assert.equal(await resolveMetaGraphHost('app-antigo', cliente), 'graph.instagram.com');
+  assert.equal(await resolveMetaGraphHost('app-novo', cliente), 'graph.facebook.com');
+  assert.equal(await resolveMetaGraphHost('app-antigo', cliente), 'graph.instagram.com');
+  assert.equal(await resolveMetaGraphHost('app-novo', cliente), 'graph.facebook.com');
+  assert.equal(cliente.leituras.length, 2);
+  assert.deepEqual(cliente.leituras[0], { tabela: 'meta_apps', colunas: 'auth_mode', appId: 'app-antigo' });
+});
+
+test('falha ao ler o modo do app mantem o host de sempre e nao insiste a cada post', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const cliente = clienteDoModoDoApp({});
+
+  assert.equal(await resolveMetaGraphHost('app-sem-coluna', cliente), 'graph.instagram.com');
+  assert.equal(await resolveMetaGraphHost('app-sem-coluna', cliente), 'graph.instagram.com');
+  assert.equal(cliente.leituras.length, 1);
 });
 
 test('o erro 100 e sondado antes do 190 e so a conta morta remove o perfil', () => {

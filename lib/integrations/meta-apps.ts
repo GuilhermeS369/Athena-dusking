@@ -28,7 +28,7 @@ export const META_APP_DEFAULT_SLOT_LIMIT = 100;
  * proíbe exportar qualquer coisa além dos handlers de um arquivo de rota.
  */
 export const META_APP_SAFE_COLUMNS =
-  'id, organization_id, label, app_id, instagram_slot_limit, active, last_connected_at, instagram_profile_count, pending_slot_release_count, transferred_out_count, api_blocked_at, api_block_until, api_block_error_message, api_block_kind, api_block_window_count, api_block_ignored_count, api_last_unblocked_at, created_at, updated_at';
+  'id, organization_id, label, app_id, instagram_slot_limit, active, last_connected_at, instagram_profile_count, pending_slot_release_count, transferred_out_count, api_blocked_at, api_block_until, api_block_error_message, api_block_kind, api_block_window_count, api_block_ignored_count, api_last_unblocked_at, auth_mode, created_at, updated_at';
 
 export type NamedMetaApp = {
   id: string;

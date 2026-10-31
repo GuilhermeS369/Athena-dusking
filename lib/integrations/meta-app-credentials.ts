@@ -8,6 +8,9 @@ export type MetaAppCredentials = {
   label: string;
   clientId: string;
   clientSecret: string;
+  authMode: 'instagram_login' | 'unified_login';
+  /** Só existe em app de Unified Login; o banco garante (migration 451). */
+  unifiedConfigId: string | null;
 };
 
 export class MetaAppUnavailableError extends Error {
@@ -43,7 +46,7 @@ export async function resolveMetaAppCredentials(
   const admin = createSupabaseAdminClient();
   const { data: app } = await admin
     .from('meta_apps')
-    .select('id, label, app_id, encrypted_app_secret, instagram_slot_limit, active, api_block_until')
+    .select('id, label, app_id, encrypted_app_secret, instagram_slot_limit, active, api_block_until, auth_mode, unified_config_id')
     .eq('id', metaAppId)
     .eq('organization_id', organizationId)
     .is('deleted_at', null)
@@ -105,5 +108,12 @@ export async function resolveMetaAppCredentials(
     );
   }
 
-  return { id: app.id, label: app.label, clientId: app.app_id, clientSecret };
+  return {
+    id: app.id,
+    label: app.label,
+    clientId: app.app_id,
+    clientSecret,
+    authMode: app.auth_mode === 'unified_login' ? 'unified_login' : 'instagram_login',
+    unifiedConfigId: app.unified_config_id ?? null,
+  };
 }
